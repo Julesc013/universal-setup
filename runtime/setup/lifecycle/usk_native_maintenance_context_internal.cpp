@@ -1255,9 +1255,8 @@ struct NativeMaintenanceContext::Impl {
             if (child(removed_original_root_parent->handle.value, removed_original_root_name))
                 throw std::runtime_error("native maintenance removed original root was replaced");
         }
-        if (!same(observe_publisher_directory_handle(volume), volume_facts) ||
-            !equal(registered_native_evidence(), registration) || !equal(selected_native_observation(), selection))
-            throw std::runtime_error("native maintenance held registration or boundary changed");
+        if (!same(observe_publisher_directory_handle(volume), volume_facts))
+            throw std::runtime_error("native maintenance held volume boundary changed");
         // This is bounded failure context from the already existing owner;
         // none of these values admits a thread or authorizes another effect.
         const auto failure_context = json::canonical(Value(Value::Object{
@@ -1276,8 +1275,17 @@ struct NativeMaintenanceContext::Impl {
             // Consume this owner's completed actual admission and child proof
             // only within this read-only fence. No result survives to another
             // effect, and all context-specific native policy checks below remain.
-            const auto observed = original_child->observe_security(failure_context);
+            const auto observed = original_child->observe_selected_security(restored_owner ?
+                PublisherEffectSelectionKind::original_maintenance_recovery : PublisherEffectSelectionKind::reviewed_operation,
+                failure_context);
             const auto& current_broker = observed.broker();
+            const auto& selected = observed.selection();
+            if (restored_owner)
+                original_context.require_original_recovery_intent_observation(selected.at("intent"));
+            if (!selected.at("present").as_boolean() ||
+                !equal(current_broker.at("registered_admission"), registration) ||
+                !equal(selected.at("observation"), selection))
+                throw std::runtime_error("native maintenance held registration or selected operation changed");
             if (!equal(publisher_effect_broker_immutable_record(current_broker),
                 publisher_effect_broker_immutable_record(original_broker)))
                 throw std::runtime_error("native maintenance original child broker changed");
@@ -1285,6 +1293,8 @@ struct NativeMaintenanceContext::Impl {
             current_worker = security.at("worker_security");
             current_process = security.at("process_boundary");
         } else {
+            if (!equal(registered_native_evidence(), registration) || !equal(selected_native_observation(), selection))
+                throw std::runtime_error("native maintenance held registration or selected operation changed");
             current_worker = worker_continuity->observe_current(failure_context);
             current_process = observe_current_publisher_process_boundary();
         }

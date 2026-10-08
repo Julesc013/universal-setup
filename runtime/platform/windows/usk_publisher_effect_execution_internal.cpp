@@ -57,6 +57,25 @@ struct PublisherEffectExecutionOwner::State {
         require_publisher_process_boundary(native.at("process_boundary"), worker.process_id,
             worker.service_sid, worker.token.process_groups);
     }
+    PublisherEffectSelectedSecurityObservation observe_selected(PublisherEffectSelectionKind kind,
+        const std::string& failure_context = {}) {
+        try {
+            require_owner();
+            const auto native_before = security.observe_local_current(failure_context);
+            auto observed = readback.selected_operation_bracket(kind);
+            auto native_after = security.observe_local_current(failure_context);
+            require_native_binding(observed.before, native_before);
+            require_native_binding(observed.after, native_after);
+            require_publisher_worker_security_continuity(native_before.at("worker_security"), native_after.at("worker_security"));
+            require(same(publisher_effect_broker_immutable_record(observed.after),
+                publisher_effect_broker_immutable_record(observed.before)), "publisher child native owner changed across selection");
+            require_owner();
+            readback.retain_selection_bracket(observed, kind);
+            return PublisherEffectSelectedSecurityObservation(
+                PublisherEffectSecurityObservation(std::move(observed.after), std::move(native_after)),
+                std::move(observed.selection));
+        } catch (...) { failed = true; throw; }
+    }
     PublisherEffectSecurityObservation observe(const std::string& failure_context = {}) {
         try {
             require_owner();
@@ -153,14 +172,14 @@ PublisherEffectSecurityObservation PublisherEffectExecutionOwner::observe_securi
     require_current();
     return state_->observe(failure_context);
 }
-Value PublisherEffectExecutionOwner::selected_reviewed_operation() {
+PublisherEffectSelectedSecurityObservation PublisherEffectExecutionOwner::observe_selected_security(
+    PublisherEffectSelectionKind kind, const std::string& failure_context) {
     require_current();
-    try {
-        (void)state_->observe();
-        auto selected = state_->readback.selected_reviewed_operation();
-        (void)state_->observe();
-        return selected;
-    } catch (...) { state_->failed = true; throw; }
+    return state_->observe_selected(kind, failure_context);
+}
+Value PublisherEffectExecutionOwner::selected_reviewed_operation() {
+    auto observed = observe_selected_security(PublisherEffectSelectionKind::reviewed_operation);
+    return std::move(observed.selection_);
 }
 Value PublisherEffectExecutionOwner::authenticated_object_access(HANDLE handle) {
     require_current();
@@ -201,22 +220,12 @@ Value PublisherEffectExecutionOwner::authenticated_object_access_batch(const std
     } catch (...) { state_->failed = true; throw; }
 }
 Value PublisherEffectExecutionOwner::selected_original_maintenance_recovery() {
-    require_current();
-    try {
-        (void)state_->observe();
-        auto selected = state_->readback.selected_original_maintenance_recovery();
-        (void)state_->observe();
-        return selected;
-    } catch (...) { state_->failed = true; throw; }
+    auto observed = observe_selected_security(PublisherEffectSelectionKind::original_maintenance_recovery);
+    return std::move(observed.selection_);
 }
 Value PublisherEffectExecutionOwner::selected_original_installation_recovery() {
-    require_current();
-    try {
-        (void)state_->observe();
-        auto selected = state_->readback.selected_original_installation_recovery();
-        (void)state_->observe();
-        return selected;
-    } catch (...) { state_->failed = true; throw; }
+    auto observed = observe_selected_security(PublisherEffectSelectionKind::original_installation_recovery);
+    return std::move(observed.selection_);
 }
 const std::string& PublisherEffectExecutionOwner::canonical_request() const {
     require_current(); return state_->request;

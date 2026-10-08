@@ -32,6 +32,20 @@ private:
         broker_(std::move(broker)), native_(std::move(native)) {}
     usk::json::Value broker_, native_;
 };
+// Producer-only completed selection, admission and local-security bracket.
+// Read-only facts cannot survive as authorization for a subsequent fence.
+class PublisherEffectSelectedSecurityObservation final {
+public:
+    const usk::json::Value& broker() const { return security_.broker(); }
+    const usk::json::Value& native() const { return security_.native(); }
+    const usk::json::Value& selection() const { return selection_; }
+private:
+    friend class PublisherEffectExecutionOwner;
+    PublisherEffectSelectedSecurityObservation(PublisherEffectSecurityObservation security,
+        usk::json::Value selection) : security_(std::move(security)), selection_(std::move(selection)) {}
+    PublisherEffectSecurityObservation security_;
+    usk::json::Value selection_;
+};
 PublisherNativeExecutionObservation observe_current_publisher_native_execution_owner(
     const std::wstring& service_name);
 // Retained-data validation only. A closed child original-custody record must
@@ -60,6 +74,8 @@ public:
     PublisherNativeExecutionObservation observe_current();
     usk::json::Value service_admission();
     PublisherEffectSecurityObservation observe_security(const std::string& failure_context = {});
+    PublisherEffectSelectedSecurityObservation observe_selected_security(PublisherEffectSelectionKind,
+        const std::string& failure_context = {});
     usk::json::Value selected_reviewed_operation();
     usk::json::Value selected_original_maintenance_recovery();
     usk::json::Value selected_original_installation_recovery();

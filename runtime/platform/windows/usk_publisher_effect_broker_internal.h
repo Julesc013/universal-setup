@@ -14,6 +14,11 @@ namespace usk::platform::windows {
 // Read-only transport bound. Each occurrence has its own native query and
 // checked closure; the existing packet byte/value limits also remain in force.
 inline constexpr std::size_t publisher_object_access_batch_limit = 8u;
+// Closed selectors for read-only original selection. They do not select an
+// operation, admit a worker, or grant recovery/effect authority.
+enum class PublisherEffectSelectionKind {
+    reviewed_operation, original_maintenance_recovery, original_installation_recovery
+};
 class RegisteredPublisherAdmission;
 class PublisherRequestChannel;
 class PublisherEffectBrokerReadback;
@@ -31,6 +36,10 @@ void require_publisher_effect_original_maintenance_selection(const usk::json::Va
     const usk::json::Value& minimal_request, const usk::json::Value& broker_record);
 void require_publisher_effect_original_installation_selection(const usk::json::Value& selection,
     const usk::json::Value& minimal_request, const usk::json::Value& broker_record);
+// Closed v5 retained-data validation of the selected operation against BOTH
+// actual broker endpoints. Parsing cannot create an execution route or proof.
+void require_publisher_effect_selection_readback(const usk::json::Value& reply,
+    const usk::json::Value& actual_request);
 void require_publisher_effect_terminal_record(const usk::json::Value&, const usk::json::Value& broker_record);
 // Bounded original-peer error data, never a terminal or definite preflight
 // result. It cannot narrow retained effects or grant an execution scope.
@@ -155,9 +164,17 @@ private:
         usk::json::Value after;
     };
     AdmissionObservation service_admission_bracket(DWORD timeout = 120000);
+    struct SelectionObservation {
+        usk::json::Value before;
+        usk::json::Value after;
+        usk::json::Value selection;
+    };
+    SelectionObservation selected_operation_bracket(PublisherEffectSelectionKind,
+        DWORD timeout = 120000);
     // Only actual completed observations from the original execution owner
     // reach this private retention step, after all of its native joins.
     void retain_readback_bracket(const usk::json::Value& before, const usk::json::Value& after);
+    void retain_selection_bracket(const SelectionObservation&, PublisherEffectSelectionKind);
     // Both facts originate from the SAME actual validated wire read. This is
     // private to the original native security owner, never a JSON input API.
     struct CurrentWorkerObservation {

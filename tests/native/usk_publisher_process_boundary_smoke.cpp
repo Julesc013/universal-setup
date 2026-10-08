@@ -608,6 +608,50 @@ void effect_execution_record_controls() {
             else require_publisher_effect_original_maintenance_selection(v, min, recovery_broker);
         };
         validate_selection(selection, minimum);
+        // New closed selection bracket: retained-data controls only. BOTH
+        // original broker endpoints and the exact enrolled request must join;
+        // a parsed tuple cannot manufacture the concrete native owner.
+        auto fresh_broker = recovery_broker;
+        const auto apply_sha = usk::json::sha256_canonical(apply);
+        fresh_broker.as_object().at("request_sha256") = Value(apply_sha);
+        fresh_broker.as_object().at("custody").as_object().at("request_sha256") = Value(apply_sha);
+        const Value fresh_selection(Value::Object{{"schema", Value("usk.publisher_effect_selected_operation_readback.v1")},
+            {"scope", Value("original_native_held_exact_request_selection")}, {"present", Value(true)},
+            {"envelope", envelope}, {"observation", enrollment}});
+        const Value fresh_reply(Value::Object{{"schema", Value("usk.publisher_effect_broker_readback_response.v5")},
+            {"kind", Value("selected_operation_bracket")}, {"profile_before", fresh_broker},
+            {"profile", fresh_broker}, {"result", fresh_selection}});
+        require_publisher_effect_selection_readback(fresh_reply, apply);
+        const Value recovery_reply(Value::Object{{"schema", Value("usk.publisher_effect_broker_readback_response.v5")},
+            {"kind", Value(install ? "original_installation_recovery_bracket" : "original_maintenance_recovery_bracket")},
+            {"profile_before", recovery_broker}, {"profile", recovery_broker}, {"result", selection}});
+        require_publisher_effect_selection_readback(recovery_reply, minimum);
+        const auto refuses_bracket = [&](const Value& original_reply, const Value& actual,
+            const std::function<void(Value&)>& mutate) {
+            auto invalid = original_reply; mutate(invalid); bool refused = false;
+            try { require_publisher_effect_selection_readback(invalid, actual); }
+            catch (const std::exception&) { refused = true; }
+            check(refused, "synthetic selected bracket accepted contradictory native/enrollment binding");
+        };
+        refuses_bracket(fresh_reply, apply, [](Value& v) { v.as_object().erase("profile_before"); });
+        refuses_bracket(fresh_reply, apply, [](Value& v) {
+            v.as_object().at("schema") = Value("usk.publisher_effect_broker_readback_response.v4"); });
+        refuses_bracket(fresh_reply, apply, [](Value& v) { v.as_object().at("kind") = Value("service_admission_bracket"); });
+        refuses_bracket(fresh_reply, apply, [](Value& v) { v.as_object().emplace("authority", Value("effect")); });
+        refuses_bracket(fresh_reply, apply, [](Value& v) {
+            v.as_object().at("profile_before").as_object().at("custody").as_object().at("peer_process_birth") =
+                Value("0000000000000601"); });
+        // Identical endpoints with a changed registration still cannot rebind
+        // the unchanged original approval to a different admitted registration.
+        refuses_bracket(fresh_reply, apply, [](Value& v) {
+            for (const auto key : {"profile_before", "profile"})
+                v.as_object().at(key).as_object().at("registered_admission").as_object().at("registration_sha256") =
+                    Value(std::string(64, 'a')); });
+        refuses_bracket(recovery_reply, minimum, [](Value& v) {
+            v.as_object().at("result").as_object().at("intent").as_object().at("original_apply_request").as_object()
+                .at("transaction_id") = Value("different.original"); });
+        refuses_bracket(recovery_reply, minimum, [](Value& v) {
+            v.as_object().at("kind") = Value("selected_operation_bracket"); });
         auto reordered = selection;
         for (const auto role : {"approval_file", "envelope_file"}) {
             auto& aces = reordered.as_object().at("observation").as_object().at(role).as_object().at("dacl_aces").as_array();

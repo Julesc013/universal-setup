@@ -291,6 +291,18 @@ Value immutable_profile(const Value& profile) {
     }
     return Value(std::move(profile_fields));
 }
+bool paired_selection_kind(const std::string& kind) {
+    return kind == "selected_operation_bracket" || kind == "original_maintenance_recovery_bracket" ||
+        kind == "original_installation_recovery_bracket";
+}
+std::string selected_bracket_kind(PublisherEffectSelectionKind kind) {
+    switch (kind) {
+    case PublisherEffectSelectionKind::reviewed_operation: return "selected_operation_bracket";
+    case PublisherEffectSelectionKind::original_maintenance_recovery: return "original_maintenance_recovery_bracket";
+    case PublisherEffectSelectionKind::original_installation_recovery: return "original_installation_recovery_bracket";
+    }
+    throw std::runtime_error("effect selection kind is outside its closed bound");
+}
 Value selected_operation(const RegisteredPublisherAdmission& admission, const std::string& request) {
     Value result(Value::Object{{"schema", Value("usk.publisher_effect_selected_operation_readback.v1")},
         {"scope", Value("original_native_held_exact_request_selection")},
@@ -750,6 +762,14 @@ void require_enrollment(const Value& envelope, const Value& observation, const V
     require(observation.at("approval_file").at("file_id").as_string() !=
         observation.at("envelope_file").at("file_id").as_string(), "effect administrative enrollment files alias");
 }
+void require_reviewed_selection(const Value& selection, const Value& request, const Value& profile) {
+    const bool present = selection.at("present").as_boolean();
+    require(selection.as_object().size() == (present ? 5u : 3u) &&
+        selection.at("schema").as_string() == "usk.publisher_effect_selected_operation_readback.v1" &&
+        selection.at("scope").as_string() == "original_native_held_exact_request_selection",
+        "effect selected operation observation is not closed");
+    if (present) require_enrollment(selection.at("envelope"), selection.at("observation"), request, profile);
+}
 void require_protected_stored_object(const Value& value, const std::string& sid) {
     require_closed(value, {"file_id", "native_name", "owner_sid", "dacl_protected", "attributes", "reparse_tag",
         "link_count", "case_sensitive", "dacl_aces"});
@@ -983,6 +1003,27 @@ PublisherEffectBrokerReadback::PublisherEffectBrokerReadback(const RegisteredPub
         state_->recovery_baseline, usk::json::parse(state_->request), state_->fresh());
 }
 PublisherEffectBrokerReadback::~PublisherEffectBrokerReadback() = default;
+void require_publisher_effect_selection_readback(const Value& reply, const Value& actual_request) {
+    require_closed(reply, {"schema", "kind", "profile_before", "profile", "result"});
+    const auto& kind = reply.at("kind").as_string();
+    require(reply.at("schema").as_string() == "usk.publisher_effect_broker_readback_response.v5" &&
+        paired_selection_kind(kind), "effect selected readback grammar differs");
+    const auto& before = reply.at("profile_before");
+    const auto& after = reply.at("profile");
+    require_publisher_effect_broker_readback_continuity(before, after);
+    require(same(immutable_profile(before), immutable_profile(after)) &&
+        before.at("request_sha256").as_string() == usk::json::sha256_canonical(actual_request) &&
+        after.at("request_sha256").as_string() == usk::json::sha256_canonical(actual_request),
+        "effect selected readback original request or native binding changed");
+    const auto& selected = reply.at("result");
+    for (const auto* endpoint : {&before, &after}) {
+        if (kind == "selected_operation_bracket") require_reviewed_selection(selected, actual_request, *endpoint);
+        else if (kind == "original_maintenance_recovery_bracket")
+            require_publisher_effect_original_maintenance_selection(selected, actual_request, *endpoint);
+        else require_publisher_effect_original_installation_selection(selected, actual_request, *endpoint);
+    }
+    require_batch_packet_budget(reply);
+}
 void require_publisher_effect_failure_diagnostic(const Value& diagnostic) {
     require(diagnostic.as_object().size() == 2 &&
         diagnostic.at("schema").as_string() == "usk.publisher_effect_worker_failure_diagnostic.v1" &&
@@ -1057,7 +1098,8 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
         const bool batch_access = kind == "object_access_batch_bracket";
         const bool paired_admission = kind == "service_admission_bracket";
         const bool paired_access = kind == "object_access_bracket" || batch_access;
-        const bool paired = paired_access || paired_admission;
+        const bool paired_selection = paired_selection_kind(kind);
+        const bool paired = paired_access || paired_admission || paired_selection;
         require((request.at("schema").as_string() == "usk.publisher_effect_broker_readback_request.v1" &&
             (kind == "service_admission" || kind == "selected_operation" || kind == "object_access" ||
                 kind == "original_maintenance_recovery" || kind == "original_installation_recovery") &&
@@ -1067,8 +1109,10 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             (request.at("schema").as_string() == "usk.publisher_effect_broker_readback_request.v3" &&
                 batch_access && request.as_object().size() == 3) ||
             (request.at("schema").as_string() == "usk.publisher_effect_broker_readback_request.v4" &&
-                paired_admission && request.as_object().size() == 2), "broker readback request grammar differs");
-        if (paired_admission) require_batch_packet_budget(request);
+                paired_admission && request.as_object().size() == 2) ||
+            (request.at("schema").as_string() == "usk.publisher_effect_broker_readback_request.v5" &&
+                paired_selection && request.as_object().size() == 2), "broker readback request grammar differs");
+        if (paired_admission || paired_selection) require_batch_packet_budget(request);
         if (batch_access) {
             const auto& objects = request.at("native_objects").as_array();
             require(!objects.empty() && objects.size() <= publisher_object_access_batch_limit,
@@ -1076,11 +1120,20 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             require_batch_packet_budget(request);
         }
         Value result(Value::Object{});
-        if (kind == "selected_operation") result = state.selected_current();
-        if (kind == "original_maintenance_recovery" || kind == "original_installation_recovery") {
-            require(kind == (state.installation_recovery ? "original_installation_recovery" : "original_maintenance_recovery"),
+        if (kind == "selected_operation" || kind == "selected_operation_bracket") {
+            result = state.selected_current();
+            if (paired_selection) require(same(result, state.selected_baseline),
+                "broker selected bracket changed its original held selection");
+        }
+        if (kind == "original_maintenance_recovery" || kind == "original_installation_recovery" ||
+            kind == "original_maintenance_recovery_bracket" || kind == "original_installation_recovery_bracket") {
+            const std::string expected = state.installation_recovery ? "original_installation_recovery" : "original_maintenance_recovery";
+            require((state.maintenance_recovery || state.installation_recovery) &&
+                kind == expected + (paired_selection ? "_bracket" : ""),
                 "broker original recovery query has another request family");
             result = state.recovery_current();
+            if (paired_selection) require(same(result, state.recovery_baseline),
+                "broker recovery bracket changed its original protected selection");
         }
         if (batch_access) {
             Value::Array results;
@@ -1115,7 +1168,8 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             (!(state.maintenance_recovery || state.installation_recovery) || same(state.recovery_current(), state.recovery_baseline)),
             "broker native scope or original selected operation changed across readback");
         Value::Object response;
-        response.emplace("schema", Value(paired_admission ? "usk.publisher_effect_broker_readback_response.v4" :
+        response.emplace("schema", Value(paired_selection ? "usk.publisher_effect_broker_readback_response.v5" :
+            paired_admission ? "usk.publisher_effect_broker_readback_response.v4" :
             batch_access ? "usk.publisher_effect_broker_readback_response.v3" :
             paired_access ? "usk.publisher_effect_broker_readback_response.v2" :
             "usk.publisher_effect_broker_readback_response.v1"));
@@ -1126,6 +1180,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
         response.emplace("profile", std::move(after));
         response.emplace("result", std::move(result));
         const Value reply(std::move(response));
+        if (paired_selection) require_publisher_effect_selection_readback(reply, usk::json::parse(state.request));
         if (batch_access || paired_admission) require_batch_packet_budget(reply);
         state.custody.send(reply, timeout);
         return std::nullopt;
@@ -1148,26 +1203,29 @@ struct PublisherEffectWorkerReadback::State {
         const bool batch_access = kind == "object_access_batch_bracket";
         const bool paired_admission = kind == "service_admission_bracket";
         const bool paired_access = kind == "object_access_bracket" || batch_access;
-        const bool paired = paired_access || paired_admission;
+        const bool paired_selection = paired_selection_kind(kind);
+        const bool paired = paired_access || paired_admission || paired_selection;
         require(!paired_access || (native_object && initialized), "effect paired access requires its original admitted readback");
-        require(!paired_admission || (!native_object && initialized),
-            "effect paired admission requires its original initialized readback");
+        require(!(paired_admission || paired_selection) || (!native_object && initialized),
+            "effect paired admission/selection requires its original initialized readback");
         if (batch_access) require(!native_object->as_array().empty() &&
             native_object->as_array().size() <= publisher_object_access_batch_limit,
             "effect object access batch count exceeds its bound");
         const auto before = peer.observation();
         const auto parent = peer.peer_primary_token();
         const auto child = observe_current_publisher_token();
-        Value message(Value::Object{{"schema", Value(paired_admission ? "usk.publisher_effect_broker_readback_request.v4" :
+        Value message(Value::Object{{"schema", Value(paired_selection ? "usk.publisher_effect_broker_readback_request.v5" :
+            paired_admission ? "usk.publisher_effect_broker_readback_request.v4" :
             batch_access ? "usk.publisher_effect_broker_readback_request.v3" :
             paired_access ? "usk.publisher_effect_broker_readback_request.v2" :
             "usk.publisher_effect_broker_readback_request.v1")}, {"kind", Value(kind)}});
         if (native_object) message.as_object().emplace(batch_access ? "native_objects" : "native_object", *native_object);
-        if (batch_access || paired_admission) require_batch_packet_budget(message);
+        if (batch_access || paired_admission || paired_selection) require_batch_packet_budget(message);
         peer.send(message, timeout);
         const auto reply = peer.receive(timeout);
         require(reply.as_object().size() == (paired ? 5u : 4u) && reply.at("schema").as_string() ==
-            (paired_admission ? "usk.publisher_effect_broker_readback_response.v4" :
+            (paired_selection ? "usk.publisher_effect_broker_readback_response.v5" :
+                paired_admission ? "usk.publisher_effect_broker_readback_response.v4" :
                 batch_access ? "usk.publisher_effect_broker_readback_response.v3" :
                 paired_access ? "usk.publisher_effect_broker_readback_response.v2" : "usk.publisher_effect_broker_readback_response.v1") &&
             reply.at("kind").as_string() == kind &&
@@ -1197,6 +1255,7 @@ struct PublisherEffectWorkerReadback::State {
         }
         else if (kind == "object_access" || paired_access) require(same(reply.at("result").at("native_object"), *native_object) &&
             same(reply.at("result").at("client"), baseline.at("authenticated_client")), "effect broker access belongs to another object/caller");
+        if (paired_selection) require_publisher_effect_selection_readback(reply, usk::json::parse(request));
         // The paired route retains its independent proof only after the
         // execution owner completes both local native brackets and all joins.
         if (!paired) previous = reply.at("profile");
@@ -1255,15 +1314,7 @@ Value PublisherEffectWorkerReadback::selected_reviewed_operation(DWORD timeout) 
     try {
         const auto reply = state_->read("selected_operation", nullptr, timeout);
         const auto& selection = reply.at("result");
-        const bool present = selection.at("present").as_boolean();
-        require(selection.as_object().size() == (present ? 5u : 3u) &&
-            selection.at("schema").as_string() == "usk.publisher_effect_selected_operation_readback.v1" &&
-            selection.at("scope").as_string() == "original_native_held_exact_request_selection",
-            "effect selected operation observation is not closed");
-        if (present) {
-            require_enrollment(selection.at("envelope"), selection.at("observation"),
-                usk::json::parse(state_->request), reply.at("profile"));
-        }
+        require_reviewed_selection(selection, usk::json::parse(state_->request), reply.at("profile"));
         return selection;
     } catch (...) { state_->failed = true; throw; }
 }
@@ -1353,6 +1404,23 @@ PublisherEffectWorkerReadback::service_admission_bracket(DWORD timeout) {
             std::move(reply.as_object().at("profile"))};
     } catch (...) { state_->failed = true; throw; }
 }
+PublisherEffectWorkerReadback::SelectionObservation
+PublisherEffectWorkerReadback::selected_operation_bracket(PublisherEffectSelectionKind kind, DWORD timeout) {
+    try {
+        auto reply = state_->read(selected_bracket_kind(kind), nullptr, timeout);
+        (void)actual_worker_context(reply.at("profile_before"));
+        (void)actual_worker_context(reply.at("profile"));
+        const auto& selected = reply.at("result");
+        if (kind != PublisherEffectSelectionKind::reviewed_operation) {
+            if (state_->recovery_selection_observed) require(same(selected, state_->recovery_selection),
+                "effect original protected bracket selection changed");
+            // Retain this original selection only after BOTH native local proofs
+            // have completed, alongside the existing readback continuity proof.
+        }
+        return SelectionObservation{std::move(reply.as_object().at("profile_before")),
+            std::move(reply.as_object().at("profile")), std::move(reply.as_object().at("result"))};
+    } catch (...) { state_->failed = true; throw; }
+}
 void PublisherEffectWorkerReadback::retain_readback_bracket(const Value& before, const Value& after) {
     try {
         require(!state_->failed && state_->initialized && state_->process_id == GetCurrentProcessId() &&
@@ -1361,6 +1429,18 @@ void PublisherEffectWorkerReadback::retain_readback_bracket(const Value& before,
         require_publisher_effect_broker_readback_continuity(state_->previous, before);
         require_publisher_effect_broker_readback_continuity(before, after);
         state_->previous = after;
+    } catch (...) { state_->failed = true; throw; }
+}
+void PublisherEffectWorkerReadback::retain_selection_bracket(const SelectionObservation& observed,
+    PublisherEffectSelectionKind kind) {
+    try {
+        if (kind != PublisherEffectSelectionKind::reviewed_operation && state_->recovery_selection_observed)
+            require(same(observed.selection, state_->recovery_selection), "effect original protected selection changed at retention");
+        retain_readback_bracket(observed.before, observed.after);
+        if (kind != PublisherEffectSelectionKind::reviewed_operation && !state_->recovery_selection_observed) {
+            state_->recovery_selection = observed.selection;
+            state_->recovery_selection_observed = true;
+        }
     } catch (...) { state_->failed = true; throw; }
 }
 namespace {
