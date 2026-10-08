@@ -124,8 +124,21 @@ jobs:
           name: usk-wu006-standard-public-probe
           path: ${{ runner.temp }}\usk-wu006-standard-public-probe.json
           if-no-files-found: warn
-      - name: Observe standard-account fresh repair move and uninstall
+      # Both runs use the same assertions and deadline; keep their receipts separate.
+      - name: Qualify untraced standard-account fresh repair move and uninstall
+        id: fresh_untraced
         if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        shell: pwsh
+        run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-standard-maintenance-fresh-untraced-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardMaintenanceQualification
+      - name: Retain untraced fresh native maintenance observation
+        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu007-standard-maintenance-fresh-untraced-probe
+          path: ${{ runner.temp }}\usk-wu007-standard-maintenance-fresh-untraced-probe.json
+          if-no-files-found: error
+      - name: Observe standard-account fresh repair move and uninstall
+        if: ${{ !cancelled() && (success() || steps.fresh_untraced.outcome == 'failure') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_maintenance_thread_trace_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-standard-maintenance-fresh-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -FreshQualification
       - name: Retain fresh native maintenance observation
