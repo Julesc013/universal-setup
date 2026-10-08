@@ -45,7 +45,7 @@ struct PublisherEffectExecutionOwner::State {
             // The original native security owner performs this whole bracket.
             // Its two profiles are actual validated replies around unchanged
             // local child checks, not supplied or previously cached records.
-            const auto observed = security.observe_brokered();
+            auto observed = security.observe_brokered();
             const auto& before = observed.before;
             require(same(publisher_effect_broker_immutable_record(before),
                 publisher_effect_broker_immutable_record(original)), "publisher child original broker binding changed");
@@ -64,7 +64,7 @@ struct PublisherEffectExecutionOwner::State {
             const auto& after = observed.after;
             require(same(publisher_effect_broker_immutable_record(after),
                 publisher_effect_broker_immutable_record(before)), "publisher child native owner changed across readback");
-            return after;
+            return std::move(observed.after);
         } catch (...) { failed = true; throw; }
     }
 };
@@ -138,7 +138,7 @@ Value PublisherEffectExecutionOwner::selected_reviewed_operation() {
     require_current();
     try {
         (void)state_->observe();
-        const auto selected = state_->readback.selected_reviewed_operation();
+        auto selected = state_->readback.selected_reviewed_operation();
         (void)state_->observe();
         return selected;
     } catch (...) { state_->failed = true; throw; }
@@ -147,7 +147,7 @@ Value PublisherEffectExecutionOwner::authenticated_object_access(HANDLE handle) 
     require_current();
     try {
         (void)state_->observe();
-        const auto access = state_->readback.authenticated_object_access(handle);
+        auto access = state_->readback.authenticated_object_access(handle);
         (void)state_->observe();
         return access;
     } catch (...) { state_->failed = true; throw; }
@@ -156,7 +156,7 @@ Value PublisherEffectExecutionOwner::selected_original_maintenance_recovery() {
     require_current();
     try {
         (void)state_->observe();
-        const auto selected = state_->readback.selected_original_maintenance_recovery();
+        auto selected = state_->readback.selected_original_maintenance_recovery();
         (void)state_->observe();
         return selected;
     } catch (...) { state_->failed = true; throw; }
@@ -165,7 +165,7 @@ Value PublisherEffectExecutionOwner::selected_original_installation_recovery() {
     require_current();
     try {
         (void)state_->observe();
-        const auto selected = state_->readback.selected_original_installation_recovery();
+        auto selected = state_->readback.selected_original_installation_recovery();
         (void)state_->observe();
         return selected;
     } catch (...) { state_->failed = true; throw; }

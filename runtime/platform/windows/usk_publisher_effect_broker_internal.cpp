@@ -251,18 +251,35 @@ void require_projection(const Value& profile, const Value& custody, const Publis
         require_publisher_worker_security(security.at("worker_security"), PublisherWorkerTokenContext{parent_pid, sid, parent});
     }
 }
-Value immutable_profile(Value profile) {
+Value immutable_profile(const Value& profile) {
     // The SCM broker owns no product creator/effect handles. Its current
     // population may change; every fresh snapshot still passes the complete
     // stored policy above. Its process/token/default facts stay frozen. The
     // child's original pinned-thread policy remains unchanged.
-    profile.as_object().at("broker_security").as_object().at("worker_security").as_object().erase("threads");
-    if (profile.at("schema").as_string() == "usk.publisher_effect_broker_native_readback.v3") {
-        auto& security = profile.as_object().at("broker_security").as_object().at("worker_security").as_object();
-        security.erase("admitted_baseline");
-        security.erase("retired_threads");
+    // Copy only the retained fields into an independent projection; none of
+    // the original or freshly observed profile is mutated or retained by reference.
+    const auto& broker_security = profile.at("broker_security").as_object();
+    const auto& worker_security = broker_security.at("worker_security").as_object();
+    const bool with_retirement = profile.at("schema").as_string() == "usk.publisher_effect_broker_native_readback.v3";
+    Value::Object worker_fields;
+    for (const auto& item : worker_security) {
+        if (item.first == "threads" || (with_retirement &&
+            (item.first == "admitted_baseline" || item.first == "retired_threads"))) continue;
+        worker_fields.emplace(item.first, item.second);
     }
-    return profile;
+    Value::Object broker_fields;
+    for (const auto& item : broker_security) {
+        if (item.first == "worker_security")
+            broker_fields.emplace(item.first, Value(std::move(worker_fields)));
+        else broker_fields.emplace(item.first, item.second);
+    }
+    Value::Object profile_fields;
+    for (const auto& item : profile.as_object()) {
+        if (item.first == "broker_security")
+            profile_fields.emplace(item.first, Value(std::move(broker_fields)));
+        else profile_fields.emplace(item.first, item.second);
+    }
+    return Value(std::move(profile_fields));
 }
 Value selected_operation(const RegisteredPublisherAdmission& admission, const std::string& request) {
     Value result(Value::Object{{"schema", Value("usk.publisher_effect_selected_operation_readback.v1")},
@@ -1219,10 +1236,10 @@ struct PublisherEffectWorkerNativeSecurity::State {
             auto before = readback.observe_current_worker();
             const auto& current = before.worker;
             require(same(worker_context(current), worker_context(original)), "effect security original primary-token binding changed");
-            const auto current_process = observe_current_publisher_process_boundary();
+            auto current_process = observe_current_publisher_process_boundary();
             require_publisher_process_boundary(current_process, current.process_id, current.service_sid, current.token.process_groups);
             require(same(current_process, process), "effect security original process owner/DACL changed");
-            const auto security = continuity->observe_current_with_retirement(failure_context);
+            auto security = continuity->observe_current_with_retirement(failure_context);
             require_publisher_worker_security(security, current);
             require(same(token(observe_current_publisher_token()), token(original.token)) &&
                 same(observe_current_publisher_process_boundary(), process),
@@ -1232,10 +1249,14 @@ struct PublisherEffectWorkerNativeSecurity::State {
             auto after = readback.observe_current_worker();
             require(same(worker_context(after.worker), worker_context(original)),
                 "effect security native token/process/broker changed across original-thread readback");
-            Value native(Value::Object{{"schema", Value("usk.publisher_effect_worker_native_security.v2")},
-                {"authority", Value("read_only_observation")},
-                {"scope", Value("actual_current_child_with_original_native_retirement_partition")},
-                {"worker", worker_context(current)}, {"process_boundary", current_process}, {"worker_security", security}});
+            Value::Object native_fields;
+            native_fields.emplace("schema", Value("usk.publisher_effect_worker_native_security.v2"));
+            native_fields.emplace("authority", Value("read_only_observation"));
+            native_fields.emplace("scope", Value("actual_current_child_with_original_native_retirement_partition"));
+            native_fields.emplace("worker", worker_context(current));
+            native_fields.emplace("process_boundary", std::move(current_process));
+            native_fields.emplace("worker_security", std::move(security));
+            Value native(std::move(native_fields));
             return PublisherEffectWorkerNativeSecurity::BrokeredObservation{
                 std::move(before.broker), std::move(after.broker), std::move(native)};
         } catch (...) { failed = true; throw; }
