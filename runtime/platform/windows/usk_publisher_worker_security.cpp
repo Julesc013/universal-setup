@@ -362,13 +362,24 @@ NativeBrokerThreads native_broker_threads(const std::vector<DWORD>& mandatory, u
         if (checkpoint) (*checkpoint)("broker_native_before_independent_before");
         before = thread_ids();
     } else if (checkpoint) (*checkpoint)("broker_native_before_initial_native_walk");
+    const auto observe_originals = [&](const std::vector<DWORD>& population) {
+        if (originals) for (const auto id : population)
+            if (originals->handles.count(id)) (void)originals->read(id);
+    };
     const auto surviving = [&](const std::vector<DWORD>& population) {
         auto result = population;
         if (originals) result.erase(std::remove_if(result.begin(), result.end(), [&](DWORD id) {
-            return originals->handles.count(id) && !originals->read(id);
+            return originals->retired.count(id) != 0;
         }), result.end());
         return result;
     };
+    // Preserve every original native read in its existing order, then project
+    // BOTH sets from its completed monotonic retirement disposition. An
+    // original can positively retire between the two reads; a stale earlier
+    // live projection must not manufacture a numerical census discrepancy.
+    observe_originals(mandatory);
+    if (!first && checkpoint) (*checkpoint)("broker_native_after_mandatory_original_readback");
+    observe_originals(before);
     const auto required_live = surviving(mandatory);
     const auto before_live = surviving(before);
     // Subsequent walks keep every prior census ID mandatory in BEFORE, native
@@ -431,6 +442,9 @@ NativeBrokerThreads native_broker_threads(const std::vector<DWORD>& mandatory, u
         require_broker_census_binding(*originals, after, native);
     }
     if (first && checkpoint) (*checkpoint)("broker_native_after_first_independent_census");
+    observe_originals(before);
+    if (!first && checkpoint) (*checkpoint)("broker_native_after_before_original_readback");
+    if (originals) observe_originals(ids);
     const auto covered_before = surviving(before);
     if (originals) ids = surviving(ids);
     if (ids.empty() || !std::binary_search(ids.begin(), ids.end(), GetCurrentThreadId()) ||

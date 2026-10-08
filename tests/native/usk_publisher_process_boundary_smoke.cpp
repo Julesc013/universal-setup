@@ -1680,6 +1680,47 @@ void broker_worker_lifetime_controls() {
         check(later.at("retired_threads").as_array().size() == retired.at("retired_threads").as_array().size() + 1,
             "broker newly admitted original did not retain its prospective retirement custody");
     }
+    for (const auto window : {"broker_native_after_mandatory_original_readback",
+            "broker_native_after_before_original_readback"}) {
+        TestThread original;
+        auto owner = detail::pin_broker_worker_security_for_test();
+        bool ended = false, reached_native_boundary = false;
+        Value current;
+        std::string diagnostic;
+        try {
+            current = detail::observe_broker_worker_security_for_test(*owner, [&](const char* point) {
+                if (!ended && std::string(point) == window) { original.retire(); ended = true; }
+                if (ended && std::string(point) == "broker_native_after_independent_before")
+                    reached_native_boundary = true;
+            });
+        } catch (const std::exception& error) { diagnostic = error.what(); }
+        check(ended, "broker census projection control did not retire the actual held original");
+        if (std::string(window) == "broker_native_after_mandatory_original_readback") {
+            check(reached_native_boundary,
+                "broker compared stale live projections before acquiring current same-object census coverage");
+            if (!diagnostic.empty()) {
+                check(diagnostic.find("census-present retired ID lacks same-object native coverage") != std::string::npos,
+                    "broker census projection masked a different native failure");
+                diagnostic.clear();
+                try { (void)observe(*owner); } catch (const std::exception& error) { diagnostic = error.what(); }
+                check(diagnostic.find("owner failed") != std::string::npos,
+                    "broker reused its owner after unavailable same-object census coverage");
+                continue;
+            }
+        } else check(diagnostic.empty(), "broker compared stale live projections after complete native census binding");
+        const auto& proofs = current.at("retired_threads").as_array();
+        const auto found = std::find_if(proofs.begin(), proofs.end(), [&](const Value& row) {
+            return row.at("thread_id").as_unsigned() == original.id();
+        });
+        FILETIME birth{}, exit{}, kernel{}, user{};
+        check(found != proofs.end() && WaitForSingleObject(original.handle(), 0) == WAIT_OBJECT_0 &&
+            GetThreadTimes(original.handle(), &birth, &exit, &kernel, &user) &&
+            std::stoull(found->at("creation_time").as_string(), nullptr, 16) ==
+                ((static_cast<std::uint64_t>(birth.dwHighDateTime) << 32) | birth.dwLowDateTime) &&
+            std::stoull(found->at("exit_time").as_string(), nullptr, 16) ==
+                ((static_cast<std::uint64_t>(exit.dwHighDateTime) << 32) | exit.dwLowDateTime),
+            "broker completed a census projection without exact original-held native retirement");
+    }
     for (const auto window : {"broker_native_after_native_walk", "broker_native_initial_times_read",
             "broker_native_before_final_census"}) {
         auto owner = detail::pin_broker_worker_security_for_test();
