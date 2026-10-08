@@ -2640,6 +2640,7 @@ usk::json::Value parse_publisher_maintenance_recovery_request(const std::string&
 }
 
 struct RegisteredPublisherAdmission::State {
+    ExecutionObservation observe_native(bool include_configuration) const;
     std::unique_ptr<ServiceControlGuard> control;
     std::shared_ptr<ServiceHandle> service;
     std::unique_ptr<PublisherServiceReadbackScope> service_readback;
@@ -2730,37 +2731,64 @@ RegisteredPublisherAdmission::RegisteredPublisherAdmission(const std::wstring& n
 }
 RegisteredPublisherAdmission::~RegisteredPublisherAdmission() = default;
 
-usk::json::Value RegisteredPublisherAdmission::evidence() const {
-    state_->service_readback->require_current();
-    const auto before = query_configuration(state_->service->get());
+RegisteredPublisherAdmission::ExecutionObservation
+RegisteredPublisherAdmission::State::observe_native(bool include_configuration) const {
+    service_readback->require_current();
+    const auto before = query_configuration(service->get());
     require_profile(before);
-    if (!same_configuration(before, state_->configuration))
+    if (!same_configuration(before, configuration))
         throw std::runtime_error("registered publisher original configuration changed");
-    state_->binary->verify_unchanged();
-    const auto current = observe_current_restricted_publisher_service(state_->name);
-    if (current.process_id != state_->admission_evidence.at("process_id").as_unsigned() ||
-        current.service_sid != state_->admission_evidence.at("service_sid").as_string() ||
-        usk::json::canonical(observe_publisher_service_access(state_->service->get(),
-            state_->admission_evidence.at("configured_caller_sid").as_string())) !=
-                usk::json::canonical(state_->service_access))
+    binary->verify_unchanged();
+    const auto current = observe_current_restricted_publisher_service(name);
+    if (current.process_id != admission_evidence.at("process_id").as_unsigned() ||
+        current.service_sid != admission_evidence.at("service_sid").as_string() ||
+        usk::json::canonical(observe_publisher_service_access(service->get(),
+            admission_evidence.at("configured_caller_sid").as_string())) !=
+                usk::json::canonical(service_access))
         throw std::runtime_error("registered publisher admission observation lost its held binding");
-    const auto after = query_configuration(state_->service->get());
-    require_profile(after);
-    if (!same_configuration(after, before) || !same_configuration(after, state_->configuration))
-        throw std::runtime_error("registered publisher original configuration changed during readback");
-    state_->service_readback->require_current();
-    state_->binary->verify_unchanged();
-    if (state_->selected_envelope_source) {
-        require_control_lock_shape(state_->selected_approval_file->get(), false);
-        require_control_lock_shape(state_->selected_envelope_file->get(), false);
-        require_publisher_stream_shape(state_->selected_approval_file->get());
-        require_publisher_stream_shape(state_->selected_envelope_file->get());
-        if (usk::json::canonical(read_protected_document(state_->selected_approval_path)) !=
-                usk::json::canonical(state_->selected_approval))
-            throw std::runtime_error("held reviewed operation approval changed");
-        state_->selected_envelope_source->verify_unchanged();
+    usk::json::Value execution;
+    if (include_configuration) {
+        // Derive only from this actual SCM read, inside its unchanged native
+        // configuration bracket and the original admission lifetime.
+        const auto args = command_arguments(before.binary_path);
+        const auto& caller = admission_evidence.at("configured_caller_sid").as_string();
+        require_existing_command(before.binary_path, name, args.at(0), args.at(4),
+            std::wstring(caller.begin(), caller.end()), L"--service-admitted-client");
+        using usk::json::Value;
+        Value::Array arguments;
+        for (const auto& argument : args) arguments.emplace_back(utf8(argument));
+        execution = Value(Value::Object{
+            {"schema", Value("usk.publisher_registered_execution_configuration.v1")},
+            {"scope", Value("original_held_scm_configuration")},
+            {"command", Value(utf8(before.binary_path))}, {"arguments", Value(std::move(arguments))},
+            {"account", Value(utf8(before.account))}, {"display_name", Value(utf8(before.display_name))},
+            {"service_type", Value(static_cast<std::uint64_t>(before.type))},
+            {"start_type", Value(static_cast<std::uint64_t>(before.start))},
+            {"service_sid_type", Value(static_cast<std::uint64_t>(before.sid_type))}});
     }
-    return state_->admission_evidence;
+    const auto after = query_configuration(service->get());
+    require_profile(after);
+    if (!same_configuration(after, before) || !same_configuration(after, configuration))
+        throw std::runtime_error("registered publisher original configuration changed during readback");
+    service_readback->require_current();
+    binary->verify_unchanged();
+    if (selected_envelope_source) {
+        require_control_lock_shape(selected_approval_file->get(), false);
+        require_control_lock_shape(selected_envelope_file->get(), false);
+        require_publisher_stream_shape(selected_approval_file->get());
+        require_publisher_stream_shape(selected_envelope_file->get());
+        if (usk::json::canonical(read_protected_document(selected_approval_path)) !=
+                usk::json::canonical(selected_approval))
+            throw std::runtime_error("held reviewed operation approval changed");
+        selected_envelope_source->verify_unchanged();
+    }
+    return ExecutionObservation(admission_evidence, std::move(execution), current);
+}
+usk::json::Value RegisteredPublisherAdmission::evidence() const {
+    return state_->observe_native(false).take_admission();
+}
+RegisteredPublisherAdmission::ExecutionObservation RegisteredPublisherAdmission::observe_native_execution() const {
+    return state_->observe_native(true);
 }
 
 bool RegisteredPublisherAdmission::select_reviewed_operation(const std::string& request,

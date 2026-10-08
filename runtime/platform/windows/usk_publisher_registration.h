@@ -5,10 +5,13 @@
 #if defined(_WIN32)
 #include <string>
 #include <memory>
+#include <utility>
 #include "usk_json.h"
 #include "usk_publisher_request_channel.h"
+#include "usk_publisher_token_observation.h"
 namespace usk::platform::windows {
 class PublisherEffectWorkerCustody;
+class PublisherEffectBrokerReadback;
 // Internal controller entry point; the packaged CLI and machine client share
 // the same SCM, protected-binary and dedicated-volume admission implementation.
 int publisher_service_control_main(int argc, wchar_t** argv);
@@ -55,6 +58,24 @@ public:
     usk::json::Value selected_reviewed_envelope() const;
     usk::json::Value selected_reviewed_operation_observation() const;
 private:
+    friend class PublisherEffectBrokerReadback;
+    // Only the original admission owner constructs this completed native
+    // observation. The broker consumes its actual collected fields within
+    // one fresh read; none is an input, a new baseline or an effect grant.
+    class ExecutionObservation final {
+    public:
+        usk::json::Value take_admission() { return std::move(admission_); }
+        usk::json::Value take_configuration() { return std::move(configuration_); }
+        const PublisherServiceObservation& service() const { return service_; }
+    private:
+        friend class RegisteredPublisherAdmission;
+        ExecutionObservation(usk::json::Value admission, usk::json::Value configuration,
+            PublisherServiceObservation service) : admission_(std::move(admission)),
+            configuration_(std::move(configuration)), service_(std::move(service)) {}
+        usk::json::Value admission_, configuration_;
+        PublisherServiceObservation service_;
+    };
+    ExecutionObservation observe_native_execution() const;
     struct State;
     std::unique_ptr<State> state_;
 };

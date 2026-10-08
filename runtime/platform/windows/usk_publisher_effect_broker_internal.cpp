@@ -910,15 +910,15 @@ struct PublisherEffectBrokerReadback::State {
         require(!failed && process_id == GetCurrentProcessId() && thread_id == GetCurrentThreadId() &&
             request == channel.authenticated_canonical_request() && request == custody.canonical_request(),
             "broker original native owner/thread/authenticated request changed");
-        auto admitted = admission.evidence();
-        const auto name = std::filesystem::u8path(admitted.at("service_name").as_string()).wstring();
-        const auto actual_service = observe_current_restricted_publisher_service(name);
+        auto execution = admission.observe_native_execution();
+        auto admitted = execution.take_admission();
+        const auto& actual_service = execution.service();
         auto process = observe_current_publisher_process_boundary();
         require_publisher_process_boundary(process, actual_service.process_id, actual_service.service_sid,
             actual_service.token.process_groups);
         if (!worker_security) worker_security = std::make_unique<PublisherBrokerWorkerSecurity>(actual_service);
         auto security = worker_security->observe_current(actual_service);
-        auto configuration = admission.execution_configuration_observation();
+        auto configuration = execution.take_configuration();
         auto actual_custody = custody.observation();
         const auto child = custody.peer_primary_token();
         const auto volume_facts = observe_publisher_directory_handle(volume);
@@ -959,9 +959,12 @@ struct PublisherEffectBrokerReadback::State {
         auto final_security = worker_security->observe_current(actual_service);
         require_publisher_broker_worker_security_continuity(collected_security, final_security);
         require(same(observe_current_publisher_process_boundary(), collected_process) &&
-            same(final_security.at("primary_token"), collected_security.at("primary_token")) &&
-            same(admission.execution_configuration_observation(), collected_configuration) && same(admission.evidence(), collected_admitted) &&
-            same(service(observe_current_restricted_publisher_service(name)), service(actual_service)) &&
+            same(final_security.at("primary_token"), collected_security.at("primary_token")),
+            "broker native facts changed during collection");
+        auto final_execution = admission.observe_native_execution();
+        require(same(final_execution.take_configuration(), collected_configuration) &&
+            same(final_execution.take_admission(), collected_admitted) &&
+            same(service(final_execution.service()), service(actual_service)) &&
             same(custody.observation(), collected_custody) && same(token(custody.peer_primary_token()), token(child)) &&
             same(object(volume), result.at("volume_root")) && observe_publisher_handle_granted_access(volume) == query_rights,
             "broker native facts changed during collection");
