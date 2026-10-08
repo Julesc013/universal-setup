@@ -1084,14 +1084,20 @@ Value PublisherEffectWorkerReadback::service_admission(DWORD timeout) {
     catch (...) { state_->failed = true; throw; }
 }
 PublisherWorkerTokenContext PublisherEffectWorkerReadback::worker_token_context(DWORD timeout) {
+    try { return observe_current_worker(timeout).worker; }
+    catch (...) { state_->failed = true; throw; }
+}
+PublisherEffectWorkerReadback::CurrentWorkerObservation
+PublisherEffectWorkerReadback::observe_current_worker(DWORD timeout) {
     try {
-        const auto profile = service_admission(timeout);
+        auto profile = service_admission(timeout);
         const auto actual = observe_current_publisher_token();
         const auto& sid = profile.at("service").at("service_sid").as_string();
         require(same(token(actual), profile.at("effect_primary_token")) &&
             GetCurrentProcessId() == profile.at("custody").at("peer_process_id").as_unsigned() &&
             has_restricted_publisher_token_facts(actual, sid), "effect actual local primary-token context changed");
-        return PublisherWorkerTokenContext{GetCurrentProcessId(), sid, actual};
+        const PublisherWorkerTokenContext worker{GetCurrentProcessId(), sid, actual};
+        return CurrentWorkerObservation{std::move(profile), worker};
     } catch (...) { state_->failed = true; throw; }
 }
 Value PublisherEffectWorkerReadback::settled_worker_security(const PublisherWorkerTokenContext& worker) {
@@ -1179,13 +1185,15 @@ struct PublisherEffectWorkerNativeSecurity::State {
         require_publisher_process_boundary(process, original.process_id, original.service_sid, original.token.process_groups);
         const auto settled = readback.settled_worker_security(original);
         continuity = std::make_unique<PublisherWorkerSecurityContinuity>(settled);
-        (void)observe();
+        (void)observe_brokered();
     }
-    Value observe(const std::string& failure_context = {}) {
+    PublisherEffectWorkerNativeSecurity::BrokeredObservation observe_brokered(
+        const std::string& failure_context = {}) {
         try {
             require(!failed && thread_id == GetCurrentThreadId() && GetCurrentProcessId() == original.process_id,
                 "effect security original execution process/thread changed");
-            const auto current = readback.worker_token_context();
+            auto before = readback.observe_current_worker();
+            const auto& current = before.worker;
             require(same(worker_context(current), worker_context(original)), "effect security original primary-token binding changed");
             const auto current_process = observe_current_publisher_process_boundary();
             require_publisher_process_boundary(current_process, current.process_id, current.service_sid, current.token.process_groups);
@@ -1193,19 +1201,31 @@ struct PublisherEffectWorkerNativeSecurity::State {
             const auto security = continuity->observe_current_with_retirement(failure_context);
             require_publisher_worker_security(security, current);
             require(same(token(observe_current_publisher_token()), token(original.token)) &&
-                same(observe_current_publisher_process_boundary(), process) &&
-                same(worker_context(readback.worker_token_context()), worker_context(original)),
+                same(observe_current_publisher_process_boundary(), process),
                 "effect security native token/process/broker changed across original-thread readback");
-            return Value(Value::Object{{"schema", Value("usk.publisher_effect_worker_native_security.v2")},
+            // Preserve the post-token/process native read before the final wire
+            // observation, including its independent actual local token join.
+            auto after = readback.observe_current_worker();
+            require(same(worker_context(after.worker), worker_context(original)),
+                "effect security native token/process/broker changed across original-thread readback");
+            Value native(Value::Object{{"schema", Value("usk.publisher_effect_worker_native_security.v2")},
                 {"authority", Value("read_only_observation")},
                 {"scope", Value("actual_current_child_with_original_native_retirement_partition")},
                 {"worker", worker_context(current)}, {"process_boundary", current_process}, {"worker_security", security}});
+            return PublisherEffectWorkerNativeSecurity::BrokeredObservation{
+                std::move(before.broker), std::move(after.broker), std::move(native)};
         } catch (...) { failed = true; throw; }
     }
 };
 PublisherEffectWorkerNativeSecurity::PublisherEffectWorkerNativeSecurity(PublisherEffectWorkerReadback& r) :
     state_(std::make_unique<State>(r)) {}
 PublisherEffectWorkerNativeSecurity::~PublisherEffectWorkerNativeSecurity() = default;
-Value PublisherEffectWorkerNativeSecurity::observe_current(const std::string& context) { return state_->observe(context); }
+Value PublisherEffectWorkerNativeSecurity::observe_current(const std::string& context) {
+    return state_->observe_brokered(context).native;
+}
+PublisherEffectWorkerNativeSecurity::BrokeredObservation
+PublisherEffectWorkerNativeSecurity::observe_brokered(const std::string& context) {
+    return state_->observe_brokered(context);
+}
 }
 #endif

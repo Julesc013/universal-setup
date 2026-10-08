@@ -42,14 +42,18 @@ struct PublisherEffectExecutionOwner::State {
         try {
             require(!failed && process_id == GetCurrentProcessId() && thread_id == GetCurrentThreadId() &&
                 peer.canonical_request() == request, "publisher child original observation owner/thread/request changed");
-            const auto before = readback.service_admission();
+            // The original native security owner performs this whole bracket.
+            // Its two profiles are actual validated replies around unchanged
+            // local child checks, not supplied or previously cached records.
+            const auto observed = security.observe_brokered();
+            const auto& before = observed.before;
             require(same(publisher_effect_broker_immutable_record(before),
                 publisher_effect_broker_immutable_record(original)), "publisher child original broker binding changed");
             const auto broker = publisher_effect_broker_service_record(before);
             const auto worker = publisher_effect_worker_record_context(before);
             require(broker.service_name == name && broker.process_id != process_id && worker.process_id == process_id &&
                 broker.service_sid == worker.service_sid, "publisher child requires its actual worker and distinct original SCM owner");
-            const auto native = security.observe_current();
+            const auto& native = observed.native;
             require(native.at("worker").at("process_id").as_unsigned() == worker.process_id &&
                 native.at("worker").at("service_sid").as_string() == worker.service_sid &&
                 same(native.at("worker").at("primary_token"), before.at("effect_primary_token")),
@@ -57,7 +61,7 @@ struct PublisherEffectExecutionOwner::State {
             require_publisher_worker_security(native.at("worker_security"), worker);
             require_publisher_process_boundary(native.at("process_boundary"), worker.process_id,
                 worker.service_sid, worker.token.process_groups);
-            const auto after = readback.service_admission();
+            const auto& after = observed.after;
             require(same(publisher_effect_broker_immutable_record(after),
                 publisher_effect_broker_immutable_record(before)), "publisher child native owner changed across readback");
             return after;

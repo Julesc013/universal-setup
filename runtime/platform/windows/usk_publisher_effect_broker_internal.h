@@ -134,6 +134,13 @@ public:
     usk::json::Value authenticated_object_access(HANDLE, DWORD timeout_ms = 120000);
 private:
     friend class PublisherEffectWorkerNativeSecurity;
+    // Both facts originate from the SAME actual validated wire read. This is
+    // private to the original native security owner, never a JSON input API.
+    struct CurrentWorkerObservation {
+        usk::json::Value broker;
+        PublisherWorkerTokenContext worker;
+    };
+    CurrentWorkerObservation observe_current_worker(DWORD timeout = 120000);
     usk::json::Value settled_worker_security(const PublisherWorkerTokenContext&);
     struct State;
     std::unique_ptr<State> state_;
@@ -154,6 +161,17 @@ public:
     // they cannot admit threads or replace its frozen native baseline.
     usk::json::Value observe_current(const std::string& failure_context = {});
 private:
+    friend class PublisherEffectExecutionOwner;
+    // Obtained only from this owner's original readback, with every actual
+    // local token/process/thread check between the two wire observations.
+    // The execution owner reuses this completed bracket; it cannot supply
+    // profiles, refresh provenance, activate a scope or gain effect rights.
+    struct BrokeredObservation {
+        usk::json::Value before;
+        usk::json::Value after;
+        usk::json::Value native;
+    };
+    BrokeredObservation observe_brokered(const std::string& failure_context = {});
     struct State;
     std::unique_ptr<State> state_;
 };
