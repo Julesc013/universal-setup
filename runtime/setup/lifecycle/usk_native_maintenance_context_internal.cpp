@@ -2235,29 +2235,77 @@ struct NativeMaintenanceContext::Impl {
         // existing original-child authority scope. No pending result returns
         // until both this group and the final authority check have completed.
         if (leading_entry) require_entry_then_authority(spec, *leading_entry);
-        else require_authority(spec);
-        const auto tx = transaction::TransactionSession::inspect_recovery(spec);
-        const auto history = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest, true);
-        const auto artifact = read_maintenance_reviewed_plan(spec);
-        const auto next = inspect_maintenance_continuation(spec);
-        const auto source = json::parse(history.source_context);
-        const auto& snapshot = original_context.record().at("reviewed_snapshot");
-        if (history.pending_kind != kind || !next.pending || next.next_kind != kind ||
-            next.history_digest != history.journal_digest || !equal(next.next_details, history.pending_details) ||
-            tx.stream_source_context != history.source_context ||
-            !equal(artifact.at("reviewed_plan"), snapshot.at("reviewed_plan")) ||
-            source.at("install_id").as_string() != snapshot.at("install_id").as_string() ||
-            source.at("original_installed_transaction_id").as_string() != snapshot.at("installed_state").at("transaction_id").as_string() ||
-            source.at("applied_at").as_string() != snapshot.at("apply_request").at("applied_at").as_string() ||
-            normalized(fs::u8path(source.at("installed_root").at("root").as_string())) !=
-                normalized(fs::u8path(snapshot.at("installed_state").at("target_root").as_string())) ||
-            source.at("installed_root").at("native_identity").as_string() != original_root_identity)
-            throw std::runtime_error("native maintenance payload lost its original reviewed next intent");
+        else if (!original_child) require_authority(spec);
+        else if (GetCurrentProcessId() != worker_context.process_id ||
+            (cancel_event && WaitForSingleObject(cancel_event, 0) != WAIT_TIMEOUT))
+            throw std::runtime_error("native maintenance worker stopped or changed");
+        // Original-child metadata/grammar selection is query-only. Its native
+        // file observations retain their own full pre/post authority fences;
+        // no pending result escapes before the mandatory full fence below.
+        // Keep SCM/adjacent-entry prechecks, and full authority precedence on a
+        // cold query failure. Former separate sampling instants are unclaimed.
+        const auto history = [&] {
+            try {
+                const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+                const auto current = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest, true);
+                const auto artifact = read_maintenance_reviewed_plan(spec);
+                const auto next = inspect_maintenance_continuation(spec);
+                const auto source = json::parse(current.source_context);
+                const auto& snapshot = original_context.record().at("reviewed_snapshot");
+                if (current.pending_kind != kind || !next.pending || next.next_kind != kind ||
+                    next.history_digest != current.journal_digest || !equal(next.next_details, current.pending_details) ||
+                    tx.stream_source_context != current.source_context ||
+                    !equal(artifact.at("reviewed_plan"), snapshot.at("reviewed_plan")) ||
+                    source.at("install_id").as_string() != snapshot.at("install_id").as_string() ||
+                    source.at("original_installed_transaction_id").as_string() != snapshot.at("installed_state").at("transaction_id").as_string() ||
+                    source.at("applied_at").as_string() != snapshot.at("apply_request").at("applied_at").as_string() ||
+                    normalized(fs::u8path(source.at("installed_root").at("root").as_string())) !=
+                        normalized(fs::u8path(snapshot.at("installed_state").at("target_root").as_string())) ||
+                    source.at("installed_root").at("native_identity").as_string() != original_root_identity)
+                    throw std::runtime_error("native maintenance payload lost its original reviewed next intent");
+                return current;
+            } catch (...) {
+                // Native file observation already latches any begun failed
+                // entry/record scope. Propagate it without another scope.
+                if (original_child && !leading_entry && !entry_readback_failed)
+                    require_authority(spec);
+                throw;
+            }
+        }();
         require_authority(spec);
         return history;
     }
     Entry& target_directory(const fs::path& relative, bool create_backup = false) {
         if (!staging || !publication_confirmed) throw std::runtime_error("native maintenance published creation is unavailable");
+        if (original_child && !create_backup) {
+            // Resolve only retained map entries before one read-only group.
+            // Preserve every component occurrence AND the final duplicate;
+            // native facts, access/ancestry checks and closure remain complete.
+            // Creation keeps its original per-effect checks below.
+            std::vector<const Entry*> occurrences;
+            Entry* parent = staging; fs::path partial;
+            try {
+                for (const auto& component : relative) {
+                    if (!is_publisher_canonical_component(component.wstring()))
+                        throw std::runtime_error("native maintenance target directory is not canonical");
+                    partial /= component;
+                    const auto key = (relative_volume_path(spec.staging_parent / (".usk-stage-" + spec.transaction_id)) / partial).lexically_normal();
+                    const auto found = directories.find(key);
+                    if (found == directories.end())
+                        throw std::runtime_error("native maintenance target directory lacks original creation custody");
+                    parent = found->second.get();
+                    if (!parent->created && !parent->restored_creation)
+                        throw std::runtime_error("native maintenance target directory lacks proved creation custody");
+                    occurrences.push_back(parent);
+                }
+            } catch (...) {
+                require_entries(occurrences);
+                throw;
+            }
+            occurrences.push_back(parent);
+            require_entries(occurrences);
+            return *parent;
+        }
         Entry* parent = staging; fs::path partial;
         for (const auto& component : relative) {
             if (!is_publisher_canonical_component(component.wstring()))
@@ -2325,14 +2373,29 @@ struct NativeMaintenanceContext::Impl {
         require_bytes(file);
     }
     std::string remove_entry(Entry& entry, const Value& details) {
-        require_entry(entry);
-        if (!entry.parent) throw std::runtime_error("native maintenance removal cannot use the volume as an operation parent");
+        const bool composed_directory = original_child && entry.directory;
+        if (!composed_directory) require_entry(entry);
+        // Directory identity/listing is query-only. The full entry+parent group
+        // closes before releasing the original observer or issuing removal.
+        // A cold query failure still checks the original entry before refusal;
+        // a begun/failed native group is never retried or used as fallback.
+        const bool nonempty_directory = [&] {
+            try {
+                if (!entry.parent) throw std::runtime_error("native maintenance removal cannot use the volume as an operation parent");
+                if (!entry.directory) return false;
+                if (journal_identity(entry.handle.value) != details.at("native_identity").as_string())
+                    throw std::runtime_error("native maintenance directory lost its original identity");
+                return !observe_publisher_directory_entries(entry.handle.value).empty();
+            } catch (...) {
+                if (composed_directory) require_entry(entry);
+                throw;
+            }
+        }();
         if (entry.directory) {
-            if (journal_identity(entry.handle.value) != details.at("native_identity").as_string())
-                throw std::runtime_error("native maintenance directory lost its original identity");
             // Keep the observer when a bound directory is nonempty. The native
             // primitive independently returns retained without an issued call.
-            if (!observe_publisher_directory_entries(entry.handle.value).empty()) {
+            if (nonempty_directory) {
+                if (composed_directory) require_entry(entry);
                 const auto result = remove_publisher_bound_empty_directory(entry.parent->handle.value, entry.name,
                     entry.facts, entry.parent->facts, maintenance_names.get());
                 if (result.native_call_attempted || result.absence_confirmed)
@@ -2341,7 +2404,9 @@ struct NativeMaintenanceContext::Impl {
             }
         } else { require_file_details(entry, details); require_bytes(entry); }
         const auto expected = entry.facts;
-        auto& parent = *entry.parent; require_entry(parent);
+        auto& parent = *entry.parent;
+        if (composed_directory) require_entries({&entry, &parent});
+        else require_entry(parent);
         // The primitive owns its affected mark/close handle. Release this
         // owner's redundant observer first, retaining full original facts,
         // creation provenance and independently held parent/generation custody.
@@ -2466,9 +2531,9 @@ struct NativeMaintenanceContext::Impl {
     }
     transaction::detail::NativeMaintenanceTransactionOperations::EffectResult apply_effect(const transaction::TransactionSpec& supplied,
         const transaction::MaintenanceEffectInspection& inspected) {
-        // require_pending performs a fresh full authority check immediately on
-        // entry and again before returning. Bind the supplied spec first; no
-        // effect or saved authority observation intervenes between these calls.
+        // require_pending completes a fresh full authority check before its
+        // query-only selection returns. Bind the supplied spec first; actual
+        // effects retain their own mandatory fresh fences below.
         require_same_transaction(supplied);
         const auto history = require_pending(inspected.pending_kind);
         if (history.journal_digest != inspected.journal_digest || history.source_context != inspected.source_context ||
