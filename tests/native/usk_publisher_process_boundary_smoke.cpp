@@ -626,6 +626,106 @@ void effect_execution_record_controls() {
             {"kind", Value(install ? "original_installation_recovery_bracket" : "original_maintenance_recovery_bracket")},
             {"profile_before", recovery_broker}, {"profile", recovery_broker}, {"result", selection}});
         require_publisher_effect_selection_readback(recovery_reply, minimum);
+        // Closed v6 retained-data controls. Synthetic descriptors/results do
+        // not claim a live token query, native owner, selection or effect.
+        PSECURITY_DESCRIPTOR access_descriptor = nullptr;
+        ULONG access_descriptor_size = 0;
+        const auto access_sddl = "O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;" + service_sid + ")";
+        check(ConvertStringSecurityDescriptorToSecurityDescriptorA(access_sddl.c_str(), SDDL_REVISION_1,
+            &access_descriptor, &access_descriptor_size) != FALSE, "synthetic grouped descriptor serialization failed");
+        std::unique_ptr<void, decltype(&LocalFree)> access_descriptor_owner(access_descriptor, &LocalFree);
+        std::string access_descriptor_hex;
+        const auto* descriptor_data = static_cast<const unsigned char*>(access_descriptor);
+        for (ULONG index = 0; index < access_descriptor_size; ++index) {
+            access_descriptor_hex.push_back(digits[descriptor_data[index] >> 4]);
+            access_descriptor_hex.push_back(digits[descriptor_data[index] & 15u]);
+        }
+        const std::vector<std::pair<const char*, DWORD>> denied_rights{
+            {"write_or_add_file", FILE_WRITE_DATA}, {"append_or_add_directory", FILE_APPEND_DATA},
+            {"write_ea", FILE_WRITE_EA}, {"delete_child", FILE_DELETE_CHILD},
+            {"write_attributes", FILE_WRITE_ATTRIBUTES}, {"delete", DELETE},
+            {"write_dac", WRITE_DAC}, {"write_owner", WRITE_OWNER}, {"maximum_allowed", MAXIMUM_ALLOWED}};
+        const auto access_row = [&](const Value& native) {
+            Value::Object checks;
+            for (const auto& [right_name, mask] : denied_rights)
+                checks.emplace(right_name, Value(Value::Object{{"requested", Value(static_cast<std::uint64_t>(mask))},
+                    {"allowed", Value(false)}, {"granted", Value(std::uint64_t{0})}}));
+            return Value(Value::Object{{"schema", Value("usk.publisher_authenticated_object_access.v1")},
+                {"scope", Value("fresh_held_authenticated_token_and_file_descriptor")},
+                {"client", client}, {"native_object", native},
+                {"descriptor_api", Value("GetSecurityInfo:SE_FILE_OBJECT:OWNER_GROUP_DACL")},
+                {"descriptor_hex", Value(access_descriptor_hex)}, {"observed_group_sid", Value("S-1-5-18")},
+                {"checks", Value(std::move(checks))}});
+        };
+        const Value ordered_objects(Value::Array{object(2), object(0), object(2)});
+        const auto composed_reply = [&](const Value& selected_reply, bool recovery, const Value& objects) {
+            auto result = selected_reply;
+            result.as_object().at("schema") = Value("usk.publisher_effect_broker_readback_response.v6");
+            result.as_object().at("kind") = Value(recovery ? (install ?
+                "original_installation_recovery_object_access_batch_bracket" :
+                "original_maintenance_recovery_object_access_batch_bracket") : "selected_operation_object_access_batch_bracket");
+            result.as_object().emplace("selection", result.at("result"));
+            Value::Array access;
+            for (const auto& native : objects.as_array()) access.push_back(access_row(native));
+            result.as_object().at("result") = Value(std::move(access));
+            return result;
+        };
+        for (const bool recovery : {false, true}) {
+            const auto& actual = recovery ? minimum : apply;
+            const auto& selected_reply = recovery ? recovery_reply : fresh_reply;
+            const auto composed = composed_reply(selected_reply, recovery, ordered_objects);
+            require_publisher_effect_selected_object_access_batch_readback(composed, actual, ordered_objects);
+            Value::Array eight;
+            for (std::size_t index = 0; index < publisher_object_access_batch_limit; ++index) eight.push_back(object(index % 3));
+            const Value bound(eight);
+            require_publisher_effect_selected_object_access_batch_readback(composed_reply(selected_reply, recovery, bound), actual, bound);
+            const auto refuses_composed = [&](const std::function<void(Value&)>& mutate) {
+                auto invalid = composed; mutate(invalid); bool refused = false;
+                try { require_publisher_effect_selected_object_access_batch_readback(invalid, actual, ordered_objects); }
+                catch (const std::exception&) { refused = true; }
+                check(refused, "synthetic selected access accepted incomplete or contradictory ordered proof");
+            };
+            for (const auto* key : {"selection", "profile_before", "profile", "result"})
+                refuses_composed([&](Value& v) { v.as_object().erase(key); });
+            refuses_composed([](Value& v) { v.as_object().emplace("authority", Value("effect")); });
+            refuses_composed([](Value& v) { v.as_object().at("schema") = Value("usk.publisher_effect_broker_readback_response.v3"); });
+            refuses_composed([](Value& v) { v.as_object().at("kind") = Value("object_access_batch_bracket"); });
+            refuses_composed([](Value& v) { v.as_object().at("kind") = Value("original_installation_recovery_bracket"); });
+            refuses_composed([](Value& v) { v.as_object().at("result").as_array().pop_back(); });
+            refuses_composed([](Value& v) { std::swap(v.as_object().at("result").as_array()[0], v.as_object().at("result").as_array()[1]); });
+            refuses_composed([](Value& v) { v.as_object().at("result").as_array()[1] = v.at("result").as_array()[0]; });
+            refuses_composed([](Value& v) { v.as_object().at("result").as_array()[0].as_object().at("client")
+                .as_object().at("token_id") = Value(std::uint64_t{803}); });
+            refuses_composed([](Value& v) { v.as_object().at("result").as_array()[0].as_object().at("descriptor_hex") = Value("00"); });
+            refuses_composed([](Value& v) { v.as_object().at("selection").as_object().at("present") = Value(false); });
+            refuses_composed([](Value& v) { v.as_object().at("selection").as_object().at("envelope")
+                .as_object().at("reviewed_plan_digest") = Value(std::string(64, 'f')); });
+            for (const auto* endpoint : {"profile_before", "profile"}) {
+                refuses_composed([&](Value& v) { v.as_object().at(endpoint).as_object().at("custody")
+                    .as_object().at("peer_process_birth") = Value("0000000000000601"); });
+                refuses_composed([&](Value& v) { v.as_object().at(endpoint).as_object().at("service_configuration")
+                    .as_object().at("command") = Value("forged"); });
+                refuses_composed([&](Value& v) { v.as_object().at(endpoint).as_object().at("request_sha256") = Value(std::string(64, 'f')); });
+                refuses_composed([&](Value& v) { v.as_object().at(endpoint).as_object().at("registered_admission")
+                    .as_object().at("registration_sha256") = Value(std::string(64, 'f')); });
+            }
+            for (const auto& [right_name, mask] : denied_rights) {
+                (void)mask;
+                refuses_composed([&](Value& v) { v.as_object().at("result").as_array()[0].as_object().at("checks")
+                    .as_object().erase(right_name); });
+                refuses_composed([&](Value& v) { v.as_object().at("result").as_array()[0].as_object().at("checks")
+                    .as_object().at(right_name).as_object().at("granted") = Value(std::uint64_t{1} << 32); });
+            }
+            if (recovery) refuses_composed([](Value& v) { v.as_object().at("selection").as_object().at("intent")
+                .as_object().at("original_apply_request").as_object().at("transaction_id") = Value("another.original"); });
+            for (const Value& outside : {Value(Value::Array{}), Value(Value::Array(9, object(0)))}) {
+                bool refused = false;
+                try { require_publisher_effect_selected_object_access_batch_readback(
+                    composed_reply(selected_reply, recovery, outside), actual, outside); }
+                catch (const std::exception&) { refused = true; }
+                check(refused, "synthetic selected access widened max-eight or accepted empty batch");
+            }
+        }
         const auto refuses_bracket = [&](const Value& original_reply, const Value& actual,
             const std::function<void(Value&)>& mutate) {
             auto invalid = original_reply; mutate(invalid); bool refused = false;

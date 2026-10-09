@@ -48,6 +48,27 @@ int fresh_hash_proof(const fs::path& root)
         const std::string expected = portable.finish();
         usk::base::StableFile file(path);
         if (file.sha256_hex() != expected || file.sha256_hex() != expected) return 46;
+        // Interleave backward/forward and crossing-buffer reads with complete
+        // hashes. Each read must use its own offset, regardless of the last
+        // read's file pointer; expected bytes come from the independent input.
+        for (const std::size_t offset : {size, size / 2u, std::size_t{0},
+                size > 65536u ? std::size_t{65530} : std::size_t{0},
+                size > 1u ? std::size_t{1} : std::size_t{0}}) {
+            const auto count = std::min<std::size_t>(70u, size - offset);
+            const auto actual = file.read(offset, count);
+            if (actual.size() != count || !std::equal(actual.begin(), actual.end(),
+                    bytes.begin() + static_cast<std::ptrdiff_t>(offset))) return 49;
+            std::vector<unsigned char> into(count, 0xffu);
+            file.read_into(offset, into.data(), count);
+            if (into != actual) return 50;
+        }
+        file.read_into(size, nullptr, 0);
+        bool refused_offset = false, refused_null = false;
+        try { file.read_into(size + 1u, nullptr, 0); }
+        catch (const std::runtime_error&) { refused_offset = true; }
+        try { file.read_into(0, nullptr, 1); }
+        catch (const std::runtime_error&) { refused_null = true; }
+        if (!refused_offset || !refused_null || file.sha256_hex() != expected) return 51;
         file.verify_unchanged();
     }
     // A different byte sequence with the SAME size must not reuse a prior hash.

@@ -219,6 +219,27 @@ Value PublisherEffectExecutionOwner::authenticated_object_access_batch(const std
         return std::move(observed.access);
     } catch (...) { state_->failed = true; throw; }
 }
+PublisherEffectSelectedAccessObservation PublisherEffectExecutionOwner::observe_selected_security_and_access_batch(
+    PublisherEffectSelectionKind kind, const std::vector<HANDLE>& handles, const std::string& failure_context) {
+    require_current();
+    try {
+        state_->require_owner();
+        const auto native_before = state_->security.observe_local_current(failure_context);
+        auto observed = state_->readback.selected_object_access_batch_bracket(kind, handles);
+        auto native_after = state_->security.observe_local_current(failure_context);
+        state_->require_native_binding(observed.selected.before, native_before);
+        state_->require_native_binding(observed.selected.after, native_after);
+        require_publisher_worker_security_continuity(native_before.at("worker_security"), native_after.at("worker_security"));
+        require(same(publisher_effect_broker_immutable_record(observed.selected.before),
+            publisher_effect_broker_immutable_record(observed.selected.after)),
+            "publisher child native owner changed across selected access batch");
+        state_->require_owner();
+        state_->readback.retain_selection_bracket(observed.selected, kind);
+        return PublisherEffectSelectedAccessObservation(PublisherEffectSelectedSecurityObservation(
+            PublisherEffectSecurityObservation(std::move(observed.selected.after), std::move(native_after)),
+            std::move(observed.selected.selection)), std::move(observed.access));
+    } catch (...) { state_->failed = true; throw; }
+}
 Value PublisherEffectExecutionOwner::selected_original_maintenance_recovery() {
     auto observed = observe_selected_security(PublisherEffectSelectionKind::original_maintenance_recovery);
     return std::move(observed.selection_);

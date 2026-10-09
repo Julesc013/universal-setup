@@ -23,6 +23,7 @@
 #include "usk_maintenance_recovery_internal.h"
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <iomanip>
 #include <map>
 #include <optional>
@@ -1112,8 +1113,13 @@ struct NativeMaintenanceContext::Impl {
         require_client_read_only(handle, observed);
         return observed;
     }
+    using SelectedFenceCheck = std::function<void(const PublisherEffectSelectedSecurityObservation&)>;
     void require_entry_batch(const std::vector<const Entry*>& entries, Entry* creation = nullptr,
-        bool leading_volume_access = false) const {
+        bool leading_volume_access = false, const SelectedFenceCheck& selected_check = {},
+        PublisherEffectSelectionKind selected_kind = PublisherEffectSelectionKind::reviewed_operation,
+        const std::string& failure_context = {}) const {
+        if (selected_check && (!original_child || !leading_volume_access || creation))
+            throw std::runtime_error("native maintenance selected access composition lacks its original read-only fence");
         if (leading_volume_access && (!original_child || creation))
             throw std::runtime_error("native maintenance volume access composition lacks its original child role");
         if (creation && (entries.size() != 1u || entries.front() != creation || !creation->created ||
@@ -1128,12 +1134,23 @@ struct NativeMaintenanceContext::Impl {
         };
         std::vector<PendingAccess> pending;
         pending.reserve(publisher_object_access_batch_limit);
+        bool selection_checked = false;
         const auto flush = [&]() {
             if (pending.empty()) return;
             std::vector<HANDLE> handles;
             handles.reserve(pending.size());
             for (const auto& item : pending) handles.push_back(item.handle);
-            auto results = original_child->authenticated_object_access_batch(handles);
+            Value results;
+            if (selected_check && !selection_checked) {
+                // The first actual ordered chunk also carries the parent's
+                // selected operation and this child's full completed proof.
+                // Overflow chunks still have their own fresh full endpoints.
+                auto observed = original_child->observe_selected_security_and_access_batch(
+                    selected_kind, handles, failure_context);
+                selected_check(observed.selected());
+                results = observed.take_access();
+                selection_checked = true;
+            } else results = original_child->authenticated_object_access_batch(handles);
             if (results.as_array().size() != pending.size())
                 throw std::runtime_error("native maintenance read-only batch result count changed");
             for (std::size_t index = 0; index < pending.size(); ++index) {
@@ -1194,6 +1211,8 @@ struct NativeMaintenanceContext::Impl {
         }
         for (const auto* entry : entries) collect(collect, *entry);
         flush();
+        if (selected_check && !selection_checked)
+            throw std::runtime_error("native maintenance selected fence lacks its completed access occurrence");
         // Re-read complete held facts and every actual parent link after ALL
         // chunks. A saved listing or serialized identity cannot replace this
         // final native join. These fresh query-only reopens close before return.
@@ -1229,7 +1248,12 @@ struct NativeMaintenanceContext::Impl {
         try { require_entry_batch({&entry}, &entry); }
         catch (...) { entry_readback_failed = true; throw; }
     }
-    void require_entries(const std::vector<const Entry*>& entries, bool leading_volume_access = false) const {
+    void require_entries(const std::vector<const Entry*>& entries, bool leading_volume_access = false,
+        const SelectedFenceCheck& selected_check = {},
+        PublisherEffectSelectionKind selected_kind = PublisherEffectSelectionKind::reviewed_operation,
+        const std::string& failure_context = {}) const {
+        if (selected_check && (!original_child || !leading_volume_access))
+            throw std::runtime_error("native maintenance selected entry group lacks its original child/volume");
         if (entry_readback_failed)
             throw std::runtime_error("native maintenance original entry readback already failed");
         if (leading_volume_access && !original_child)
@@ -1243,7 +1267,7 @@ struct NativeMaintenanceContext::Impl {
         // leaf/root occurrence, all AccessChecks, final native ancestry joins
         // and checked observer closure. Only bounded query transport spans
         // several entries; former per-entry sampling instants are unclaimed.
-        try { require_entry_batch(entries, nullptr, leading_volume_access); }
+        try { require_entry_batch(entries, nullptr, leading_volume_access, selected_check, selected_kind, failure_context); }
         catch (...) { entry_readback_failed = true; throw; }
     }
     void require_entry(const Entry& entry) const {
@@ -1343,39 +1367,40 @@ struct NativeMaintenanceContext::Impl {
             {"installed_prepared", Value(installed_prepared)},
             {"installed_issue_active", Value(installed_issue_active)},
             {"installed_confirmed", Value(installed_confirmed)}}));
-        Value current_worker, current_process;
+        const auto require_current_security = [&](const Value& current_worker, const Value& current_process) {
+            require_publisher_worker_security(current_worker, worker_context);
+            require_publisher_process_boundary(current_process, worker_context.process_id,
+                worker_context.service_sid, worker_context.token.process_groups);
+            if (!equal(current_process, process_boundary))
+                throw std::runtime_error("native maintenance frozen process boundary changed");
+        };
+        SelectedFenceCheck selected_check;
         if (original_child) {
-            // Consume this owner's completed actual admission and child proof
-            // only within this read-only fence. No result survives to another
-            // effect, and all context-specific native policy checks below remain.
-            const auto observed = original_child->observe_selected_security(restored_owner ?
-                PublisherEffectSelectionKind::original_maintenance_recovery : PublisherEffectSelectionKind::reviewed_operation,
-                failure_context);
-            const auto& current_broker = observed.broker();
-            const auto& selected = observed.selection();
-            if (restored_owner)
-                original_context.require_original_recovery_intent_observation(selected.at("intent"));
-            if (!selected.at("present").as_boolean() ||
-                !equal(current_broker.at("registered_admission"), registration) ||
-                !equal(selected.at("observation"), selection))
-                throw std::runtime_error("native maintenance held registration or selected operation changed");
-            if (!equal(publisher_effect_broker_immutable_record(current_broker),
-                publisher_effect_broker_immutable_record(original_broker)))
-                throw std::runtime_error("native maintenance original child broker changed");
-            const auto& security = observed.native();
-            current_worker = security.at("worker_security");
-            current_process = security.at("process_boundary");
+            // Consume a producer-only completed selection with the first
+            // read-only access chunk below. All predicates finish in this
+            // fence before any effect; no tuple is saved for a later fence.
+            selected_check = [&](const PublisherEffectSelectedSecurityObservation& observed) {
+                const auto& current_broker = observed.broker();
+                const auto& selected = observed.selection();
+                if (restored_owner)
+                    original_context.require_original_recovery_intent_observation(selected.at("intent"));
+                if (!selected.at("present").as_boolean() ||
+                    !equal(current_broker.at("registered_admission"), registration) ||
+                    !equal(selected.at("observation"), selection))
+                    throw std::runtime_error("native maintenance held registration or selected operation changed");
+                if (!equal(publisher_effect_broker_immutable_record(current_broker),
+                    publisher_effect_broker_immutable_record(original_broker)))
+                    throw std::runtime_error("native maintenance original child broker changed");
+                const auto& security = observed.native();
+                require_current_security(security.at("worker_security"), security.at("process_boundary"));
+            };
         } else {
             if (!equal(registered_native_evidence(), registration) || !equal(selected_native_observation(), selection))
                 throw std::runtime_error("native maintenance held registration or selected operation changed");
-            current_worker = worker_continuity->observe_current(failure_context);
-            current_process = observe_current_publisher_process_boundary();
+            const auto current_worker = worker_continuity->observe_current(failure_context);
+            const auto current_process = observe_current_publisher_process_boundary();
+            require_current_security(current_worker, current_process);
         }
-        require_publisher_worker_security(current_worker, worker_context);
-        require_publisher_process_boundary(current_process, worker_context.process_id,
-            worker_context.service_sid, worker_context.token.process_groups);
-        if (!equal(current_process, process_boundary))
-            throw std::runtime_error("native maintenance frozen process boundary changed");
         if (installed_uncertain || payload_failed || custody_failed || entry_readback_failed)
             throw std::runtime_error("native maintenance effect is uncertain; no further effects");
         if (!active_payload_history.empty()) {
@@ -1407,7 +1432,9 @@ struct NativeMaintenanceContext::Impl {
         if (staging_parent) parents.push_back(staging_parent);
         if (target_parent) parents.push_back(target_parent);
         if (trailing_entry) parents.push_back(trailing_entry);
-        require_entries(parents, original_child != nullptr);
+        require_entries(parents, original_child != nullptr, selected_check, restored_owner ?
+            PublisherEffectSelectionKind::original_maintenance_recovery : PublisherEffectSelectionKind::reviewed_operation,
+            failure_context);
     }
     void require_installed_custody() const {
         if (!installed_postimage_file || installed_postimage_file->handle.value == INVALID_HANDLE_VALUE) return;

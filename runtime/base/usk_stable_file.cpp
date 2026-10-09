@@ -339,19 +339,22 @@ void StableFile::read_exact(
     if (offset > static_cast<std::uint64_t>(std::numeric_limits<LONGLONG>::max())) {
         throw std::runtime_error("stable local archive offset exceeds platform range");
     }
-    LARGE_INTEGER position{};
-    position.QuadPart = static_cast<LONGLONG>(offset);
-    if (!SetFilePointerEx(handle, position, nullptr, FILE_BEGIN)) {
-        throw windows_error("cannot seek stable local archive");
-    }
     while (size != 0) {
         const DWORD chunk = static_cast<DWORD>(
             std::min<std::size_t>(size, std::numeric_limits<DWORD>::max()));
+        // The original handle is synchronous. A per-read explicit offset
+        // completes before return, without a separate file-pointer seek or
+        // pending I/O storage. Every requested byte still comes from this
+        // held source; no hash, buffer or file observation survives the call.
+        OVERLAPPED position{};
+        position.Offset = static_cast<DWORD>(offset);
+        position.OffsetHigh = static_cast<DWORD>(offset >> 32);
         DWORD read_count = 0;
-        if (!ReadFile(handle, output, chunk, &read_count, nullptr) || read_count != chunk) {
+        if (!ReadFile(handle, output, chunk, &read_count, &position) || read_count != chunk) {
             throw windows_error("cannot read stable local archive");
         }
         output += read_count;
+        offset += read_count;
         size -= read_count;
     }
 #else

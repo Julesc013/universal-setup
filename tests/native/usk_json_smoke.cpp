@@ -135,8 +135,12 @@ int main()
             Value destination(values[i]);
             destination = std::move(moved);
             if (destination.type() != values[j].type() || usk::json::canonical(destination) != encodings[j] ||
-                copied.type() != Value::Type::null_value || moved.type() != Value::Type::null_value ||
-                usk::json::canonical(copied) != "null" || usk::json::canonical(moved) != "null") return 16;
+                copied.type() != Value::Type::null_value || moved.type() != Value::Type::null_value) return 16;
+            // Value's explicit move contract resets both live source objects
+            // to monostate. Keep testing their readable canonical null state;
+            // Cppcheck's generic moved-argument warning cannot model this API.
+            // cppcheck-suppress accessMoved
+            if (usk::json::canonical(copied) != "null" || usk::json::canonical(moved) != "null") return 16;
             destination = std::move(destination);
             if (usk::json::canonical(destination) != encodings[j]) return 19;
         }

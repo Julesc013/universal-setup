@@ -46,6 +46,19 @@ private:
     PublisherEffectSecurityObservation security_;
     usk::json::Value selection_;
 };
+// One completed read-only selection/security and ordered access bracket.
+// Its producer is the original native owner; it cannot authorize a later fence.
+class PublisherEffectSelectedAccessObservation final {
+public:
+    const PublisherEffectSelectedSecurityObservation& selected() const { return selected_; }
+    usk::json::Value take_access() { return std::move(access_); }
+private:
+    friend class PublisherEffectExecutionOwner;
+    PublisherEffectSelectedAccessObservation(PublisherEffectSelectedSecurityObservation selected,
+        usk::json::Value access) : selected_(std::move(selected)), access_(std::move(access)) {}
+    PublisherEffectSelectedSecurityObservation selected_;
+    usk::json::Value access_;
+};
 PublisherNativeExecutionObservation observe_current_publisher_native_execution_owner(
     const std::wstring& service_name);
 // Retained-data validation only. A closed child original-custody record must
@@ -83,6 +96,9 @@ public:
     // Ordered actual handles, including repeated objects. Whole-batch parent
     // and child native brackets are read-only evidence, never effect authority.
     usk::json::Value authenticated_object_access_batch(const std::vector<HANDLE>& original_child_handles);
+    PublisherEffectSelectedAccessObservation observe_selected_security_and_access_batch(
+        PublisherEffectSelectionKind, const std::vector<HANDLE>& original_child_handles,
+        const std::string& failure_context = {});
     const std::string& canonical_request() const;
     // Borrowed concrete owners for the native v7/v4 observers. Their lifetime
     // remains this owner, on its original thread; no native handle is exported.

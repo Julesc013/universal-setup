@@ -40,6 +40,10 @@ void require_publisher_effect_original_installation_selection(const usk::json::V
 // actual broker endpoints. Parsing cannot create an execution route or proof.
 void require_publisher_effect_selection_readback(const usk::json::Value& reply,
     const usk::json::Value& actual_request);
+// Closed v6 retained-data validation; all ordered occurrences and selection
+// join both actual endpoints. Parsing supplies no native owner or authority.
+void require_publisher_effect_selected_object_access_batch_readback(const usk::json::Value& reply,
+    const usk::json::Value& actual_request, const usk::json::Value& expected_native_objects);
 void require_publisher_effect_terminal_record(const usk::json::Value&, const usk::json::Value& broker_record);
 // Bounded original-peer error data, never a terminal or definite preflight
 // result. It cannot narrow retained effects or grant an execution scope.
@@ -171,6 +175,12 @@ private:
     };
     SelectionObservation selected_operation_bracket(PublisherEffectSelectionKind,
         DWORD timeout = 120000);
+    struct SelectedObjectAccessObservation {
+        SelectionObservation selected;
+        usk::json::Value access;
+    };
+    SelectedObjectAccessObservation selected_object_access_batch_bracket(PublisherEffectSelectionKind,
+        const std::vector<HANDLE>&, DWORD timeout = 120000);
     // Only actual completed observations from the original execution owner
     // reach this private retention step, after all of its native joins.
     void retain_readback_bracket(const usk::json::Value& before, const usk::json::Value& after);
