@@ -197,12 +197,17 @@ usk::json::Value publisher_handle_observation_json(const PublisherHandleObservat
             {"flags", Value(static_cast<std::uint64_t>(ace.flags))},
             {"access_mask", Value(static_cast<std::uint64_t>(ace.access_mask))}, {"sid", Value(ace.sid)}});
     }
-    return Value(Value::Object{{"file_id", Value(observation.file_id)}, {"native_name", Value(name)},
-        {"owner_sid", Value(observation.owner_sid)}, {"dacl_protected", Value(observation.dacl_protected)},
-        {"attributes", Value(static_cast<std::uint64_t>(observation.attributes))},
-        {"reparse_tag", Value(static_cast<std::uint64_t>(observation.reparse_tag))},
-        {"link_count", Value(static_cast<std::uint64_t>(observation.link_count))},
-        {"case_sensitive", Value(observation.case_sensitive)}, {"dacl_aces", Value(std::move(aces))}});
+    Value::Object fields;
+    fields.emplace("file_id", Value(observation.file_id));
+    fields.emplace("native_name", Value(std::move(name)));
+    fields.emplace("owner_sid", Value(observation.owner_sid));
+    fields.emplace("dacl_protected", Value(observation.dacl_protected));
+    fields.emplace("attributes", Value(static_cast<std::uint64_t>(observation.attributes)));
+    fields.emplace("reparse_tag", Value(static_cast<std::uint64_t>(observation.reparse_tag)));
+    fields.emplace("link_count", Value(static_cast<std::uint64_t>(observation.link_count)));
+    fields.emplace("case_sensitive", Value(observation.case_sensitive));
+    fields.emplace("dacl_aces", Value(std::move(aces)));
+    return Value(std::move(fields));
 }
 
 } // namespace usk::platform::windows

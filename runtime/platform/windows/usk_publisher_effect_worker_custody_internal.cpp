@@ -306,12 +306,16 @@ struct Wire {
     }
     Value observation() const {
         require_peer();
-        return Value(Value::Object{{"schema", Value("usk.publisher_effect_transport_custody.v1")},
-            {"authority", Value("none")}, {"current_process_id", Value(static_cast<std::uint64_t>(GetCurrentProcessId()))},
-            {"current_process_birth", Value(hex64(birth(GetCurrentProcess())))},
-            {"peer_process_id", Value(static_cast<std::uint64_t>(peer_id))},
-            {"peer_process_birth", Value(hex64(peer_birth))}, {"image", image_value(*image)},
-            {"request_sha256", Value(binding)}});
+        Value::Object fields;
+        fields.emplace("schema", Value("usk.publisher_effect_transport_custody.v1"));
+        fields.emplace("authority", Value("none"));
+        fields.emplace("current_process_id", Value(static_cast<std::uint64_t>(GetCurrentProcessId())));
+        fields.emplace("current_process_birth", Value(hex64(birth(GetCurrentProcess()))));
+        fields.emplace("peer_process_id", Value(static_cast<std::uint64_t>(peer_id)));
+        fields.emplace("peer_process_birth", Value(hex64(peer_birth)));
+        fields.emplace("image", image_value(*image));
+        fields.emplace("request_sha256", Value(binding));
+        return Value(std::move(fields));
     }
     std::string canonical_request;
     PublisherTokenObservation peer_primary_token() const {

@@ -160,9 +160,12 @@ Value::Object object_security(HANDLE handle) {
         GetSecurityDescriptorDacl(bytes.data(), &present, &dacl, &dacl_defaulted) && present && dacl &&
         GetSecurityDescriptorControl(bytes.data(), &control, &revision) &&
         revision == SECURITY_DESCRIPTOR_REVISION, "publisher worker stored owner/DACL absent");
-    return {{"owner_sid", Value(sid_text(owner))}, {"dacl_present", Value(true)},
-        {"dacl_protected", Value((control & SE_DACL_PROTECTED) != 0)},
-        {"dacl_aces", Value(acl_aces(dacl))}};
+    Value::Object fields;
+    fields.emplace("owner_sid", Value(sid_text(owner)));
+    fields.emplace("dacl_present", Value(true));
+    fields.emplace("dacl_protected", Value((control & SE_DACL_PROTECTED) != 0));
+    fields.emplace("dacl_aces", Value(acl_aces(dacl)));
+    return fields;
 }
 std::vector<DWORD> thread_ids() {
     // One fresh system-wide census at EVERY existing before/after boundary.

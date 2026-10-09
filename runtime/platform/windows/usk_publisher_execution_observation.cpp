@@ -115,21 +115,22 @@ std::vector<ObservedTokenGroup> parse_groups(const Value& value) {
 }
 
 Value service_json(const PublisherServiceObservation& service) {
-    return Value(Value::Object{
-        {"service_name", Value(ascii_service_name(service.service_name))},
-        {"service_sid", Value(service.service_sid)},
-        {"service_sid_type", Value(static_cast<std::uint64_t>(service.service_sid_type))},
-        {"service_type", Value(static_cast<std::uint64_t>(service.service_type))},
-        {"service_state", Value(static_cast<std::uint64_t>(service.service_state))},
-        {"process_id", Value(static_cast<std::uint64_t>(service.process_id))},
-        {"process_user_sid", Value(service.token.process_user_sid)},
-        {"thread_impersonating", Value(service.token.current_thread_impersonating)},
-        {"process_groups", groups_json(service.token.process_groups)},
-        {"process_restricted_sids", groups_json(service.token.process_restricted_sids)},
-        {"token_id", Value(hex64(service.token.identity.token_id))},
-        {"authentication_id", Value(hex64(service.token.identity.authentication_id))},
-        {"modified_id", Value(hex64(service.token.identity.modified_id))},
-        {"token_type", Value(static_cast<std::uint64_t>(service.token.identity.token_type))}});
+    Value::Object fields;
+    fields.emplace("service_name", Value(ascii_service_name(service.service_name)));
+    fields.emplace("service_sid", Value(service.service_sid));
+    fields.emplace("service_sid_type", Value(static_cast<std::uint64_t>(service.service_sid_type)));
+    fields.emplace("service_type", Value(static_cast<std::uint64_t>(service.service_type)));
+    fields.emplace("service_state", Value(static_cast<std::uint64_t>(service.service_state)));
+    fields.emplace("process_id", Value(static_cast<std::uint64_t>(service.process_id)));
+    fields.emplace("process_user_sid", Value(service.token.process_user_sid));
+    fields.emplace("thread_impersonating", Value(service.token.current_thread_impersonating));
+    fields.emplace("process_groups", groups_json(service.token.process_groups));
+    fields.emplace("process_restricted_sids", groups_json(service.token.process_restricted_sids));
+    fields.emplace("token_id", Value(hex64(service.token.identity.token_id)));
+    fields.emplace("authentication_id", Value(hex64(service.token.identity.authentication_id)));
+    fields.emplace("modified_id", Value(hex64(service.token.identity.modified_id)));
+    fields.emplace("token_type", Value(static_cast<std::uint64_t>(service.token.identity.token_type)));
+    return Value(std::move(fields));
 }
 
 const std::array<std::pair<const char*, DWORD>, 9> access_rights{{
@@ -354,7 +355,7 @@ Value observe_execution_phase(const std::wstring& service_name, const std::strin
         security_before = observe_current_publisher_worker_security();
         require_publisher_worker_security(security_before, before);
     }
-    const auto platform = observe_publisher_execution_platform();
+    auto platform = observe_publisher_execution_platform();
     require_platform(platform);
     Value::Array observations;
     Value authenticated_client(Value::Object{});
@@ -369,11 +370,14 @@ Value observe_execution_phase(const std::wstring& service_name, const std::strin
             observe_publisher_handle_granted_access(item.handle) == granted_access &&
             object.file_id == item.expected_file_id,
             "publisher execution held handle flags or object identity changed");
-        Value observation(Value::Object{{"role", Value(item.role)}, {"file_id", Value(object.file_id)},
-            {"handle_flags", Value(static_cast<std::uint64_t>(flags))},
-            {"granted_access", Value(static_cast<std::uint64_t>(granted_access))},
-            {"granted_access_api", Value("NtQueryObject:ObjectBasicInformation")},
-            {"object_observation", publisher_handle_observation_json(object)}});
+        Value::Object observation_fields;
+        observation_fields.emplace("role", Value(item.role));
+        observation_fields.emplace("file_id", Value(object.file_id));
+        observation_fields.emplace("handle_flags", Value(static_cast<std::uint64_t>(flags)));
+        observation_fields.emplace("granted_access", Value(static_cast<std::uint64_t>(granted_access)));
+        observation_fields.emplace("granted_access_api", Value("NtQueryObject:ObjectBasicInformation"));
+        observation_fields.emplace("object_observation", publisher_handle_observation_json(object));
+        Value observation(std::move(observation_fields));
         if (authenticated_request || effect) {
             auto access = effect ? effect_readback->authenticated_object_access(item.handle) :
                 authenticated_request->observe_authenticated_object_access(item.handle);
@@ -423,20 +427,28 @@ Value observe_execution_phase(const std::wstring& service_name, const std::strin
         usk::json::canonical(platform) == usk::json::canonical(observe_publisher_execution_platform()),
         "publisher execution service, process token or platform changed during observation");
     require_publisher_worker_security_continuity(security_before, security_after);
-    Value result(Value::Object{{"schema", Value(effect ? "usk.publisher_execution_observation.v8" :
+    // Move this call's owned results only after all endpoint checks. Retained
+    // native baselines and independently owned child/broker proofs stay intact.
+    Value::Object fields;
+    fields.emplace("schema", Value(effect ? "usk.publisher_execution_observation.v8" :
             authenticated_request ? "usk.publisher_execution_observation.v6" :
-            "usk.publisher_execution_observation.v5")},
-        {"scope", Value(effect ? "supplied_held_child_handles_authenticated_broker_access_and_native_retirement_partition" :
+            "usk.publisher_execution_observation.v5"));
+    fields.emplace("scope", Value(effect ? "supplied_held_child_handles_authenticated_broker_access_and_native_retirement_partition" :
             authenticated_request ? "supplied_held_service_handles_authenticated_access_and_worker_security" :
-            "supplied_held_service_handles_security_access_and_worker_security")}, {"phase", Value(phase)},
-        {"platform", platform}, {"service", effect ? broker_after.at("service") : service_json(after)}, {"handles", Value(std::move(observations))},
-        {"process_boundary", process_after}, {"worker_security", security_after}});
-    if (authenticated_request || effect) result.as_object().emplace("authenticated_client", authenticated_client);
+            "supplied_held_service_handles_security_access_and_worker_security"));
+    fields.emplace("phase", Value(phase));
+    fields.emplace("platform", std::move(platform));
+    fields.emplace("service", effect ? broker_after.at("service") : service_json(after));
+    fields.emplace("handles", Value(std::move(observations)));
+    fields.emplace("process_boundary", std::move(process_after));
+    fields.emplace("worker_security", std::move(security_after));
+    Value result(std::move(fields));
+    if (authenticated_request || effect) result.as_object().emplace("authenticated_client", std::move(authenticated_client));
     if (effect) {
         auto worker = child_after.at("worker");
         worker.as_object().emplace("process_birth", broker_after.at("custody").at("peer_process_birth"));
         result.as_object().emplace("effect_worker", std::move(worker));
-        result.as_object().emplace("broker_readback", broker_after);
+        result.as_object().emplace("broker_readback", std::move(broker_after));
     }
     require_publisher_execution_phase(result, service_name, sid, phase, bindings);
     return result;

@@ -175,17 +175,20 @@ usk::json::Value client_token_facts(HANDLE token, ULONG process_id) {
     for (DWORD index = 0; index < values->PrivilegeCount; ++index)
         privilege_values.emplace_back(Value::Object{{"luid", Value(luid_value(values->Privileges[index].Luid))},
             {"attributes", Value(static_cast<std::uint64_t>(values->Privileges[index].Attributes))}});
-    return Value(Value::Object{{"schema", Value("usk.publisher_authenticated_client_observation.v1")},
-        {"scope", Value("held_authenticated_identification_token")},
-        {"captured_process_id", Value(static_cast<std::uint64_t>(process_id))},
-        {"user_sid", Value(sid_text(reinterpret_cast<const TOKEN_USER*>(user.data())->User.Sid))},
-        {"token_type", Value(static_cast<std::uint64_t>(stats.TokenType))},
-        {"impersonation_level", Value(static_cast<std::uint64_t>(impersonation))},
-        {"token_id", Value(luid_value(stats.TokenId))},
-        {"authentication_id", Value(luid_value(stats.AuthenticationId))},
-        {"modified_id", Value(luid_value(stats.ModifiedId))},
-        {"groups", groups(TokenGroups)}, {"restricted_sids", groups(TokenRestrictedSids)},
-        {"privileges", Value(std::move(privilege_values))}});
+    Value::Object fields;
+    fields.emplace("schema", Value("usk.publisher_authenticated_client_observation.v1"));
+    fields.emplace("scope", Value("held_authenticated_identification_token"));
+    fields.emplace("captured_process_id", Value(static_cast<std::uint64_t>(process_id)));
+    fields.emplace("user_sid", Value(sid_text(reinterpret_cast<const TOKEN_USER*>(user.data())->User.Sid)));
+    fields.emplace("token_type", Value(static_cast<std::uint64_t>(stats.TokenType)));
+    fields.emplace("impersonation_level", Value(static_cast<std::uint64_t>(impersonation)));
+    fields.emplace("token_id", Value(luid_value(stats.TokenId)));
+    fields.emplace("authentication_id", Value(luid_value(stats.AuthenticationId)));
+    fields.emplace("modified_id", Value(luid_value(stats.ModifiedId)));
+    fields.emplace("groups", groups(TokenGroups));
+    fields.emplace("restricted_sids", groups(TokenRestrictedSids));
+    fields.emplace("privileges", Value(std::move(privilege_values)));
+    return Value(std::move(fields));
 }
 HANDLE require_caller(HANDLE pipe, const std::wstring& expected) {
     if (!ImpersonateNamedPipeClient(pipe)) throw std::runtime_error("publisher caller identification failed");
@@ -490,12 +493,16 @@ usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HA
         usk::json::canonical(before_client) !=
             usk::json::canonical(client_token_facts(state.client_token.value, state.client_process_id)))
         throw std::runtime_error("authenticated token or held object changed across access collection");
-    return Value(Value::Object{{"schema", Value("usk.publisher_authenticated_object_access.v1")},
-        {"scope", Value("fresh_held_authenticated_token_and_file_descriptor")},
-        {"client", before_client}, {"native_object", publisher_handle_observation_json(before)},
-        {"descriptor_api", Value("GetSecurityInfo:SE_FILE_OBJECT:OWNER_GROUP_DACL")},
-        {"descriptor_hex", Value(descriptor_hex)}, {"observed_group_sid", Value(sid_text(group))},
-        {"checks", Value(std::move(checks))}});
+    Value::Object fields;
+    fields.emplace("schema", Value("usk.publisher_authenticated_object_access.v1"));
+    fields.emplace("scope", Value("fresh_held_authenticated_token_and_file_descriptor"));
+    fields.emplace("client", before_client);
+    fields.emplace("native_object", publisher_handle_observation_json(before));
+    fields.emplace("descriptor_api", Value("GetSecurityInfo:SE_FILE_OBJECT:OWNER_GROUP_DACL"));
+    fields.emplace("descriptor_hex", Value(descriptor_hex));
+    fields.emplace("observed_group_sid", Value(sid_text(group)));
+    fields.emplace("checks", Value(std::move(checks)));
+    return Value(std::move(fields));
 }
 void PublisherRequestChannel::reply(const std::string& response) {
     auto& state = *state_;

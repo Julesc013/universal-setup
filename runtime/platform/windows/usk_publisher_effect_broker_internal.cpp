@@ -90,12 +90,16 @@ Value groups(const std::vector<ObservedTokenGroup>& input) {
 }
 Value token(const PublisherTokenObservation& input) {
     // This field is deliberately about the observer, never remote threads.
-    return Value(Value::Object{{"user_sid", Value(input.process_user_sid)},
-        {"groups", groups(input.process_groups)}, {"restricted_sids", groups(input.process_restricted_sids)},
-        {"observing_thread_impersonating", Value(input.current_thread_impersonating)},
-        {"token_id", Value(input.identity.token_id)}, {"authentication_id", Value(input.identity.authentication_id)},
-        {"modified_id", Value(input.identity.modified_id)},
-        {"token_type", Value(static_cast<std::uint64_t>(input.identity.token_type))}});
+    Value::Object fields;
+    fields.emplace("user_sid", Value(input.process_user_sid));
+    fields.emplace("groups", groups(input.process_groups));
+    fields.emplace("restricted_sids", groups(input.process_restricted_sids));
+    fields.emplace("observing_thread_impersonating", Value(input.current_thread_impersonating));
+    fields.emplace("token_id", Value(input.identity.token_id));
+    fields.emplace("authentication_id", Value(input.identity.authentication_id));
+    fields.emplace("modified_id", Value(input.identity.modified_id));
+    fields.emplace("token_type", Value(static_cast<std::uint64_t>(input.identity.token_type)));
+    return Value(std::move(fields));
 }
 bool same_inherited_facts(const PublisherTokenObservation& parent, const PublisherTokenObservation& child) {
     return parent.process_user_sid == child.process_user_sid &&
@@ -106,12 +110,15 @@ bool same_inherited_facts(const PublisherTokenObservation& parent, const Publish
         same(groups(parent.process_restricted_sids), groups(child.process_restricted_sids));
 }
 Value service(const PublisherServiceObservation& input) {
-    return Value(Value::Object{{"service_name", Value(std::filesystem::path(input.service_name).u8string())},
-        {"service_sid", Value(input.service_sid)},
-        {"service_sid_type", Value(static_cast<std::uint64_t>(input.service_sid_type))},
-        {"service_type", Value(static_cast<std::uint64_t>(input.service_type))},
-        {"service_state", Value(static_cast<std::uint64_t>(input.service_state))},
-        {"process_id", Value(static_cast<std::uint64_t>(input.process_id))}, {"primary_token", token(input.token)}});
+    Value::Object fields;
+    fields.emplace("service_name", Value(std::filesystem::path(input.service_name).u8string()));
+    fields.emplace("service_sid", Value(input.service_sid));
+    fields.emplace("service_sid_type", Value(static_cast<std::uint64_t>(input.service_sid_type)));
+    fields.emplace("service_type", Value(static_cast<std::uint64_t>(input.service_type)));
+    fields.emplace("service_state", Value(static_cast<std::uint64_t>(input.service_state)));
+    fields.emplace("process_id", Value(static_cast<std::uint64_t>(input.process_id)));
+    fields.emplace("primary_token", token(input.token));
+    return Value(std::move(fields));
 }
 Value object(HANDLE handle) {
     FILE_ATTRIBUTE_TAG_INFO attributes{};
@@ -1456,8 +1463,11 @@ void PublisherEffectWorkerReadback::retain_selection_bracket(const SelectionObse
 }
 namespace {
 Value worker_context(const PublisherWorkerTokenContext& worker) {
-    return Value(Value::Object{{"process_id", Value(static_cast<std::uint64_t>(worker.process_id))},
-        {"service_sid", Value(worker.service_sid)}, {"primary_token", token(worker.token)}});
+    Value::Object fields;
+    fields.emplace("process_id", Value(static_cast<std::uint64_t>(worker.process_id)));
+    fields.emplace("service_sid", Value(worker.service_sid));
+    fields.emplace("primary_token", token(worker.token));
+    return Value(std::move(fields));
 }
 }
 struct PublisherEffectWorkerNativeSecurity::State {
