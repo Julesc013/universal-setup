@@ -1335,15 +1335,18 @@ struct NativeMaintenanceContext::Impl {
         if (!original_child) { require_authority(supplied); require_entry(entry); return; }
         require_authority(supplied, nullptr, &entry);
     }
-    void require_authority(const transaction::TransactionSpec& supplied,
-        const Entry* leading_entry = nullptr, const Entry* trailing_entry = nullptr) const {
-        if ((leading_entry || trailing_entry) && !original_child)
-            throw std::runtime_error("native maintenance entry composition lacks its original child");
+    void require_same_transaction(const transaction::TransactionSpec& supplied) const {
         if (supplied.transaction_id != spec.transaction_id || supplied.plan_id != spec.plan_id || supplied.plan_digest != spec.plan_digest ||
             supplied.operation != spec.operation || normalized(supplied.staging_parent) != normalized(spec.staging_parent) ||
             normalized(supplied.target_root) != normalized(spec.target_root) || normalized(supplied.state_root) != normalized(spec.state_root) ||
             normalized(supplied.audit_root) != normalized(spec.audit_root) || supplied.required_commit_authority != spec.required_commit_authority)
             throw std::runtime_error("native maintenance callback received a different transaction");
+    }
+    void require_authority(const transaction::TransactionSpec& supplied,
+        const Entry* leading_entry = nullptr, const Entry* trailing_entry = nullptr) const {
+        if ((leading_entry || trailing_entry) && !original_child)
+            throw std::runtime_error("native maintenance entry composition lacks its original child");
+        require_same_transaction(supplied);
         if (GetCurrentProcessId() != worker_context.process_id || (cancel_event && WaitForSingleObject(cancel_event, 0) != WAIT_TIMEOUT))
             throw std::runtime_error("native maintenance worker stopped or changed");
         guard.require_owned(volume_root, original_context.record().at("install_id").as_string());
@@ -1581,6 +1584,15 @@ struct NativeMaintenanceContext::Impl {
         installed_issue_active = true; // Last step before the writer's actual native call.
     }
     void metadata_confirm(const fs::path& path, const std::string& text, HANDLE file) {
+        const auto normalized_path = normalized(path);
+        if (normalized_path.parent_path() != installed_record_path.parent_path()) {
+            // Only ownership and audit publications have later creator custody
+            // here. Other protected writes retain their actual native effect
+            // fences and final alias check; this callback has no work for them.
+            if (active_payload_history.empty() ||
+                (normalized_path.parent_path() != normalized(spec.state_root / "ownership") &&
+                 normalized_path.parent_path().parent_path() != normalized(spec.audit_root / "chains"))) return;
+        }
         require_authority(spec);
         if (normalized(path).parent_path() != installed_record_path.parent_path()) {
             if (active_payload_history.empty()) return;
@@ -2348,7 +2360,10 @@ struct NativeMaintenanceContext::Impl {
     }
     transaction::detail::NativeMaintenanceTransactionOperations::EffectResult apply_effect(const transaction::TransactionSpec& supplied,
         const transaction::MaintenanceEffectInspection& inspected) {
-        require_authority(supplied);
+        // require_pending performs a fresh full authority check immediately on
+        // entry and again before returning. Bind the supplied spec first; no
+        // effect or saved authority observation intervenes between these calls.
+        require_same_transaction(supplied);
         const auto history = require_pending(inspected.pending_kind);
         if (history.journal_digest != inspected.journal_digest || history.source_context != inspected.source_context ||
             history.pending_sequence != inspected.pending_sequence || !equal(history.pending_details, inspected.pending_details) ||
@@ -2440,7 +2455,7 @@ struct NativeMaintenanceContext::Impl {
     void confirm_effect_completion(const transaction::TransactionSpec& supplied,
         const transaction::MaintenanceEffectInspection& inspected, const std::string& outcome,
         const std::string& result_digest, bool complete_grants = true) {
-        require_authority(supplied);
+        require_same_transaction(supplied); // The following require_pending encloses the full fresh checks.
         const auto current = require_pending(inspected.pending_kind);
         const auto tx = transaction::TransactionSession::inspect_recovery(spec);
         if (current.pending_kind == "publish_target") {
