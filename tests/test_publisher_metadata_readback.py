@@ -182,8 +182,9 @@ $holder=[IO.File]::Open($file,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,
  ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
 try {
  $facts=[UskMetadataFacts]::ReadClosure($file)
+ foreach($observedPath in @($file,($file.Substring(0,1).ToLowerInvariant()+$file.Substring(1)))) {
  foreach($optedIn in @($false,$true)) {
-  $p=Get-Item -LiteralPath $file
+  $p=Get-Item -LiteralPath $observedPath
   $row=[ordered]@{file_id=[string]$facts[0];sha256=$facts[6];bytes=[long]$facts[7];content_json=$null}
   $contentReadFailures=[Collections.Generic.List[object]]::new()
   $failedContentBinding=if($optedIn){@{qualification_granted=$false}}else{$null}
@@ -192,13 +193,18 @@ try {
   if($optedIn) {
    if($caught -or $contentReadFailures.Count -ne 1 -or $row.content_json -ne $null -or
     $row.content_read_failure.field -cne 'content_json' -or $row.content_read_failure.status -cne 'unreadable' -or
-    $row.content_read_failure.win32_error -ne 32 -or $row.content_read_failure.path -cne $file -or
+    $row.content_read_failure.win32_error -ne 32 -or $row.content_read_failure.path -cne $p.FullName -or
     $row.file_id -cne [string]$facts[0] -or $row.sha256 -cne $facts[6] -or $row.bytes -ne $facts[7]) {
-    throw 'Sharing diagnostic lost actual native facts or manufactured content'
+    $details=[ordered]@{caught=$(if($caught){$caught.Exception.Message}else{$null});
+     failure_count=$contentReadFailures.Count;input_path=$observedPath;actual_path=$p.FullName;
+     row=$row;native_file_id=[string]$facts[0];native_sha256=$facts[6];native_bytes=[long]$facts[7]}
+    throw ('Sharing diagnostic lost actual native facts or manufactured content; '+
+     ($details|ConvertTo-Json -Depth 4 -Compress))
    }
   } elseif(-not $caught -or $contentReadFailures.Count -ne 0 -or $row.Contains('content_read_failure')) {
    throw 'Ordinary content read no longer refuses sharing'
   }
+ }
  }
 } finally {$holder.Dispose()}
 $failedContentBinding=@{qualification_granted=$false};$contentReadFailures=[Collections.Generic.List[object]]::new()
