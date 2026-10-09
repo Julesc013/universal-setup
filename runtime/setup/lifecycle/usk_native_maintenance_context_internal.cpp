@@ -169,6 +169,26 @@ struct NativeMaintenanceContext::Impl {
         std::uint64_t size = 0;
         std::string sha256, stream_identity;
     };
+    // Only this owner can construct the synchronous, read-only authority
+    // composition. Descriptor-only roles never become byte-read records.
+    class AuthorityRecordRead final : public NativeMaintenanceRecordByteRead {
+    private:
+        friend struct Impl;
+        AuthorityRecordRead(const Impl&, const std::vector<const Entry*>&,
+            const std::optional<PublisherHandleObservation>&);
+        ~AuthorityRecordRead() override;
+        bool eligible() const;
+        bool owns_round(const Impl&, const std::vector<const Entry*>&,
+            PublisherEffectRecordByteRound*, const PublisherHandleObservation*) const;
+        void prepare() override;
+        const Value& ledger() const override;
+        void run_round(PublisherEffectRecordByteRound&) override;
+        void read_original_bytes() override;
+        void finalize(const Value&) override;
+        void query_chunk(PublisherEffectRecordByteRound&, const std::vector<HANDLE>&) override;
+        struct State;
+        std::unique_ptr<State> state_;
+    };
     HANDLE volume;
     const std::wstring volume_root, service_name;
     const PublisherInstallOperationGuard& guard;
@@ -1125,12 +1145,17 @@ struct NativeMaintenanceContext::Impl {
         const std::string& failure_context = {}, NativeMaintenanceRecordByteRead* record_read = nullptr,
         PublisherEffectRecordByteRound* record_round = nullptr,
         const PublisherHandleObservation* leading_installed_custody = nullptr) const {
-        if (leading_installed_custody && (!original_child || !leading_volume_access || !selected_check ||
-                creation || record_read || record_round || !installed_postimage_file ||
+        const auto* authority_read = dynamic_cast<const AuthorityRecordRead*>(record_read);
+        if (authority_read && (!leading_volume_access || selected_check || creation ||
+                !authority_read->owns_round(*this, entries, record_round, leading_installed_custody)))
+            throw std::runtime_error("native maintenance authority record group lacks its sealed original round");
+        if (leading_installed_custody && (!original_child || !leading_volume_access ||
+                (!selected_check && !authority_read) || creation ||
+                ((record_read || record_round) && !authority_read) || !installed_postimage_file ||
                 installed_postimage_file->handle.value == INVALID_HANDLE_VALUE))
             throw std::runtime_error("native maintenance installed custody composition lacks its original read-only fence");
         if ((record_read == nullptr) != (record_round == nullptr) ||
-            (record_read && (selected_check || leading_volume_access || creation)))
+            (record_read && (selected_check || creation || (leading_volume_access && !authority_read))))
             throw std::runtime_error("native maintenance record bracket has another entry role");
         if (selected_check && (!original_child || !leading_volume_access || creation))
             throw std::runtime_error("native maintenance selected access composition lacks its original read-only fence");
@@ -1385,7 +1410,10 @@ struct NativeMaintenanceContext::Impl {
             !equal(ownership.at("state_root_identity"), snapshot.at("state_root_identity")))
             throw transaction::InstallLeaseStale();
         if (restored_owner) lease.require_recovery_lineage(original_lease_ownership);
-        require_observer_bytes(restoration_record_observers);
+        // The child can complete the fixed original bytes and adjacent native
+        // authority roles in one sealed scope below. SCM keeps its original
+        // path. All predicates still complete before this fence returns.
+        if (!original_child) require_observer_bytes(restoration_record_observers);
         if (removed_original_root_parent) {
             require_entry(*removed_original_root_parent);
             if (child(removed_original_root_parent->handle.value, removed_original_root_name))
@@ -1415,9 +1443,8 @@ struct NativeMaintenanceContext::Impl {
         };
         SelectedFenceCheck selected_check;
         if (original_child) {
-            // Consume a producer-only completed selection with the first
-            // read-only access chunk below. All predicates finish in this
-            // fence before any effect; no tuple is saved for a later fence.
+            // Consume only an actual producer-owned completed selection in
+            // this fence; no selected tuple survives it or spans an effect.
             selected_check = [&](const PublisherEffectSelectedSecurityObservation& observed) {
                 const auto& current_broker = observed.broker();
                 const auto& selected = observed.selection();
@@ -1475,8 +1502,26 @@ struct NativeMaintenanceContext::Impl {
         if (staging_parent) parents.push_back(staging_parent);
         if (target_parent) parents.push_back(target_parent);
         if (trailing_entry) parents.push_back(trailing_entry);
-        require_entries(parents, original_child != nullptr, selected_check, restored_owner ?
-            PublisherEffectSelectionKind::original_maintenance_recovery : PublisherEffectSelectionKind::reviewed_operation,
+        const auto selected_kind = restored_owner ? PublisherEffectSelectionKind::original_maintenance_recovery :
+            PublisherEffectSelectionKind::reviewed_operation;
+        if (original_child && !restoration_record_observers.empty()) {
+            try {
+                AuthorityRecordRead read(*this, parents, installed_custody);
+                if (read.eligible()) {
+                    // Selection is fresh and separate. The same complete
+                    // creator/volume/record/parent ledger then receives BOTH
+                    // native access rounds around ONLY the fixed record bytes.
+                    selected_check(original_child->observe_selected_security(selected_kind, failure_context));
+                    original_child->verify_original_maintenance_record_bytes(read);
+                    return;
+                }
+                // Bounds are decided before any wire begin/marker. Keep the
+                // original separate record reader and tail for larger ledgers;
+                // a begun/failed scope can never fall back or be replayed.
+                require_observer_bytes(restoration_record_observers);
+            } catch (...) { entry_readback_failed = true; throw; }
+        }
+        require_entries(parents, original_child != nullptr, selected_check, selected_kind,
             failure_context, installed_custody ? &*installed_custody : nullptr);
     }
     void require_installed_custody_identity(const PublisherHandleObservation& observed) const {
@@ -2778,6 +2823,199 @@ struct NativeMaintenanceContext::Impl {
         } catch (...) { custody_failed = true; throw; }
     }
 };
+struct NativeMaintenanceContext::Impl::AuthorityRecordRead::State {
+    const Impl& owner;
+    PublisherEffectExecutionOwner* const child;
+    const DWORD process = GetCurrentProcessId(), thread = GetCurrentThreadId();
+    const HANDLE volume;
+    const PublisherHandleObservation volume_facts;
+    const bool restored_owner, installed_issue_active, installed_confirmed;
+    const Entry* const creator;
+    const std::optional<PublisherHandleObservation> creator_observation;
+    const PublisherHandleObservation published_facts;
+    std::vector<const Entry*> records, entries;
+    struct Frozen {
+        const Entry* entry;
+        HANDLE handle;
+        const Entry* parent;
+        std::wstring name;
+        PublisherHandleObservation facts;
+        bool directory, created, restored_creation, complete, reopened_observer;
+        std::uint64_t size;
+        std::string sha256, stream_identity;
+    };
+    std::vector<Frozen> frozen;
+    std::vector<PublisherHandleObservation> ordered;
+    Value ledger_value;
+    unsigned completed_rounds = 0;
+    bool eligible = false, prepared = false, bytes_checked = false, finalized = false;
+    PublisherEffectRecordByteRound* active_round = nullptr;
+    State(const Impl& value, const std::vector<const Entry*>& tail,
+        const std::optional<PublisherHandleObservation>& observed)
+        : owner(value), child(value.original_child), volume(value.volume), volume_facts(value.volume_facts),
+          restored_owner(value.restored_owner), installed_issue_active(value.installed_issue_active),
+          installed_confirmed(value.installed_confirmed), creator(value.installed_postimage_file.get()),
+          creator_observation(observed), published_facts(value.installed_record_facts) {
+        if (!child || owner.entry_readback_failed || owner.restoration_record_observers.empty())
+            throw std::runtime_error("native maintenance authority record scope lacks its original records");
+        if (creator_observation && (!creator || creator->handle.value == INVALID_HANDLE_VALUE))
+            throw std::runtime_error("native maintenance authority record creator is unavailable");
+        // Preflight only freezes original typed expectations and counts the
+        // COMPLETE ledger. Exceeding a bound chooses the separate route before
+        // any native readback begin. No caught native failure is ineligibility.
+        Value::Array ledger;
+        std::size_t ledger_bytes = 0;
+        const auto append = [&](const PublisherHandleObservation& facts) {
+            if (ordered.size() == publisher_record_byte_occurrence_limit) return false;
+            auto object = publisher_handle_observation_json(facts);
+            const auto bytes = json::canonical(object).size();
+            constexpr std::size_t limit = 1024u * 1024u;
+            if (bytes + 1u > limit - ledger_bytes) return false;
+            ledger_bytes += bytes + 1u;
+            ordered.push_back(facts);
+            ledger.push_back(std::move(object));
+            return true;
+        };
+        const auto freeze = [&](const Entry& entry) {
+            frozen.push_back(Frozen{&entry, entry.handle.value, entry.parent, entry.name, entry.facts,
+                entry.directory, entry.created, entry.restored_creation, entry.complete, entry.reopened_observer,
+                entry.size, entry.sha256, entry.stream_identity});
+        };
+        if (creator_observation) {
+            freeze(*creator);
+            if (!append(*creator_observation)) return;
+        }
+        if (!append(volume_facts)) return;
+        const auto collect = [&](const auto& self, const Entry& entry, std::size_t depth, bool original_record) -> bool {
+            if (depth == 64u) {
+                // Preserve the original byte reader's strict ancestry limit.
+                // A descriptor-only tail this deep cannot fit the combined
+                // ledger; its existing separate authority route still applies.
+                if (original_record)
+                    throw std::runtime_error("native maintenance authority record ancestry exceeds its bound");
+                return false;
+            }
+            freeze(entry);
+            if (!append(entry.facts)) return false; // Held leaf-to-root occurrence.
+            if (entry.parent && !self(self, *entry.parent, depth + 1u, original_record)) return false;
+            return append(entry.facts); // Independent root-to-leaf occurrence.
+        };
+        for (const auto& record : owner.restoration_record_observers) {
+            records.push_back(record.get());
+            entries.push_back(record.get());
+            if (!collect(collect, *record, 0u, true)) return;
+        }
+        for (const auto* entry : tail) {
+            if (!entry) throw std::runtime_error("native maintenance authority record tail is absent");
+            entries.push_back(entry);
+            if (!collect(collect, *entry, 0u, false)) return;
+        }
+        ledger_value = Value(std::move(ledger));
+        eligible = true;
+        require_frozen();
+    }
+    void require_frozen() const {
+        if (!eligible || owner.entry_readback_failed || owner.original_child != child ||
+            GetCurrentProcessId() != process || GetCurrentThreadId() != thread ||
+            owner.volume != volume || !same(owner.volume_facts, volume_facts) ||
+            owner.restored_owner != restored_owner || owner.installed_issue_active != installed_issue_active ||
+            owner.installed_confirmed != installed_confirmed || owner.installed_postimage_file.get() != creator ||
+            !same(owner.installed_record_facts, published_facts) || records.size() != owner.restoration_record_observers.size())
+            throw std::runtime_error("native maintenance authority record owner/roles changed");
+        for (std::size_t index = 0; index < records.size(); ++index)
+            if (records[index] != owner.restoration_record_observers[index].get())
+                throw std::runtime_error("native maintenance authority record order changed");
+        for (const auto& item : frozen) {
+            const auto& entry = *item.entry;
+            if (entry.handle.value != item.handle || entry.parent != item.parent || entry.name != item.name ||
+                !same(entry.facts, item.facts) || entry.directory != item.directory || entry.created != item.created ||
+                entry.restored_creation != item.restored_creation || entry.complete != item.complete ||
+                entry.reopened_observer != item.reopened_observer || entry.size != item.size ||
+                entry.sha256 != item.sha256 || entry.stream_identity != item.stream_identity)
+                throw std::runtime_error("native maintenance authority record expectation changed");
+        }
+    }
+};
+NativeMaintenanceContext::Impl::AuthorityRecordRead::AuthorityRecordRead(const Impl& owner,
+    const std::vector<const Entry*>& tail, const std::optional<PublisherHandleObservation>& creator)
+    : state_(std::make_unique<State>(owner, tail, creator)) {}
+NativeMaintenanceContext::Impl::AuthorityRecordRead::~AuthorityRecordRead() = default;
+bool NativeMaintenanceContext::Impl::AuthorityRecordRead::eligible() const { return state_->eligible; }
+bool NativeMaintenanceContext::Impl::AuthorityRecordRead::owns_round(const Impl& owner,
+    const std::vector<const Entry*>& entries, PublisherEffectRecordByteRound* round,
+    const PublisherHandleObservation* creator) const {
+    const auto& s = *state_;
+    s.require_frozen();
+    return &owner == &s.owner && round && round == s.active_round && entries == s.entries &&
+        creator == (s.creator_observation ? &*s.creator_observation : nullptr);
+}
+void NativeMaintenanceContext::Impl::AuthorityRecordRead::prepare() {
+    auto& s = *state_;
+    s.require_frozen();
+    if (s.prepared) throw std::runtime_error("native maintenance authority record scope is already prepared");
+    s.prepared = true;
+}
+const Value& NativeMaintenanceContext::Impl::AuthorityRecordRead::ledger() const {
+    state_->require_frozen();
+    if (!state_->prepared) throw std::runtime_error("native maintenance authority record ledger is not prepared");
+    return state_->ledger_value;
+}
+void NativeMaintenanceContext::Impl::AuthorityRecordRead::query_chunk(PublisherEffectRecordByteRound& round,
+    const std::vector<HANDLE>& handles) {
+    auto& s = *state_;
+    s.require_frozen();
+    if (s.active_round != &round) throw std::runtime_error("native maintenance authority record query lacks its original round");
+    observe_chunk(round, handles);
+}
+void NativeMaintenanceContext::Impl::AuthorityRecordRead::run_round(PublisherEffectRecordByteRound& round) {
+    auto& s = *state_;
+    s.require_frozen();
+    if (!s.prepared || s.active_round || s.completed_rounds >= 2u || s.finalized ||
+        (s.completed_rounds == 1u) != s.bytes_checked)
+        throw std::runtime_error("native maintenance authority record round order differs");
+    s.active_round = &round;
+    try {
+        s.owner.require_entry_batch(s.entries, nullptr, true, {}, PublisherEffectSelectionKind::reviewed_operation,
+            {}, this, &round, s.creator_observation ? &*s.creator_observation : nullptr);
+        s.active_round = nullptr;
+        s.require_frozen();
+        ++s.completed_rounds;
+    } catch (...) { s.active_round = nullptr; s.owner.entry_readback_failed = true; throw; }
+}
+void NativeMaintenanceContext::Impl::AuthorityRecordRead::read_original_bytes() {
+    auto& s = *state_;
+    s.require_frozen();
+    if (!s.prepared || s.active_round || s.completed_rounds != 1u || s.bytes_checked || s.finalized)
+        throw std::runtime_error("native maintenance authority record read lacks its complete first round");
+    // Exact original same-held byte iteration only. Descriptor-only authority
+    // roles never enter this vector or invoke authority/readback/effect code.
+    for (const auto* record : s.records) s.owner.require_byte_content(*record);
+    s.require_frozen();
+    s.bytes_checked = true;
+}
+void NativeMaintenanceContext::Impl::AuthorityRecordRead::finalize(const Value& raw_results) {
+    auto& s = *state_;
+    s.require_frozen();
+    if (s.active_round || s.completed_rounds != 2u || !s.bytes_checked || s.finalized ||
+        raw_results.as_array().size() != 2u * s.ordered.size())
+        throw std::runtime_error("native maintenance authority record final proof is incomplete");
+    for (std::size_t index = 0; index < raw_results.as_array().size(); ++index)
+        s.owner.require_client_read_only_access(raw_results.as_array()[index], s.ordered[index % s.ordered.size()]);
+    // Entire native group is joined AFTER all global/wire/owner results. Every
+    // entry gets actual fresh listing/reopens with positively checked closure.
+    s.owner.recheck_entries(s.entries);
+    if (!same(observe_publisher_directory_handle(s.volume), s.volume_facts))
+        throw std::runtime_error("native maintenance authority record held volume changed at completion");
+    if (s.creator_observation) {
+        const auto observed = s.owner.native_facts(s.creator->handle.value, false);
+        if (!same(observed, *s.creator_observation))
+            throw std::runtime_error("native maintenance authority record creator changed at completion");
+        s.owner.require_installed_custody_identity(observed);
+    }
+    s.require_frozen();
+    s.finalized = true;
+}
+
 struct NativeMaintenanceContext::RecordByteRead::State {
     using Impl = NativeMaintenanceContext::Impl;
     using Entry = Impl::Entry;
