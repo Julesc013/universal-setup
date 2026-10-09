@@ -23,6 +23,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstring>
+#include <exception>
 #include <optional>
 #include <stdexcept>
 #include <utility>
@@ -215,15 +216,38 @@ struct PublisherMetadataSession::Impl {
         scope = std::make_unique<record_io::ScopedRecordWriteOperations>(operations);
     }
 
-    void require_alias_mapping() const {
-        if (public_alias.empty()) return;
-        require_active_publisher_effect_fence();
+    void observe_alias_mapping() const {
         const std::wstring drive = public_alias.root_name().wstring() + L"\\";
         wchar_t mapped[128]{};
         if (drive.size() != 3 || drive[1] != L':' ||
             !GetVolumeNameForVolumeMountPointW(drive.c_str(), mapped, static_cast<DWORD>(std::size(mapped))) ||
             CompareStringOrdinal(mapped, -1, volume_path.c_str(), -1, TRUE) != CSTR_EQUAL)
             throw std::runtime_error("metadata public alias lost its held volume mapping");
+    }
+    void require_alias_mapping() const {
+        if (public_alias.empty()) return;
+        require_active_publisher_effect_fence();
+        observe_alias_mapping();
+    }
+    void require_alias_mapping_and_effect_fence() const {
+        if (!public_alias.empty()) {
+            // The candidate is only a native volume-name query. It grants no
+            // authority and cannot issue a write, close or publication. The
+            // full original fence must complete AFTER it, before the caller
+            // advances. Do not claim the former separate earlier sampling
+            // instant or carry this result across another native effect.
+            if (!effect_fence)
+                throw std::runtime_error("publisher native maintenance effect fence unavailable");
+            try { observe_alias_mapping(); }
+            catch (...) {
+                const auto original = std::current_exception();
+                // Preserve the original fence refusal precedence even when
+                // the read-only candidate itself is invalid or unavailable.
+                require_active_publisher_effect_fence();
+                std::rethrow_exception(original);
+            }
+        }
+        require_active_publisher_effect_fence();
     }
     std::vector<OwnedHandle> parents(const fs::path& parent) {
         if (!root) throw std::runtime_error("protected metadata root has not been created");
@@ -389,8 +413,7 @@ struct PublisherMetadataSession::Impl {
         PublisherRenameInformation information(parent, name);
         static_cast<FILE_RENAME_INFO*>(information.data())->ReplaceIfExists = first ? FALSE : TRUE;
         IO_STATUS_BLOCK io{};
-        require_alias_mapping();
-        require_active_publisher_effect_fence();
+        require_alias_mapping_and_effect_fence();
         // Classic FileRenameInformation cannot replace an open target data
         // stream. Release this verified predecessor exactly once under the
         // retained protected parent and original single-owner operation fence.
@@ -405,8 +428,7 @@ struct PublisherMetadataSession::Impl {
         if (json::canonical(publisher_handle_observation_json(observe_publisher_directory_handle(parent))) !=
             json::canonical(publisher_handle_observation_json(parent_before)))
             throw std::runtime_error("protected journal parent changed after predecessor release");
-        require_alias_mapping();
-        require_active_publisher_effect_fence();
+        require_alias_mapping_and_effect_fence();
         journal_publication_unconfirmed = true;
         const auto status = rename(file.get(), &io, information.data(), information.size(),
             static_cast<FILE_INFORMATION_CLASS>(10));
@@ -427,8 +449,7 @@ struct PublisherMetadataSession::Impl {
                 json::canonical(publisher_handle_observation_json(parent_before)))
             throw PublisherRenameUnconfirmed("protected journal actual publication postimage differs");
         if (!FlushFileBuffers(file.get())) throw PublisherRenameUnconfirmed("protected journal published flush unconfirmed");
-        require_alias_mapping();
-        require_active_publisher_effect_fence();
+        require_alias_mapping_and_effect_fence();
         journal_publication_unconfirmed = false;
     }
 

@@ -2646,10 +2646,20 @@ struct NativeMaintenanceContext::Impl {
         select(files); select(original_files); select(verification_files);
         if (!selected || selected->directory || (selected->created && !selected->complete))
             throw std::runtime_error("native maintenance file observation is outside its retained completed files");
-        require_bytes(*selected);
+        if (original_child) {
+            require_entry(*selected);
+            require_byte_content(*selected);
+        } else require_bytes(*selected);
         transaction::detail::NativeMaintenanceFileObservation result{
             journal_identity(selected->handle.value), selected->sha256, selected->size};
-        require_authority(spec);
+        // The original child's post-byte entry and adjacent authority checks
+        // complete in the existing sealed read-only group. Its full fresh
+        // endpoints, ordered raw9 checks, ancestry joins and observer closures
+        // all finish before returning the file result. No effect or retained
+        // authority tuple spans this group; the former separate post-entry
+        // sampling instant is unclaimed. Keep SCM's original path unchanged.
+        if (original_child) require_entry_then_authority(spec, *selected);
+        else require_authority(spec);
         return result;
     }
     transaction::CommitClosureObservation observe_created_closure(const transaction::TransactionSpec& s,
