@@ -114,6 +114,11 @@ private:
     // for its native waits. It cannot modify, duplicate or serialize the event.
     friend class usk::lifecycle::detail::NativeMaintenanceContext;
     friend class usk::lifecycle::detail::NativeMaintenanceRecordByteRead;
+    friend class PublisherEffectWorkerReadback;
+    void require_authority_record_selection(
+        usk::lifecycle::detail::NativeMaintenanceRecordByteRead&,
+        const usk::json::Value& profile, const usk::json::Value& selection,
+        const usk::json::Value& native);
     void verify_original_maintenance_record_bytes(
         usk::lifecycle::detail::NativeMaintenanceRecordByteRead&);
     HANDLE cancellation_observer() const;

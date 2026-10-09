@@ -24,6 +24,7 @@ enum class PublisherEffectSelectionKind {
 class RegisteredPublisherAdmission;
 class PublisherRequestChannel;
 class PublisherEffectBrokerReadback;
+class PublisherEffectExecutionOwner;
 // Closed retained-record parsing only. These functions do not authenticate
 // transport, corroborate live SCM, activate a scope or grant effect authority.
 void require_publisher_effect_broker_readback_record(const usk::json::Value&);
@@ -145,6 +146,10 @@ inline constexpr std::size_t publisher_record_byte_proof_bytes_limit = 32u * 102
 // The marker/data validator cannot construct a scope or install a native route.
 void require_publisher_effect_record_byte_phase(const usk::json::Value&,
     const usk::json::Value& scope, const std::string& phase);
+// Closed retained-data joins only: no native owner, reader, route or grant.
+void require_publisher_effect_authority_record_readback(const usk::json::Value& ready,
+    const usk::json::Value& final, const usk::json::Value& scope,
+    const usk::json::Value& actual_request);
 void require_publisher_maintenance_read_only_access(usk::json::Value,
     const usk::json::Value& client, const usk::json::Value& native_object);
 class PublisherEffectRecordByteRound final {
@@ -195,6 +200,15 @@ private:
     ObjectAccessObservation original_maintenance_record_bytes_bracket(
         usk::lifecycle::detail::NativeMaintenanceRecordByteRead&, DWORD,
         const std::function<void()>& after_queries_closed);
+    struct RecordByteObservation {
+        ObjectAccessObservation objects;
+        std::optional<usk::json::Value> selection;
+    };
+    RecordByteObservation maintenance_record_bytes_bracket(
+        usk::lifecycle::detail::NativeMaintenanceRecordByteRead&, DWORD,
+        const std::function<void()>& after_queries_closed,
+        PublisherEffectExecutionOwner* authority_owner,
+        const usk::json::Value* authority_native_before);
     struct AdmissionObservation {
         usk::json::Value before;
         usk::json::Value after;
@@ -211,6 +225,10 @@ private:
         SelectionObservation selected;
         usk::json::Value access;
     };
+    SelectedObjectAccessObservation authority_maintenance_record_bytes_bracket(
+        usk::lifecycle::detail::NativeMaintenanceRecordByteRead&, DWORD,
+        PublisherEffectExecutionOwner&, const usk::json::Value& native_before,
+        const std::function<void()>& after_queries_closed);
     SelectedObjectAccessObservation selected_object_access_batch_bracket(PublisherEffectSelectionKind,
         const std::vector<HANDLE>&, DWORD timeout = 120000,
         const std::function<void()>& after_queries_closed = {});
@@ -278,6 +296,14 @@ private:
     NativeMaintenanceRecordByteRead() = default;
     NativeMaintenanceRecordByteRead(const NativeMaintenanceRecordByteRead&) = delete;
     NativeMaintenanceRecordByteRead& operator=(const NativeMaintenanceRecordByteRead&) = delete;
+    // Only the sealed concrete authority reader overrides these fixed hooks.
+    // A provisional BEFORE is validation data, never a completed observation.
+    virtual std::optional<usk::platform::windows::PublisherEffectSelectionKind> authority_selection_kind() const {
+        return std::nullopt;
+    }
+    virtual std::string authority_failure_context() const { return {}; }
+    virtual void require_authority_selection(const usk::json::Value&,
+        const usk::json::Value&, const usk::json::Value&);
     virtual void prepare() = 0;
     virtual const usk::json::Value& ledger() const = 0;
     virtual void run_round(usk::platform::windows::PublisherEffectRecordByteRound&) = 0;

@@ -296,6 +296,10 @@ foreach($variant in @('original','ordinary','damaged_identity','missing_native_p
             'move': lambda v: v['failure'].update(command='move.apply'),
             'qualifying': lambda v: v['failure'].update(qualification_granted=True),
             'unclosed': lambda v: v['readback']['independent'].update(observer_token_handles_closed=False),
+            'incomplete schema': lambda v: v['readback']['independent'].update(
+                schema='usk.publisher.metadata_incomplete_failed_request_diagnostic.v1'),
+            'unreadable content': lambda v: backup(v).update(content_read_failure={'field': 'content_json'}),
+            'incomplete failures': lambda v: v['readback']['independent'].update(content_read_failures=[]),
             'birth': lambda v: v['capture'].update(creation_file_time='134360233619370105'),
             'wrong consumer': lambda v: v.update(consumer_sid='S-1-5-21-1-2-3-4'),
             'directory': lambda v: backup(v).update(directory=True),

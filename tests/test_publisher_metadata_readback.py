@@ -88,6 +88,141 @@ foreach($variant in @('ordinary','original_failure','copied_failure','changed_ca
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stdout.decode(errors="replace"))
 
+    def test_incomplete_original_failure_rows_remain_separate_and_refused(self):
+        # Actual reader control flow, inert diagnostic data; no native authority.
+        root = Path(__file__).resolve().parents[1]
+        code = r"""$ErrorActionPreference='Stop'
+$t=$null;$e=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($env:USK_READER_SOURCE,[ref]$t,[ref]$e)
+if($e){throw 'Reader parse differs'}
+$definition=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+ $n.Name -ceq 'Read-NativeSnapshot'},$true))
+if($definition.Count -ne 1){throw 'Reader ambiguous'}
+. ([scriptblock]::Create($definition[0].Extent.Text))
+$MaintenanceQualification=$true;$drive='E:\';$lab='inert';$ownerCreation='134360177507798014'
+$accountSid='S-1-5-21-1-2-3-4';$sid='S-1-5-80-1-2-3-4-5';$clientCaptureFile='inert'
+$clientCaptureSha256='a'*64;$VolumeRoot='inert';$disk=@{Number=1}
+$script:invocations=0;$script:policyInvocations=0
+function Assert-IndependentProtectedRows {$script:policyInvocations++;throw 'Incomplete rows reached policy'}
+function Invoke-IndependentMetadataReadback {
+ param($OriginalFailedRequestDiagnosticBinding)
+ $script:invocations++
+ if($supplied) {
+  $binding=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(
+   $OriginalFailedRequestDiagnosticBinding))|ConvertFrom-Json
+  if($binding.request_id -cne $failed.request_id -or $binding.command -cne $failed.command -or
+   $binding.client_process_id -ne $failed.client_process_id -or
+   $binding.client_creation_file_time -cne $failed.client_creation_file_time -or
+   $binding.account_sid -cne $accountSid -or $binding.client_capture_sha256 -cne $clientCaptureSha256 -or
+   $binding.qualification_granted -ne $false){throw 'Diagnostic opt-in lost original binding'}
+ }
+ return $script:observed
+}
+foreach($variant in @('original','ordinary','copied_failure','different_request','qualifying','unclosed')) {
+ $failed=[ordered]@{scope='original_failed_request_before_cleanup';qualification_granted=$false;
+  request_id=('public.'+('a'*32));command='repair.apply';client_process_id=123;
+  client_creation_file_time=$ownerCreation;readback=$null}
+ $receipt=@{request_execution_failure=$failed;client_captures=@(@{request_id=$failed.request_id;
+  command='repair.apply';process_id=123;creation_file_time=$ownerCreation;
+  captured_before_primary_thread_resume=$true;primary_token=@{user_sid=$accountSid}})}
+ $script:observed=[pscustomobject]@{observer_task_removed=$true;independent=[pscustomobject]@{
+  schema='usk.publisher.metadata_incomplete_failed_request_diagnostic.v1';identity='S-1-5-18';
+  observer_token_handles_closed=$true;status='incomplete';scope='original_failed_request_content_read_only';
+  original_request=[pscustomobject]@{request_id=$failed.request_id;command='repair.apply';client_process_id=123;
+   client_creation_file_time=$ownerCreation};rows=@(@{path='blocked.json';content_json=$null});
+  content_read_failures=@(@{field='content_json';status='unreadable'});
+  qualification_granted=$false;operation_completion_qualified=$false;native_restoration_qualified=$false;
+  whole_target_qualified=$false;authority_granted=$false}}
+ $supplied=$failed;$before=$script:invocations
+ switch($variant) {
+  'ordinary' {$supplied=$null}
+  'copied_failure' {$supplied=$failed|ConvertTo-Json|ConvertFrom-Json}
+  'different_request' {$script:observed.independent.original_request.request_id='public.'+('b'*32)}
+  'qualifying' {$script:observed.independent.qualification_granted=$true}
+  'unclosed' {$script:observed.independent.observer_token_handles_closed=$false}
+ }
+ $caught=$null
+ try {$ignored=Read-NativeSnapshot -OriginalFailedRequest $supplied} catch {$caught=$_.Exception.Message}
+ if(-not $caught -or $failed.readback -or $script:policyInvocations -ne 0 -or $failed.Contains('backup_role_diagnostic')) {
+  throw 'Incomplete data became an ordinary snapshot, policy input or backup provenance'
+ }
+ if($variant -ceq 'original') {
+  if(-not [object]::ReferenceEquals($failed.incomplete_readback_diagnostic,$script:observed) -or
+   -not $script:observersClosed -or $failed.qualification_granted -ne $false){throw 'Original incomplete rows lost'}
+ } elseif($failed.Contains('incomplete_readback_diagnostic')) {throw 'Unbound/unclosed diagnostic retained'}
+ if($variant -ceq 'copied_failure' -and $script:invocations -ne $before){throw 'Copied failure invoked observer'}
+}
+"""
+        for binary in ('powershell', 'pwsh'):
+            executable = shutil.which(binary)
+            self.assertIsNotNone(executable)
+            with self.subTest(binary=binary):
+                result = subprocess.run([executable, '-NoProfile', '-NonInteractive', '-EncodedCommand',
+                    base64.b64encode(code.encode('utf-16le')).decode()],
+                    env=dict(os.environ, USK_READER_SOURCE=str(root / 'tests/windows_publisher_standard_public_probe.ps1')),
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout.decode(errors='replace'))
+
+    def test_failed_content_diagnostic_catches_only_actual_sharing_and_retains_native_facts(self):
+        # Owned local file/handles and the actual ReadClosure/content code.
+        # This isolates I/O diagnostics; no machine/request authority is claimed.
+        root = Path(__file__).resolve().parents[1]
+        source = (root / 'tests/windows_publisher_metadata_readback.ps1').read_text(encoding='utf-8')
+        native = source.split(' Add-Type -TypeDefinition @"\n', 1)[1].split('"@', 1)[0]
+        code = r"""$ErrorActionPreference='Stop'
+Add-Type -TypeDefinition ([IO.File]::ReadAllText($env:USK_CONTENT_NATIVE))
+$source=[IO.File]::ReadAllText($env:USK_CONTENT_SOURCE)
+$start=$source.IndexOf("  if(-not `$p.PSIsContainer -and `$p.Extension -eq '.json') {",[StringComparison]::Ordinal)
+$end=$source.IndexOf('  if($effectiveRights) {',$start,[StringComparison]::Ordinal)
+if($start -lt 0 -or $end -le $start){throw 'Actual content-read block missing'}
+$content=[scriptblock]::Create($source.Substring($start,$end-$start))
+$file=Join-Path $env:USK_CONTENT_ROOT 'held.json'
+[IO.File]::WriteAllText($file,'{"owned":true}',[Text.UTF8Encoding]::new($false))
+$holder=[IO.File]::Open($file,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,
+ ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+try {
+ $facts=[UskMetadataFacts]::ReadClosure($file)
+ foreach($optedIn in @($false,$true)) {
+  $p=Get-Item -LiteralPath $file
+  $row=[ordered]@{file_id=[string]$facts[0];sha256=$facts[6];bytes=[long]$facts[7];content_json=$null}
+  $contentReadFailures=[Collections.Generic.List[object]]::new()
+  $failedContentBinding=if($optedIn){@{qualification_granted=$false}}else{$null}
+  $caught=$null
+  try {. $content} catch {$caught=$_}
+  if($optedIn) {
+   if($caught -or $contentReadFailures.Count -ne 1 -or $row.content_json -ne $null -or
+    $row.content_read_failure.field -cne 'content_json' -or $row.content_read_failure.status -cne 'unreadable' -or
+    $row.content_read_failure.win32_error -ne 32 -or $row.content_read_failure.path -cne $file -or
+    $row.file_id -cne [string]$facts[0] -or $row.sha256 -cne $facts[6] -or $row.bytes -ne $facts[7]) {
+    throw 'Sharing diagnostic lost actual native facts or manufactured content'
+   }
+  } elseif(-not $caught -or $contentReadFailures.Count -ne 0 -or $row.Contains('content_read_failure')) {
+   throw 'Ordinary content read no longer refuses sharing'
+  }
+ }
+} finally {$holder.Dispose()}
+$failedContentBinding=@{qualification_granted=$false};$contentReadFailures=[Collections.Generic.List[object]]::new()
+$row=@{content_json=$null};$p=Get-Item -LiteralPath $file
+. $content
+if($row.content_json -cne '{"owned":true}' -or $contentReadFailures.Count){throw 'Closed ordinary content changed'}
+[IO.File]::Delete($file)
+$caught=$null
+try {. $content} catch {$caught=$_}
+if(-not $caught -or $contentReadFailures.Count -ne 0){throw 'Nonsharing I/O failure was swallowed'}
+"""
+        for binary in ('powershell', 'pwsh'):
+            executable = shutil.which(binary)
+            self.assertIsNotNone(executable)
+            with self.subTest(binary=binary), tempfile.TemporaryDirectory(prefix='usk-sharing-control-') as temporary:
+                path = Path(temporary) / 'native.cs'
+                path.write_text(native, encoding='utf-8')
+                result = subprocess.run([executable, '-NoProfile', '-NonInteractive', '-EncodedCommand',
+                    base64.b64encode(code.encode('utf-16le')).decode()], env=dict(os.environ,
+                        USK_CONTENT_NATIVE=str(path), USK_CONTENT_ROOT=temporary,
+                        USK_CONTENT_SOURCE=str(root / 'tests/windows_publisher_metadata_readback.ps1')),
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=40)
+                self.assertEqual(result.returncode, 0, result.stdout.decode(errors='replace'))
+
     def test_observer_failure_keeps_child_error_when_task_status_query_fails(self):
         # Run only the owned failure serializer/formatter. No scheduled task,
         # native observation or token-close acknowledgement is manufactured.

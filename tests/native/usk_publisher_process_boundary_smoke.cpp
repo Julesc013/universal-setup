@@ -761,6 +761,64 @@ void effect_execution_record_controls() {
         another_scope = record_scope;
         another_scope.as_object().at("chunk_count") = Value(std::uint64_t{2});
         phase_refused(phase_packet(another_scope, "all_second_queries_closed"), another_scope, "all_second_queries_closed");
+        // Separate authority family binds exact provisional values to final
+        // values. These synthetic joins cannot manufacture the sealed reader.
+        const auto authority_controls = [&](const Value& profile, const Value& selected,
+            const Value& request, const std::string& kind) {
+            auto scope = record_scope;
+            scope.as_object().at("kind") = Value("original_maintenance_authority_record_bytes_bracket");
+            scope.as_object().emplace("selected_kind", Value(kind));
+            scope.as_object().emplace("request_sha256", Value(usk::json::sha256_canonical(request)));
+            const auto packet = [&](const std::string& phase) {
+                auto value = scope;
+                value.as_object().emplace("schema", Value("usk.publisher_effect_authority_record_byte_scope.v1"));
+                value.as_object().emplace("phase", Value(phase));
+                return value;
+            };
+            auto ready = packet("selection_ready"), final = packet("final");
+            ready.as_object().emplace("profile_before", profile);
+            ready.as_object().emplace("selection", selected);
+            final.as_object().emplace("profile_before", profile);
+            final.as_object().emplace("profile", profile);
+            final.as_object().emplace("selection_before", selected);
+            final.as_object().emplace("selection", selected);
+            require_publisher_effect_authority_record_readback(ready, final, scope, request);
+            const auto refused = [&](const Value& before, const Value& after, const Value& expected, const Value& actual) {
+                bool rejected = false;
+                try { require_publisher_effect_authority_record_readback(before, after, expected, actual); }
+                catch (...) { rejected = true; }
+                check(rejected, "authority record provisional/final substitution accepted");
+            };
+            refused(final, final, scope, request); // Final cannot serve as readiness.
+            refused(ready, ready, scope, request); // Ready cannot serve as completion.
+            for (const auto* field : {"scope_sequence", "occurrence_count", "chunk_count", "ledger_sha256",
+                "selected_kind", "request_sha256", "profile_before", "selection"}) {
+                auto changed = ready; changed.as_object().erase(field);
+                refused(changed, final, scope, request);
+            }
+            auto changed = final;
+            changed.as_object().at("profile_before").as_object().at("request_sha256") = Value(std::string(64u, 'f'));
+            refused(ready, changed, scope, request);
+            for (const auto* field : {"selection_before", "selection"}) {
+                changed = final;
+                changed.as_object().at(field).as_object().at("present") = Value(false);
+                refused(ready, changed, scope, request);
+            }
+            changed = final; changed.as_object().emplace("qualification_granted", Value(true));
+            refused(ready, changed, scope, request);
+            changed = scope; changed.as_object().at("selected_kind") = Value("original_installation_recovery_bracket");
+            refused(ready, final, changed, request);
+            changed = scope; changed.as_object().at("scope_sequence") = Value(std::uint64_t{2});
+            refused(ready, final, changed, request);
+            changed = scope; changed.as_object().at("ledger_sha256") = Value(std::string(64u, 'b'));
+            refused(ready, final, changed, request);
+            refused(ready, final, record_scope, request); // Legacy family cannot accept authority.
+            auto other_request = request; other_request.as_object().at("transaction_id") = Value("different.transaction");
+            refused(ready, final, scope, other_request);
+            phase_refused(packet("all_second_queries_closed"), scope, "all_second_queries_closed");
+        };
+        authority_controls(fresh_broker, fresh_selection, apply, "selected_operation_bracket");
+        if (!install) authority_controls(recovery_broker, selection, minimum, "original_maintenance_recovery_bracket");
         auto denied_access = access_row(object(2));
         require_publisher_maintenance_read_only_access(denied_access, client, object(2));
         auto unknown_access = denied_access;

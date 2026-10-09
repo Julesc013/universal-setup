@@ -3,6 +3,7 @@
 #include "usk_publisher_effect_broker_internal.h"
 #if defined(_WIN32)
 #include "usk_publisher_registration.h"
+#include "usk_publisher_effect_execution_internal.h"
 #include "usk_publisher_request_channel.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_execution_observation.h"
@@ -54,9 +55,11 @@ bool same(const Value& left, const Value& right) {
 }
 constexpr const char* record_byte_kind = "original_maintenance_record_bytes_bracket";
 constexpr const char* record_byte_schema = "usk.publisher_effect_record_byte_scope.v1";
+constexpr const char* authority_record_kind = "original_maintenance_authority_record_bytes_bracket";
+constexpr const char* authority_record_schema = "usk.publisher_effect_authority_record_byte_scope.v1";
 Value record_phase(const Value& scope, const std::string& phase) {
     auto fields = scope.as_object();
-    fields.emplace("schema", Value(record_byte_schema));
+    fields.emplace("schema", Value(scope.at("kind").as_string() == authority_record_kind ? authority_record_schema : record_byte_schema));
     fields.emplace("phase", Value(phase));
     return Value(std::move(fields));
 }
@@ -70,16 +73,28 @@ void record_require_packet(const Value& packet, const Value& scope, const std::s
     for (const auto& name : extra) (void)packet.at(name);
     require_batch_packet_budget(packet);
 }
-Value record_scope_from_begin(const Value& begin, std::uint64_t sequence) {
+Value record_scope_from_begin(const Value& begin, std::uint64_t sequence, bool authority = false) {
     Value::Object fields;
     for (const auto* name : {"kind", "scope_sequence", "occurrence_count", "chunk_count", "ledger_sha256"})
         fields.emplace(name, begin.at(name));
+    if (authority) {
+        fields.emplace("selected_kind", begin.at("selected_kind"));
+        fields.emplace("request_sha256", begin.at("request_sha256"));
+    }
     Value scope(std::move(fields));
     record_require_packet(begin, scope, "begin");
     const auto count = scope.at("occurrence_count").as_unsigned();
     const auto chunks = scope.at("chunk_count").as_unsigned();
     const auto& sha = scope.at("ledger_sha256").as_string();
-    require(scope.at("kind").as_string() == record_byte_kind &&
+    if (authority) {
+        const auto& kind = scope.at("selected_kind").as_string();
+        const auto& request = scope.at("request_sha256").as_string();
+        require((kind == "selected_operation_bracket" || kind == "original_maintenance_recovery_bracket") &&
+            request.size() == 64u && std::all_of(request.begin(), request.end(), [](char c) {
+                return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }),
+            "authority record scope selected family/request digest differs");
+    }
+    require(scope.at("kind").as_string() == (authority ? authority_record_kind : record_byte_kind) &&
         sequence && scope.at("scope_sequence").as_unsigned() == sequence && count &&
         count <= publisher_record_byte_occurrence_limit && chunks &&
         chunks <= publisher_record_byte_chunk_limit &&
@@ -1196,15 +1211,33 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             state.failed = true;
             return request;
         }
-        if (request.at("schema").as_string() == record_byte_schema) {
+        const bool authority_record = request.at("schema").as_string() == authority_record_schema;
+        if (request.at("schema").as_string() == record_byte_schema || authority_record) {
             require(state.record_scope_sequence != std::numeric_limits<std::uint64_t>::max(),
                 "broker record byte scope sequence exhausted");
-            const auto scope = record_scope_from_begin(request, ++state.record_scope_sequence);
+            const auto scope = record_scope_from_begin(request, ++state.record_scope_sequence, authority_record);
             const auto remaining = [&]() {
                 return readback_remaining(packet_started, timeout, "broker complete record byte scope exceeded its original deadline");
             };
             std::size_t proof_bytes = 0;
             record_charge(proof_bytes, request);
+            std::optional<Value> selected_before;
+            if (authority_record) {
+                const auto kind = selection_selector(scope.at("selected_kind").as_string());
+                require(scope.at("request_sha256").as_string() == raw_sha256(state.request) &&
+                    !state.installation_recovery &&
+                    ((kind == PublisherEffectSelectionKind::original_maintenance_recovery) == state.maintenance_recovery),
+                    "broker authority record scope differs from its actual original request family");
+                selected_before.emplace(state.maintenance_recovery ? state.recovery_current() : pending_before.selection);
+                require(same(*selected_before, state.maintenance_recovery ? state.recovery_baseline : state.selected_baseline),
+                    "broker authority record original selection changed before readiness");
+                require_selected_endpoints(*selected_before, usk::json::parse(state.request), before, before, kind);
+                auto ready = record_phase(scope, "selection_ready");
+                ready.as_object().emplace("profile_before", before);
+                ready.as_object().emplace("selection", *selected_before);
+                record_charge(proof_bytes, ready);
+                state.custody.send(ready, remaining());
+            }
             Value::Array ledger;
             std::array<std::vector<Value>, 2u> results;
             const auto chunks = static_cast<std::size_t>(scope.at("chunk_count").as_unsigned());
@@ -1268,12 +1301,26 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             auto completed = state.complete(pending_before, state.collect());
             const auto& after = completed.profile();
             require(same(immutable_profile(before), immutable_profile(after)) &&
-                same(completed.selection(), state.selected_baseline) &&
-                (!(state.maintenance_recovery || state.installation_recovery) || same(state.recovery_current(), state.recovery_baseline)),
+                same(completed.selection(), state.selected_baseline),
                 "broker record byte scope changed original selection/native ownership");
+            std::optional<Value> selected_after;
+            if (authority_record) {
+                selected_after.emplace(state.maintenance_recovery ? state.recovery_current() : completed.selection());
+                require(same(*selected_after, *selected_before) &&
+                    same(*selected_after, state.maintenance_recovery ? state.recovery_baseline : state.selected_baseline),
+                    "broker authority record protected original selection changed at completion");
+                require_selected_endpoints(*selected_after, usk::json::parse(state.request), before, after,
+                    selection_selector(scope.at("selected_kind").as_string()));
+            } else require(!(state.maintenance_recovery || state.installation_recovery) ||
+                same(state.recovery_current(), state.recovery_baseline),
+                "broker record byte scope changed original recovery selection");
             auto final = record_phase(scope, "final");
             final.as_object().emplace("profile_before", before);
             final.as_object().emplace("profile", after);
+            if (authority_record) {
+                final.as_object().emplace("selection_before", *selected_before);
+                final.as_object().emplace("selection", *selected_after);
+            }
             record_charge(proof_bytes, final);
             state.custody.send(final, remaining());
             // Segment every independently owned raw result at the unchanged8
@@ -1519,6 +1566,23 @@ void require_publisher_effect_record_byte_phase(const Value& packet, const Value
     const auto checked = record_scope_from_begin(record_phase(scope, "begin"), scope.at("scope_sequence").as_unsigned());
     record_require_packet(packet, checked, phase);
 }
+void require_publisher_effect_authority_record_readback(const Value& ready, const Value& final,
+    const Value& scope, const Value& actual_request) {
+    const auto checked = record_scope_from_begin(record_phase(scope, "begin"),
+        scope.at("scope_sequence").as_unsigned(), true);
+    record_require_packet(ready, checked, "selection_ready", {"profile_before", "selection"});
+    record_require_packet(final, checked, "final", {"profile_before", "profile", "selection_before", "selection"});
+    require(checked.at("request_sha256").as_string() == usk::json::sha256_canonical(actual_request) &&
+        same(final.at("profile_before"), ready.at("profile_before")) &&
+        same(final.at("selection_before"), ready.at("selection")) &&
+        same(final.at("selection"), ready.at("selection")),
+        "authority record final substituted its exact provisional request/endpoint/selection");
+    const auto kind = selection_selector(checked.at("selected_kind").as_string());
+    require_selected_endpoints(ready.at("selection"), actual_request,
+        ready.at("profile_before"), ready.at("profile_before"), kind);
+    require_selected_endpoints(final.at("selection"), actual_request,
+        final.at("profile_before"), final.at("profile"), kind);
+}
 void require_publisher_maintenance_read_only_access(Value access, const Value& client, const Value& native_object) {
     require(same(access.at("client"), client) && same(access.at("native_object"), native_object),
         "native maintenance authenticated object binding changed");
@@ -1613,6 +1677,23 @@ PublisherEffectWorkerReadback::ObjectAccessObservation
 PublisherEffectWorkerReadback::original_maintenance_record_bytes_bracket(
     usk::lifecycle::detail::NativeMaintenanceRecordByteRead& reader, DWORD timeout,
     const std::function<void()>& after_queries_closed) {
+    return maintenance_record_bytes_bracket(reader, timeout, after_queries_closed, nullptr, nullptr).objects;
+}
+PublisherEffectWorkerReadback::SelectedObjectAccessObservation
+PublisherEffectWorkerReadback::authority_maintenance_record_bytes_bracket(
+    usk::lifecycle::detail::NativeMaintenanceRecordByteRead& reader, DWORD timeout,
+    PublisherEffectExecutionOwner& owner, const Value& native_before,
+    const std::function<void()>& after_queries_closed) {
+    auto observed = maintenance_record_bytes_bracket(reader, timeout, after_queries_closed, &owner, &native_before);
+    require(observed.selection.has_value(), "child authority record scope lacks its completed selection");
+    return {{std::move(observed.objects.before), std::move(observed.objects.after), std::move(*observed.selection)},
+        std::move(observed.objects.access)};
+}
+PublisherEffectWorkerReadback::RecordByteObservation
+PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
+    usk::lifecycle::detail::NativeMaintenanceRecordByteRead& reader, DWORD timeout,
+    const std::function<void()>& after_queries_closed, PublisherEffectExecutionOwner* authority_owner,
+    const Value* authority_native_before) {
     const auto started = GetTickCount64();
     try {
         require(!state_->failed && state_->initialized && after_queries_closed &&
@@ -1622,14 +1703,22 @@ PublisherEffectWorkerReadback::original_maintenance_record_bytes_bracket(
         require(!ledger.as_array().empty() && ledger.as_array().size() <= publisher_record_byte_occurrence_limit &&
             state_->record_scope_sequence != std::numeric_limits<std::uint64_t>::max(),
             "child record byte scope count/sequence exceeds its bound");
+        const auto selected_kind = reader.authority_selection_kind();
+        require(static_cast<bool>(selected_kind) == (authority_owner && authority_native_before) &&
+            (!selected_kind || *selected_kind != PublisherEffectSelectionKind::original_installation_recovery),
+            "child record scope selection role differs from its sealed reader");
         const auto count = ledger.as_array().size();
-        Value scope(Value::Object{{"kind", Value(record_byte_kind)},
+        Value scope(Value::Object{{"kind", Value(selected_kind ? authority_record_kind : record_byte_kind)},
             {"scope_sequence", Value(++state_->record_scope_sequence)},
             {"occurrence_count", Value(static_cast<std::uint64_t>(count))},
             {"chunk_count", Value(static_cast<std::uint64_t>((count + publisher_object_access_batch_limit - 1u) / publisher_object_access_batch_limit))},
             {"ledger_sha256", Value(usk::json::sha256_canonical(ledger))}});
+        if (selected_kind) {
+            scope.as_object().emplace("selected_kind", Value(selected_bracket_kind(*selected_kind)));
+            scope.as_object().emplace("request_sha256", Value(raw_sha256(state_->request)));
+        }
         const auto begin = record_phase(scope, "begin");
-        (void)record_scope_from_begin(begin, state_->record_scope_sequence);
+        (void)record_scope_from_begin(begin, state_->record_scope_sequence, selected_kind.has_value());
         PublisherEffectRecordByteRound round(state_->peer, ledger, scope, started, timeout);
         auto& s = *round.state_;
         const auto before_peer = s.custody;
@@ -1638,25 +1727,49 @@ PublisherEffectWorkerReadback::original_maintenance_record_bytes_bracket(
         s.require_binding();
         record_charge(s.proof_bytes, begin);
         s.peer.send(begin, s.remaining());
+        std::optional<Value> provisional;
+        if (selected_kind) {
+            auto ready = s.peer.receive(s.remaining());
+            record_require_packet(ready, scope, "selection_ready", {"profile_before", "selection"});
+            record_charge(s.proof_bytes, ready);
+            s.require_binding();
+            require_projection(ready.at("profile_before"), before_peer, parent, child, true);
+            require_publisher_effect_broker_readback_continuity(state_->previous, ready.at("profile_before"));
+            (void)actual_worker_context(ready.at("profile_before"));
+            require_selected_endpoints(ready.at("selection"), usk::json::parse(state_->request),
+                ready.at("profile_before"), ready.at("profile_before"), *selected_kind);
+            if (*selected_kind == PublisherEffectSelectionKind::original_maintenance_recovery && state_->recovery_selection_observed)
+                require(same(ready.at("selection"), state_->recovery_selection),
+                    "child authority record protected selection changed before readiness");
+            // The original owner joins this actual broker BEFORE to the SAME
+            // full native child BEFORE, then invokes only the sealed fixed
+            // context predicate. No completed observation or retention exists.
+            authority_owner->require_authority_record_selection(reader, ready.at("profile_before"),
+                ready.at("selection"), *authority_native_before);
+            provisional.emplace(std::move(ready));
+            (void)s.remaining();
+        }
         reader.run_round(round);
         require(s.chunk_index == scope.at("chunk_count").as_unsigned(), "child complete record first round is missing occurrences");
         (void)s.remaining();
         reader.read_original_bytes();
         (void)s.remaining();
         const auto finished = record_phase(scope, "read_finished");
-        require_publisher_effect_record_byte_phase(finished, scope, "read_finished");
+        record_require_packet(finished, scope, "read_finished");
         s.peer.send(finished, s.remaining());
         s.round = 1u; s.chunk_index = 0;
         reader.run_round(round);
         require(s.chunk_index == scope.at("chunk_count").as_unsigned(), "child complete record second round is missing occurrences");
         const auto closed = s.peer.receive(s.remaining());
-        require_publisher_effect_record_byte_phase(closed, scope, "all_second_queries_closed");
+        record_require_packet(closed, scope, "all_second_queries_closed");
         // Distinct from read-finished: every second-round query has actually
         // positively closed before the original full local AFTER sample.
         after_queries_closed();
         (void)s.remaining();
         auto final = s.peer.receive(s.remaining());
-        record_require_packet(final, scope, "final", {"profile_before", "profile"});
+        record_require_packet(final, scope, "final", selected_kind ?
+            std::set<std::string>{"profile_before", "profile", "selection_before", "selection"} :
+            std::set<std::string>{"profile_before", "profile"});
         record_charge(s.proof_bytes, final);
         Value::Array raw_results;
         raw_results.reserve(2u * count);
@@ -1685,9 +1798,20 @@ PublisherEffectWorkerReadback::original_maintenance_record_bytes_bracket(
         require_publisher_effect_broker_readback_continuity(final.at("profile_before"), final.at("profile"));
         (void)actual_worker_context(final.at("profile_before"));
         (void)actual_worker_context(final.at("profile"));
+        std::optional<Value> selection;
+        if (selected_kind) {
+            require(reader.authority_selection_kind() == selected_kind,
+                "child authority record selected role changed at completion");
+            require_publisher_effect_authority_record_readback(*provisional, final, scope,
+                usk::json::parse(state_->request));
+            if (*selected_kind == PublisherEffectSelectionKind::original_maintenance_recovery && state_->recovery_selection_observed)
+                require(same(final.at("selection"), state_->recovery_selection),
+                    "child authority record protected selection changed at completion");
+            selection.emplace(std::move(final.as_object().at("selection")));
+        }
         (void)s.remaining();
-        return ObjectAccessObservation{std::move(final.as_object().at("profile_before")),
-            std::move(final.as_object().at("profile")), Value(std::move(raw_results))};
+        return {{std::move(final.as_object().at("profile_before")),
+            std::move(final.as_object().at("profile")), Value(std::move(raw_results))}, std::move(selection)};
     } catch (...) { state_->failed = true; throw; }
 }
 
@@ -2040,6 +2164,10 @@ PublisherEffectWorkerNativeSecurity::observe_brokered(const std::string& context
 Value PublisherEffectWorkerNativeSecurity::observe_local_current(const std::string& context) {
     return state_->observe_local_current(context);
 }
+}
+void usk::lifecycle::detail::NativeMaintenanceRecordByteRead::require_authority_selection(
+    const usk::json::Value&, const usk::json::Value&, const usk::json::Value&) {
+    throw std::runtime_error("ordinary record reader cannot validate authority selection");
 }
 void usk::lifecycle::detail::NativeMaintenanceRecordByteRead::observe_chunk(
     usk::platform::windows::PublisherEffectRecordByteRound& round, const std::vector<HANDLE>& handles) {

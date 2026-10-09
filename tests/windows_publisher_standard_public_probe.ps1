@@ -160,6 +160,19 @@ function Read-NativeSnapshot([switch]$PublicationPreserved,[ValidateSet(0,1,2)][
     if($ActiveReservationPrefix -and ($PublicationReservedAbsentGeneration -ne 1 -or
         $PublicationPreserved -or $IncludeMovedMaintenanceRoot)){throw 'Original active reservation readback scope differs'}
     $script:observersClosed=$false
+    $failedDiagnosticBinding=''
+    if($OriginalFailedRequest) {
+        # Opt in only AFTER the exact reference/capture/request/command/PID/
+        # birth/account joins above. This carries no successful outcome.
+        $binding=[ordered]@{schema='usk.publisher.failed_request_content_diagnostic_binding.v1';
+            scope=$OriginalFailedRequest.scope;qualification_granted=$false;
+            request_id=$OriginalFailedRequest.request_id;command=$OriginalFailedRequest.command;
+            client_process_id=$OriginalFailedRequest.client_process_id;
+            client_creation_file_time=$OriginalFailedRequest.client_creation_file_time;
+            account_sid=$accountSid;client_capture_sha256=$clientCaptureSha256}
+        $failedDiagnosticBinding=[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes(
+            ($binding|ConvertTo-Json -Depth 4 -Compress)))
+    }
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot $lab -RunId ([guid]::NewGuid().ToString('N')) `
         -CallerProcessId $PID -CallerCreationFileTime $ownerCreation -CallerSid $accountSid -ServiceSid $sid `
         -ClientCaptureFile $clientCaptureFile -ClientCaptureSha256 $clientCaptureSha256 `
@@ -167,10 +180,31 @@ function Read-NativeSnapshot([switch]$PublicationPreserved,[ValidateSet(0,1,2)][
         -AbsentPublicationPreservationPrefix $(if($PublicationPreserved){$script:bootstrapOperationPrefix}else{''}) `
         -AbsentPublicationReservationPrefix $(if($ActiveReservationPrefix){$ActiveReservationPrefix}
             elseif($PublicationReservedAbsentGeneration){$script:bootstrapOperationPrefix}else{''}) `
-        -AbsentPublicationReservationGeneration $PublicationReservedAbsentGeneration
+        -AbsentPublicationReservationGeneration $PublicationReservedAbsentGeneration `
+        -OriginalFailedRequestDiagnosticBinding $failedDiagnosticBinding
     if(-not $readback.observer_task_removed -or $readback.independent.identity -cne 'S-1-5-18' -or
         $readback.independent.observer_token_handles_closed -ne $true){throw 'Standard independent reader cleanup differs'}
     $script:observersClosed=$true
+    if($readback.independent.schema -ceq 'usk.publisher.metadata_incomplete_failed_request_diagnostic.v1') {
+        if(-not $OriginalFailedRequest -or $readback.independent.status -cne 'incomplete' -or
+            $readback.independent.scope -cne 'original_failed_request_content_read_only' -or
+            $readback.independent.original_request.request_id -cne $OriginalFailedRequest.request_id -or
+            $readback.independent.original_request.command -cne $OriginalFailedRequest.command -or
+            $readback.independent.original_request.client_process_id -ne $OriginalFailedRequest.client_process_id -or
+            $readback.independent.original_request.client_creation_file_time -cne $OriginalFailedRequest.client_creation_file_time -or
+            @($readback.independent.content_read_failures).Count -eq 0 -or
+            $readback.independent.qualification_granted -ne $false -or
+            $readback.independent.operation_completion_qualified -ne $false -or
+            $readback.independent.native_restoration_qualified -ne $false -or
+            $readback.independent.whole_target_qualified -ne $false -or
+            $readback.independent.authority_granted -ne $false) {
+            throw 'Incomplete observer diagnostic is unbound or claims qualification'
+        }
+        # Retain separately, then refuse. Neither ordinary policy nor the
+        # complete-backup provenance decoder receives an incomplete snapshot.
+        $OriginalFailedRequest['incomplete_readback_diagnostic']=$readback
+        throw 'Original failed-request content readback is incomplete; no snapshot or outcome qualified'
+    }
     if($OriginalFailedRequest) {
         # Retain actual closed independent rows BEFORE policy interpretation.
         # A failed role/ACL check must not erase the original object/byte/ACE

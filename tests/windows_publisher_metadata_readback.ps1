@@ -262,7 +262,8 @@ function Invoke-IndependentMetadataReadback {
         [string]$ExpectedVolumeRoot='',[uint32]$ExpectedDiskNumber=[uint32]::MaxValue,
         [string]$AbsentPublicationPreservationPrefix='',
         [string]$AbsentPublicationReservationPrefix='',
-        [ValidateSet(0,1,2)][int]$AbsentPublicationReservationGeneration=0)
+        [ValidateSet(0,1,2)][int]$AbsentPublicationReservationGeneration=0,
+        [string]$OriginalFailedRequestDiagnosticBinding='')
     if($DriveRoot -cnotmatch '^[A-Z]:\\$' -or $RunId -cnotmatch '^[0-9a-f]{32}$') {
         throw 'Exact observed volume alias and owned observer identity required'
     }
@@ -298,6 +299,12 @@ function Invoke-IndependentMetadataReadback {
                 'installation-operations\\install-[0-9a-f]{64}\\operation-[0-9a-f]{64}$')))) {
         throw 'Publication reserved-absence readback requires its exact generation, operation and native volume'
     }
+    if($OriginalFailedRequestDiagnosticBinding -and ($MetadataOnly -or -not $ClientCaptureFile -or
+        -not $ExpectedVolumeRoot -or $AbsentPublicationPreservationPrefix -or $AbsentPublicationReservationPrefix -or
+        $OriginalFailedRequestDiagnosticBinding.Length -gt 4096 -or
+        $OriginalFailedRequestDiagnosticBinding -cnotmatch '^[A-Za-z0-9+/]+={0,2}$')) {
+        throw 'Failed-request content diagnostic requires its complete original capture and volume binding'
+    }
     $name='USK_METADATA_OBSERVER_'+$RunId
     $script=Join-Path $OutputRoot ('metadata-observer-'+$RunId+'.ps1')
     $output=Join-Path $OutputRoot ('metadata-observed-'+$RunId+'.json')
@@ -310,7 +317,8 @@ param([string]$Output,[string]$DriveRoot,[switch]$MetadataOnly,
     [string]$ExpectedVolumeRoot='',[uint32]$ExpectedDiskNumber=[uint32]::MaxValue,
     [string]$AbsentPublicationPreservationPrefix='',
         [string]$AbsentPublicationReservationPrefix='',
-        [ValidateSet(0,1,2)][int]$AbsentPublicationReservationGeneration=0)
+        [ValidateSet(0,1,2)][int]$AbsentPublicationReservationGeneration=0,
+        [string]$OriginalFailedRequestDiagnosticBinding='')
 $ErrorActionPreference='Stop'
 $global:UskMetadataObserverPhase='initialize_native_types'
 function Test-PublisherHeldCaptureRequestContext([string]$RequestId,[string]$Command) {
@@ -1016,6 +1024,23 @@ public sealed class UskPublisherPausedClient : IDisposable {
 
 "@
 
+$failedContentBinding=$null
+if($OriginalFailedRequestDiagnosticBinding) {
+ $failedContentBinding=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(
+  $OriginalFailedRequestDiagnosticBinding))|ConvertFrom-Json
+ if(@($failedContentBinding.PSObject.Properties).Count -ne 9 -or
+  $failedContentBinding.schema -cne 'usk.publisher.failed_request_content_diagnostic_binding.v1' -or
+  $failedContentBinding.scope -cne 'original_failed_request_before_cleanup' -or
+  $failedContentBinding.qualification_granted -ne $false -or
+  $failedContentBinding.request_id -cnotmatch '^public\.[0-9a-f]{32}$' -or
+  $failedContentBinding.command -cnotin @('repair.apply','move.apply','uninstall.apply') -or
+  $failedContentBinding.account_sid -cne $CallerSid -or
+  $failedContentBinding.client_capture_sha256 -cne $ClientCaptureSha256 -or
+  $MetadataOnly -or -not $ExpectedVolumeRoot -or -not $ClientCaptureFile -or
+  $AbsentPublicationPreservationPrefix -or $AbsentPublicationReservationPrefix) {
+  throw 'Failed-request content diagnostic original binding differs'
+ }
+}
 $effectiveRights=$null
 if($CallerProcessId -ne 0) {
  if($ClientCaptureFile) {
@@ -1033,6 +1058,12 @@ if($CallerProcessId -ne 0) {
    $capture.client_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
    (Get-FileHash -LiteralPath $capture.client_image_path -Algorithm SHA256).Hash.ToLowerInvariant() -cne $capture.client_sha256) {
    throw 'Held client capture context differs'
+  }
+  if($failedContentBinding -and ($failedContentBinding.request_id -cne $capture.request_id -or
+   $failedContentBinding.command -cne $capture.command -or
+   $failedContentBinding.client_process_id -ne $capture.client_process_id -or
+   $failedContentBinding.client_creation_file_time -cne $capture.client_creation_file_time)) {
+   throw 'Failed-request content diagnostic is not the actual held original client capture'
   }
   $effectiveRights=[UskPublisherEffectiveRights]::new($CallerProcessId,[long]$CallerCreationFileTime,$CallerSid,$ServiceSid,
    [uint32]$capture.client_process_id,[long]$capture.client_creation_file_time,[long]$capture.client_process_handle,
@@ -1086,6 +1117,7 @@ if($CallerProcessId -ne 0) {
 try {
 $global:UskMetadataObserverPhase='read_current_native_objects'
 $rows=[Collections.Generic.List[object]]::new()
+$contentReadFailures=[Collections.Generic.List[object]]::new()
 $pending=[Collections.Generic.Stack[object]]::new()
 $absenceBefore=$null;$absenceRoot=$null
 if($AbsentPublicationPreservationPrefix) {
@@ -1132,7 +1164,26 @@ foreach($top in @(($DriveRoot+'setup-state'),($DriveRoot+'publication'),($DriveR
    link_count=[uint32]$facts[3];case_sensitive=[bool]$facts[4];streams=@($facts[5]);raw_aces=$rawAces;
    raw_security=$raw.GetSddlForm([Security.AccessControl.AccessControlSections]::Owner -bor [Security.AccessControl.AccessControlSections]::Access);owner=$raw.Owner.Value;protected=[bool]($raw.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected);aces=$aces;
    bytes=[long]$facts[7];sha256=$facts[6];
-   content_json=$(if(-not $p.PSIsContainer -and $p.Extension -eq '.json'){[IO.File]::ReadAllText($p.FullName)}else{$null})}
+   content_json=$null}
+  if(-not $p.PSIsContainer -and $p.Extension -eq '.json') {
+   try {$row.content_json=[IO.File]::ReadAllText($p.FullName)} catch {
+    $contentError=$_;$cause=$contentError.Exception
+    while($cause.InnerException){$cause=$cause.InnerException}
+    $win32=$cause.HResult -band 0xffff
+    if(-not $failedContentBinding -or $cause -isnot [IO.IOException] -or $win32 -notin @(32,33)) {
+     throw $contentError
+    }
+    # ReadClosure, native identity/security/hash and later effective-right
+    # joins remain strict. Only this actual sharing/lock content failure is
+    # retained as unreadable; no retry, weaker sharing or synthetic text.
+    $message=[string]$cause.Message
+    $failure=[ordered]@{field='content_json';status='unreadable';path=$p.FullName;file_id=$row.file_id;
+     exception_type=$cause.GetType().FullName;hresult=$cause.HResult;win32_error=$win32;
+     message=$message.Substring(0,[Math]::Min(4096,$message.Length));message_truncated=($message.Length -gt 4096)}
+    $row['content_read_failure']=$failure
+    $contentReadFailures.Add($failure)
+   }
+  }
   if($effectiveRights) {
    $checked=$effectiveRights.Read($p.FullName)
    if($checked['file_id'] -cne $row.file_id -or $checked['security'] -cne $row.raw_security) {
@@ -1241,7 +1292,7 @@ if($AbsentPublicationReservationPrefix) {
   previous_preservation_record_path=$(if($AbsentPublicationReservationGeneration -eq 2){$priorPreservation}else{$null});
   previous_retained_root_path=$(if($AbsentPublicationReservationGeneration -eq 2){$priorRetained}else{$null})}
 }
-if($effectiveRights -and $ExpectedVolumeRoot) {
+if($effectiveRights -and $ExpectedVolumeRoot -and $contentReadFailures.Count -eq 0) {
  # Evaluate a reconstructed descriptor from the native phase's closed
  # owner/DACL facts and the separately reobserved group. This is explicitly
  # not a live AccessCheck at that earlier phase, or retained raw phase bytes.
@@ -1414,6 +1465,20 @@ if($effectiveRights -and $ExpectedVolumeRoot) {
   }
  }
 }
+if($contentReadFailures.Count) {
+ $result['schema']='usk.publisher.metadata_incomplete_failed_request_diagnostic.v1'
+ $result['status']='incomplete';$result['scope']='original_failed_request_content_read_only'
+ $result['original_request']=$failedContentBinding
+ $result['content_read_failures']=$contentReadFailures
+ $result['row_traversal_finished']=$true
+ $result['snapshot_content_complete']=$false
+ $result['native_outcome']='unknown'
+ $result['qualification_granted']=$false;$result['operation_completion_qualified']=$false
+ $result['native_restoration_qualified']=$false;$result['whole_target_qualified']=$false
+ $result['authority_granted']=$false
+ $result['derived_projections']=[ordered]@{status='skipped';
+  reason='missing_original_json_body';whole_snapshot_qualified=$false;backup_provenance_qualified=$false}
+}
 $temporary=$Output+'.pending'
 $global:UskMetadataObserverPhase='publish_closed_success_receipt'
 # Closing all observer-owned token/process duplicates is part of the success
@@ -1453,6 +1518,9 @@ try {
     }
     if($AbsentPublicationReservationPrefix) {
         $command+=" -AbsentPublicationReservationPrefix '"+$AbsentPublicationReservationPrefix+"' -AbsentPublicationReservationGeneration "+$AbsentPublicationReservationGeneration
+    }
+    if($OriginalFailedRequestDiagnosticBinding) {
+        $command+=" -OriginalFailedRequestDiagnosticBinding '"+$OriginalFailedRequestDiagnosticBinding+"'"
     }
     $failureOutput=$output+'.failure.json'
     $failureCommand=@'

@@ -241,21 +241,42 @@ Value PublisherEffectExecutionOwner::authenticated_object_access_batch(const std
         throw;
     }
 }
+void PublisherEffectExecutionOwner::require_authority_record_selection(
+    usk::lifecycle::detail::NativeMaintenanceRecordByteRead& reader,
+    const Value& profile, const Value& selection, const Value& native) {
+    require_current();
+    state_->require_owner();
+    require(reader.authority_selection_kind().has_value(),
+        "publisher provisional authority selection lacks its sealed reader");
+    state_->require_native_binding(profile, native);
+    reader.require_authority_selection(profile, selection, native);
+    state_->require_owner();
+}
 void PublisherEffectExecutionOwner::verify_original_maintenance_record_bytes(
     usk::lifecycle::detail::NativeMaintenanceRecordByteRead& reader) {
     require_current();
     const auto proof_started = reader.started_;
     try {
         state_->require_owner();
-        const auto native_before = state_->security.observe_local_current();
+        const auto selected_kind = reader.authority_selection_kind();
+        const auto failure_context = reader.authority_failure_context();
+        const auto native_before = state_->security.observe_local_current(failure_context);
         reader.prepare(); // Construction and the complete immutable ledger are charged too.
         std::optional<Value> native_after;
-        auto observed = state_->readback.original_maintenance_record_bytes_bracket(reader,
-            effect_proof_remaining(proof_started), [&] {
-                require(!native_after, "publisher record scope received duplicate second-round closure");
-                state_->require_owner();
-                native_after.emplace(state_->security.observe_local_current());
-            });
+        const auto after_queries_closed = [&] {
+            require(!native_after, "publisher record scope received duplicate second-round closure");
+            state_->require_owner();
+            native_after.emplace(state_->security.observe_local_current(failure_context));
+        };
+        PublisherEffectWorkerReadback::ObjectAccessObservation observed;
+        std::optional<PublisherEffectWorkerReadback::SelectionObservation> selected;
+        if (selected_kind) {
+            auto combined = state_->readback.authority_maintenance_record_bytes_bracket(reader,
+                effect_proof_remaining(proof_started), *this, native_before, after_queries_closed);
+            selected.emplace(std::move(combined.selected));
+            observed = {selected->before, selected->after, std::move(combined.access)};
+        } else observed = state_->readback.original_maintenance_record_bytes_bracket(reader,
+            effect_proof_remaining(proof_started), after_queries_closed);
         require(native_after.has_value(), "publisher record scope lacks its complete native AFTER");
         state_->require_native_binding(observed.before, native_before);
         state_->require_native_binding(observed.after, *native_after);
@@ -263,9 +284,15 @@ void PublisherEffectExecutionOwner::verify_original_maintenance_record_bytes(
         require(same(publisher_effect_broker_immutable_record(observed.before),
             publisher_effect_broker_immutable_record(observed.after)), "publisher record scope changed its original owner");
         state_->require_owner();
+        if (selected) {
+            require(reader.authority_selection_kind() == selected_kind,
+                "publisher authority record selected kind changed at completion");
+            require_authority_record_selection(reader, observed.after, selected->selection, *native_after);
+        }
         reader.finalize(observed.access); // All raw denials and actual final whole-chain joins.
         (void)effect_proof_remaining(proof_started);
-        state_->readback.retain_readback_bracket(observed.before, observed.after);
+        if (selected) state_->readback.retain_selection_bracket(*selected, *selected_kind);
+        else state_->readback.retain_readback_bracket(observed.before, observed.after);
         (void)effect_proof_remaining(proof_started);
     } catch (...) {
         state_->failed = true;

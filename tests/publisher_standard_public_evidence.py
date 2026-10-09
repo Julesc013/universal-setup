@@ -139,6 +139,11 @@ def standard_capture(capture, client, machine_sha256):
 
 
 def reader_rows(readback, capture, client, *, expected_exited=True):
+    independent = readback['independent']
+    require(independent.get('schema') != 'usk.publisher.metadata_incomplete_failed_request_diagnostic.v1' and
+        'content_read_failures' not in independent and
+        all('content_read_failure' not in row for row in independent['rows']),
+        'incomplete failed-request diagnostics cannot supply qualified or complete-backup rows')
     require(readback['observer_task_removed'] is True and readback['independent']['identity'] == 'S-1-5-18' and
         readback['independent']['observer_token_handles_closed'] is True, 'standard native reader closure differs')
     tokens = readback['independent']['effective_right_tokens']
