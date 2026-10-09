@@ -4,6 +4,7 @@ param([Parameter(Mandatory=$true)][string]$ConfigPath)
 
 $ErrorActionPreference='Stop'
 . (Join-Path $PSScriptRoot 'owned-effect-child.ps1')
+. (Join-Path $PSScriptRoot 'initial-maintenance-boundary.ps1')
 $effectPair=$null
 $held=$null
 $config=Get-Content -LiteralPath $ConfigPath -Raw -ErrorAction Stop|ConvertFrom-Json
@@ -41,7 +42,7 @@ try {
     if($config.schema -cne 'usk.publisher.production_rename_observer_config.v2' -or
         $config.observer_family -cne 'owned_effect_child_v1' -or
         $config.service_command -cnotmatch ' --service-admitted-client --authorized-client-sid S-1-5-21-(?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*)){3}$' -or
-        $config.phase -cnotin @('bootstrap','bootstrap_preserved','prepublish','postrename','maintenance_published') -or
+        $config.phase -cnotin @('bootstrap','bootstrap_preserved','prepublish','postrename','maintenance_published','maintenance_initial') -or
         $result.identity -cne 'S-1-5-18' -or
         $config.service_name -cnotmatch '^USK_PUB_[0-9a-f]{32}$' -or
         $config.service_binary_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
@@ -54,6 +55,11 @@ try {
                 $config.process_creation_file_time -cnotmatch '^[0-9a-f]{16}$'){throw 'Maintenance boundary binding differs'}
             $config.drive_letter+':\setup-state\state\transactions\'+$config.maintenance_transaction_id+
                 '.native-maintenance-custody\00000000000000000000.json'
+        } elseif($config.phase -ceq 'maintenance_initial') {
+            if($config.maintenance_transaction_id -cnotmatch '^maintenance\.repair\.[0-9a-f]{32}$' -or
+                $config.maintenance_plan_digest -cnotmatch '^[0-9a-f]{64}$' -or
+                $config.process_creation_file_time -cnotmatch '^[0-9a-f]{16}$'){throw 'Initial maintenance boundary binding differs'}
+            $config.drive_letter+':\setup-state\state\transactions\'+$config.maintenance_transaction_id+'.journal.json'
         } else {$config.drive_letter+':\publication\journal\lab-'+
             $(if($config.phase -cin @('bootstrap','bootstrap_preserved','prepublish')){'prepared'}else{'visible'})+'-evidence.json'}) -or
         $config.volume_guid_root -cnotmatch '^\\\\\?\\Volume\{[0-9a-f-]{36}\}\\$' -or
@@ -93,7 +99,7 @@ try {
     $owned.Add($process)
     $held|Add-Member -NotePropertyName UskOwnedTree -NotePropertyValue $owned
     $result['process_creation_file_time']=$held.StartTime.ToUniversalTime().ToFileTimeUtc().ToString('x16')
-    if($config.phase -ceq 'maintenance_published' -and
+    if($config.phase -cin @('maintenance_published','maintenance_initial') -and
         $result.process_creation_file_time -cne $config.process_creation_file_time) {
         throw 'Maintenance observer current worker birth differs'
     }
@@ -151,6 +157,13 @@ try {
             }
         }
         $effectPair.RequireOriginalLivePair()
+        if($config.phase -ceq 'maintenance_initial') {
+            if(-not (Invoke-OwnedInitialMaintenanceBoundary $config $effectPair $result)){Start-Sleep -Milliseconds 1;continue}
+            if((Get-Volume -DriveLetter $config.drive_letter -ErrorAction Stop).UniqueId -cne $config.volume_guid_root) {
+                throw 'Initial maintenance observer volume changed during termination'
+            }
+            break
+        }
         if($config.phase -ceq 'maintenance_published') {
             if(-not (Test-Path -LiteralPath $config.journal_path)){Start-Sleep -Milliseconds 1;continue}
             if(((Get-Item -LiteralPath $config.journal_path).Attributes -band
@@ -321,5 +334,5 @@ try {
         ($result|ConvertTo-Json -Depth 8 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
     [IO.File]::Move($outputTemp,$config.output_path)
 }
-if($result.status -cnotin @('terminated_confirmed_maintenance_publication','terminated_publication_bootstrap','terminated_publication_preserved','terminated_prepared_prerename',
+if($result.status -cnotin @('terminated_initial_maintenance_before_staging','terminated_confirmed_maintenance_publication','terminated_publication_bootstrap','terminated_publication_preserved','terminated_prepared_prerename',
     'terminated_postrename_prejournal')){exit 1}

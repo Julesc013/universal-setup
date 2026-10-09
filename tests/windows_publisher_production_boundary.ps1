@@ -1,6 +1,8 @@
 # SPDX-FileCopyrightText: 2026 Jules C
 # SPDX-License-Identifier: MIT
 
+. (Join-Path $PSScriptRoot 'windows_publisher_initial_maintenance_boundary.ps1')
+
 function Resolve-OwnedProductionObserverFamily {
     param([string]$ServiceCommand,
         [ValidateSet('legacy_scm_v1','owned_effect_child_v1')][string]$ExpectedFamily,
@@ -20,11 +22,12 @@ function Resolve-OwnedProductionObserverFamily {
 }
 
 function Start-OwnedProductionBoundaryObserver {
-    param([ValidateSet('bootstrap','bootstrap_preserved','prepublish','postrename','maintenance_published')][string]$Phase,
+    param([ValidateSet('bootstrap','bootstrap_preserved','prepublish','postrename','maintenance_published','maintenance_initial')][string]$Phase,
         [string]$Service,[string]$ObserverRoot,[string]$VhdPath,[string]$VolumeRoot,
         [string]$DriveRoot,[string]$VisibleRoot,[string]$ServiceCommand,[string]$ServiceBinarySha256,
         [string]$BootstrapOperationPrefix='',
         [string]$MaintenanceTransactionId='', [string]$MaintenancePlanDigest='',
+        [string]$MaintenancePlanId='', [string]$MaintenanceInstallId='',
         [ValidateSet('legacy_scm_v1','owned_effect_child_v1')][string]$ObserverFamily='owned_effect_child_v1')
     $utf8=[Text.UTF8Encoding]::new($false)
     if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
@@ -55,11 +58,15 @@ function Start-OwnedProductionBoundaryObserver {
         ([string]$volume.DriveLetter+':\') -cne $DriveRoot) {
         throw 'Production boundary observer volume identity differs'
     }
-    if($Phase -cnotin @('bootstrap','bootstrap_preserved','prepublish','postrename','maintenance_published')){throw 'Unknown production boundary phase'}
-    if($Phase -ceq 'maintenance_published') {
+    if($Phase -cnotin @('bootstrap','bootstrap_preserved','prepublish','postrename','maintenance_published','maintenance_initial')){throw 'Unknown production boundary phase'}
+    if($Phase -cin @('maintenance_published','maintenance_initial')) {
         if($MaintenanceTransactionId -cnotmatch '^maintenance\.repair\.[0-9a-f]{32}$' -or
             $MaintenancePlanDigest -cnotmatch '^[0-9a-f]{64}$'){throw 'Maintenance boundary requires its exact enrolled repair'}
     } elseif($MaintenanceTransactionId -or $MaintenancePlanDigest){throw 'Unexpected maintenance boundary binding'}
+    if($Phase -ceq 'maintenance_initial') {
+        if($MaintenancePlanId -cnotmatch '^[A-Za-z0-9_.-]{1,128}$' -or
+            $MaintenanceInstallId -cnotmatch '^[A-Za-z0-9_.-]{1,128}$'){throw 'Initial maintenance plan/install binding differs'}
+    } elseif($MaintenancePlanId -or $MaintenanceInstallId){throw 'Unexpected initial maintenance binding'}
     if($Phase -ceq 'bootstrap_preserved' -and
         $BootstrapOperationPrefix -cnotmatch ('^'+[regex]::Escape($DriveRoot)+
             'installation-operations\\install-[0-9a-f]{64}\\operation-[0-9a-f]{64}$')) {
@@ -70,11 +77,12 @@ function Start-OwnedProductionBoundaryObserver {
     $scriptPath=Join-Path $observerRoot 'production-rename-observer.ps1'
     $ownedProcessPath=Join-Path $observerRoot 'owned-process.ps1'
     $childObserverPath=Join-Path $observerRoot 'owned-effect-child.ps1'
+    $initialObserverPath=Join-Path $observerRoot 'initial-maintenance-boundary.ps1'
     $configPath=Join-Path $observerRoot 'production-rename-config.json'
     $readyPath=Join-Path $observerRoot 'production-rename-ready.txt'
     $outputPath=Join-Path $observerRoot 'production-rename-observation.json'
     if((Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) -or
-        (Test-Path -LiteralPath $scriptPath) -or (Test-Path -LiteralPath $ownedProcessPath) -or (Test-Path -LiteralPath $childObserverPath) -or (Test-Path -LiteralPath $configPath) -or
+        (Test-Path -LiteralPath $scriptPath) -or (Test-Path -LiteralPath $ownedProcessPath) -or (Test-Path -LiteralPath $childObserverPath) -or (Test-Path -LiteralPath $initialObserverPath) -or (Test-Path -LiteralPath $configPath) -or
         (Test-Path -LiteralPath $readyPath) -or (Test-Path -LiteralPath $outputPath)) {
         throw 'Owned production rename observer collision'
     }
@@ -96,6 +104,8 @@ function Start-OwnedProductionBoundaryObserver {
         -Destination $ownedProcessPath -ErrorAction Stop
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows_publisher_owned_effect_child.ps1') `
         -Destination $childObserverPath -ErrorAction Stop
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'windows_publisher_initial_maintenance_boundary.ps1') `
+        -Destination $initialObserverPath -ErrorAction Stop
     $config=[ordered]@{schema=('usk.publisher.production_rename_observer_config.v'+$familyVersion);phase=$Phase;
         observer_family=$ObserverFamily;
         service_name=$service;service_command=$serviceRow.PathName;
@@ -108,7 +118,7 @@ function Start-OwnedProductionBoundaryObserver {
             $(if($Phase -cin @('bootstrap','bootstrap_preserved','prepublish')){'prepared'}else{'visible'})+'-evidence.json');
         ready_path=$readyPath;output_path=$outputPath}
     if($Phase -ceq 'bootstrap_preserved') {$config['bootstrap_operation_prefix']=$BootstrapOperationPrefix}
-    if($Phase -ceq 'maintenance_published') {
+    if($Phase -cin @('maintenance_published','maintenance_initial')) {
         $heldWorker=Get-Process -Id $serviceRow.ProcessId -ErrorAction Stop
         try {
             if($heldWorker.HasExited -or [math]::Abs(($heldWorker.StartTime.ToUniversalTime().Ticks)-
@@ -121,6 +131,15 @@ function Start-OwnedProductionBoundaryObserver {
             '.native-maintenance-custody\00000000000000000000.json'
         $config['maintenance_transaction_id']=$MaintenanceTransactionId
         $config['maintenance_plan_digest']=$MaintenancePlanDigest
+    }
+    if($Phase -ceq 'maintenance_initial') {
+        $config.journal_path=$DriveRoot+'setup-state\state\transactions\'+$MaintenanceTransactionId+'.journal.json'
+        $config['maintenance_plan_id']=$MaintenancePlanId
+        $config['maintenance_install_id']=$MaintenanceInstallId
+        $config['maintenance_original_context_prefix']=Get-PublisherInitialOperationPrefix $DriveRoot $MaintenanceInstallId $MaintenanceTransactionId
+        $config['maintenance_roots']=@{target=($DriveRoot+'publication\destination\.usk-repair-'+$MaintenanceTransactionId);
+            staging=($DriveRoot+'setup-state\staging\.usk-stage-'+$MaintenanceTransactionId);
+            setup_state=($DriveRoot+'setup-state\state');audit=($DriveRoot+'setup-state\audit')}
     }
     [IO.File]::WriteAllText($configPath,($config|ConvertTo-Json -Depth 5 -Compress)+"`n",$utf8)
     # Use the held native SCM parent and query-only child observer.
@@ -147,9 +166,10 @@ function Start-OwnedProductionBoundaryObserver {
         return [pscustomobject]@{task=$taskName;output=$outputPath;ready=$readyPath;
             config=$configPath;executable=$action.Execute;arguments=$action.Arguments;removed=$false;
             maintenance_transaction_id=$MaintenanceTransactionId;maintenance_plan_digest=$MaintenancePlanDigest;
+            maintenance_plan_id=$MaintenancePlanId;maintenance_install_id=$MaintenanceInstallId;
             process_id=$config.process_id;process_executable=$config.process_executable;
             observer_family=$ObserverFamily;
-            process_creation_file_time=$(if($Phase -ceq 'maintenance_published'){$config.process_creation_file_time}else{''})}
+            process_creation_file_time=$(if($Phase -cin @('maintenance_published','maintenance_initial')){$config.process_creation_file_time}else{''})}
     } catch {
         if($registered) {
             Remove-OwnedProductionBoundaryObserver ([pscustomobject]@{task=$taskName;
@@ -158,7 +178,7 @@ function Start-OwnedProductionBoundaryObserver {
         throw
     }
 }
-function Complete-OwnedProductionBoundaryObserver($Observer,[ValidateSet('bootstrap','bootstrap_preserved','prepublish','postrename','maintenance_published')][string]$Phase) {
+function Complete-OwnedProductionBoundaryObserver($Observer,[ValidateSet('bootstrap','bootstrap_preserved','prepublish','postrename','maintenance_published','maintenance_initial')][string]$Phase) {
     if($Observer.observer_family -ceq 'legacy_scm_v1') {
         return Complete-OwnedLegacyProductionBoundaryObserver $Observer $Phase
     }
@@ -179,7 +199,8 @@ function Complete-OwnedProductionBoundaryObserver($Observer,[ValidateSet('bootst
         'terminated_publication_preserved'
     }elseif($Phase -ceq 'prepublish'){
         'terminated_prepared_prerename'
-    }elseif($Phase -ceq 'maintenance_published'){'terminated_confirmed_maintenance_publication'}
+    }elseif($Phase -ceq 'maintenance_initial'){'terminated_initial_maintenance_before_staging'}
+    elseif($Phase -ceq 'maintenance_published'){'terminated_confirmed_maintenance_publication'}
     else{'terminated_postrename_prejournal'}
     if($result.schema -cne 'usk.publisher.production_rename_observer.v2' -or
         $result.service_pid -ne $Observer.process_id -or
@@ -206,9 +227,9 @@ function Complete-OwnedProductionBoundaryObserver($Observer,[ValidateSet('bootst
         $result.identity -cne 'S-1-5-18' -or
         $result.phase -cne $Phase -or $result.status -cne $expectedStatus -or
         -not $result.termination.confirmed -or -not $result.termination.kill_invoked -or
-        ($Phase -ceq 'maintenance_published' -and
+        ($Phase -cin @('maintenance_published','maintenance_initial') -and
             (-not $result.journal_before_kill -or -not $result.journal_after_kill -or
-                $result.maintenance_confirmation_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+                ($Phase -ceq 'maintenance_published' -and $result.maintenance_confirmation_sha256 -cnotmatch '^[0-9a-f]{64}$') -or
                 $result.process_creation_file_time -cnotmatch '^[0-9a-f]{16}$' -or
                 $result.process_creation_file_time -cne $Observer.process_creation_file_time -or
                 $result.maintenance_transaction_id -cne $Observer.maintenance_transaction_id -or
@@ -220,6 +241,16 @@ function Complete-OwnedProductionBoundaryObserver($Observer,[ValidateSet('bootst
                 $result.maintenance_writer_lease_ownership.holder.process_id -ne $result.effect_holder.process_id -or
                 $result.maintenance_writer_lease_ownership.holder.process_creation_time -cne
                     $result.effect_holder.process_creation_time)) -or
+        ($Phase -ceq 'maintenance_initial' -and
+            ($result.maintenance_install_id -cne $Observer.maintenance_install_id -or
+                $result.maintenance_plan_id -cne $Observer.maintenance_plan_id -or
+                $result.initial_snapshot_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+                $result.original_custody_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+                $result.original_context_record_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+                $result.original_roots_record_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+                $result.observer_interference -cne 'write_delete_denial_for_held_initial_and_original_records' -or
+                $result.staging_before_kill -ne $false -or $result.staging_after_kill -ne $false -or
+                $result.target_before_kill -ne $false -or $result.target_after_kill -ne $false)) -or
         ($Phase -ceq 'bootstrap' -and
             (-not $result.publication_before_kill -or -not $result.publication_after_kill -or
                 $result.candidate_before_kill -or $result.candidate_after_kill -or

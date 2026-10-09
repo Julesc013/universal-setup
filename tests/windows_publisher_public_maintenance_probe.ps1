@@ -79,6 +79,12 @@ function Invoke-StandardFreshMaintenance {
     $sourceAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($sid),
         'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow'))
     Set-Acl -LiteralPath $sourceRoot -AclObject $sourceAcl
+    if($MaintenanceInitialQualification){
+        $result['scope']='original_initial_shared_intent_process_loss_and_source_free_refusal'
+        $result['initial_repair']=Invoke-StandardInitialRepairInterruption $replacement $sourceRoot
+        $result.status='initial_shared_intent_process_loss_observed'
+        return $result
+    }
     if($MaintenanceRecoveryQualification){
         $result['scope']='one_original_ended_worker_source_free_repair'
         $result['ended_repair']=Invoke-StandardEndedRepairRecovery $replacement $sourceRoot

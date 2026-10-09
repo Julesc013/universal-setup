@@ -15,12 +15,16 @@ param(
     [switch]$InstallationGuardConflict,
     [switch]$MaintenanceQualification,
     [switch]$MaintenanceRecoveryQualification,
+    [switch]$MaintenanceInitialQualification,
     [ValidateSet('none','anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')]
     [string]$ConstructedBootstrapPrefix='none',
     [ValidateSet('none','move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')]
     [string]$ConstructedBootstrapDurableState='none'
 )
 $ErrorActionPreference='Stop'
+if($MaintenanceInitialQualification -and (-not $MaintenanceQualification -or $MaintenanceRecoveryQualification)) {
+    throw 'Initial maintenance interruption requires its distinct owned fixture'
+}
 if($MaintenanceRecoveryQualification -and -not $MaintenanceQualification){throw 'Ended maintenance recovery requires its owned maintenance fixture'}
 if($MaintenanceQualification -and ($BootstrapProcessLoss -or $BootstrapPreservationProcessLoss -or
     $ActiveInstallContention -or $StalePlanQualification -or $InstallationGuardConflict -or
@@ -53,6 +57,7 @@ if($ConstructedBootstrapDurableState -cne 'none' -and
 . (Join-Path $PSScriptRoot 'windows_publisher_install_guard_fixture.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_public_maintenance_probe.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_maintenance_recovery_probe.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_initial_maintenance_probe.ps1')
 if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted') {
     throw 'Standard public qualification requires the owned hosted runner'
 }
@@ -602,10 +607,19 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
     }
 }
 function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[switch]$BootstrapLoss,[switch]$PreservationLoss,
-    [switch]$StalePlanRefusal,[switch]$StateRevisionRefusal,[switch]$InstallGuardRefusal,[switch]$MaintenanceProcessLoss) {
+    [switch]$StalePlanRefusal,[switch]$StateRevisionRefusal,[switch]$InstallGuardRefusal,[switch]$MaintenanceProcessLoss,[switch]$MaintenanceInitialProcessLoss,
+    [switch]$MaintenanceInitialRecoveryRetention) {
     if((Get-Service $service).Status -ne 'Stopped') {throw 'Standard request did not begin at a stopped service'}
-    $processLoss=$BootstrapLoss -or $PreservationLoss -or $MaintenanceProcessLoss
+    $maintenanceLoss=$MaintenanceProcessLoss -or $MaintenanceInitialProcessLoss
+    $processLoss=$BootstrapLoss -or $PreservationLoss -or $maintenanceLoss
     $structuredRefusal=$StalePlanRefusal -or $StateRevisionRefusal -or $InstallGuardRefusal
+    if($MaintenanceInitialRecoveryRetention -and (-not $MaintenanceInitialQualification -or $processLoss -or $structuredRefusal -or
+        $Command -cne 'repair.recover' -or $ExpectedExit -ne 5 -or
+        $Payload.schema -cne 'usk.publisher_maintenance_recovery_request.v1' -or $Payload.operation -cne 'repair' -or
+        $Payload.transaction_id -cne $receipt.maintenance_initial_boundary.request.transaction_id -or
+        $Payload.install_id -cne $receipt.maintenance_initial_boundary.request.plan_request.install_id)) {
+        throw 'Initial recovery retention requires its exact interrupted original operation'
+    }
     if(($StalePlanRefusal -and $StateRevisionRefusal) -or
         (($StalePlanRefusal -or $StateRevisionRefusal) -and ($Command -cne 'install_local.apply' -or $ExpectedExit -ne 4 -or $processLoss))) {
         throw 'Stale-plan case requires a completed authenticated refusal'
@@ -613,15 +627,17 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
     if($InstallGuardRefusal -and ($StalePlanRefusal -or $StateRevisionRefusal -or $processLoss -or
         -not $InstallationGuardConflict -or $Command -cne 'installed.verify' -or $ExpectedExit -ne 4 -or
         -not $receipt.Contains('installation_guard_conflict'))) {throw 'Installation guard refusal scope differs'}
-    if($MaintenanceProcessLoss -and (-not $MaintenanceRecoveryQualification -or $BootstrapLoss -or $PreservationLoss -or
+    if($maintenanceLoss -and (($MaintenanceProcessLoss -and $MaintenanceInitialProcessLoss) -or
+        ($MaintenanceProcessLoss -and -not $MaintenanceRecoveryQualification) -or
+        ($MaintenanceInitialProcessLoss -and -not $MaintenanceInitialQualification) -or $BootstrapLoss -or $PreservationLoss -or
         $structuredRefusal -or $Command -cne 'repair.apply' -or $ExpectedExit -ne 5 -or
         $Payload.schema -cne 'usk.repair_apply_request.v1' -or
         $Payload.transaction_id -cnotmatch '^maintenance\.repair\.[0-9a-f]{32}$' -or
         $Payload.reviewed_plan_digest -cnotmatch '^[0-9a-f]{64}$' -or $receipt.Contains('maintenance_process_loss'))) {
         throw 'Maintenance interruption requires its exact original owned repair'
     }
-    $lossKey=if($MaintenanceProcessLoss){'maintenance_process_loss'}elseif($PreservationLoss){'bootstrap_preservation_loss'}else{'bootstrap_loss'}
-    $lossPhase=if($MaintenanceProcessLoss){'maintenance_published'}elseif($PreservationLoss){'bootstrap_preserved'}else{'bootstrap'}
+    $lossKey=if($maintenanceLoss){'maintenance_process_loss'}elseif($PreservationLoss){'bootstrap_preservation_loss'}else{'bootstrap_loss'}
+    $lossPhase=if($MaintenanceInitialProcessLoss){'maintenance_initial'}elseif($MaintenanceProcessLoss){'maintenance_published'}elseif($PreservationLoss){'bootstrap_preserved'}else{'bootstrap'}
     if(($BootstrapLoss -and $PreservationLoss) -or (($BootstrapLoss -or $PreservationLoss) -and
         ($Command -cne 'install_local.apply' -or $ExpectedExit -ne 5 -or -not $BootstrapProcessLoss -or
             $receipt.Contains($lossKey) -or ($PreservationLoss -and
@@ -658,7 +674,7 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
             primary_token=$launch.OwnedStandardPrimaryFacts;launcher_token=$launch.OwnedStandardLauncherFacts;image_sha256=$receipt.machine_sha256;
             capture_sha256=$clientCaptureSha256;initiating_token_id=$capture.initiating_token_id;filtered_token_id=$capture.filtered_token_id}
         if($processLoss) {
-            $receipt[$lossKey]=[ordered]@{schema=$(if($MaintenanceProcessLoss){
+            $receipt[$lossKey]=[ordered]@{schema=$(if($maintenanceLoss){
                     'usk.publisher_registered_maintenance_process_loss.v2'
                 }elseif($PreservationLoss){
                     'usk.publisher_registered_bootstrap_preservation_loss.v2'
@@ -673,8 +689,10 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
             $script:observersClosed=$false
             $operationPrefix=if($PreservationLoss){$script:bootstrapOperationPrefix}else{''}
             $maintenanceBoundary=@{}
-            if($MaintenanceProcessLoss){$maintenanceBoundary=@{MaintenanceTransactionId=$Payload.transaction_id;
+            if($maintenanceLoss){$maintenanceBoundary=@{MaintenanceTransactionId=$Payload.transaction_id;
                 MaintenancePlanDigest=$Payload.reviewed_plan_digest}}
+            if($MaintenanceInitialProcessLoss){$maintenanceBoundary['MaintenancePlanId']=$Payload.reviewed_plan_id;
+                $maintenanceBoundary['MaintenanceInstallId']=$Payload.plan_request.install_id}
             $bootstrapObserver=Start-OwnedProductionBoundaryObserver @maintenanceBoundary -Phase $lossPhase -Service $service `
                 -ObserverRoot $observerRoot -VhdPath $VhdPath -VolumeRoot $VolumeRoot -DriveRoot $drive `
                 -VisibleRoot ($drive+'publication\destination\visible') -ServiceCommand $registeredCommand `
@@ -723,9 +741,9 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
         $process.WaitForExit();$exit=$process.ExitCode
         $diagnostic=[IO.File]::ReadAllText($stderr)
         if((Get-Item -LiteralPath $stdout).Length -gt 4MB -or (Get-Item -LiteralPath $stderr).Length -gt 64KB -or
-            (($ExpectedExit -eq 0 -or $structuredRefusal) -and $diagnostic.Length) -or
+            (($ExpectedExit -eq 0 -or $structuredRefusal -or $MaintenanceInitialRecoveryRetention) -and $diagnostic.Length) -or
             ($processLoss -and $diagnostic.Length) -or
-            ($ExpectedExit -ne 0 -and -not $processLoss -and -not $structuredRefusal -and
+            ($ExpectedExit -ne 0 -and -not $processLoss -and -not $structuredRefusal -and -not $MaintenanceInitialRecoveryRetention -and
                 $diagnostic -cnotmatch '^usk_machine: request refused\r?\n?$')) {throw 'Standard client output differs'}
         $responseText=[IO.File]::ReadAllText($stdout)
         $receipt['last_response_diagnostic']=[ordered]@{command=$Command;request_id=$requestId;exit_code=$exit;
@@ -768,6 +786,10 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
             $receipt.installation_guard_conflict.response=$result
             $receipt.installation_guard_conflict.exit_code=$exit
         }
+        if($MaintenanceInitialRecoveryRetention) {
+            $responseMatches=$responseMatches -and $result.status -ceq 'recovery_required' -and
+                $null -eq $result.result -and $result.error.code -ceq 'recovery_required'
+        }
         $deadline=[DateTime]::UtcNow.AddSeconds(30)
         while((Get-Service $service).Status -ne 'Stopped' -and [DateTime]::UtcNow -lt $deadline){Start-Sleep -Milliseconds 50}
         if((Get-Service $service).Status -ne 'Stopped'){throw 'Standard public worker did not stop'}
@@ -797,14 +819,14 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
             throw ('Standard public response binding differs: command='+$Command+' exit='+$exit+' status='+$result.status)
         }
         if((Read-ServicePolicy|ConvertTo-Json -Depth 16 -Compress) -cne ($receipt.service_policy|ConvertTo-Json -Depth 16 -Compress)) {throw 'Service access policy changed across standard dispatch'}
-        if($ExpectedExit -eq 0 -or $structuredRefusal) {
+        if($ExpectedExit -eq 0 -or $structuredRefusal -or $MaintenanceInitialRecoveryRetention) {
             if(-not (Test-Path -LiteralPath $nativeOutput) -or (Get-Item -LiteralPath $nativeOutput).Length -gt 4MB) {
                 throw 'Standard native response capture is missing or exceeds its bound'
             }
             $nativeText=[IO.File]::ReadAllText($nativeOutput)
             $native=$nativeText|ConvertFrom-Json
             $nativeSchema=if($Command -ceq 'publisher.observe'){'usk.publisher_service_capability_observation.v1'}else{'usk.publisher_lab_service_observation.v1'}
-            $nativeStatus=if($structuredRefusal){'failed'}elseif($Command -ceq 'publisher.observe'){'observed'}else{'pass'}
+            $nativeStatus=if($MaintenanceInitialRecoveryRetention){'recovery_required'}elseif($structuredRefusal){'failed'}elseif($Command -ceq 'publisher.observe'){'observed'}else{'pass'}
             if($native.schema -cne $nativeSchema -or $native.status -cne $nativeStatus -or
                 $null -eq $native.registered_admission){throw 'Standard native admission capture is incomplete'}
             $nativeCapture=[ordered]@{command=$Command;request_id=$requestId;

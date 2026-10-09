@@ -674,7 +674,10 @@ void effect_execution_record_controls() {
             const auto& actual = recovery ? minimum : apply;
             const auto& selected_reply = recovery ? recovery_reply : fresh_reply;
             const auto composed = composed_reply(selected_reply, recovery, ordered_objects);
+            const auto original_composed = usk::json::canonical(composed);
             require_publisher_effect_selected_object_access_batch_readback(composed, actual, ordered_objects);
+            check(usk::json::canonical(composed) == original_composed,
+                "selected access validation changed the retained raw proof");
             Value::Array eight;
             for (std::size_t index = 0; index < publisher_object_access_batch_limit; ++index) eight.push_back(object(index % 3));
             const Value bound(eight);
@@ -697,6 +700,12 @@ void effect_execution_record_controls() {
             refuses_composed([](Value& v) { v.as_object().at("result").as_array()[0].as_object().at("client")
                 .as_object().at("token_id") = Value(std::uint64_t{803}); });
             refuses_composed([](Value& v) { v.as_object().at("result").as_array()[0].as_object().at("descriptor_hex") = Value("00"); });
+            refuses_composed([](Value& v) { v.as_object().at("result").as_array()[0].as_object()
+                .emplace("unexpected_retained_field", Value("must not be discarded")); });
+            refuses_composed([](Value& v) { v.as_object().at("result").as_array()[0].as_object()
+                .emplace("client_sha256", Value(std::string(64, 'f'))); });
+            refuses_composed([](Value& v) { v.as_object().at("result").as_array()[0].as_object()
+                .emplace("native_object_sha256", Value(std::string(64, 'f'))); });
             refuses_composed([](Value& v) { v.as_object().at("selection").as_object().at("present") = Value(false); });
             refuses_composed([](Value& v) { v.as_object().at("selection").as_object().at("envelope")
                 .as_object().at("reviewed_plan_digest") = Value(std::string(64, 'f')); });

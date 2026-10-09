@@ -1078,12 +1078,13 @@ struct NativeMaintenanceContext::Impl {
         require_client_read_only_access(authenticated_native_access(handle), facts);
     }
     void require_client_read_only_access(Value access, const PublisherHandleObservation& facts) const {
-        if (!equal(access.at("client"), client) || !equal(access.at("native_object"), publisher_handle_observation_json(facts)))
+        const auto native_object = publisher_handle_observation_json(facts);
+        if (!equal(access.at("client"), client) || !equal(access.at("native_object"), native_object))
             throw std::runtime_error("native maintenance authenticated object binding changed");
         access.as_object().erase("client"); access.as_object().erase("native_object");
         access.as_object().emplace("client_sha256", Value(json::sha256_canonical(client)));
-        access.as_object().emplace("native_object_sha256", Value(json::sha256_canonical(publisher_handle_observation_json(facts))));
-        require_publisher_authenticated_object_access(access, client, publisher_handle_observation_json(facts));
+        access.as_object().emplace("native_object_sha256", Value(json::sha256_canonical(native_object)));
+        require_publisher_authenticated_object_access(access, client, native_object);
         constexpr DWORD mutation = FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_DELETE_CHILD |
             FILE_WRITE_ATTRIBUTES | DELETE | WRITE_DAC | WRITE_OWNER;
         for (const auto& [name, check] : access.at("checks").as_object())

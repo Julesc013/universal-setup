@@ -10,6 +10,7 @@
 #include "usk_effect_dispatch.h"
 #include "usk_json.h"
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <exception>
 #include <stdexcept>
@@ -405,7 +406,7 @@ usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HA
     const auto& state = *state_;
     if (!state.received || state.replied || !state.client_token.value || !object || object == INVALID_HANDLE_VALUE)
         throw std::runtime_error("authenticated access observation requires the active request and held object");
-    const auto before_client = client_token_facts(state.client_token.value, state.client_process_id);
+    auto before_client = client_token_facts(state.client_token.value, state.client_process_id);
     if (usk::json::canonical(before_client) != usk::json::canonical(state.client_facts))
         throw std::runtime_error("authenticated client token changed since admission");
     FILE_ATTRIBUTE_TAG_INFO attributes{};
@@ -454,11 +455,11 @@ usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HA
         descriptor_hex.push_back(hex[bytes[index] & 15u]);
     }
     Value::Object checks;
-    const std::vector<std::pair<std::string, DWORD>> rights{{"write_or_add_file", FILE_WRITE_DATA},
+    static constexpr std::array<std::pair<const char*, DWORD>, 9> rights{{{"write_or_add_file", FILE_WRITE_DATA},
         {"append_or_add_directory", FILE_APPEND_DATA}, {"write_ea", FILE_WRITE_EA},
         {"delete_child", FILE_DELETE_CHILD}, {"write_attributes", FILE_WRITE_ATTRIBUTES},
         {"delete", DELETE}, {"write_dac", WRITE_DAC}, {"write_owner", WRITE_OWNER},
-        {"maximum_allowed", MAXIMUM_ALLOWED}};
+        {"maximum_allowed", MAXIMUM_ALLOWED}}};
     for (const auto& [name, requested] : rights) {
         GENERIC_MAPPING mapping{FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_GENERIC_EXECUTE, FILE_ALL_ACCESS};
         std::vector<unsigned char> privilege_storage(sizeof(PRIVILEGE_SET) + 16u * sizeof(LUID_AND_ATTRIBUTES));
@@ -496,10 +497,12 @@ usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HA
     Value::Object fields;
     fields.emplace("schema", Value("usk.publisher_authenticated_object_access.v1"));
     fields.emplace("scope", Value("fresh_held_authenticated_token_and_file_descriptor"));
-    fields.emplace("client", before_client);
+    // Transfer only this completed fresh proof after its unchanged afterchecks;
+    // the admission baseline remains independently owned by the channel.
+    fields.emplace("client", std::move(before_client));
     fields.emplace("native_object", publisher_handle_observation_json(before));
     fields.emplace("descriptor_api", Value("GetSecurityInfo:SE_FILE_OBJECT:OWNER_GROUP_DACL"));
-    fields.emplace("descriptor_hex", Value(descriptor_hex));
+    fields.emplace("descriptor_hex", Value(std::move(descriptor_hex)));
     fields.emplace("observed_group_sid", Value(sid_text(group)));
     fields.emplace("checks", Value(std::move(checks)));
     return Value(std::move(fields));

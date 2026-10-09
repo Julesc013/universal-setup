@@ -1341,10 +1341,14 @@ PublisherWorkerTokenContext actual_worker_context(const Value& profile) {
     return PublisherWorkerTokenContext{GetCurrentProcessId(), sid, actual};
 }
 void require_raw_object_access(const Value& result, const Value& native_object) {
-    auto access = result;
+    Value::Object fields;
+    for (const auto& [name, value] : result.as_object())
+        if (name != "client" && name != "native_object") fields.emplace(name, value);
+    Value access(std::move(fields));
     // Unchanged closed raw-descriptor/native-object/client validation, including
-    // all actual AccessCheck results. The temporary is never effect authority.
-    access.as_object().erase("client"); access.as_object().erase("native_object");
+    // all actual AccessCheck results. Preserve every other supplied field and
+    // emplace precedence, without copying the two discarded proof subtrees.
+    // The input remains independently owned; this projection is never authority.
     access.as_object().emplace("client_sha256", Value(usk::json::sha256_canonical(result.at("client"))));
     access.as_object().emplace("native_object_sha256", Value(usk::json::sha256_canonical(native_object)));
     require_publisher_authenticated_object_access(access, result.at("client"), native_object);

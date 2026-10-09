@@ -29,6 +29,7 @@ param(
     [switch]$PublicStandardInstallationGuardConflict,
     [switch]$PublicStandardMaintenanceQualification,
     [switch]$PublicStandardMaintenanceRecoveryQualification,
+    [switch]$PublicStandardMaintenanceInitialQualification,
     [ValidateSet('none','anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')]
     [string]$PublicStandardConstructedBootstrapPrefix='none',
     [ValidateSet('none','move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')]
@@ -47,7 +48,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-if(($PublicStandardMaintenanceQualification -or $PublicStandardMaintenanceRecoveryQualification) -and (-not $PublicInstallation -or -not $PublicStandardClient -or
+if($PublicStandardMaintenanceInitialQualification -and $PublicStandardMaintenanceRecoveryQualification) {
+    throw 'Initial maintenance and published recovery require separate owned fixtures'
+}
+if(($PublicStandardMaintenanceQualification -or $PublicStandardMaintenanceRecoveryQualification -or $PublicStandardMaintenanceInitialQualification) -and (-not $PublicInstallation -or -not $PublicStandardClient -or
     $PublicStandardBootstrapLoss -or $PublicStandardBootstrapPreservationLoss -or $PublicStandardActiveInstallContention -or
     $PublicStandardStalePlanQualification -or $PublicStandardInstallationGuardConflict -or
     $PublicStandardConstructedBootstrapPrefix -cne 'none' -or $PublicStandardConstructedBootstrapDurableState -cne 'none')) {
@@ -447,7 +451,7 @@ function Invoke-StandardPublicSystemTask {
         [string]$MachineBinary,[string]$OutputPath,[string]$LabRoot,[switch]$BootstrapProcessLoss,
         [switch]$BootstrapPreservationProcessLoss,[switch]$ActiveInstallContention,[switch]$StalePlanQualification,[switch]$InstallationGuardConflict,
         [string]$ConstructedBootstrapPrefix='none',[string]$ConstructedBootstrapDurableState='none',
-        [switch]$MaintenanceQualification,[switch]$MaintenanceRecoveryQualification)
+        [switch]$MaintenanceQualification,[switch]$MaintenanceRecoveryQualification,[switch]$MaintenanceInitialQualification)
     # No local invocation can reach this: the outer lab has already required a
     # fresh hosted VM and provisioned the exact disposable data disk.
     $taskName='USK_STANDARD_PUBLIC_'+[guid]::NewGuid().ToString('N')
@@ -487,6 +491,7 @@ function Invoke-StandardPublicSystemTask {
             $(if($InstallationGuardConflict){' -InstallationGuardConflict'}else{''})+
             $(if($MaintenanceQualification){' -MaintenanceQualification'}else{''})+
             $(if($MaintenanceRecoveryQualification){' -MaintenanceRecoveryQualification'}else{''})+
+            $(if($MaintenanceInitialQualification){' -MaintenanceInitialQualification'}else{''})+
             ' -ConstructedBootstrapPrefix '+(& $quote $ConstructedBootstrapPrefix)+
             ' -ConstructedBootstrapDurableState '+(& $quote $ConstructedBootstrapDurableState))) -join "`n"
     $stream=[IO.File]::Open($script,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
@@ -713,8 +718,9 @@ try {
                 -ActiveInstallContention:$PublicStandardActiveInstallContention `
                 -StalePlanQualification:$PublicStandardStalePlanQualification `
                 -InstallationGuardConflict:$PublicStandardInstallationGuardConflict `
-                -MaintenanceQualification:($PublicStandardMaintenanceQualification -or $PublicStandardMaintenanceRecoveryQualification) `
+                -MaintenanceQualification:($PublicStandardMaintenanceQualification -or $PublicStandardMaintenanceRecoveryQualification -or $PublicStandardMaintenanceInitialQualification) `
                 -MaintenanceRecoveryQualification:$PublicStandardMaintenanceRecoveryQualification `
+                -MaintenanceInitialQualification:$PublicStandardMaintenanceInitialQualification `
                 -ConstructedBootstrapPrefix $PublicStandardConstructedBootstrapPrefix `
                 -ConstructedBootstrapDurableState $PublicStandardConstructedBootstrapDurableState
         } elseif ($PublicInstallation) {
