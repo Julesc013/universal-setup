@@ -163,6 +163,7 @@ private:
     // authority; use solely to dispatch to callbacks that perform their own
     // native fences, retaining the standalone require_native_owner checks.
     const detail::NativeMaintenanceTransactionOperations* native_owner_binding() const;
+    void persist_native_initial_transitions();
     bool native_origin_ = false;
     std::weak_ptr<const void> native_origin_binding_;
 #endif

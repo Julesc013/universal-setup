@@ -703,10 +703,19 @@ TransactionSession::TransactionSession(
     if (fs::exists(journal_path_)) {
         throw std::runtime_error("transaction journal already exists; recovery inspection is required");
     }
-    persist_transition("created");
-    persist_transition("validated");
-    persist_transition("planned");
-    persist_transition("staging");
+#if defined(_WIN32)
+    if (native_origin_ && stream_journal_.present && !injector_) {
+        persist_native_initial_transitions();
+    } else
+#endif
+    {
+        // A caller asking to observe individual phase checkpoints retains the
+        // original durable prefix and before/after callbacks for every phase.
+        persist_transition("created");
+        persist_transition("validated");
+        persist_transition("planned");
+        persist_transition("staging");
+    }
     create_staging_root();
 }
 
@@ -748,6 +757,33 @@ const detail::NativeMaintenanceTransactionOperations* TransactionSession::requir
     const auto* native = native_owner_binding();
     if (native) native->require_authority(spec_);
     return native;
+}
+
+void TransactionSession::persist_native_initial_transitions() {
+    if (!require_native_owner() || injector_ || !stream_journal_.present ||
+        !transitions_.empty() || !current_state_.empty())
+        throw std::logic_error("native initial journal is not an unstarted bound stream");
+    // Root/plan/source validation has completed. There is no staging or payload
+    // effect between these logical phases: one no-replace durable snapshot can
+    // carry their complete prior intent before create_staging_root. This is one
+    // durability boundary, not four independently observable durable writes.
+    try {
+        for (const auto* next : {"created", "validated", "planned", "staging"}) {
+            if (!valid_transition(current_state_, next))
+                throw std::logic_error("invalid native initial transaction chain");
+            transitions_.push_back(Transition{static_cast<std::uint64_t>(transitions_.size()),
+                current_state_, next, iso8601_now()});
+            current_state_ = next;
+        }
+        persist_journal(transitions_.back().sequence, true);
+    } catch (...) {
+        // The native callback latches uncertain persistence and retains any
+        // durable material. Construction fails; no staging, retry or overwrite.
+        transitions_.clear();
+        current_state_.clear();
+        throw;
+    }
+    (void)require_native_owner();
 }
 #endif
 

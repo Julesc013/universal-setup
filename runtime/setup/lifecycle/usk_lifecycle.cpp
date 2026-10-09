@@ -2360,11 +2360,13 @@ RepairResult apply_repair(
     const transaction::TransactionSpec repair_spec{
         transaction_id, plan.plan_id, plan.plan_digest, "repair", plan.roots.staging_parent,
         bundle, plan.roots.state_root, plan.roots.audit_root};
+    transaction::FaultInjector transaction_injector;
+    if (fault_injector) transaction_injector = [&](const std::string& state, const std::string& point) {
+        fault_injector("repair", "transaction." + state + "." + point);
+    };
     auto transaction_holder = begin_maintenance(repair_spec,
         current.first, plan.policy_digest, applied_at, repair_plan_payload(plan),
-        [&](const std::string& state, const std::string& point) {
-            if (fault_injector) fault_injector("repair", "transaction." + state + "." + point);
-        });
+        std::move(transaction_injector));
     auto& transaction = *transaction_holder.transaction;
     auto& effects = *transaction_holder.effects;
     std::vector<fs::path> backups;
@@ -2581,13 +2583,15 @@ MoveResult apply_move(
     require_result_record_capacity(plan.roots, plan.install_id, transaction_id, current.first.audit_chain_id);
     require_preimage_path_capacity(plan.new_root, plan.complete_files);
     require_preimage_path_capacity(plan.staging_parent / (".usk-stage-" + transaction_id), plan.complete_files);
+    transaction::FaultInjector transaction_injector;
+    if (fault_injector) transaction_injector = [&](const std::string& state, const std::string& point) {
+        fault_injector("move", "transaction." + state + "." + point);
+    };
     auto transaction_holder = begin_maintenance(transaction::TransactionSpec{
         transaction_id, plan.plan_id, plan.plan_digest, "move", plan.staging_parent,
         plan.new_root, plan.roots.state_root, plan.roots.audit_root},
         current.first, plan.policy_digest, applied_at, move_plan_payload(plan),
-        [&](const std::string& state, const std::string& point) {
-            if (fault_injector) fault_injector("move", "transaction." + state + "." + point);
-        });
+        std::move(transaction_injector));
     auto& transaction = *transaction_holder.transaction;
     auto& effects = *transaction_holder.effects;
     try {
@@ -2811,13 +2815,15 @@ UninstallResult apply_uninstall(
             plan.roots.staging_parent / (".usk-stage-" + transaction_id) / "operation.marker"}) {
         base::require_native_path_capacity(path, base::NativePathKind::file, "uninstall operation marker");
     }
+    transaction::FaultInjector transaction_injector;
+    if (fault_injector) transaction_injector = [&](const std::string& state, const std::string& point) {
+        fault_injector("uninstall", "transaction." + state + "." + point);
+    };
     auto transaction_holder = begin_maintenance(transaction::TransactionSpec{
         transaction_id, plan.plan_id, plan.plan_digest, "uninstall", plan.roots.staging_parent,
         marker, plan.roots.state_root, plan.roots.audit_root},
         current.first, plan.policy_digest, applied_at, uninstall_plan_payload(plan),
-        [&](const std::string& state, const std::string& point) {
-            if (fault_injector) fault_injector("uninstall", "transaction." + state + "." + point);
-        });
+        std::move(transaction_injector));
     auto& transaction = *transaction_holder.transaction;
     auto& effects = *transaction_holder.effects;
     UninstallResult result;

@@ -3,10 +3,12 @@
 #include "usk_native_maintenance_transaction_internal.h"
 #if defined(_WIN32)
 #include "usk_json.h"
+#include "usk_sha256.h"
 #include <algorithm>
 #include <map>
 #include <stdexcept>
 #include <exception>
+#include <sstream>
 namespace usk::transaction::detail {
 namespace {
 thread_local const NativeMaintenanceTransactionOperations* active_operations = nullptr;
@@ -77,11 +79,48 @@ void require_native_maintenance_journal_binding(const TransactionSpec& spec,
     if (roots != expected) throw std::runtime_error("native maintenance journal roots differ from its original owner");
     const auto& transitions = value.at("transitions").as_array();
     if (transitions.empty() || transitions.size() > 100000 ||
-        value.at("current_state").as_string() != transitions.back().at("to").as_string() ||
-        (first && (transitions.size() != 1 || transitions[0].at("sequence").as_unsigned() != 0 ||
-            transitions[0].at("to").as_string() != "created" ||
-            transitions[0].at("from").type() != usk::json::Value::Type::null_value)))
+        value.at("current_state").as_string() != transitions.back().at("to").as_string())
         throw std::runtime_error("native maintenance journal transition binding differs");
+    if (!first) return;
+    if (transitions.size() == 1) {
+        if (transitions[0].at("sequence").as_unsigned() != 0 ||
+            transitions[0].at("to").as_string() != "created" ||
+            transitions[0].at("from").type() != usk::json::Value::Type::null_value)
+            throw std::runtime_error("native maintenance first journal is not created");
+        return;
+    }
+    // The only cumulative first snapshot is the complete pre-staging intent.
+    // Never admit an arbitrary later journal as a new no-replace publication.
+    const auto& metadata = value.at("recovery_metadata");
+    const auto stream = read_stream_journal(value, [](const fs::path&) { return false; });
+    if (transitions.size() != 4 || metadata.at("staging_identity").type() != usk::json::Value::Type::null_value ||
+        !metadata.at("staged_files").as_array().empty() ||
+        metadata.at("commit_cleanup_policy").as_string() != "retain_only" ||
+        !stream.present || stream.source_digest.empty() || stream.source_context.empty() ||
+        !stream.entries.empty() || !stream.publication_root_identity.empty())
+        throw std::runtime_error("native maintenance first journal is not pre-staging intent");
+    const char* phases[]{"created", "validated", "planned", "staging"};
+    std::ostringstream chain;
+    for (std::size_t i = 0; i < 4; ++i) {
+        const auto& transition = transitions[i];
+        const std::string from = i == 0 ? std::string{} : phases[i - 1];
+        if (transition.at("sequence").as_unsigned() != i ||
+            (i == 0 ? transition.at("from").type() != usk::json::Value::Type::null_value :
+                transition.at("from").as_string() != from) ||
+            transition.at("to").as_string() != phases[i] ||
+            transition.at("transition_id").as_string() != spec.transaction_id + "." + std::to_string(i) ||
+            !transition.at("durable_before_external_visibility").as_boolean() ||
+            transition.at("recorded_at").as_string().empty())
+            throw std::runtime_error("native maintenance initial intent chain differs");
+        chain << i << '\0' << from << '\0' << phases[i] << '\0'
+            << transition.at("recorded_at").as_string() << '\n';
+    }
+    const auto bytes = chain.str();
+    usk::base::Sha256 digest;
+    digest.update(reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size());
+    if (value.at("journal_digest").as_string() != digest.finish() ||
+        value.at("updated_at").as_string() != transitions.back().at("recorded_at").as_string())
+        throw std::runtime_error("native maintenance initial intent digest differs");
 }
 }
 #endif

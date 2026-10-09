@@ -593,6 +593,82 @@ int initial_stream_binding_before_effects(Fixture& fixture)
     return 0;
 }
 
+#if defined(_WIN32)
+int cumulative_native_initial_binding(Fixture& fixture)
+{
+    using Value = usk::json::Value;
+    using usk::transaction::detail::require_native_maintenance_journal_binding;
+    const std::string context = "{\"schema\":\"test.initial_stream_source.v1\"}";
+    const auto source = usk::json::sha256_canonical(usk::json::parse(context));
+    const auto rehash_chain = [](Value& document) {
+        std::string chain;
+        for (const auto& row : document.at("transitions").as_array()) {
+            chain += std::to_string(row.at("sequence").as_unsigned()); chain += '\0';
+            if (row.at("from").type() != Value::Type::null_value) chain += row.at("from").as_string();
+            chain += '\0'; chain += row.at("to").as_string(); chain += '\0';
+            chain += row.at("recorded_at").as_string(); chain += '\n';
+        }
+        usk::base::Sha256 digest;
+        digest.update(reinterpret_cast<const unsigned char*>(chain.data()), chain.size());
+        document.as_object().at("journal_digest") = Value(digest.finish());
+    };
+    for (const std::string operation : {"repair", "move", "uninstall"}) {
+        auto spec = fixture.spec("cumulative-initial-" + operation);
+        spec.operation = operation;
+        // Ordinary phase injection yields the same four-entry pre-staging
+        // snapshot without constructing or impersonating a native owner.
+        if (!throws([&] {
+            TransactionSession::begin_streaming(spec, source, context,
+                [](const std::string& phase, const std::string& point) {
+                    if (phase == "staging" && point == "after_journal")
+                        throw std::runtime_error("retain cumulative pre-staging intent");
+                });
+        })) return 204;
+        const auto path = spec.state_root / "transactions" / (spec.transaction_id + ".journal.json");
+        auto cumulative = usk::json::parse(read_text(path));
+        cumulative.as_object().at("recovery_metadata").as_object().emplace("commit_cleanup_policy", Value("retain_only"));
+        const auto text = usk::json::canonical(cumulative);
+        require_native_maintenance_journal_binding(spec, path, text, {}, true);
+        const std::vector<std::function<void(Value&)>> changes{
+            [](Value& v) { v.as_object().at("transitions").as_array().pop_back(); v.as_object().at("current_state") = Value("planned"); },
+            [](Value& v) { v.as_object().at("transitions").as_array().push_back(v.at("transitions").as_array().back()); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[1].as_object().at("sequence") = Value(std::uint64_t{0}); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[1].as_object().at("from") = Value("planned"); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[2].as_object().at("to") = Value("verified"); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[3].as_object().at("transition_id") = Value("foreign.3"); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[0].as_object().at("from") = Value(""); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[2].as_object().at("durable_before_external_visibility") = Value(false); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[3].as_object().at("recorded_at") = Value(""); v.as_object().at("updated_at") = Value(""); },
+            [](Value& v) { v.as_object().at("updated_at") = Value("different"); },
+            [](Value& v) { v.as_object().at("recovery_metadata").as_object().at("staging_identity") = Value("0000000000000000:0000000000000001"); },
+            [](Value& v) { v.as_object().at("recovery_metadata").as_object().at("commit_cleanup_policy") = Value("delete"); },
+            [](Value& v) { v.as_object().at("recovery_metadata").as_object().erase("stream_journal"); },
+            [](Value& v) { v.as_object().at("recovery_metadata").as_object().at("stream_journal").as_object().at("source_context") = Value("{}"); },
+        };
+        for (const auto& change : changes) {
+            auto altered = cumulative;
+            change(altered);
+            rehash_chain(altered); // Shape must refuse even with a valid chain digest.
+            if (!throws([&] { require_native_maintenance_journal_binding(spec, path,
+                usk::json::canonical(altered), {}, true); })) return 205;
+        }
+        auto corrupt_digest = cumulative;
+        corrupt_digest.as_object().at("journal_digest") = Value(std::string(64, '0'));
+        if (!throws([&] { require_native_maintenance_journal_binding(spec, path,
+            usk::json::canonical(corrupt_digest), {}, true); })) return 206;
+        // An interruption at the shared initial snapshot leaves all intent
+        // inspectable, no staging effect, and retain-only recovery metadata.
+        { std::ofstream output(path, std::ios::binary | std::ios::trunc); output << text; }
+        const auto observed = TransactionSession::inspect_recovery(spec);
+        if (observed.current_state != "staging" || observed.staging_exists || observed.target_exists ||
+            observed.stream_source_context != context || observed.stream_source_digest != source ||
+            observed.commit_started || observed.commit_confirmed ||
+            usk::transaction::detail::observe_current_native_maintenance_file(path)) return 207;
+    }
+    return 0;
+}
+#endif
+
 int main()
 {
     Fixture fixture;
@@ -642,6 +718,9 @@ int main()
         if (read_text(session.journal_path()) != later ||
             usk::transaction::detail::observe_current_native_maintenance_file(session.journal_path())) return 203;
     }
+#endif
+#if defined(_WIN32)
+    if (int result = cumulative_native_initial_binding(fixture)) return result;
 #endif
     if (int result = initial_stream_binding_before_effects(fixture)) return result;
     bool commit_supported = false;
