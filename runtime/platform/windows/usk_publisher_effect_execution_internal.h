@@ -7,6 +7,7 @@
 #include <memory>
 #include <utility>
 
+namespace usk::lifecycle::detail { class NativeMaintenanceContext; }
 namespace usk::platform::windows {
 struct CandidatePublisherConfiguration;
 std::string execute_candidate_restricted_publisher(
@@ -111,6 +112,10 @@ private:
         const CandidatePublisherConfiguration&, bool& effects_may_exist);
     // Only the concrete engine may borrow the existing synchronize-only event
     // for its native waits. It cannot modify, duplicate or serialize the event.
+    friend class usk::lifecycle::detail::NativeMaintenanceContext;
+    friend class usk::lifecycle::detail::NativeMaintenanceRecordByteRead;
+    void verify_original_maintenance_record_bytes(
+        usk::lifecycle::detail::NativeMaintenanceRecordByteRead&);
     HANDLE cancellation_observer() const;
     // Before the engine publishes its own TLS or acquires effect resources,
     // join its configured origin to this exact original native route.

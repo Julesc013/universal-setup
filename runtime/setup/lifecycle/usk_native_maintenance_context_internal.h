@@ -74,6 +74,7 @@ private:
     // Only the engine can obtain this live-owner adapter. It retains no owner
     // lifetime; copied callbacks refuse before dereference after scope exit.
     MaintenanceRecoveryOperations recovery_operations() const;
+    class RecordByteRead;
     struct Impl;
     std::unique_ptr<Impl> impl_;
     std::unique_ptr<usk::platform::windows::ScopedPublisherEffectFence> fence_;
@@ -81,6 +82,7 @@ private:
     // Destroy the borrowed callback scope before its owning operations/handles.
     std::unique_ptr<usk::transaction::detail::ScopedNativeMaintenanceTransaction> scope_;
 };
+
 }
 #endif
 #endif

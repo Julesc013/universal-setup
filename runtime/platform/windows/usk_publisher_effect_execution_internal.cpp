@@ -241,6 +241,38 @@ Value PublisherEffectExecutionOwner::authenticated_object_access_batch(const std
         throw;
     }
 }
+void PublisherEffectExecutionOwner::verify_original_maintenance_record_bytes(
+    usk::lifecycle::detail::NativeMaintenanceRecordByteRead& reader) {
+    require_current();
+    const auto proof_started = reader.started_;
+    try {
+        state_->require_owner();
+        const auto native_before = state_->security.observe_local_current();
+        reader.prepare(); // Construction and the complete immutable ledger are charged too.
+        std::optional<Value> native_after;
+        auto observed = state_->readback.original_maintenance_record_bytes_bracket(reader,
+            effect_proof_remaining(proof_started), [&] {
+                require(!native_after, "publisher record scope received duplicate second-round closure");
+                state_->require_owner();
+                native_after.emplace(state_->security.observe_local_current());
+            });
+        require(native_after.has_value(), "publisher record scope lacks its complete native AFTER");
+        state_->require_native_binding(observed.before, native_before);
+        state_->require_native_binding(observed.after, *native_after);
+        require_publisher_worker_security_continuity(native_before.at("worker_security"), native_after->at("worker_security"));
+        require(same(publisher_effect_broker_immutable_record(observed.before),
+            publisher_effect_broker_immutable_record(observed.after)), "publisher record scope changed its original owner");
+        state_->require_owner();
+        reader.finalize(observed.access); // All raw denials and actual final whole-chain joins.
+        (void)effect_proof_remaining(proof_started);
+        state_->readback.retain_readback_bracket(observed.before, observed.after);
+        (void)effect_proof_remaining(proof_started);
+    } catch (...) {
+        state_->failed = true;
+        state_->readback.poison();
+        throw;
+    }
+}
 PublisherEffectSelectedAccessObservation PublisherEffectExecutionOwner::observe_selected_security_and_access_batch(
     PublisherEffectSelectionKind kind, const std::vector<HANDLE>& handles, const std::string& failure_context) {
     require_current();

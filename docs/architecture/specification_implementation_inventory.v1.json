@@ -2867,11 +2867,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_native_maintenance_context_internal.h",
-          "sha256": "90e2aa40bcad92fa57305bf732f114bf942dfd6a36efba550cceb65429371950"
+          "sha256": "b8b68d0690c83a0a009cc1bc4330e702e2c0406d3d64c02c5f90c4cc74a7d481"
         },
         {
           "path": "runtime/setup/lifecycle/usk_native_maintenance_context_internal.cpp",
-          "sha256": "da6e8988f4be62ed15c018f3fe7002ebb273b6a38ec15de539d267ce6d9d24bd"
+          "sha256": "cb1688457087eb01d571fb583f117e1fde0634e2093ab8cb97fc2162c351cb0f"
         },
         {
           "path": "runtime/setup/transaction/usk_transaction_session.h",
@@ -3330,11 +3330,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_native_maintenance_context_internal.h",
-          "sha256": "90e2aa40bcad92fa57305bf732f114bf942dfd6a36efba550cceb65429371950"
+          "sha256": "b8b68d0690c83a0a009cc1bc4330e702e2c0406d3d64c02c5f90c4cc74a7d481"
         },
         {
           "path": "runtime/setup/lifecycle/usk_native_maintenance_context_internal.cpp",
-          "sha256": "da6e8988f4be62ed15c018f3fe7002ebb273b6a38ec15de539d267ce6d9d24bd"
+          "sha256": "cb1688457087eb01d571fb583f117e1fde0634e2093ab8cb97fc2162c351cb0f"
         },
         {
           "path": "runtime/setup/transaction/usk_transaction_session.h",
@@ -3793,11 +3793,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_native_maintenance_context_internal.h",
-          "sha256": "90e2aa40bcad92fa57305bf732f114bf942dfd6a36efba550cceb65429371950"
+          "sha256": "b8b68d0690c83a0a009cc1bc4330e702e2c0406d3d64c02c5f90c4cc74a7d481"
         },
         {
           "path": "runtime/setup/lifecycle/usk_native_maintenance_context_internal.cpp",
-          "sha256": "da6e8988f4be62ed15c018f3fe7002ebb273b6a38ec15de539d267ce6d9d24bd"
+          "sha256": "cb1688457087eb01d571fb583f117e1fde0634e2093ab8cb97fc2162c351cb0f"
         },
         {
           "path": "runtime/setup/transaction/usk_transaction_session.h",
@@ -5591,7 +5591,7 @@
         },
         {
           "path": "tests/native/usk_publisher_process_boundary_smoke.cpp",
-          "sha256": "1185df81be615e3001cda32e5f5a25b9e53e6ee12a1815bddbe4800f96cc0d3c"
+          "sha256": "f9eee6f5db5ba71d46da9a0370090a2afbf0af067599ab16a69f749de949ed47"
         },
         {
           "path": "tests/publisher_process_boundary.py",
@@ -6115,7 +6115,7 @@
         },
         {
           "path": "tests/native/usk_publisher_process_boundary_smoke.cpp",
-          "sha256": "1185df81be615e3001cda32e5f5a25b9e53e6ee12a1815bddbe4800f96cc0d3c"
+          "sha256": "f9eee6f5db5ba71d46da9a0370090a2afbf0af067599ab16a69f749de949ed47"
         },
         {
           "path": "tests/publisher_process_boundary.py",
@@ -6223,11 +6223,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_broker_internal.h",
-          "sha256": "ea654f53612d05e44c229ad9980282cec5b0ba34240f1196b9d5b39402694344"
+          "sha256": "058acdc77266d4dcc2310bda2d75a36c449f44d949bd9000279cda7f061da575"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_broker_internal.cpp",
-          "sha256": "2446a28c56399f632968118cbda4868a38b2c67ec72d8e63049e08f7a2631b31"
+          "sha256": "5ca9d11ea7707f0055a5ae5f87380dcbb6bce7b430c6704bfcea4c58d9a6ce34"
         },
         {
           "path": "tests/native/usk_publisher_broker_object_query_smoke.cpp",
@@ -6235,11 +6235,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_execution_internal.cpp",
-          "sha256": "0b4e36d964e842023560c36b45a483324c86f9404c226c8310b26680f79951ab"
+          "sha256": "63a25c311efbf361ee40b7b2bf2c1ce118fc782b3c850a0ee52354b46d37cfdf"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_execution_internal.h",
-          "sha256": "ff1b0e5d2ff88d0cb0936bd821ce69cb49be90d9abcf29175bad31bc14a15777"
+          "sha256": "6d211d4dc5f24b028c0ad0434b571687023df4fcf5516138c4214de5b3bec6a8"
         },
         {
           "path": "tests/publisher_effect_broker_evidence.py",
@@ -6411,11 +6411,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_native_maintenance_context_internal.h",
-          "sha256": "90e2aa40bcad92fa57305bf732f114bf942dfd6a36efba550cceb65429371950"
+          "sha256": "b8b68d0690c83a0a009cc1bc4330e702e2c0406d3d64c02c5f90c4cc74a7d481"
         },
         {
           "path": "runtime/setup/lifecycle/usk_native_maintenance_context_internal.cpp",
-          "sha256": "da6e8988f4be62ed15c018f3fe7002ebb273b6a38ec15de539d267ce6d9d24bd"
+          "sha256": "cb1688457087eb01d571fb583f117e1fde0634e2093ab8cb97fc2162c351cb0f"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_metadata.h",
@@ -6670,11 +6670,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_native_maintenance_context_internal.h",
-          "sha256": "90e2aa40bcad92fa57305bf732f114bf942dfd6a36efba550cceb65429371950"
+          "sha256": "b8b68d0690c83a0a009cc1bc4330e702e2c0406d3d64c02c5f90c4cc74a7d481"
         },
         {
           "path": "runtime/setup/lifecycle/usk_native_maintenance_context_internal.cpp",
-          "sha256": "da6e8988f4be62ed15c018f3fe7002ebb273b6a38ec15de539d267ce6d9d24bd"
+          "sha256": "cb1688457087eb01d571fb583f117e1fde0634e2093ab8cb97fc2162c351cb0f"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_metadata.h",
@@ -7834,11 +7834,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_native_maintenance_context_internal.h",
-          "sha256": "90e2aa40bcad92fa57305bf732f114bf942dfd6a36efba550cceb65429371950"
+          "sha256": "b8b68d0690c83a0a009cc1bc4330e702e2c0406d3d64c02c5f90c4cc74a7d481"
         },
         {
           "path": "runtime/setup/lifecycle/usk_native_maintenance_context_internal.cpp",
-          "sha256": "da6e8988f4be62ed15c018f3fe7002ebb273b6a38ec15de539d267ce6d9d24bd"
+          "sha256": "cb1688457087eb01d571fb583f117e1fde0634e2093ab8cb97fc2162c351cb0f"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_metadata.h",
@@ -8087,11 +8087,11 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_native_maintenance_context_internal.h",
-          "sha256": "90e2aa40bcad92fa57305bf732f114bf942dfd6a36efba550cceb65429371950"
+          "sha256": "b8b68d0690c83a0a009cc1bc4330e702e2c0406d3d64c02c5f90c4cc74a7d481"
         },
         {
           "path": "runtime/setup/lifecycle/usk_native_maintenance_context_internal.cpp",
-          "sha256": "da6e8988f4be62ed15c018f3fe7002ebb273b6a38ec15de539d267ce6d9d24bd"
+          "sha256": "cb1688457087eb01d571fb583f117e1fde0634e2093ab8cb97fc2162c351cb0f"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_metadata.h",

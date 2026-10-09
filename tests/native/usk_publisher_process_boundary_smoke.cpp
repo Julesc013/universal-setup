@@ -721,6 +721,54 @@ void effect_execution_record_controls() {
         marker_refused(ordered_marker, marker_kind, reordered_objects);
         auto boolean_count = marker; boolean_count.as_object().at("native_query_count") = Value(true);
         marker_refused(std::move(boolean_count), marker_kind, marker_objects);
+        // Data controls for the new private scope: read-finished cannot stand
+        // for the second-round rendezvous. None constructs an admitted reader.
+        Value record_scope(Value::Object{{"kind", Value("original_maintenance_record_bytes_bracket")},
+            {"scope_sequence", Value(std::uint64_t{1})}, {"occurrence_count", Value(std::uint64_t{24})},
+            {"chunk_count", Value(std::uint64_t{3})}, {"ledger_sha256", Value(std::string(64u, 'a'))}});
+        const auto phase_packet = [&](const Value& scope, const std::string& phase) {
+            auto value = scope;
+            value.as_object().emplace("schema", Value("usk.publisher_effect_record_byte_scope.v1"));
+            value.as_object().emplace("phase", Value(phase));
+            return value;
+        };
+        const auto phase_refused = [&](const Value& packet, const Value& scope, const std::string& phase) {
+            bool refused = false;
+            try { require_publisher_effect_record_byte_phase(packet, scope, phase); }
+            catch (...) { refused = true; }
+            check(refused, "record byte phase forgery was accepted");
+        };
+        const auto second_closed = phase_packet(record_scope, "all_second_queries_closed");
+        require_publisher_effect_record_byte_phase(second_closed, record_scope, "all_second_queries_closed");
+        phase_refused(phase_packet(record_scope, "read_finished"), record_scope, "all_second_queries_closed");
+        phase_refused(second_closed, record_scope, "read_finished");
+        phase_refused(marker, record_scope, "all_second_queries_closed");
+        auto changed_phase = second_closed;
+        changed_phase.as_object().emplace("result", Value(Value::Array{}));
+        phase_refused(changed_phase, record_scope, "all_second_queries_closed");
+        for (const auto* field : {"scope_sequence", "occurrence_count", "chunk_count", "ledger_sha256"}) {
+            auto changed = second_closed;
+            changed.as_object().erase(field);
+            phase_refused(changed, record_scope, "all_second_queries_closed");
+        }
+        auto another_scope = record_scope;
+        another_scope.as_object().at("scope_sequence") = Value(std::uint64_t{2});
+        phase_refused(second_closed, another_scope, "all_second_queries_closed");
+        another_scope = record_scope;
+        another_scope.as_object().at("occurrence_count") = Value(std::uint64_t{129});
+        another_scope.as_object().at("chunk_count") = Value(std::uint64_t{17});
+        phase_refused(phase_packet(another_scope, "all_second_queries_closed"), another_scope, "all_second_queries_closed");
+        another_scope = record_scope;
+        another_scope.as_object().at("chunk_count") = Value(std::uint64_t{2});
+        phase_refused(phase_packet(another_scope, "all_second_queries_closed"), another_scope, "all_second_queries_closed");
+        auto denied_access = access_row(object(2));
+        require_publisher_maintenance_read_only_access(denied_access, client, object(2));
+        auto unknown_access = denied_access;
+        unknown_access.as_object().emplace("unexpected", Value(true));
+        bool unknown_refused = false;
+        try { require_publisher_maintenance_read_only_access(unknown_access, client, object(2)); }
+        catch (...) { unknown_refused = true; }
+        check(unknown_refused, "record byte pre-read predicate discarded an unknown raw field");
         const auto composed_reply = [&](const Value& selected_reply, bool recovery, const Value& objects) {
             auto result = selected_reply;
             result.as_object().at("schema") = Value("usk.publisher_effect_broker_readback_response.v6");

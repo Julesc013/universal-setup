@@ -11,6 +11,7 @@
 #include <optional>
 #include <vector>
 
+namespace usk::lifecycle::detail { class NativeMaintenanceRecordByteRead; class NativeMaintenanceContext; }
 namespace usk::platform::windows {
 // Read-only transport bound. Each occurrence has its own native query and
 // checked closure; the existing packet byte/value limits also remain in force.
@@ -136,6 +137,29 @@ private:
 // broker's independent reopen and validates fresh actual parent/child tokens
 // and custody locally. These observations do NOT install an execution scope,
 // select a reviewed operation or establish child-thread/creator provenance.
+// Separately bounded complete read-only record scope. These limits do not
+// widen any legacy max8 batch, packet, effect or acceptance deadline.
+inline constexpr std::size_t publisher_record_byte_occurrence_limit = 128u;
+inline constexpr std::size_t publisher_record_byte_chunk_limit = 16u;
+inline constexpr std::size_t publisher_record_byte_proof_bytes_limit = 32u * 1024u * 1024u;
+// The marker/data validator cannot construct a scope or install a native route.
+void require_publisher_effect_record_byte_phase(const usk::json::Value&,
+    const usk::json::Value& scope, const std::string& phase);
+void require_publisher_maintenance_read_only_access(usk::json::Value,
+    const usk::json::Value& client, const usk::json::Value& native_object);
+class PublisherEffectRecordByteRound final {
+private:
+    friend class PublisherEffectWorkerReadback;
+    friend class usk::lifecycle::detail::NativeMaintenanceRecordByteRead;
+    PublisherEffectRecordByteRound(PublisherEffectWorkerPeer&, const usk::json::Value& ledger,
+        usk::json::Value scope, ULONGLONG started, DWORD timeout);
+    ~PublisherEffectRecordByteRound();
+    PublisherEffectRecordByteRound(const PublisherEffectRecordByteRound&) = delete;
+    PublisherEffectRecordByteRound& operator=(const PublisherEffectRecordByteRound&) = delete;
+    void query_chunk(const std::vector<HANDLE>&);
+    struct State;
+    std::unique_ptr<State> state_;
+};
 class PublisherEffectWorkerReadback final {
 public:
     explicit PublisherEffectWorkerReadback(PublisherEffectWorkerPeer&);
@@ -168,6 +192,9 @@ private:
     ObjectAccessObservation authenticated_object_access_bracket(HANDLE, DWORD timeout = 120000);
     ObjectAccessObservation authenticated_object_access_batch_bracket(const std::vector<HANDLE>&,
         DWORD timeout = 120000, const std::function<void()>& after_queries_closed = {});
+    ObjectAccessObservation original_maintenance_record_bytes_bracket(
+        usk::lifecycle::detail::NativeMaintenanceRecordByteRead&, DWORD,
+        const std::function<void()>& after_queries_closed);
     struct AdmissionObservation {
         usk::json::Value before;
         usk::json::Value after;
@@ -237,6 +264,32 @@ private:
     usk::json::Value observe_local_current(const std::string& failure_context = {});
     struct State;
     std::unique_ptr<State> state_;
+};
+}
+namespace usk::lifecycle::detail {
+// Sealed typed interface: only the original concrete context (including its
+// private nested reader) can construct a derived implementation. The platform
+// has no dependency on lifecycle object code, supplied callback or factory.
+class NativeMaintenanceRecordByteRead {
+private:
+    friend class NativeMaintenanceContext;
+    friend class usk::platform::windows::PublisherEffectExecutionOwner;
+    friend class usk::platform::windows::PublisherEffectWorkerReadback;
+    NativeMaintenanceRecordByteRead() = default;
+    NativeMaintenanceRecordByteRead(const NativeMaintenanceRecordByteRead&) = delete;
+    NativeMaintenanceRecordByteRead& operator=(const NativeMaintenanceRecordByteRead&) = delete;
+    virtual void prepare() = 0;
+    virtual const usk::json::Value& ledger() const = 0;
+    virtual void run_round(usk::platform::windows::PublisherEffectRecordByteRound&) = 0;
+    virtual void read_original_bytes() = 0;
+    virtual void finalize(const usk::json::Value&) = 0;
+    virtual void query_chunk(usk::platform::windows::PublisherEffectRecordByteRound&,
+        const std::vector<HANDLE>&) = 0;
+    ULONGLONG started_ = GetTickCount64();
+protected:
+    virtual ~NativeMaintenanceRecordByteRead() = default;
+    void observe_chunk(usk::platform::windows::PublisherEffectRecordByteRound&,
+        const std::vector<HANDLE>&);
 };
 }
 #endif

@@ -142,6 +142,20 @@ std::string journal_identity(HANDLE handle) {
     return text.str();
 }
 }
+class NativeMaintenanceContext::RecordByteRead final : public NativeMaintenanceRecordByteRead {
+private:
+    friend struct NativeMaintenanceContext::Impl;
+    explicit RecordByteRead(const NativeMaintenanceContext::Impl&);
+    ~RecordByteRead() override;
+    void prepare() override;
+    const Value& ledger() const override;
+    void run_round(PublisherEffectRecordByteRound&) override;
+    void read_original_bytes() override;
+    void finalize(const Value&) override;
+    void query_chunk(PublisherEffectRecordByteRound&, const std::vector<HANDLE>&) override;
+    struct State;
+    std::unique_ptr<State> state_;
+};
 struct NativeMaintenanceContext::Impl {
     struct Entry {
         Held handle;
@@ -1078,20 +1092,10 @@ struct NativeMaintenanceContext::Impl {
         require_client_read_only_access(authenticated_native_access(handle), facts);
     }
     void require_client_read_only_access(Value access, const PublisherHandleObservation& facts) const {
-        const auto native_object = publisher_handle_observation_json(facts);
-        if (!equal(access.at("client"), client) || !equal(access.at("native_object"), native_object))
-            throw std::runtime_error("native maintenance authenticated object binding changed");
-        access.as_object().erase("client"); access.as_object().erase("native_object");
-        access.as_object().emplace("client_sha256", Value(json::sha256_canonical(client)));
-        access.as_object().emplace("native_object_sha256", Value(json::sha256_canonical(native_object)));
-        require_publisher_authenticated_object_access(access, client, native_object);
-        constexpr DWORD mutation = FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_DELETE_CHILD |
-            FILE_WRITE_ATTRIBUTES | DELETE | WRITE_DAC | WRITE_OWNER;
-        for (const auto& [name, check] : access.at("checks").as_object())
-            if (name == "maximum_allowed" ? (check.at("granted").as_unsigned() & mutation) != 0 :
-                check.at("allowed").as_boolean() || check.at("granted").as_unsigned() != 0)
-                throw std::runtime_error("native maintenance caller retains object mutation rights");
+        require_publisher_maintenance_read_only_access(std::move(access), client,
+            publisher_handle_observation_json(facts));
     }
+
     PublisherHandleObservation native_facts(HANDLE handle, bool directory) const {
         const auto observed = directory ? observe_publisher_directory_handle(handle) : observe_publisher_file_handle(handle);
         if (observed.dacl_aces.size() == 3u) {
@@ -1118,7 +1122,11 @@ struct NativeMaintenanceContext::Impl {
     void require_entry_batch(const std::vector<const Entry*>& entries, Entry* creation = nullptr,
         bool leading_volume_access = false, const SelectedFenceCheck& selected_check = {},
         PublisherEffectSelectionKind selected_kind = PublisherEffectSelectionKind::reviewed_operation,
-        const std::string& failure_context = {}) const {
+        const std::string& failure_context = {}, NativeMaintenanceRecordByteRead* record_read = nullptr,
+        PublisherEffectRecordByteRound* record_round = nullptr) const {
+        if ((record_read == nullptr) != (record_round == nullptr) ||
+            (record_read && (selected_check || leading_volume_access || creation)))
+            throw std::runtime_error("native maintenance record bracket has another entry role");
         if (selected_check && (!original_child || !leading_volume_access || creation))
             throw std::runtime_error("native maintenance selected access composition lacks its original read-only fence");
         if (leading_volume_access && (!original_child || creation))
@@ -1142,7 +1150,8 @@ struct NativeMaintenanceContext::Impl {
             handles.reserve(pending.size());
             for (const auto& item : pending) handles.push_back(item.handle);
             Value results;
-            if (selected_check && !selection_checked) {
+            if (record_read) record_read->query_chunk(*record_round, handles);
+            else if (selected_check && !selection_checked) {
                 // The first actual ordered chunk also carries the parent's
                 // selected operation and this child's full completed proof.
                 // Overflow chunks still have their own fresh full endpoints.
@@ -1152,11 +1161,11 @@ struct NativeMaintenanceContext::Impl {
                 results = observed.take_access();
                 selection_checked = true;
             } else results = original_child->authenticated_object_access_batch(handles);
-            if (results.as_array().size() != pending.size())
+            if (!record_read && results.as_array().size() != pending.size())
                 throw std::runtime_error("native maintenance read-only batch result count changed");
             for (std::size_t index = 0; index < pending.size(); ++index) {
                 const auto& item = pending[index];
-                require_client_read_only_access(std::move(results.as_array()[index]), item.observed);
+                if (!record_read) require_client_read_only_access(std::move(results.as_array()[index]), item.observed);
                 const auto after = item.entry ? native_facts(item.handle, item.entry->directory) :
                     observe_publisher_directory_handle(item.handle);
                 if (!same(after, item.observed))
@@ -1214,6 +1223,11 @@ struct NativeMaintenanceContext::Impl {
         flush();
         if (selected_check && !selection_checked)
             throw std::runtime_error("native maintenance selected fence lacks its completed access occurrence");
+        if (leading_volume_access && !same(observe_publisher_directory_handle(volume), volume_facts))
+            throw std::runtime_error("native maintenance held volume changed after composed access group");
+        recheck_entries(entries);
+    }
+    void recheck_entries(const std::vector<const Entry*>& entries) const {
         // Re-read complete held facts and every actual parent link after ALL
         // chunks. A saved listing or serialized identity cannot replace this
         // final native join. These fresh query-only reopens close before return.
@@ -1231,8 +1245,6 @@ struct NativeMaintenanceContext::Impl {
                 throw std::runtime_error("native maintenance retained parent link changed after batch");
             independent.close_observer_once();
         };
-        if (leading_volume_access && !same(observe_publisher_directory_handle(volume), volume_facts))
-            throw std::runtime_error("native maintenance held volume changed after composed access group");
         for (const auto* entry : entries) recheck(recheck, *entry);
     }
     void observe_created_entry(Entry& entry) const {
@@ -1803,15 +1815,13 @@ struct NativeMaintenanceContext::Impl {
             for (const auto& observer : observers) require_bytes(*observer);
             return;
         }
-        std::vector<const Entry*> entries;
-        entries.reserve(observers.size());
-        for (const auto& observer : observers) entries.push_back(observer.get());
-        // Read-only content checks stay inside complete original native entry
-        // brackets. Each held read keeps its own exact size/hash/time checks;
-        // no saved access result authorizes another read or later effect.
-        require_entries(entries);
-        for (const auto& observer : observers) require_byte_content(*observer);
-        require_entries(entries);
+        if (observers.empty()) return;
+        if (&observers != &restoration_record_observers || entry_readback_failed)
+            throw std::runtime_error("native maintenance record byte scope is not its original live observer vector");
+        try {
+            RecordByteRead read(*this);
+            original_child->verify_original_maintenance_record_bytes(read);
+        } catch (...) { entry_readback_failed = true; throw; }
     }
     void require_byte_content(const Entry& entry) const {
         FILE_STANDARD_INFO before{}, after{}; FILE_BASIC_INFO first{}, last{};
@@ -2715,6 +2725,137 @@ struct NativeMaintenanceContext::Impl {
         } catch (...) { custody_failed = true; throw; }
     }
 };
+struct NativeMaintenanceContext::RecordByteRead::State {
+    using Impl = NativeMaintenanceContext::Impl;
+    using Entry = Impl::Entry;
+    const Impl& owner;
+    std::vector<const Entry*> entries;
+    struct Frozen {
+        const Entry* entry;
+        HANDLE handle;
+        const Entry* parent;
+        std::wstring name;
+        PublisherHandleObservation facts;
+        bool directory;
+        std::uint64_t size;
+        std::string sha256;
+    };
+    std::vector<Frozen> ordered;
+    Value ledger_value;
+    unsigned completed_rounds = 0;
+    bool prepared = false, bytes_checked = false, finalized = false;
+    PublisherEffectRecordByteRound* active_round = nullptr;
+    explicit State(const Impl& value) : owner(value) {}
+    void require_frozen() const {
+        if (!prepared || owner.entry_readback_failed || !owner.original_child ||
+            entries.size() != owner.restoration_record_observers.size())
+            throw std::runtime_error("native maintenance original record byte owner/vector changed");
+        for (std::size_t index = 0; index < entries.size(); ++index)
+            if (entries[index] != owner.restoration_record_observers[index].get())
+                throw std::runtime_error("native maintenance original record byte order changed");
+        for (const auto& item : ordered) {
+            const auto& entry = *item.entry;
+            if (entry.handle.value != item.handle || entry.parent != item.parent || entry.name != item.name ||
+                !same(entry.facts, item.facts) || entry.directory != item.directory ||
+                entry.size != item.size || entry.sha256 != item.sha256)
+                throw std::runtime_error("native maintenance original record byte expectation changed");
+        }
+    }
+};
+NativeMaintenanceContext::RecordByteRead::RecordByteRead(const NativeMaintenanceContext::Impl& owner)
+    : state_(std::make_unique<State>(owner)) {}
+NativeMaintenanceContext::RecordByteRead::~RecordByteRead() = default;
+void NativeMaintenanceContext::RecordByteRead::prepare() {
+    auto& s = *state_;
+    if (s.prepared || !s.owner.original_child || s.owner.entry_readback_failed ||
+        s.owner.restoration_record_observers.empty())
+        throw std::runtime_error("native maintenance record byte scope cannot be prepared");
+    Value::Array ledger;
+    std::size_t ledger_bytes = 0;
+    const auto append = [&](const State::Entry& entry) {
+        if (s.ordered.size() == publisher_record_byte_occurrence_limit)
+            throw std::runtime_error("native maintenance complete record occurrence ledger exceeds its bound");
+        auto object = publisher_handle_observation_json(entry.facts);
+        const auto bytes = json::canonical(object).size();
+        constexpr std::size_t ledger_limit = 1024u * 1024u;
+        if (bytes + 1u > ledger_limit - ledger_bytes)
+            throw std::runtime_error("native maintenance original record ledger storage exceeds its bound");
+        ledger_bytes += bytes + 1u;
+        s.ordered.push_back(State::Frozen{&entry, entry.handle.value, entry.parent, entry.name,
+            entry.facts, entry.directory, entry.size, entry.sha256});
+        ledger.push_back(std::move(object));
+    };
+    const auto collect = [&](const auto& self, const State::Entry& entry, std::size_t depth) -> void {
+        if (depth == 64u) throw std::runtime_error("native maintenance record ancestry exceeds its bound");
+        append(entry); // Actual collect's leaf-to-root held occurrence.
+        if (entry.parent) self(self, *entry.parent, depth + 1u);
+        append(entry); // Actual collect's root-to-leaf independent occurrence.
+    };
+    for (const auto& observer : s.owner.restoration_record_observers) {
+        s.entries.push_back(observer.get());
+        collect(collect, *observer, 0u);
+    }
+    s.ledger_value = Value(std::move(ledger));
+    s.prepared = true;
+    s.require_frozen();
+}
+const Value& NativeMaintenanceContext::RecordByteRead::ledger() const {
+    state_->require_frozen();
+    return state_->ledger_value;
+}
+void NativeMaintenanceContext::RecordByteRead::query_chunk(PublisherEffectRecordByteRound& round,
+    const std::vector<HANDLE>& handles) {
+    auto& s = *state_;
+    s.require_frozen();
+    if (s.active_round != &round) throw std::runtime_error("native maintenance record query lacks its original active round");
+    observe_chunk(round, handles);
+}
+void NativeMaintenanceContext::RecordByteRead::run_round(PublisherEffectRecordByteRound& round) {
+    auto& s = *state_;
+    s.require_frozen();
+    if (s.active_round || s.completed_rounds >= 2u || s.finalized ||
+        (s.completed_rounds == 1u) != s.bytes_checked)
+        throw std::runtime_error("native maintenance record byte round order differs");
+    s.active_round = &round;
+    try {
+        s.owner.require_entry_batch(s.entries, nullptr, false, {},
+            PublisherEffectSelectionKind::reviewed_operation, {}, this, &round);
+        s.active_round = nullptr;
+        s.require_frozen();
+        ++s.completed_rounds;
+    } catch (...) {
+        s.active_round = nullptr;
+        s.owner.entry_readback_failed = true;
+        throw;
+    }
+}
+void NativeMaintenanceContext::RecordByteRead::read_original_bytes() {
+    auto& s = *state_;
+    s.require_frozen();
+    if (s.active_round || s.completed_rounds != 1u || s.bytes_checked || s.finalized)
+        throw std::runtime_error("native maintenance record byte read lacks its complete first round");
+    // Fixed original same-held validator only: no parsed/returned bytes,
+    // recursive authority/readback, observer reopening or metadata/effect.
+    for (const auto* entry : s.entries) s.owner.require_byte_content(*entry);
+    s.require_frozen();
+    s.bytes_checked = true;
+}
+void NativeMaintenanceContext::RecordByteRead::finalize(const Value& raw_results) {
+    auto& s = *state_;
+    s.require_frozen();
+    if (s.active_round || s.completed_rounds != 2u || !s.bytes_checked || s.finalized ||
+        raw_results.as_array().size() != 2u * s.ordered.size())
+        throw std::runtime_error("native maintenance record byte final proof is incomplete");
+    for (std::size_t index = 0; index < raw_results.as_array().size(); ++index)
+        s.owner.require_client_read_only_access(raw_results.as_array()[index], s.ordered[index % s.ordered.size()].facts);
+    // Fresh native held facts, actual listings and new positively closed
+    // independent reopens AFTER every final global/wire/owner join.
+    s.owner.recheck_entries(s.entries);
+    s.require_frozen();
+    s.finalized = true;
+}
+
+
 NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wstring& root, const std::wstring& service,
     const PublisherInstallOperationGuard& guard, const PublisherMaintenanceStateSnapshot& state,
     const PublisherInstallOperationContext& context, const PublisherInstallationLease& lease,
