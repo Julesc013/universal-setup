@@ -1513,8 +1513,10 @@ struct NativeMaintenanceContext::Impl {
         return text;
     }
     void metadata_prepare(const fs::path& path, const std::string& text) {
-        require_authority(spec);
+        // Other protected records use the writer's native effect fences. This
+        // installed-record hook has no preparation to perform for those paths.
         if (normalized(path).parent_path() != installed_record_path.parent_path()) return;
+        require_authority(spec);
         if (normalized(path) != installed_record_path || installed_prepared || !publication_confirmed)
             throw std::runtime_error("native maintenance refuses an unrelated or repeated installed publication");
         const auto tx = transaction::TransactionSession::inspect_recovery(spec);
@@ -1550,8 +1552,8 @@ struct NativeMaintenanceContext::Impl {
         require_authority(spec);
     }
     bool metadata_created(const fs::path& path, const std::string& text, HANDLE file) {
-        require_authority(spec);
         if (normalized(path).parent_path() != installed_record_path.parent_path()) return false;
+        require_authority(spec);
         if (!installed_prepared || path != prepared_record_path || text != installed_record_text ||
             installed_postimage_file->handle.value != INVALID_HANDLE_VALUE)
             throw std::runtime_error("native maintenance installed creation differs from its prepared effect");
@@ -1565,8 +1567,8 @@ struct NativeMaintenanceContext::Impl {
         return true;
     }
     void metadata_before_issue(const fs::path& path, const std::string& text) {
-        require_authority(spec);
         if (normalized(path).parent_path() != installed_record_path.parent_path()) return;
+        require_authority(spec);
         if (path != prepared_record_path || text != installed_record_text || installed_issue_active || installed_confirmed)
             throw std::runtime_error("native maintenance installed publication cannot be retried");
         const auto tx = transaction::TransactionSession::inspect_recovery(spec);

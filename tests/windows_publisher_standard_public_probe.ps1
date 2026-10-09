@@ -185,13 +185,51 @@ function Read-NativeSnapshot([switch]$PublicationPreserved,[ValidateSet(0,1,2)][
             -AdditionalConsumerRoot $(if($IncludeMovedMaintenanceRoot){$drive+'publication\destination\maintenance-moved'}else{''})
         if($OriginalFailedRequest){$OriginalFailedRequest.readback_policy.status='passed'}
     } catch {
+        $policyRefusal=$_
         if($OriginalFailedRequest) {
             $policyFailure=[string]$_.Exception.Message
             $OriginalFailedRequest.readback_policy.status='refused'
             $OriginalFailedRequest.readback_policy.failure=$policyFailure.Substring(0,[Math]::Min(4096,$policyFailure.Length))
             $OriginalFailedRequest.readback_policy.failure_truncated=($policyFailure.Length -gt 4096)
+            if($OriginalFailedRequest.command -ceq 'repair.apply') {
+                # The ordinary policy refusal stays recorded. A separate exact
+                # original-backup decoder may classify this failed diagnostic;
+                # it cannot accept the request, restore custody or qualify it.
+                $backupDiagnostic=[ordered]@{status='refused';qualification_granted=$false;
+                    result=$null;failure=$null;failure_truncated=$false}
+                $OriginalFailedRequest['backup_role_diagnostic']=$backupDiagnostic
+                try {
+                    $cases=@($receipt.maintenance.cases|Where-Object {
+                        $_.operation -ceq 'repair' -and $_.request -and $_.response -eq $null})
+                    if($cases.Count -ne 1){throw 'Failed backup diagnostic lacks its one original repair case'}
+                    $failureBinding=[ordered]@{}
+                    foreach($key in @('scope','qualification_granted','command','request_id',
+                        'client_process_id','client_creation_file_time')) {$failureBinding[$key]=$OriginalFailedRequest[$key]}
+                    $backupInput=[ordered]@{schema='usk.publisher_failed_repair_backup_input.v1';failure=$failureBinding;
+                        capture=$originalCapture[0];readback=$readback;case=$cases[0];drive=$drive;
+                        service_name=$service;service_sid=$sid;consumer_sid=$accountSid;machine_sha256=$receipt.machine_sha256}
+                    $decoded=@($backupInput|ConvertTo-Json -Depth 64 -Compress| & $PythonBinary -X utf8 -B `
+                        (Join-Path $PSScriptRoot 'publisher_failed_repair_backup_evidence.py') --input -)
+                    if($LASTEXITCODE -ne 0){throw 'Original failed repair backup evidence refused'}
+                    $diagnostic=($decoded -join "`n")|ConvertFrom-Json
+                    if($diagnostic.schema -cne 'usk.publisher_failed_repair_backup_diagnostic.v1' -or
+                        $diagnostic.scope -cne 'original_failed_repair_backup_roles_only' -or
+                        $diagnostic.request_id -cne $OriginalFailedRequest.request_id -or
+                        $diagnostic.transaction_id -cne $cases[0].request.transaction_id -or
+                        $diagnostic.qualification_granted -ne $false -or $diagnostic.native_restoration_qualified -ne $false -or
+                        $diagnostic.operation_completion_qualified -ne $false -or $diagnostic.whole_target_qualified -ne $false) {
+                        throw 'Failed backup decoder returned an unrelated or qualifying result'
+                    }
+                    $backupDiagnostic.status='verified_original_backup_roles';$backupDiagnostic.result=$diagnostic
+                    return $readback
+                } catch {
+                    $backupFailure=[string]$_.Exception.Message
+                    $backupDiagnostic.failure=$backupFailure.Substring(0,[Math]::Min(4096,$backupFailure.Length))
+                    $backupDiagnostic.failure_truncated=($backupFailure.Length -gt 4096)
+                }
+            }
         }
-        throw
+        throw $policyRefusal
     }
     return $readback
 }
