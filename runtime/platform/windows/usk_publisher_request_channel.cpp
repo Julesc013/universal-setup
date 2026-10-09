@@ -396,8 +396,8 @@ std::string PublisherRequestChannel::receive() {
 std::string PublisherRequestChannel::authenticated_canonical_request() const {
     const auto& state = *state_;
     if (!state.received || state.replied || !state.client_token.value || state.received_request.empty() ||
-        usk::json::canonical(client_token_facts(state.client_token.value, state.client_process_id)) !=
-            usk::json::canonical(state.client_facts))
+        !usk::json::equal_values(client_token_facts(state.client_token.value, state.client_process_id),
+            state.client_facts))
         throw std::runtime_error("authenticated request binding is unavailable or changed");
     return usk::json::canonical(usk::json::parse(state.received_request));
 }
@@ -407,7 +407,7 @@ usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HA
     if (!state.received || state.replied || !state.client_token.value || !object || object == INVALID_HANDLE_VALUE)
         throw std::runtime_error("authenticated access observation requires the active request and held object");
     auto before_client = client_token_facts(state.client_token.value, state.client_process_id);
-    if (usk::json::canonical(before_client) != usk::json::canonical(state.client_facts))
+    if (!usk::json::equal_values(before_client, state.client_facts))
         throw std::runtime_error("authenticated client token changed since admission");
     FILE_ATTRIBUTE_TAG_INFO attributes{};
     if (!GetFileInformationByHandleEx(object, FileAttributeTagInfo, &attributes, sizeof(attributes)))
@@ -489,10 +489,10 @@ usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HA
         std::memcmp(descriptor.value, descriptor_after.value, length) != 0)
         throw std::runtime_error("held descriptor changed across authenticated access collection");
     const auto after = directory ? observe_publisher_directory_handle(object) : observe_publisher_file_handle(object);
-    if (usk::json::canonical(publisher_handle_observation_json(before)) !=
-            usk::json::canonical(publisher_handle_observation_json(after)) ||
-        usk::json::canonical(before_client) !=
-            usk::json::canonical(client_token_facts(state.client_token.value, state.client_process_id)))
+    if (!usk::json::equal_values(publisher_handle_observation_json(before),
+            publisher_handle_observation_json(after)) ||
+        !usk::json::equal_values(before_client,
+            client_token_facts(state.client_token.value, state.client_process_id)))
         throw std::runtime_error("authenticated token or held object changed across access collection");
     Value::Object fields;
     fields.emplace("schema", Value("usk.publisher_authenticated_object_access.v1"));

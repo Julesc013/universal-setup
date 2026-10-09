@@ -106,6 +106,27 @@ int main()
     using usk::json::Value;
     std::string controls;
     for (unsigned char ch = 0; ch < 32; ++ch) controls.push_back(static_cast<char>(ch));
+    // Independent literal grammar covers every control byte, consecutive
+    // escapes, beginning/end boundaries and UTF-8 bytes in unchanged runs.
+    const std::string control_encoding =
+        "\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007"
+        "\\b\\t\\n\\u000b\\f\\r\\u000e\\u000f"
+        "\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017"
+        "\\u0018\\u0019\\u001a\\u001b\\u001c\\u001d\\u001e\\u001f";
+    for (const std::size_t length : {0u, 1u, 15u, 16u, 4096u}) {
+        const std::string plain = std::string(length, 'p') + "\xf0\x9f\x9a\x80\x7f";
+        const std::string text = controls + plain + "\"\\" + plain + controls;
+        const std::string encoded = "\"" + control_encoding + plain + "\\\"\\\\" +
+            plain + control_encoding + "\"";
+        const Value body(text);
+        if (usk::json::canonical(body) != encoded ||
+            !usk::json::equal_values(usk::json::parse(encoded), body)) return 24;
+        const Value object(Value::Object{{text, body}});
+        const usk::json::CanonicalObjectView view{{text, std::cref(body)}};
+        const std::string expected_object = "{" + encoded + ":" + encoded + "}";
+        if (usk::json::canonical(object) != expected_object ||
+            usk::json::canonical_object(view) != expected_object) return 25;
+    }
     const std::vector<Value> values{
         Value(), Value(false), Value(true), Value(std::uint64_t{0}), Value(std::uint64_t{1}),
         Value(std::uint64_t{9007199254740992ull}), Value(std::uint64_t{9007199254740993ull}),

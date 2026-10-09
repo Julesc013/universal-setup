@@ -344,7 +344,13 @@ void append_escaped(std::string& output, const std::string& value)
 {
     static const char hex[] = "0123456789abcdef";
     output.push_back('"');
-    for (unsigned char ch : value) {
+    std::size_t plain = 0;
+    for (std::size_t index = 0; index < value.size(); ++index) {
+        const auto ch = static_cast<unsigned char>(value[index]);
+        if (ch >= 0x20u && ch != '"' && ch != '\\') continue;
+        // Transfer each unchanged byte run once. Escapes, embedded NULs and
+        // UTF-8 bytes keep exactly the existing canonical representation.
+        output.append(value, plain, index - plain);
         switch (ch) {
         case '"': output += "\\\""; break;
         case '\\': output += "\\\\"; break;
@@ -358,11 +364,11 @@ void append_escaped(std::string& output, const std::string& value)
                 output += "\\u00";
                 output.push_back(hex[ch >> 4]);
                 output.push_back(hex[ch & 0x0fu]);
-            } else {
-                output.push_back(static_cast<char>(ch));
             }
         }
+        plain = index + 1;
     }
+    output.append(value, plain, value.size() - plain);
     output.push_back('"');
 }
 
