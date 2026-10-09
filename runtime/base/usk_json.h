@@ -7,7 +7,9 @@
 #include <cstdint>
 #include <functional>
 #include <map>
+#include <memory>
 #include <string>
+#include <variant>
 #include <vector>
 
 namespace usk::json {
@@ -25,8 +27,12 @@ public:
     explicit Value(const char* value);
     explicit Value(Array value);
     explicit Value(Object value);
+    Value(const Value&);
+    Value(Value&&) noexcept;
+    Value& operator=(const Value&);
+    Value& operator=(Value&&) noexcept;
 
-    Type type() const noexcept { return type_; }
+    Type type() const noexcept { return static_cast<Type>(storage_.index()); }
     bool as_boolean() const;
     std::uint64_t as_unsigned() const;
     const std::string& as_string() const;
@@ -38,12 +44,14 @@ public:
     bool contains(const std::string& key) const;
 
 private:
-    Type type_ = Type::null_value;
-    bool boolean_ = false;
-    std::uint64_t unsigned_ = 0;
-    std::string string_;
-    Array array_;
-    Object object_;
+    // Alternatives follow Type exactly. Only the active owned value is live;
+    // copying a scalar need not construct/copy empty string/vector/map members.
+    // map's move construction may allocate an empty sentinel on some STLs.
+    // An exclusive pointer transfers the active object without that allocation;
+    // copy construction explicitly clones it rather than sharing proof trees.
+    using OwnedObject = std::unique_ptr<Object>;
+    using Storage = std::variant<std::monostate, bool, std::uint64_t, std::string, Array, OwnedObject>;
+    Storage storage_;
 };
 
 struct ParseLimits {

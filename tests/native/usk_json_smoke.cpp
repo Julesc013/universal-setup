@@ -4,12 +4,66 @@
 #include "usk_json.h"
 
 #include <functional>
+#include <cstdlib>
 #include <limits>
+#include <new>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
+
+bool fail_allocations = false;
+std::size_t allocations_remaining = 0;
+
+} // namespace
+
+// Only this statically linked smoke executable injects allocation failures.
+// Production allocators and JSON exception handling are unchanged.
+void* operator new(std::size_t size)
+{
+    if (fail_allocations) {
+        if (allocations_remaining == 0) throw std::bad_alloc();
+        --allocations_remaining;
+    }
+    if (void* memory = std::malloc(size == 0 ? 1 : size)) return memory;
+    throw std::bad_alloc();
+}
+void* operator new[](std::size_t size) { return ::operator new(size); }
+void operator delete(void* memory) noexcept { std::free(memory); }
+void operator delete[](void* memory) noexcept { std::free(memory); }
+void operator delete(void* memory, std::size_t) noexcept { std::free(memory); }
+void operator delete[](void* memory, std::size_t) noexcept { std::free(memory); }
+
+namespace {
+
+bool copy_failure_preserves(const usk::json::Value& source, const usk::json::Value& original)
+{
+    const auto source_bytes = usk::json::canonical(source);
+    const auto original_bytes = usk::json::canonical(original);
+    bool saw_failure = false;
+    for (std::size_t allowance = 0; allowance < 512; ++allowance) {
+        usk::json::Value destination(original);
+        bool failed = false;
+        allocations_remaining = allowance;
+        fail_allocations = true;
+        try {
+            destination = source;
+        } catch (const std::bad_alloc&) {
+            failed = true;
+        } catch (...) {
+            fail_allocations = false;
+            return false;
+        }
+        fail_allocations = false;
+        if (usk::json::canonical(source) != source_bytes) return false;
+        if (!failed) return saw_failure && usk::json::canonical(destination) == source_bytes;
+        saw_failure = true;
+        if (destination.type() != original.type() || usk::json::canonical(destination) != original_bytes) return false;
+    }
+    return false;
+}
 
 bool refuses(const std::function<void()>& operation)
 {
@@ -69,8 +123,45 @@ int main()
     for (std::size_t i = 0; i < values.size(); ++i) {
         for (std::size_t j = 0; j < values.size(); ++j) {
             if (usk::json::equal_values(values[i], values[j]) != (encodings[i] == encodings[j])) return 5;
+            // Exercise every source/destination type pair against independent
+            // canonical bytes, including owned nested trees and exact UInt64s.
+            Value assigned(values[i]);
+            assigned = values[j];
+            if (assigned.type() != values[j].type() || usk::json::canonical(assigned) != encodings[j]) return 14;
+            assigned = assigned;
+            if (usk::json::canonical(assigned) != encodings[j]) return 15;
+            Value copied(values[j]);
+            Value moved(std::move(copied));
+            Value destination(values[i]);
+            destination = std::move(moved);
+            if (destination.type() != values[j].type() || usk::json::canonical(destination) != encodings[j] ||
+                copied.type() != Value::Type::null_value || moved.type() != Value::Type::null_value ||
+                usk::json::canonical(copied) != "null" || usk::json::canonical(moved) != "null") return 16;
+            destination = std::move(destination);
+            if (usk::json::canonical(destination) != encodings[j]) return 19;
         }
         if (usk::json::canonical(values[i]) != encodings[i]) return 6;
+    }
+    Value independent(parsed);
+    independent.as_object().at("a").as_object().at("unicode") = Value("changed");
+    independent.as_object().at("z").as_array().at(0) = Value(false);
+    if (usk::json::canonical(parsed) != expected || usk::json::equal_values(independent, parsed)) return 17;
+    independent = Value(std::uint64_t{7});
+    if (!refuses([&] { (void)independent.as_object(); }) || independent.contains("a") ||
+        independent.as_unsigned() != 7 || usk::json::canonical(parsed) != expected) return 18;
+    Value parent(parsed);
+    parent = parent.as_object().at("a");
+    if (usk::json::canonical(parent) != usk::json::canonical(parsed.at("a"))) return 20;
+    parent = parsed;
+    parent = std::move(parent.as_object().at("a"));
+    if (usk::json::canonical(parent) != usk::json::canonical(parsed.at("a"))) return 21;
+    const Value large_string(std::string(256, 'x'));
+    const Value copied_array(Value::Array{parsed, large_string});
+    const Value copied_object(Value::Object{{"nested", copied_array}, {"text", large_string}});
+    for (const auto& original : values) {
+        for (const auto& source_value : {large_string, copied_array, copied_object}) {
+            if (!copy_failure_preserves(source_value, original)) return 22;
+        }
     }
     // Independently decode the old owned encoding as the acceptance oracle for
     // the borrowed packet encoder and its allocation-free budget check.

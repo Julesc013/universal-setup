@@ -10,57 +10,105 @@
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 
 namespace usk::json {
 
-Value::Value(bool value) : type_(Type::boolean), boolean_(value) {}
-Value::Value(std::uint64_t value) : type_(Type::unsigned_integer), unsigned_(value) {}
-Value::Value(std::string value) : type_(Type::string), string_(std::move(value)) {}
+Value::Value(bool value) : storage_(value) {}
+Value::Value(std::uint64_t value) : storage_(value) {}
+Value::Value(std::string value) : storage_(std::move(value)) {}
 Value::Value(const char* value) : Value(std::string(value)) {}
-Value::Value(Array value) : type_(Type::array), array_(std::move(value)) {}
-Value::Value(Object value) : type_(Type::object), object_(std::move(value)) {}
+Value::Value(Array value) : storage_(std::move(value)) {}
+Value::Value(Object value) : storage_(std::make_unique<Object>(std::move(value))) {}
+
+Value::Value(const Value& other)
+    : storage_(std::visit([](const auto& value) -> Storage {
+        using Alternative = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<Alternative, OwnedObject>) {
+            return std::make_unique<Object>(*value);
+        } else {
+            return value;
+        }
+    }, other.storage_))
+{
+}
+
+Value::Value(Value&& other) noexcept : storage_(std::move(other.storage_))
+{
+    static_assert(std::is_nothrow_move_constructible_v<Storage> &&
+        std::is_nothrow_move_assignable_v<Storage> && std::is_nothrow_swappable_v<Storage>,
+        "owned JSON storage must transfer without becoming valueless");
+    // Every successfully constructed object alternative has an owned map.
+    // A transferred-from Value remains readable/reusable as JSON null.
+    other.storage_.emplace<std::monostate>();
+}
+
+Value& Value::operator=(const Value& other)
+{
+    static_assert(std::is_nothrow_move_constructible_v<Storage> &&
+        std::is_nothrow_move_assignable_v<Storage> && std::is_nothrow_swappable_v<Storage>,
+        "owned JSON storage must transfer without becoming valueless");
+    // Complete the independent copy before replacing the current value. A
+    // failed allocation cannot leave a changed discriminator or partial proof.
+    if (this != &other) {
+        Value replacement(other);
+        storage_.swap(replacement.storage_);
+    }
+    return *this;
+}
+
+Value& Value::operator=(Value&& other) noexcept
+{
+    if (this != &other) {
+        // Finish the transfer before destroying this tree, including when
+        // other is a descendant of this Value. No source access follows swap.
+        Value replacement(std::move(other));
+        storage_.swap(replacement.storage_);
+    }
+    return *this;
+}
 
 bool Value::as_boolean() const
 {
-    if (type_ != Type::boolean) throw std::runtime_error("JSON value is not a boolean");
-    return boolean_;
+    if (type() != Type::boolean) throw std::runtime_error("JSON value is not a boolean");
+    return std::get<bool>(storage_);
 }
 
 std::uint64_t Value::as_unsigned() const
 {
-    if (type_ != Type::unsigned_integer) throw std::runtime_error("JSON value is not an unsigned integer");
-    return unsigned_;
+    if (type() != Type::unsigned_integer) throw std::runtime_error("JSON value is not an unsigned integer");
+    return std::get<std::uint64_t>(storage_);
 }
 
 const std::string& Value::as_string() const
 {
-    if (type_ != Type::string) throw std::runtime_error("JSON value is not a string");
-    return string_;
+    if (type() != Type::string) throw std::runtime_error("JSON value is not a string");
+    return std::get<std::string>(storage_);
 }
 
 const Value::Array& Value::as_array() const
 {
-    if (type_ != Type::array) throw std::runtime_error("JSON value is not an array");
-    return array_;
+    if (type() != Type::array) throw std::runtime_error("JSON value is not an array");
+    return std::get<Array>(storage_);
 }
 
 const Value::Object& Value::as_object() const
 {
-    if (type_ != Type::object) throw std::runtime_error("JSON value is not an object");
-    return object_;
+    if (type() != Type::object) throw std::runtime_error("JSON value is not an object");
+    return *std::get<OwnedObject>(storage_);
 }
 
 Value::Array& Value::as_array()
 {
-    if (type_ != Type::array) throw std::runtime_error("JSON value is not an array");
-    return array_;
+    if (type() != Type::array) throw std::runtime_error("JSON value is not an array");
+    return std::get<Array>(storage_);
 }
 
 Value::Object& Value::as_object()
 {
-    if (type_ != Type::object) throw std::runtime_error("JSON value is not an object");
-    return object_;
+    if (type() != Type::object) throw std::runtime_error("JSON value is not an object");
+    return *std::get<OwnedObject>(storage_);
 }
 
 const Value& Value::at(const std::string& key) const
@@ -73,7 +121,7 @@ const Value& Value::at(const std::string& key) const
 
 bool Value::contains(const std::string& key) const
 {
-    return type_ == Type::object && object_.find(key) != object_.end();
+    return type() == Type::object && as_object().find(key) != as_object().end();
 }
 
 namespace {
