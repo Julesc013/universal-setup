@@ -72,6 +72,84 @@ int main()
         }
         if (usk::json::canonical(values[i]) != encodings[i]) return 6;
     }
+    // Independently decode the old owned encoding as the acceptance oracle for
+    // the borrowed packet encoder and its allocation-free budget check.
+    const auto agrees = [](const usk::json::CanonicalObjectView& fields,
+        const usk::json::ParseLimits& budget) {
+        Value::Object owned;
+        for (const auto& field : fields) owned.emplace(field.first, field.second.get());
+        const auto encoding = usk::json::canonical(Value(std::move(owned)));
+        if (usk::json::canonical_object(fields) != encoding) return false;
+        return refuses([&] { (void)usk::json::parse(encoding, budget); }) ==
+            refuses([&] { usk::json::require_canonical_object_parse_limits(fields, budget); });
+    };
+    auto corpus = values;
+    for (const auto& invalid : {std::string("\xc0\xaf"), std::string("\xed\xa0\x80"),
+        std::string("\xf4\x90\x80\x80"), std::string("\xe2\x82")}) {
+        corpus.emplace_back(invalid);
+        corpus.emplace_back(Value::Object{{invalid, Value(true)}});
+    }
+    Value nested(Value::Array{});
+    for (unsigned depth = 0; depth < 6; ++depth) {
+        corpus.push_back(nested);
+        nested = Value(Value::Array{nested});
+    }
+    const Value sequence(std::numeric_limits<std::uint64_t>::max()), binding(std::string(64, 'a'));
+    for (const auto& body : corpus) {
+        const usk::json::CanonicalObjectView fields{{"sequence", std::cref(sequence)},
+            {"binding_sha256", std::cref(binding)}, {"body", std::cref(body)}};
+        const auto encoded_bytes = usk::json::canonical_object(fields).size();
+        for (std::size_t bound = 0; bound <= encoded_bytes + 1; ++bound) {
+            usk::json::ParseLimits budget;
+            budget.max_bytes = bound;
+            if (!agrees(fields, budget)) return 7;
+        }
+        for (std::size_t bound = 0; bound <= 70; ++bound) {
+            usk::json::ParseLimits budget;
+            budget.max_string_bytes = bound;
+            if (!agrees(fields, budget)) return 8;
+            budget = usk::json::ParseLimits{};
+            budget.max_values = bound;
+            if (!agrees(fields, budget)) return 9;
+        }
+        for (std::size_t bound = 0; bound <= 8; ++bound) {
+            usk::json::ParseLimits budget;
+            budget.max_depth = bound;
+            if (!agrees(fields, budget)) return 10;
+        }
+    }
+    // Empty root, invalid key bytes and escaped key lengths also follow the
+    // parser's rules: object keys count as strings, but never as values.
+    for (const auto& key : {std::string(), controls, std::string("\xc0\xaf"), std::string("\"\\")}) {
+        const Value body(true);
+        const usk::json::CanonicalObjectView fields{{key, std::cref(body)}};
+        for (std::size_t bound = 0; bound <= 40; ++bound) {
+            usk::json::ParseLimits budget;
+            budget.max_string_bytes = bound;
+            budget.max_depth = bound;
+            budget.max_values = bound;
+            budget.max_bytes = bound;
+            if (!agrees(fields, budget)) return 11;
+        }
+    }
+    for (std::size_t bound = 0; bound <= 2; ++bound) {
+        usk::json::ParseLimits budget;
+        budget.max_bytes = bound;
+        budget.max_values = bound;
+        budget.max_depth = 0;
+        if (!agrees({}, budget)) return 12;
+    }
+    usk::json::ParseLimits packet_budget;
+    packet_budget.max_string_bytes = packet_budget.max_bytes;
+    const Value empty_body("");
+    const std::size_t overhead = usk::json::canonical_object({{"sequence", std::cref(sequence)},
+        {"binding_sha256", std::cref(binding)}, {"body", std::cref(empty_body)}}).size();
+    for (const auto extra : {std::size_t{0}, std::size_t{1}}) {
+        const Value body(std::string(packet_budget.max_bytes - overhead + extra, 'x'));
+        const usk::json::CanonicalObjectView fields{{"sequence", std::cref(sequence)},
+            {"binding_sha256", std::cref(binding)}, {"body", std::cref(body)}};
+        if (!agrees(fields, packet_budget)) return 13;
+    }
     return usk::json::sha256_canonical(usk::json::parse("{}")) ==
         "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a" ? 0 : 4;
 }

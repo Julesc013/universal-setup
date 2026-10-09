@@ -266,8 +266,10 @@ struct Wire {
         try {
             const auto until = deadline(timeout);
             require(sent != std::numeric_limits<std::uint64_t>::max(), "effect transport sequence exhausted");
-            const auto packet = usk::json::canonical(Value(Value::Object{
-                {"sequence", Value(sent + 1)}, {"binding_sha256", Value(binding)}, {"body", body}}));
+            const Value sequence(sent + 1), binding_value(binding);
+            const auto packet = usk::json::canonical_object({
+                {"sequence", std::cref(sequence)}, {"binding_sha256", std::cref(binding_value)},
+                {"body", std::cref(body)}});
             require(!packet.empty() && packet.size() <= packet_limit, "effect transport packet exceeds its bound");
             const auto size = static_cast<DWORD>(packet.size());
             std::array<unsigned char, 4> header{{static_cast<unsigned char>(size),
@@ -299,7 +301,7 @@ struct Wire {
                 "effect transport exact request binding or sequence differs");
             require_peer();
             ++received;
-            return parsed.at("body");
+            return std::move(parsed.as_object().at("body"));
         } catch (...) { failed = true; throw; }
     }
     Value observation() const {

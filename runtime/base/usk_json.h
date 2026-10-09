@@ -5,6 +5,7 @@
 #define USK_JSON_H
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -52,8 +53,16 @@ struct ParseLimits {
     std::size_t max_string_bytes = 1024u * 1024u;
 };
 
+// Ephemeral fields for encoding an object without copying its value subtrees.
+// The caller keeps every referenced value alive through the synchronous call.
+using CanonicalObjectView = std::map<std::string, std::reference_wrapper<const Value>>;
+
 Value parse(const std::string& text, const ParseLimits& limits = {});
 std::string canonical(const Value& value);
+std::string canonical_object(const CanonicalObjectView& fields);
+// Exactly the acceptance of parse(canonical_object(fields), limits), without
+// materializing another encoding or decoded tree. Keys are unique by construction.
+void require_canonical_object_parse_limits(const CanonicalObjectView& fields, const ParseLimits& limits);
 // Exact value equality, equivalent to comparing the canonical encodings.
 bool equal_values(const Value& left, const Value& right);
 std::string sha256_canonical(const Value& value);

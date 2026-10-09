@@ -37,9 +37,10 @@ void require_batch_packet_budget(const Value& body) {
     // reader limits before sending any batch; an overflow is a failed route.
     usk::json::ParseLimits limits;
     limits.max_string_bytes = limits.max_bytes;
-    (void)usk::json::parse(usk::json::canonical(Value(Value::Object{
-        {"sequence", Value(std::numeric_limits<std::uint64_t>::max())},
-        {"binding_sha256", Value(std::string(64u, 'a'))}, {"body", body}})), limits);
+    const Value sequence(std::numeric_limits<std::uint64_t>::max()), binding(std::string(64u, 'a'));
+    usk::json::require_canonical_object_parse_limits({
+        {"sequence", std::cref(sequence)}, {"binding_sha256", std::cref(binding)},
+        {"body", std::cref(body)}}, limits);
 }
 bool same(const Value& left, const Value& right) {
     return usk::json::equal_values(left, right);
@@ -1232,7 +1233,7 @@ struct PublisherEffectWorkerReadback::State {
         if (native_object) message.as_object().emplace(batch_access ? "native_objects" : "native_object", *native_object);
         if (batch_access || paired_admission || paired_selection) require_batch_packet_budget(message);
         peer.send(message, timeout);
-        const auto reply = peer.receive(timeout);
+        auto reply = peer.receive(timeout);
         require(reply.as_object().size() == (paired ? 5u : 4u) && reply.at("schema").as_string() ==
             (paired_selection ? "usk.publisher_effect_broker_readback_response.v5" :
                 paired_admission ? "usk.publisher_effect_broker_readback_response.v4" :

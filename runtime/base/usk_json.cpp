@@ -352,6 +352,89 @@ void append_canonical(std::string& output, const Value& value)
     }
 }
 
+class CanonicalBudget {
+public:
+    explicit CanonicalBudget(const ParseLimits& limits) : limits_(limits) {}
+    void object(const CanonicalObjectView& fields)
+    {
+        count_value(0);
+        bytes(2); // braces
+        bool first = true;
+        for (const auto& field : fields) member(field.first, field.second.get(), 0, first);
+    }
+private:
+    void bytes(std::size_t count)
+    {
+        if (count > limits_.max_bytes - bytes_) throw std::runtime_error("JSON input exceeds byte budget");
+        bytes_ += count;
+    }
+    void count_value(std::size_t depth)
+    {
+        if (depth > limits_.max_depth) throw std::runtime_error("JSON exceeds depth budget");
+        if (values_ == limits_.max_values) throw std::runtime_error("JSON exceeds value budget");
+        ++values_;
+    }
+    void string(const std::string& text)
+    {
+        if (text.size() > limits_.max_string_bytes) throw std::runtime_error("JSON string exceeds budget");
+        if (!usk::base::valid_utf8(text)) throw std::runtime_error("JSON string is not valid UTF-8");
+        bytes(2); // quotes; budget measures encoded bytes, not decoded length
+        for (const unsigned char ch : text) {
+            switch (ch) {
+            case '"': case '\\': case '\b': case '\f': case '\n': case '\r': case '\t': bytes(2); break;
+            default: bytes(ch < 0x20u ? 6 : 1); break;
+            }
+        }
+    }
+    void child(const Value& item, std::size_t depth)
+    {
+        // Check before incrementing; empty containers need no child depth.
+        if (depth >= limits_.max_depth) throw std::runtime_error("JSON exceeds depth budget");
+        value(item, depth + 1);
+    }
+    void member(const std::string& key, const Value& item, std::size_t depth, bool& first)
+    {
+        if (!first) bytes(1);
+        first = false;
+        string(key);
+        bytes(1); // colon; keys do not count toward the parser's value budget
+        child(item, depth);
+    }
+    void value(const Value& item, std::size_t depth)
+    {
+        count_value(depth);
+        switch (item.type()) {
+        case Value::Type::null_value: bytes(4); return;
+        case Value::Type::boolean: bytes(item.as_boolean() ? 4 : 5); return;
+        case Value::Type::unsigned_integer: {
+            auto number = item.as_unsigned();
+            std::size_t digits = 1;
+            while (number >= 10) { number /= 10; ++digits; }
+            bytes(digits); return;
+        }
+        case Value::Type::string: string(item.as_string()); return;
+        case Value::Type::array: {
+            bytes(2);
+            bool first = true;
+            for (const auto& entry : item.as_array()) {
+                if (!first) bytes(1);
+                first = false;
+                child(entry, depth);
+            }
+            return;
+        }
+        case Value::Type::object: {
+            bytes(2);
+            bool first = true;
+            for (const auto& entry : item.as_object()) member(entry.first, entry.second, depth, first);
+            return;
+        }
+        }
+    }
+    const ParseLimits& limits_;
+    std::size_t bytes_ = 0, values_ = 0;
+};
+
 } // namespace
 
 Value parse(const std::string& text, const ParseLimits& limits)
@@ -364,6 +447,26 @@ std::string canonical(const Value& value)
     std::string result;
     append_canonical(result, value);
     return result;
+}
+
+std::string canonical_object(const CanonicalObjectView& fields)
+{
+    std::string result(1, '{');
+    bool first = true;
+    for (const auto& field : fields) {
+        if (!first) result.push_back(',');
+        first = false;
+        append_escaped(result, field.first);
+        result.push_back(':');
+        append_canonical(result, field.second.get());
+    }
+    result.push_back('}');
+    return result;
+}
+
+void require_canonical_object_parse_limits(const CanonicalObjectView& fields, const ParseLimits& limits)
+{
+    CanonicalBudget(limits).object(fields);
 }
 
 bool equal_values(const Value& left, const Value& right)
