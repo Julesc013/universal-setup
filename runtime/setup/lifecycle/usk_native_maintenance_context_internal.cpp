@@ -1811,7 +1811,7 @@ struct NativeMaintenanceContext::Impl {
     void reopen_created_descendant(Entry& entry, const std::string& native_identity) {
         if (!entry.created || !entry.parent || entry.handle.value != INVALID_HANDLE_VALUE)
             throw std::runtime_error("native maintenance descendant observer lacks its released creator");
-        require_entry(*entry.parent); require_authority(spec);
+        require_entry_then_authority(spec, *entry.parent);
         const auto listed = child(entry.parent->handle.value, entry.name);
         if (!listed) throw std::runtime_error("native maintenance original created descendant is absent");
         Held replacement;
@@ -1824,8 +1824,16 @@ struct NativeMaintenanceContext::Impl {
             throw std::runtime_error("native maintenance descendant observer changed original identity/facts");
         entry.handle.adopt_after_confirmed_close(replacement);
         entry.reopened_observer = true;
-        if (entry.directory) require_entry(entry); else require_bytes(entry);
-        require_authority(spec);
+        if (original_child) {
+            if (!entry.directory) {
+                require_entry(entry);
+                require_byte_content(entry);
+            }
+            require_entry_then_authority(spec, entry);
+        } else {
+            if (entry.directory) require_entry(entry); else require_bytes(entry);
+            require_authority(spec);
+        }
     }
     Entry& create_directory(Entry& parent, const fs::path& relative, const std::wstring& name) {
         require_entry(parent);
@@ -2221,8 +2229,13 @@ struct NativeMaintenanceContext::Impl {
         native_custody_digest.swap(next_digest);
         native_custody_bytes += text.size(); ++native_custody_sequence;
     }
-    transaction::MaintenanceEffectInspection require_pending(const std::string& kind) const {
-        require_authority(spec);
+    transaction::MaintenanceEffectInspection require_pending(const std::string& kind,
+        const Entry* leading_entry = nullptr) const {
+        // A caller's adjacent parent check is a descriptor-only part of the
+        // existing original-child authority scope. No pending result returns
+        // until both this group and the final authority check have completed.
+        if (leading_entry) require_entry_then_authority(spec, *leading_entry);
+        else require_authority(spec);
         const auto tx = transaction::TransactionSession::inspect_recovery(spec);
         const auto history = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest, true);
         const auto artifact = read_maintenance_reviewed_plan(spec);
@@ -2294,7 +2307,7 @@ struct NativeMaintenanceContext::Impl {
             use_directory_parent_observer(held);
             parent = &held;
         }
-        require_entry(*parent); (void)require_pending("replace_file"); return *parent;
+        (void)require_pending("replace_file", parent); return *parent;
     }
     static void require_file_details(const Entry& entry, const Value& details) {
         if (entry.stream_identity != details.at("native_identity").as_string() ||
@@ -2630,24 +2643,34 @@ struct NativeMaintenanceContext::Impl {
         return apply_effect(supplied, history).outcome;
     }
     transaction::detail::NativeMaintenanceFileObservation observe_owned_file(const fs::path& path) const {
-        require_authority(spec);
-        auto wanted = volume_facts.native_name;
-        if (!wanted.empty() && wanted.back() != L'\\') wanted += L'\\';
-        wanted += relative_volume_path(path).native();
+        if (!original_child) require_authority(spec);
         const Entry* selected = nullptr;
-        const auto select = [&](const auto& entries) {
-            for (const auto& item : entries) {
-                const auto& entry = *item.second;
-                if (entry.handle.value == INVALID_HANDLE_VALUE || entry.facts.native_name != wanted) continue;
-                if (selected) throw std::runtime_error("native maintenance file observation has ambiguous held custody");
-                selected = &entry;
-            }
-        };
-        select(files); select(original_files); select(verification_files);
-        if (!selected || selected->directory || (selected->created && !selected->complete))
-            throw std::runtime_error("native maintenance file observation is outside its retained completed files");
+        try {
+            auto wanted = volume_facts.native_name;
+            if (!wanted.empty() && wanted.back() != L'\\') wanted += L'\\';
+            wanted += relative_volume_path(path).native();
+            const auto select = [&](const auto& entries) {
+                for (const auto& item : entries) {
+                    const auto& entry = *item.second;
+                    if (entry.handle.value == INVALID_HANDLE_VALUE || entry.facts.native_name != wanted) continue;
+                    if (selected) throw std::runtime_error("native maintenance file observation has ambiguous held custody");
+                    selected = &entry;
+                }
+            };
+            select(files); select(original_files); select(verification_files);
+            if (!selected || selected->directory || (selected->created && !selected->complete))
+                throw std::runtime_error("native maintenance file observation is outside its retained completed files");
+        } catch (...) {
+            // Query-only selection issues no file read or effect. Preserve the
+            // original fence refusal before exposing a failed candidate.
+            if (original_child) require_authority(spec);
+            throw;
+        }
         if (original_child) {
-            require_entry(*selected);
+            // The selected file remains a descriptor-only tail. Complete the
+            // full fresh authority/entry group before its first byte read;
+            // the former separately sampled lookup/entry instants are unclaimed.
+            require_authority_then_entry(spec, *selected);
             require_byte_content(*selected);
         } else require_bytes(*selected);
         transaction::detail::NativeMaintenanceFileObservation result{
@@ -3259,8 +3282,16 @@ void NativeMaintenanceContext::bind_owner_backend() {
     impl_->operations.persist_journal = [this](const auto& spec, const auto& path, const auto& text,
         const auto& predecessor, bool first) {
         try {
-            impl_->require_authority(spec);
-            transaction::detail::require_native_maintenance_journal_binding(spec, path, text, predecessor, first);
+            impl_->require_same_transaction(spec);
+            try {
+                // Pure input validation: no native file/namespace operation.
+                // The concrete writer completes the original full active
+                // fence at entry and before every mutable publication call.
+                transaction::detail::require_native_maintenance_journal_binding(spec, path, text, predecessor, first);
+            } catch (...) {
+                impl_->require_authority(spec);
+                throw;
+            }
             impl_->metadata->persist_maintenance_journal(path, text, predecessor, first);
             impl_->require_authority(spec);
         } catch (...) {
