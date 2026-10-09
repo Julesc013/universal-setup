@@ -6,6 +6,7 @@
 #include "usk_publisher_effect_worker_custody_internal.h"
 #include "usk_publisher_handle_observation.h"
 #include "usk_publisher_worker_security.h"
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -44,6 +45,10 @@ void require_publisher_effect_selection_readback(const usk::json::Value& reply,
 // join both actual endpoints. Parsing supplies no native owner or authority.
 void require_publisher_effect_selected_object_access_batch_readback(const usk::json::Value& reply,
     const usk::json::Value& actual_request, const usk::json::Value& expected_native_objects);
+// Closed data validation only. A marker is not completed proof, a result,
+// selection, native custody, worker admission or permission for an effect.
+void require_publisher_effect_queries_closed_marker(const usk::json::Value& marker,
+    const std::string& kind, const usk::json::Value& expected_native_objects);
 void require_publisher_effect_terminal_record(const usk::json::Value&, const usk::json::Value& broker_record);
 // Bounded original-peer error data, never a terminal or definite preflight
 // result. It cannot narrow retained effects or grant an execution scope.
@@ -162,7 +167,7 @@ private:
     };
     ObjectAccessObservation authenticated_object_access_bracket(HANDLE, DWORD timeout = 120000);
     ObjectAccessObservation authenticated_object_access_batch_bracket(const std::vector<HANDLE>&,
-        DWORD timeout = 120000);
+        DWORD timeout = 120000, const std::function<void()>& after_queries_closed = {});
     struct AdmissionObservation {
         usk::json::Value before;
         usk::json::Value after;
@@ -180,9 +185,13 @@ private:
         usk::json::Value access;
     };
     SelectedObjectAccessObservation selected_object_access_batch_bracket(PublisherEffectSelectionKind,
-        const std::vector<HANDLE>&, DWORD timeout = 120000);
+        const std::vector<HANDLE>&, DWORD timeout = 120000,
+        const std::function<void()>& after_queries_closed = {});
     // Only actual completed observations from the original execution owner
     // reach this private retention step, after all of its native joins.
+    // Sticky refusal also covers a later execution-owner join/deadline
+    // failure, including an already-borrowed public readback reference.
+    void poison() noexcept;
     void retain_readback_bracket(const usk::json::Value& before, const usk::json::Value& after);
     void retain_selection_bracket(const SelectionObservation&, PublisherEffectSelectionKind);
     // Both facts originate from the SAME actual validated wire read. This is

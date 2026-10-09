@@ -19,6 +19,11 @@ std::atomic<bool> child_route_used{false};
 void require(bool condition, const char* reason) {
     if (!condition) throw std::runtime_error(reason);
 }
+DWORD effect_proof_remaining(ULONGLONG started) {
+    const auto elapsed = GetTickCount64() - started;
+    require(elapsed < 120000, "publisher child full parallel proof exceeded its original deadline");
+    return static_cast<DWORD>(120000 - elapsed);
+}
 bool same(const Value& first, const Value& second) {
     return usk::json::equal_values(first, second);
 }
@@ -204,29 +209,58 @@ Value PublisherEffectExecutionOwner::authenticated_object_access(HANDLE handle) 
 }
 Value PublisherEffectExecutionOwner::authenticated_object_access_batch(const std::vector<HANDLE>& handles) {
     require_current();
+    const auto proof_started = GetTickCount64();
     try {
         state_->require_owner();
         const auto native_before = state_->security.observe_local_current();
-        auto observed = state_->readback.authenticated_object_access_batch_bracket(handles);
-        const auto native_after = state_->security.observe_local_current();
+        // The full child AFTER sample follows actual checked query closure;
+        // it does not claim the legacy post-final-receipt sampling instant.
+        std::optional<Value> completed_after;
+        auto observed = state_->readback.authenticated_object_access_batch_bracket(handles, effect_proof_remaining(proof_started), [&] {
+            require(!completed_after, "publisher child duplicate query-closed native AFTER callback");
+            state_->require_owner();
+            completed_after.emplace(state_->security.observe_local_current());
+        });
+        require(completed_after.has_value(), "publisher child bounded batch lacks its native AFTER proof");
+        const auto& native_after = *completed_after;
         state_->require_native_binding(observed.before, native_before);
         state_->require_native_binding(observed.after, native_after);
         require_publisher_worker_security_continuity(native_before.at("worker_security"), native_after.at("worker_security"));
         require(same(publisher_effect_broker_immutable_record(observed.before),
             publisher_effect_broker_immutable_record(observed.after)), "publisher child native owner changed across object access batch");
         state_->require_owner();
+        require(GetTickCount64() - proof_started < 120000,
+            "publisher child full parallel object proof exceeded its original deadline");
         state_->readback.retain_readback_bracket(observed.before, observed.after);
+        require(GetTickCount64() - proof_started < 120000,
+            "publisher child parallel object proof retention exceeded its original deadline");
         return std::move(observed.access);
-    } catch (...) { state_->failed = true; throw; }
+    } catch (...) {
+        state_->failed = true;
+        state_->readback.poison();
+        throw;
+    }
 }
 PublisherEffectSelectedAccessObservation PublisherEffectExecutionOwner::observe_selected_security_and_access_batch(
     PublisherEffectSelectionKind kind, const std::vector<HANDLE>& handles, const std::string& failure_context) {
     require_current();
+    const auto proof_started = GetTickCount64();
     try {
         state_->require_owner();
         const auto native_before = state_->security.observe_local_current(failure_context);
-        auto observed = state_->readback.selected_object_access_batch_bracket(kind, handles);
-        auto native_after = state_->security.observe_local_current(failure_context);
+        // v7 samples the full local AFTER proof after all ordered queries
+        // positively close, in parallel with the independent broker AFTER.
+        // It does not claim a local thread census after the final wire receipt.
+        // All actual post-wire peer/token/image checks and final joins remain
+        // mandatory before retention, selection visibility or any effect.
+        std::optional<Value> completed_after;
+        auto observed = state_->readback.selected_object_access_batch_bracket(kind, handles, effect_proof_remaining(proof_started), [&] {
+            require(!completed_after, "publisher child duplicate selected query-closed native AFTER callback");
+            state_->require_owner();
+            completed_after.emplace(state_->security.observe_local_current(failure_context));
+        });
+        require(completed_after.has_value(), "publisher child selected batch lacks its native AFTER proof");
+        auto native_after = std::move(*completed_after);
         state_->require_native_binding(observed.selected.before, native_before);
         state_->require_native_binding(observed.selected.after, native_after);
         require_publisher_worker_security_continuity(native_before.at("worker_security"), native_after.at("worker_security"));
@@ -234,11 +268,19 @@ PublisherEffectSelectedAccessObservation PublisherEffectExecutionOwner::observe_
             publisher_effect_broker_immutable_record(observed.selected.after)),
             "publisher child native owner changed across selected access batch");
         state_->require_owner();
+        require(GetTickCount64() - proof_started < 120000,
+            "publisher child full parallel selected proof exceeded its original deadline");
         state_->readback.retain_selection_bracket(observed.selected, kind);
+        require(GetTickCount64() - proof_started < 120000,
+            "publisher child parallel selected proof retention exceeded its original deadline");
         return PublisherEffectSelectedAccessObservation(PublisherEffectSelectedSecurityObservation(
             PublisherEffectSecurityObservation(std::move(observed.selected.after), std::move(native_after)),
             std::move(observed.selected.selection)), std::move(observed.access));
-    } catch (...) { state_->failed = true; throw; }
+    } catch (...) {
+        state_->failed = true;
+        state_->readback.poison();
+        throw;
+    }
 }
 Value PublisherEffectExecutionOwner::selected_original_maintenance_recovery() {
     auto observed = observe_selected_security(PublisherEffectSelectionKind::original_maintenance_recovery);

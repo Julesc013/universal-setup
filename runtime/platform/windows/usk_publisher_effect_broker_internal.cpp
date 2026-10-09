@@ -31,6 +31,13 @@ using usk::json::Value;
 std::atomic<void*> active_query{nullptr};
 constexpr DWORD query_rights = FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE;
 void require(bool okay, const char* reason) { if (!okay) throw std::runtime_error(reason); }
+DWORD readback_remaining(ULONGLONG started, DWORD timeout, const char* message) {
+    // Subtraction charges elapsed monotonic time without an absolute-tick
+    // addition overflow. All new phases share the original <=120s budget.
+    const auto elapsed = GetTickCount64() - started;
+    require(timeout && timeout <= 120000 && elapsed < timeout, message);
+    return static_cast<DWORD>(timeout - elapsed);
+}
 void require_batch_packet_budget(const Value& body) {
     // Include the real transport wrapper's worst-case sequence and binding
     // lengths, both profiles and every descriptor. Use its unchanged closed
@@ -1108,6 +1115,7 @@ void PublisherEffectBrokerReadback::respond_to_one_readback(DWORD timeout) {
 }
 std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD timeout) {
     auto& state = *state_;
+    const auto packet_started = GetTickCount64();
     try {
         auto pending_before = state.collect();
         auto& before = pending_before.profile;
@@ -1137,6 +1145,12 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             return request;
         }
         const auto kind = request.at("kind").as_string();
+        const bool parallel_after = request.at("schema").as_string() ==
+            "usk.publisher_effect_broker_readback_request.v7";
+        const auto remaining = [&]() -> DWORD {
+            return readback_remaining(packet_started, timeout,
+                "broker parallel after-proof exchange exceeded its original deadline");
+        };
         const bool selected_access = selected_access_kind(kind);
         const bool batch_access = kind == "object_access_batch_bracket" || selected_access;
         const bool paired_admission = kind == "service_admission_bracket";
@@ -1157,7 +1171,10 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             (request.at("schema").as_string() == "usk.publisher_effect_broker_readback_request.v5" &&
                 paired_selection && request.as_object().size() == 2) ||
             (request.at("schema").as_string() == "usk.publisher_effect_broker_readback_request.v6" &&
-                selected_access && request.as_object().size() == 3), "broker readback request grammar differs");
+                selected_access && request.as_object().size() == 3) ||
+            (parallel_after && batch_access && request.as_object().size() == 3),
+            "broker readback request grammar differs");
+        if (parallel_after) (void)remaining();
         if (paired_admission || paired_selection) require_batch_packet_budget(request);
         if (batch_access) {
             const auto& objects = request.at("native_objects").as_array();
@@ -1205,6 +1222,19 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             // child's subsequent root rename. Unknown close stops the route.
             require(query.close(), "broker original native query handle closure is unknown");
         }
+        if (parallel_after) {
+            // Every actual ordered query, including duplicates, has finished
+            // and positively closed. This marker contains no result/selection
+            // or completed profile. It only orders the original child's local
+            // AFTER sampling; no endpoint/result may be retained from it.
+            const Value marker(Value::Object{
+                {"schema", Value("usk.publisher_effect_queries_closed.v1")},
+                {"kind", Value(kind)},
+                {"native_query_count", Value(static_cast<std::uint64_t>(result.as_array().size()))},
+                {"native_objects_sha256", Value(usk::json::sha256_canonical(request.at("native_objects")))}});
+            require_publisher_effect_queries_closed_marker(marker, kind, request.at("native_objects"));
+            state.custody.send(marker, remaining());
+        }
         auto completed = state.complete(pending_before, state.collect());
         const auto& after = completed.profile();
         if (kind == "original_maintenance_recovery") require_publisher_effect_original_maintenance_selection(
@@ -1233,7 +1263,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
         if (selected_access) require_publisher_effect_selected_object_access_batch_readback(
             reply, usk::json::parse(state.request), request.at("native_objects"));
         if (batch_access || paired_admission) require_batch_packet_budget(reply);
-        state.custody.send(reply, timeout);
+        state.custody.send(reply, parallel_after ? remaining() : timeout);
         return std::nullopt;
     } catch (...) { state.failed = true; throw; }
 }
@@ -1248,7 +1278,9 @@ struct PublisherEffectWorkerReadback::State {
     bool recovery_selection_observed = false;
     bool failed = false, initialized = false;
     explicit State(PublisherEffectWorkerPeer& p) : peer(p), request(p.canonical_request()) {}
-    Value read(const std::string& kind, const Value* native_object, DWORD timeout) {
+    Value read(const std::string& kind, const Value* native_object, DWORD timeout,
+        const std::function<void()>& after_queries_closed = {}) {
+        const auto exchange_started = GetTickCount64();
         require(!failed && process_id == GetCurrentProcessId() && thread_id == GetCurrentThreadId() &&
             peer.canonical_request() == request, "effect readback original native owner/thread/request changed");
         const bool selected_access = selected_access_kind(kind);
@@ -1257,6 +1289,12 @@ struct PublisherEffectWorkerReadback::State {
         const bool paired_access = kind == "object_access_bracket" || batch_access;
         const bool paired_selection = paired_selection_kind(kind);
         const bool paired = paired_access || paired_admission || paired_selection;
+        const bool parallel_after = static_cast<bool>(after_queries_closed);
+        require(!parallel_after || batch_access, "effect parallel AFTER callback lacks its bounded object batch");
+        const auto remaining = [&]() -> DWORD {
+            return readback_remaining(exchange_started, timeout,
+                "effect parallel after-proof exchange exceeded its original deadline");
+        };
         require(!paired_access || (native_object && initialized), "effect paired access requires its original admitted readback");
         require(!(paired_admission || paired_selection) || (!native_object && initialized),
             "effect paired admission/selection requires its original initialized readback");
@@ -1266,15 +1304,26 @@ struct PublisherEffectWorkerReadback::State {
         const auto before = peer.observation();
         const auto parent = peer.peer_primary_token();
         const auto child = observe_current_publisher_token();
-        Value message(Value::Object{{"schema", Value(selected_access ? "usk.publisher_effect_broker_readback_request.v6" : paired_selection ? "usk.publisher_effect_broker_readback_request.v5" :
+        Value message(Value::Object{{"schema", Value(parallel_after ? "usk.publisher_effect_broker_readback_request.v7" :
+            selected_access ? "usk.publisher_effect_broker_readback_request.v6" : paired_selection ? "usk.publisher_effect_broker_readback_request.v5" :
             paired_admission ? "usk.publisher_effect_broker_readback_request.v4" :
             batch_access ? "usk.publisher_effect_broker_readback_request.v3" :
             paired_access ? "usk.publisher_effect_broker_readback_request.v2" :
             "usk.publisher_effect_broker_readback_request.v1")}, {"kind", Value(kind)}});
         if (native_object) message.as_object().emplace(batch_access ? "native_objects" : "native_object", *native_object);
         if (batch_access || paired_admission || paired_selection) require_batch_packet_budget(message);
-        peer.send(message, timeout);
-        auto reply = peer.receive(timeout);
+        peer.send(message, parallel_after ? remaining() : timeout);
+        if (parallel_after) {
+            const auto marker = peer.receive(remaining());
+            require_publisher_effect_queries_closed_marker(marker, kind, *native_object);
+            // Private synchronous original-thread native observation only.
+            // No recursive IPC, effect, retention or usable result is exposed.
+            after_queries_closed();
+            // Charge callback elapsed time even when the final packet is
+            // already queued. Never restart the budget after the marker.
+            (void)remaining();
+        }
+        auto reply = peer.receive(parallel_after ? remaining() : timeout);
         require(reply.as_object().size() == (selected_access ? 6u : paired ? 5u : 4u) && reply.at("schema").as_string() ==
             (selected_access ? "usk.publisher_effect_broker_readback_response.v6" :
                 paired_selection ? "usk.publisher_effect_broker_readback_response.v5" :
@@ -1314,6 +1363,7 @@ struct PublisherEffectWorkerReadback::State {
         // The paired route retains its independent proof only after the
         // execution owner completes both local native brackets and all joins.
         if (!paired) previous = reply.at("profile");
+        if (parallel_after) (void)remaining();
         return reply;
     }
 };
@@ -1353,6 +1403,19 @@ void require_raw_object_access(const Value& result, const Value& native_object) 
     access.as_object().emplace("native_object_sha256", Value(usk::json::sha256_canonical(native_object)));
     require_publisher_authenticated_object_access(access, result.at("client"), native_object);
 }
+}
+void require_publisher_effect_queries_closed_marker(const Value& marker,
+    const std::string& kind, const Value& expected_native_objects) {
+    require_closed(marker, {"schema", "kind", "native_query_count", "native_objects_sha256"});
+    const auto& objects = expected_native_objects.as_array();
+    require((kind == "object_access_batch_bracket" || selected_access_kind(kind)) &&
+        !objects.empty() && objects.size() <= publisher_object_access_batch_limit &&
+        marker.at("schema").as_string() == "usk.publisher_effect_queries_closed.v1" &&
+        marker.at("kind").as_string() == kind &&
+        marker.at("native_query_count").as_unsigned() == objects.size() &&
+        marker.at("native_objects_sha256").as_string() == usk::json::sha256_canonical(expected_native_objects),
+        "effect query-closed marker differs from its original ordered batch");
+    require_batch_packet_budget(marker);
 }
 void require_publisher_effect_selected_object_access_batch_readback(const Value& reply,
     const Value& actual_request, const Value& expected_native_objects) {
@@ -1452,7 +1515,9 @@ PublisherEffectWorkerReadback::authenticated_object_access_bracket(HANDLE held, 
     } catch (...) { state_->failed = true; throw; }
 }
 PublisherEffectWorkerReadback::ObjectAccessObservation
-PublisherEffectWorkerReadback::authenticated_object_access_batch_bracket(const std::vector<HANDLE>& held, DWORD timeout) {
+PublisherEffectWorkerReadback::authenticated_object_access_batch_bracket(const std::vector<HANDLE>& held, DWORD timeout,
+    const std::function<void()>& after_queries_closed) {
+    const auto bracket_started = GetTickCount64();
     try {
         require(!held.empty() && held.size() <= publisher_object_access_batch_limit,
             "effect original held-object batch count exceeds its bound");
@@ -1462,7 +1527,8 @@ PublisherEffectWorkerReadback::authenticated_object_access_batch_bracket(const s
             objects.push_back(object(handle));
         }
         const Value before(std::move(objects));
-        auto reply = state_->read("object_access_batch_bracket", &before, timeout);
+        auto reply = state_->read("object_access_batch_bracket", &before, after_queries_closed ? readback_remaining(bracket_started, timeout,
+            "effect full parallel object bracket exceeded its original deadline") : timeout, after_queries_closed);
         for (std::size_t index = 0; index < held.size(); ++index) {
             require(same(object(held[index]), before.as_array()[index]) &&
                 observe_publisher_noninheritable_handle_flags(held[index]) == 0,
@@ -1471,13 +1537,16 @@ PublisherEffectWorkerReadback::authenticated_object_access_batch_bracket(const s
         }
         (void)actual_worker_context(reply.at("profile_before"));
         (void)actual_worker_context(reply.at("profile"));
+        if (after_queries_closed) (void)readback_remaining(bracket_started, timeout,
+            "effect completed parallel object bracket exceeded its original deadline");
         return ObjectAccessObservation{std::move(reply.as_object().at("profile_before")),
             std::move(reply.as_object().at("profile")), std::move(reply.as_object().at("result"))};
     } catch (...) { state_->failed = true; throw; }
 }
 PublisherEffectWorkerReadback::SelectedObjectAccessObservation
 PublisherEffectWorkerReadback::selected_object_access_batch_bracket(PublisherEffectSelectionKind kind,
-    const std::vector<HANDLE>& held, DWORD timeout) {
+    const std::vector<HANDLE>& held, DWORD timeout, const std::function<void()>& after_queries_closed) {
+    const auto bracket_started = GetTickCount64();
     try {
         require(!held.empty() && held.size() <= publisher_object_access_batch_limit,
             "effect selected held-object batch count exceeds its bound");
@@ -1487,7 +1556,8 @@ PublisherEffectWorkerReadback::selected_object_access_batch_bracket(PublisherEff
             objects.push_back(object(handle));
         }
         const Value before(std::move(objects));
-        auto reply = state_->read(selected_access_bracket_kind(kind), &before, timeout);
+        auto reply = state_->read(selected_access_bracket_kind(kind), &before, after_queries_closed ? readback_remaining(bracket_started, timeout,
+            "effect full parallel object bracket exceeded its original deadline") : timeout, after_queries_closed);
         for (std::size_t index = 0; index < held.size(); ++index) {
             require(same(object(held[index]), before.as_array()[index]) &&
                 observe_publisher_noninheritable_handle_flags(held[index]) == 0,
@@ -1498,6 +1568,8 @@ PublisherEffectWorkerReadback::selected_object_access_batch_bracket(PublisherEff
         const auto& selected = reply.at("selection");
         if (kind != PublisherEffectSelectionKind::reviewed_operation && state_->recovery_selection_observed)
             require(same(selected, state_->recovery_selection), "effect original protected selected access changed");
+        if (after_queries_closed) (void)readback_remaining(bracket_started, timeout,
+            "effect completed parallel selected bracket exceeded its original deadline");
         return SelectedObjectAccessObservation{SelectionObservation{
             std::move(reply.as_object().at("profile_before")), std::move(reply.as_object().at("profile")),
             std::move(reply.as_object().at("selection"))}, std::move(reply.as_object().at("result"))};
@@ -1530,6 +1602,7 @@ PublisherEffectWorkerReadback::selected_operation_bracket(PublisherEffectSelecti
             std::move(reply.as_object().at("profile")), std::move(reply.as_object().at("result"))};
     } catch (...) { state_->failed = true; throw; }
 }
+void PublisherEffectWorkerReadback::poison() noexcept { state_->failed = true; }
 void PublisherEffectWorkerReadback::retain_readback_bracket(const Value& before, const Value& after) {
     try {
         require(!state_->failed && state_->initialized && state_->process_id == GetCurrentProcessId() &&

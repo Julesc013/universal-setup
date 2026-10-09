@@ -658,6 +658,69 @@ void effect_execution_record_controls() {
                 {"checks", Value(std::move(checks))}});
         };
         const Value ordered_objects(Value::Array{object(2), object(0), object(2)});
+        // A transported query-closed marker is only sequencing data. These
+        // controls cannot invoke the private callback or create native proof.
+        const Value marker_objects(Value::Array{object(2), object(2)});
+        const auto marker_kind = std::string("object_access_batch_bracket");
+        const Value marker(Value::Object{
+            {"schema", Value("usk.publisher_effect_queries_closed.v1")}, {"kind", Value(marker_kind)},
+            {"native_query_count", Value(std::uint64_t{2})},
+            {"native_objects_sha256", Value(usk::json::sha256_canonical(marker_objects))}});
+        require_publisher_effect_queries_closed_marker(marker, marker_kind, marker_objects);
+        const auto marker_refused = [&](Value candidate, const std::string& kind, const Value& objects) {
+            bool refused = false;
+            try { require_publisher_effect_queries_closed_marker(candidate, kind, objects); }
+            catch (const std::runtime_error&) { refused = true; }
+            check(refused, "query-closed marker accepted a changed exchange binding");
+        };
+        for (const auto key : {"schema", "kind", "native_query_count", "native_objects_sha256"}) {
+            auto missing = marker; missing.as_object().erase(key);
+            marker_refused(std::move(missing), marker_kind, marker_objects);
+        }
+        auto unknown_marker = marker; unknown_marker.as_object().emplace("result", Value(Value::Array{}));
+        marker_refused(std::move(unknown_marker), marker_kind, marker_objects);
+        auto wrong_marker = marker; wrong_marker.as_object().at("schema") = Value("usk.publisher_effect_queries_closed.v2");
+        marker_refused(std::move(wrong_marker), marker_kind, marker_objects);
+        wrong_marker = marker; wrong_marker.as_object().at("native_query_count") = Value(std::uint64_t{1});
+        marker_refused(std::move(wrong_marker), marker_kind, marker_objects);
+        wrong_marker = marker; wrong_marker.as_object().at("native_objects_sha256") = Value(std::string(64, 'a'));
+        marker_refused(std::move(wrong_marker), marker_kind, marker_objects);
+        marker_refused(marker, "service_admission_bracket", marker_objects);
+        marker_refused(marker, "selected_operation_object_access_batch_bracket", marker_objects);
+        marker_refused(marker, marker_kind, Value(Value::Array{}));
+        marker_refused(marker, marker_kind, Value(Value::Array(9, object(2))));
+        auto changed_objects = marker_objects; changed_objects.as_array()[1].as_object().at("file_id") = Value("changed");
+        marker_refused(marker, marker_kind, changed_objects);
+        auto dropped_duplicate = marker_objects; dropped_duplicate.as_array().pop_back();
+        marker_refused(marker, marker_kind, dropped_duplicate);
+        // Independently cover closed selector families and both count bounds.
+        for (const auto kind : {"object_access_batch_bracket", "selected_operation_object_access_batch_bracket",
+            "original_maintenance_recovery_object_access_batch_bracket", "original_installation_recovery_object_access_batch_bracket"}) {
+            for (const auto count : {std::size_t{1}, std::size_t{8}}) {
+                const Value objects(Value::Array(count, object(2)));
+                auto bound_marker = marker;
+                bound_marker.as_object().at("kind") = Value(kind);
+                bound_marker.as_object().at("native_query_count") = Value(static_cast<std::uint64_t>(count));
+                bound_marker.as_object().at("native_objects_sha256") = Value(usk::json::sha256_canonical(objects));
+                require_publisher_effect_queries_closed_marker(bound_marker, kind, objects);
+            }
+        }
+        for (const auto count : {std::size_t{0}, std::size_t{9}}) {
+            const Value objects(Value::Array(count, object(2)));
+            auto bound_marker = marker;
+            bound_marker.as_object().at("native_query_count") = Value(static_cast<std::uint64_t>(count));
+            bound_marker.as_object().at("native_objects_sha256") = Value(usk::json::sha256_canonical(objects));
+            marker_refused(std::move(bound_marker), marker_kind, objects);
+        }
+        auto ordered_marker = marker;
+        ordered_marker.as_object().at("native_query_count") = Value(std::uint64_t{3});
+        ordered_marker.as_object().at("native_objects_sha256") = Value(usk::json::sha256_canonical(ordered_objects));
+        require_publisher_effect_queries_closed_marker(ordered_marker, marker_kind, ordered_objects);
+        auto reordered_objects = ordered_objects;
+        std::swap(reordered_objects.as_array()[0], reordered_objects.as_array()[1]);
+        marker_refused(ordered_marker, marker_kind, reordered_objects);
+        auto boolean_count = marker; boolean_count.as_object().at("native_query_count") = Value(true);
+        marker_refused(std::move(boolean_count), marker_kind, marker_objects);
         const auto composed_reply = [&](const Value& selected_reply, bool recovery, const Value& objects) {
             auto result = selected_reply;
             result.as_object().at("schema") = Value("usk.publisher_effect_broker_readback_response.v6");
