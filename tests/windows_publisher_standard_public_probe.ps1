@@ -140,8 +140,23 @@ function Assert-LeaseTransition($Before,$After,[bool]$Readonly=$false) {
     Invoke-StandardLeaseEvidence $leaseRequest|Out-Null
 }
 function Read-NativeSnapshot([switch]$PublicationPreserved,[ValidateSet(0,1,2)][int]$PublicationReservedAbsentGeneration=0,
-    [switch]$IncludeMovedMaintenanceRoot,[string]$ActiveReservationPrefix='') {
+    [switch]$IncludeMovedMaintenanceRoot,[string]$ActiveReservationPrefix='', $OriginalFailedRequest=$null) {
     if($IncludeMovedMaintenanceRoot -and -not $MaintenanceQualification){throw 'Maintenance readback scope is unavailable'}
+    if($OriginalFailedRequest) {
+        $originalCapture=@($receipt.client_captures|Where-Object request_id -ceq $OriginalFailedRequest.request_id)
+        if(-not $MaintenanceQualification -or
+            -not [object]::ReferenceEquals($OriginalFailedRequest,$receipt.request_execution_failure) -or
+            $OriginalFailedRequest.scope -cne 'original_failed_request_before_cleanup' -or
+            $OriginalFailedRequest.qualification_granted -ne $false -or
+            $OriginalFailedRequest.command -cnotin @('repair.apply','move.apply','uninstall.apply') -or
+            $originalCapture.Count -ne 1 -or $originalCapture[0].command -cne $OriginalFailedRequest.command -or
+            $originalCapture[0].process_id -ne $OriginalFailedRequest.client_process_id -or
+            $originalCapture[0].creation_file_time -cne $OriginalFailedRequest.client_creation_file_time -or
+            $originalCapture[0].captured_before_primary_thread_resume -ne $true -or
+            $originalCapture[0].primary_token.user_sid -cne $accountSid) {
+            throw 'Failed maintenance readback requires its exact original captured request'
+        }
+    }
     if($ActiveReservationPrefix -and ($PublicationReservedAbsentGeneration -ne 1 -or
         $PublicationPreserved -or $IncludeMovedMaintenanceRoot)){throw 'Original active reservation readback scope differs'}
     $script:observersClosed=$false
@@ -156,9 +171,28 @@ function Read-NativeSnapshot([switch]$PublicationPreserved,[ValidateSet(0,1,2)][
     if(-not $readback.observer_task_removed -or $readback.independent.identity -cne 'S-1-5-18' -or
         $readback.independent.observer_token_handles_closed -ne $true){throw 'Standard independent reader cleanup differs'}
     $script:observersClosed=$true
-    Assert-IndependentProtectedRows -Rows $readback.independent.rows -ServiceSid $sid -ConsumerSid $accountSid `
-        -VisibleRoot ($drive+'publication\destination\visible') `
-        -AdditionalConsumerRoot $(if($IncludeMovedMaintenanceRoot){$drive+'publication\destination\maintenance-moved'}else{''})
+    if($OriginalFailedRequest) {
+        # Retain actual closed independent rows BEFORE policy interpretation.
+        # A failed role/ACL check must not erase the original object/byte/ACE
+        # evidence. This does not accept a backup role or change the refusal.
+        $OriginalFailedRequest.readback=$readback
+        $OriginalFailedRequest['readback_policy']=[ordered]@{scope='independent_protected_rows';
+            status='pending';qualification_granted=$false;failure=$null;failure_truncated=$false}
+    }
+    try {
+        Assert-IndependentProtectedRows -Rows $readback.independent.rows -ServiceSid $sid -ConsumerSid $accountSid `
+            -VisibleRoot ($drive+'publication\destination\visible') `
+            -AdditionalConsumerRoot $(if($IncludeMovedMaintenanceRoot){$drive+'publication\destination\maintenance-moved'}else{''})
+        if($OriginalFailedRequest){$OriginalFailedRequest.readback_policy.status='passed'}
+    } catch {
+        if($OriginalFailedRequest) {
+            $policyFailure=[string]$_.Exception.Message
+            $OriginalFailedRequest.readback_policy.status='refused'
+            $OriginalFailedRequest.readback_policy.failure=$policyFailure.Substring(0,[Math]::Min(4096,$policyFailure.Length))
+            $OriginalFailedRequest.readback_policy.failure_truncated=($policyFailure.Length -gt 4096)
+        }
+        throw
+    }
     return $readback
 }
 function Read-InstalledSnapshot {
@@ -873,7 +907,8 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
         } catch {$failed['capture_failure']=$_.Exception.Message}
         $priorObserverClosure=$script:observersClosed
         $script:observersClosed=$false
-        try {$failed.readback=Read-NativeSnapshot -IncludeMovedMaintenanceRoot:$MaintenanceQualification}
+        try {$failed.readback=Read-NativeSnapshot -IncludeMovedMaintenanceRoot:$MaintenanceQualification `
+            -OriginalFailedRequest $(if($MaintenanceQualification -and $Command -cin @('repair.apply','move.apply','uninstall.apply')){$failed}else{$null})}
         catch {$failed['readback_failure']=$_.Exception.Message}
         finally {
             # Closing this reader cannot close an already outstanding observer.

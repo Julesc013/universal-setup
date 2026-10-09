@@ -99,6 +99,11 @@ public:
 private:
     friend class PublisherEffectWorkerReadback;
     friend class PublisherEffectExecutionOwner;
+    friend class PublisherEffectRecordByteRound;
+    // Only the fixed original record scope may use this identity check between
+    // its complete fresh image-digest endpoints. Each call still observes the
+    // held live peer and image/path identity; it returns no proof or authority.
+    void require_record_chunk_custody(const usk::json::Value& original) const;
     // Borrowed only inside the fixed native readback's startup wait; never
     // returned publicly or serialized, and never grants event modification.
     HANDLE cancellation_observer() const;

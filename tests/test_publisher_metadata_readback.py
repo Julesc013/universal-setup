@@ -14,6 +14,80 @@ import unittest
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_failed_maintenance_readback_retains_rows_without_accepting_acl_role(self):
+        # Exercise only actual reader/policy control flow with inert observed
+        # data. No native access check, token custody or backup is manufactured.
+        root = Path(__file__).resolve().parents[1]
+        code = r"""$ErrorActionPreference='Stop'
+foreach($selection in @(@{file='windows_publisher_standard_public_probe.ps1';name='Read-NativeSnapshot'},
+ @{file='windows_publisher_metadata_readback.ps1';name='Assert-IndependentProtectedRows'})) {
+ $tokens=$null;$errors=$null
+ $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $env:USK_TEST_SOURCE $selection.file),[ref]$tokens,[ref]$errors)
+ if($errors.Count){throw 'Actual reader/policy syntax differs'}
+ $functions=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+  $n.Name -ceq $selection.name},$true))
+ if($functions.Count -ne 1){throw 'Actual reader/policy function is ambiguous'}
+ . ([scriptblock]::Create($functions[0].Extent.Text))
+}
+$MaintenanceQualification=$true;$drive='E:\';$lab='inert';$ownerCreation='134360177507798014'
+$PIDValue=7832;$accountSid='S-1-5-21-1-2-3-4';$sid='S-1-5-80-1-2-3-4-5'
+$clientCaptureFile='inert';$clientCaptureSha256='a'*64;$VolumeRoot='inert'
+$disk=[pscustomobject]@{Number=1};$script:invocations=0
+$script:observed=[pscustomobject]@{observer_task_removed=$true;independent=[pscustomobject]@{
+ identity='S-1-5-18';observer_token_handles_closed=$true;rows=@([pscustomobject]@{
+ path='E:\publication\destination\.usk-repair-maintenance.repair.original\backup\bin\core.bin';
+ owner='S-1-5-18';protected=$true;aces=@(
+ @{sid='S-1-5-18';rights=2032127;type='Allow';inherited=$false;inheritance=0;propagation=0},
+ @{sid=$sid;rights=2032127;type='Allow';inherited=$false;inheritance=0;propagation=0},
+ @{sid=$accountSid;rights=1179817;type='Allow';inherited=$false;inheritance=0;propagation=0})})}}
+function Invoke-IndependentMetadataReadback {
+ $script:invocations++;return $script:observed
+}
+foreach($variant in @('ordinary','original_failure','copied_failure','changed_capture','unconfirmed_close','qualification_changed')) {
+ $failed=[ordered]@{scope='original_failed_request_before_cleanup';qualification_granted=$false;
+  command='repair.apply';request_id='public.original';client_process_id=$PIDValue;
+  client_creation_file_time=$ownerCreation;readback=$null}
+ $receipt=[ordered]@{request_execution_failure=$failed;client_captures=@([pscustomobject]@{
+  request_id=$failed.request_id;command=$failed.command;process_id=$PIDValue;creation_file_time=$ownerCreation;
+  captured_before_primary_thread_resume=$true;primary_token=@{user_sid=$accountSid}})}
+ $supplied=$failed;$before=$script:invocations;$caught=$null
+ $script:observed.independent.observer_token_handles_closed=$true
+ switch($variant) {
+  'ordinary' {$supplied=$null}
+  'copied_failure' {$supplied=$failed|ConvertTo-Json -Depth 8|ConvertFrom-Json}
+  'changed_capture' {$receipt.client_captures[0].creation_file_time='134360177507798015'}
+  'unconfirmed_close' {$script:observed.independent.observer_token_handles_closed=$false}
+  'qualification_changed' {$failed.qualification_granted=$true}
+ }
+ try {$ignored=Read-NativeSnapshot -OriginalFailedRequest $supplied} catch {$caught=$_.Exception.Message}
+ if(-not $caught){throw ('Refused diagnostic returned an accepted snapshot: '+$variant)}
+ if($variant -ceq 'original_failure') {
+  if(-not $caught.StartsWith('Independent owner/DACL differs: ',[StringComparison]::Ordinal) -or
+   -not [object]::ReferenceEquals($failed.readback,$script:observed) -or
+   $failed.readback_policy.status -cne 'refused' -or $failed.readback_policy.qualification_granted -ne $false -or
+   $failed.readback_policy.failure -cne $caught -or $failed.readback_policy.failure_truncated -ne $false -or
+   $failed.qualification_granted -ne $false -or -not $script:observersClosed) {
+   throw 'Original refused policy erased rows or granted qualification'
+  }
+ } elseif($failed.readback -or $failed.Contains('readback_policy')) {
+  throw ('An unrelated or unclosed reader retained approved diagnostics: '+$variant)
+ }
+ if($variant -cin @('copied_failure','changed_capture','qualification_changed') -and $script:invocations -ne $before) {
+  throw 'Unbound failure invoked an observer'
+ }
+}
+"""
+        for binary in ("powershell", "pwsh"):
+            executable = shutil.which(binary)
+            if not executable:
+                continue
+            with self.subTest(binary=binary):
+                environment = dict(os.environ, USK_TEST_SOURCE=str(root / "tests"))
+                result = subprocess.run([executable, "-NoProfile", "-NonInteractive", "-EncodedCommand",
+                    base64.b64encode(code.encode("utf-16le")).decode()], env=environment,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout.decode(errors="replace"))
+
     def test_observer_failure_keeps_child_error_when_task_status_query_fails(self):
         # Run only the owned failure serializer/formatter. No scheduled task,
         # native observation or token-close acknowledgement is manufactured.

@@ -1555,6 +1555,14 @@ struct PublisherEffectRecordByteRound::State {
             same(token(observe_current_publisher_token()), child), "child record byte scope actual token/peer/thread changed");
         (void)remaining();
     }
+    void require_chunk_binding() const {
+        require(process_id == GetCurrentProcessId() && thread_id == GetCurrentThreadId() && peer.canonical_request() == request,
+            "child record byte chunk actual owner/thread/request changed");
+        peer.require_record_chunk_custody(custody);
+        require(same(token(peer.peer_primary_token()), parent) &&
+            same(token(observe_current_publisher_token()), child), "child record byte chunk actual token changed");
+        (void)remaining();
+    }
     Value chunk_objects(std::size_t index) const {
         Value::Array objects;
         const auto count = record_chunk_size(scope, index);
@@ -1569,7 +1577,7 @@ PublisherEffectRecordByteRound::PublisherEffectRecordByteRound(PublisherEffectWo
 PublisherEffectRecordByteRound::~PublisherEffectRecordByteRound() = default;
 void PublisherEffectRecordByteRound::query_chunk(const std::vector<HANDLE>& handles) {
     auto& s = *state_;
-    s.require_binding();
+    s.require_chunk_binding();
     require(s.round < 2u && handles.size() == record_chunk_size(s.scope, s.chunk_index),
         "child record byte scope has another ordered pending chunk");
     Value::Array objects;
@@ -1598,7 +1606,7 @@ void PublisherEffectRecordByteRound::query_chunk(const std::vector<HANDLE>& hand
         require(same(object(handles[index]), observed.as_array()[index]) &&
             observe_publisher_noninheritable_handle_flags(handles[index]) == 0,
             "child record byte held object changed across provisional query");
-    s.require_binding();
+    s.require_chunk_binding();
     ++s.chunk_index;
 }
 PublisherEffectWorkerReadback::ObjectAccessObservation

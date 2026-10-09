@@ -317,6 +317,29 @@ struct Wire {
         fields.emplace("request_sha256", Value(binding));
         return Value(std::move(fields));
     }
+    void require_record_chunk_custody(const Value& original) const {
+        require_peer();
+        const auto& expected_image = original.at("image");
+        const auto& identity = image->identity();
+        require(original.as_object().size() == 8u && expected_image.as_object().size() == 4u &&
+            original.at("schema").as_string() == "usk.publisher_effect_transport_custody.v1" &&
+            original.at("authority").as_string() == "none" &&
+            original.at("current_process_id").as_unsigned() == GetCurrentProcessId() &&
+            original.at("current_process_birth").as_string() == hex64(birth(GetCurrentProcess())) &&
+            original.at("peer_process_id").as_unsigned() == peer_id &&
+            original.at("peer_process_birth").as_string() == hex64(peer_birth) &&
+            original.at("request_sha256").as_string() == binding &&
+            expected_image.at("volume_id").as_string() == identity.volume_id &&
+            expected_image.at("file_id").as_string() == identity.file_id &&
+            expected_image.at("size_bytes").as_unsigned() == identity.size_bytes,
+            "effect record chunk original native custody identity changed");
+        // The original is this scope's actual full observation, not supplied
+        // data or a cached validation result. Image bytes are freshly hashed
+        // at the complete scope endpoints. Intermediate chunks retain fresh
+        // held/path metadata, peer liveness/birth/path and actual token checks;
+        // they do not claim another image-content sample.
+        require_peer();
+    }
     std::string canonical_request;
     PublisherTokenObservation peer_primary_token() const {
         require_peer();
@@ -680,6 +703,9 @@ PublisherEffectWorkerPeer::~PublisherEffectWorkerPeer() {
 void PublisherEffectWorkerPeer::send(const Value& body, DWORD timeout) { state_->wire.send(body, timeout); }
 Value PublisherEffectWorkerPeer::receive(DWORD timeout) { return state_->wire.receive(timeout); }
 Value PublisherEffectWorkerPeer::observation() const { return state_->wire.observation(); }
+void PublisherEffectWorkerPeer::require_record_chunk_custody(const Value& original) const {
+    state_->wire.require_record_chunk_custody(original);
+}
 PublisherTokenObservation PublisherEffectWorkerPeer::peer_primary_token() const { return state_->wire.peer_primary_token(); }
 const std::string& PublisherEffectWorkerPeer::canonical_request() const {
     state_->wire.require_peer();
