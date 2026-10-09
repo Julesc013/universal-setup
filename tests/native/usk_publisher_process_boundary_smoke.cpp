@@ -1195,16 +1195,38 @@ public:
     explicit TestThread(LPTHREAD_START_ROUTINE routine = nullptr, void* parameter = nullptr) {
         stop_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
         check(stop_ != nullptr, "test thread release event unavailable");
+        if (!routine) {
+            ready_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+            if (!ready_) { CloseHandle(stop_); throw std::runtime_error("test thread ready event unavailable"); }
+        }
+        waiting_ = {stop_, ready_};
         thread_ = CreateThread(nullptr, 0, routine ? routine : wait_for_release,
-            routine ? parameter : stop_, 0, &id_);
-        if (!thread_) { CloseHandle(stop_); throw std::runtime_error("test helper thread unavailable"); }
+            routine ? parameter : &waiting_, 0, &id_);
+        if (!thread_) {
+            if (ready_) CloseHandle(ready_);
+            CloseHandle(stop_);
+            throw std::runtime_error("test helper thread unavailable");
+        }
+        // Wait for the actual default entry to finish startup. CreateThread
+        // alone does not establish that a newly held helper has started.
+        if (!routine && (WaitForSingleObject(ready_, 5000u) != WAIT_OBJECT_0 ||
+                WaitForSingleObject(thread_, 0) != WAIT_TIMEOUT)) {
+            if (!SetEvent(stop_) || WaitForSingleObject(thread_, 5000u) != WAIT_OBJECT_0) {
+                std::cerr << "test helper startup unclosed; fail-stop before releasing its context\n";
+                std::_Exit(1);
+            }
+            CloseHandle(thread_); CloseHandle(ready_); CloseHandle(stop_);
+            throw std::runtime_error("actual test waiting thread did not become ready and live");
+        }
     }
     ~TestThread() {
         if (!SetEvent(stop_) || WaitForSingleObject(thread_, 5000u) != WAIT_OBJECT_0) {
             std::cerr << "test helper still active; fail-stop before releasing its dependencies\n";
             std::_Exit(1);
         }
-        CloseHandle(thread_); CloseHandle(stop_);
+        CloseHandle(thread_);
+        if (ready_) CloseHandle(ready_);
+        CloseHandle(stop_);
     }
     TestThread(const TestThread&) = delete;
     TestThread& operator=(const TestThread&) = delete;
@@ -1218,10 +1240,13 @@ public:
             "actual test thread did not end");
     }
 private:
+    struct WaitingContext { HANDLE stop = nullptr, ready = nullptr; } waiting_;
     static DWORD WINAPI wait_for_release(void* parameter) {
-        return WaitForSingleObject(static_cast<HANDLE>(parameter), INFINITE) == WAIT_OBJECT_0 ? 0u : 1u;
+        const auto& waiting = *static_cast<WaitingContext*>(parameter);
+        if (!SetEvent(waiting.ready)) return 1u;
+        return WaitForSingleObject(waiting.stop, INFINITE) == WAIT_OBJECT_0 ? 0u : 1u;
     }
-    HANDLE stop_ = nullptr, thread_ = nullptr;
+    HANDLE stop_ = nullptr, ready_ = nullptr, thread_ = nullptr;
     DWORD id_ = 0;
 };
 class TestQueryDenialContext {
@@ -1751,6 +1776,9 @@ void broker_worker_native_acquisition_controls() {
                 }
             });
         } catch (const std::exception& error) { diagnostic = error.what(); }
+        if (inter_call && !live_after_timing)
+            std::cerr << "native broker missed checkpoint=" << target_checkpoint << "; original diagnostic=" <<
+                diagnostic << '\n';
         check(!inter_call || live_after_timing, "native broker control missed the between-timing-and-wait retirement window");
         check(diagnostic.find(initial ? "observed thread is unavailable or exited" :
                 "held thread exited or changed identity") != std::string::npos,
