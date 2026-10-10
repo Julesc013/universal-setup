@@ -3653,11 +3653,17 @@ transaction::RecoveryInspection recover_maintenance_transaction(const transactio
         operations.require_authority(spec, current, history);
     };
     require_owner();
-    const auto fenced_injector = [&](const std::string& phase, const std::string& point) {
-        require_owner();
-        if (injector) injector(phase, point);
-        require_owner();
-    };
+    transaction::FaultInjector fenced_injector;
+    if (injector) {
+        // Preserve an absent callback through journal adapters. Concrete
+        // recovery effects retain their own authority checks; actual fault
+        // callbacks still receive the same full enclosing owner fences.
+        fenced_injector = [&](const std::string& phase, const std::string& point) {
+            require_owner();
+            injector(phase, point);
+            require_owner();
+        };
+    }
     // The existing journal bound admits at most100000 effects. Every pass
     // must append an intent/completion, commit metadata or finish; no new plan
     // can extend this operation and uncertain effects are never retried here.
