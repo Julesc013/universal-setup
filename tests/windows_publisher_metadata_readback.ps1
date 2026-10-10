@@ -1033,7 +1033,7 @@ if($OriginalFailedRequestDiagnosticBinding) {
   $failedContentBinding.scope -cne 'original_failed_request_before_cleanup' -or
   $failedContentBinding.qualification_granted -ne $false -or
   $failedContentBinding.request_id -cnotmatch '^public\.[0-9a-f]{32}$' -or
-  $failedContentBinding.command -cnotin @('repair.apply','move.apply','uninstall.apply') -or
+  $failedContentBinding.command -cnotin @('repair.apply','repair.recover','move.apply','uninstall.apply') -or
   $failedContentBinding.account_sid -cne $CallerSid -or
   $failedContentBinding.client_capture_sha256 -cne $ClientCaptureSha256 -or
   $MetadataOnly -or -not $ExpectedVolumeRoot -or -not $ClientCaptureFile -or

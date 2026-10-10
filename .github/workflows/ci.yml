@@ -159,7 +159,7 @@ jobs:
       - name: Recover a genuinely interrupted repair without its source archive
         if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
         shell: pwsh
-        run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-standard-maintenance-recovery-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardMaintenanceRecoveryQualification
+        run: ./tests/windows_publisher_maintenance_thread_trace_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-standard-maintenance-recovery-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -RecoveryCpuDiagnostic
       - name: Retain ended-worker source-free maintenance observation
         if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
         uses: actions/upload-artifact@v4
@@ -167,6 +167,14 @@ jobs:
           name: usk-wu007-standard-maintenance-recovery-probe
           path: ${{ runner.temp }}\usk-wu007-standard-maintenance-recovery-probe.json
           if-no-files-found: error
+      - name: Retain bounded ended-repair recovery CPU diagnostic
+        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu007-standard-maintenance-recovery-trace
+          path: ${{ runner.temp }}\usk-wu007-maintenance-thread-trace\retained\*
+          if-no-files-found: error
+          retention-days: 7
       - name: Observe original shared initial maintenance intent before staging
         if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
         shell: pwsh

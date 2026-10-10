@@ -6,10 +6,13 @@ param(
     [Parameter(Mandatory=$true)][string]$ServiceBinary,
     [Parameter(Mandatory=$true)][string]$ServiceControlBinary,
     [Parameter(Mandatory=$true)][string]$MachineBinary,
-    [switch]$FreshQualification
+    [switch]$FreshQualification,
+    [switch]$RecoveryCpuDiagnostic
 )
 
 $ErrorActionPreference='Stop'
+if($FreshQualification -and $RecoveryCpuDiagnostic) {throw 'Recovery CPU diagnostic requires the ended-recovery journey'}
+$cpuCapture=$FreshQualification -or $RecoveryCpuDiagnostic
 $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
 $principal=[Security.Principal.WindowsPrincipal]::new($identity)
 if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
@@ -32,11 +35,11 @@ $retainedRoot=Join-Path $traceRoot 'retained'
 New-Item -ItemType Directory -Path $retainedRoot -ErrorAction Stop | Out-Null
 $instance='USKMaintenanceCreator'+[Guid]::NewGuid().ToString('N')
 $etl=Join-Path $traceRoot 'maintenance-thread-creator.etl'
-$profileFile=if($FreshQualification){'windows_publisher_maintenance_fresh_cpu_trace.wprp'}else{'windows_publisher_maintenance_thread_trace.wprp'}
-$profileName=if($FreshQualification){'USKFreshCPU'}else{'USKThreadCreator'}
-$captureKind=if($FreshQualification){'cpu_stacks_scheduler_events_and_thread_creation'}else{'cpu_scheduler_and_thread_creation'}
-$captureStacks=if($FreshQualification){@('ThreadCreate','SampledProfile')}else{@('ThreadCreate','SampledProfile','CSwitch','ReadyThread')}
-$interpretation=if($FreshQualification){'Circular coverage remains unproved; join actual request/PID/birth/TID/module/ancestry and retained interval before interpreting CPU/thread stacks or scheduler events. Scheduler/wakeup stacks are omitted; this capture cannot attribute wait call stacks or establish a call cycle or thread creator'}else{'Circular coverage remains unproved; join actual request/PID/birth/TID/module/ancestry and retained interval before interpreting CPU or wait stacks. Wait stacks alone do not establish a call cycle or thread creator'}
+$profileFile=if($cpuCapture){'windows_publisher_maintenance_fresh_cpu_trace.wprp'}else{'windows_publisher_maintenance_thread_trace.wprp'}
+$profileName=if($cpuCapture){'USKFreshCPU'}else{'USKThreadCreator'}
+$captureKind=if($cpuCapture){'cpu_stacks_scheduler_events_and_thread_creation'}else{'cpu_scheduler_and_thread_creation'}
+$captureStacks=if($cpuCapture){@('ThreadCreate','SampledProfile')}else{@('ThreadCreate','SampledProfile','CSwitch','ReadyThread')}
+$interpretation=if($cpuCapture){'Circular coverage remains unproved; join actual request/PID/birth/TID/module/ancestry and retained interval before interpreting CPU/thread stacks or scheduler events. Scheduler/wakeup stacks are omitted; this capture cannot attribute wait call stacks or establish a call cycle or thread creator'}else{'Circular coverage remains unproved; join actual request/PID/birth/TID/module/ancestry and retained interval before interpreting CPU or wait stacks. Wait stacks alone do not establish a call cycle or thread creator'}
 $profile=Join-Path $PSScriptRoot $profileFile
 # Pin the OS tool: hosted PATH can contain both System32 and WPT installations.
 $wpr=[IO.Path]::GetFullPath((Join-Path $env:SystemRoot 'System32\wpr.exe'))
@@ -52,7 +55,7 @@ $receipt=[ordered]@{
     journey=$journey;capture_kind=$captureKind;
     captured_keywords=@('ProcessThread','Loader','SampledProfile','CSwitch','ReadyThread');
     captured_stacks=$captureStacks;profile_file=$profileFile;profile_name=$profileName;
-    scheduler_stacks_requested=(-not $FreshQualification);
+    scheduler_stacks_requested=(-not $cpuCapture);
     maximum_retained_etl_bytes=134217728;maximum_command_log_characters=32768;
     original_request_identity_source='Original probe receipt; join native process birth and ancestry with raw ETL';
     capture_start_precedes_probe=$false;capture_end_follows_probe=$false;
@@ -206,7 +209,7 @@ try {
             sha256=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant();
             status=$original.status;build_profile=$original.build_profile}
     } catch {$receipt.diagnostic_failures.Add('Original probe receipt readback failed: '+[string]$_.Exception.Message)}
-    if($FreshQualification) {
+    if($cpuCapture) {
         try {
             if(-not $receipt.probe_receipt -or -not $receipt.trace_closed) {throw 'Closed trace and joined original probe receipt are required for product symbol retention'}
             $installedHash=[string]$original.service_observation.service_sha256

@@ -148,7 +148,7 @@ function Read-NativeSnapshot([switch]$PublicationPreserved,[ValidateSet(0,1,2)][
             -not [object]::ReferenceEquals($OriginalFailedRequest,$receipt.request_execution_failure) -or
             $OriginalFailedRequest.scope -cne 'original_failed_request_before_cleanup' -or
             $OriginalFailedRequest.qualification_granted -ne $false -or
-            $OriginalFailedRequest.command -cnotin @('repair.apply','move.apply','uninstall.apply') -or
+            $OriginalFailedRequest.command -cnotin @('repair.apply','repair.recover','move.apply','uninstall.apply') -or
             $originalCapture.Count -ne 1 -or $originalCapture[0].command -cne $OriginalFailedRequest.command -or
             $originalCapture[0].process_id -ne $OriginalFailedRequest.client_process_id -or
             $originalCapture[0].creation_file_time -cne $OriginalFailedRequest.client_creation_file_time -or
@@ -980,7 +980,7 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
         $priorObserverClosure=$script:observersClosed
         $script:observersClosed=$false
         try {$failed.readback=Read-NativeSnapshot -IncludeMovedMaintenanceRoot:$MaintenanceQualification `
-            -OriginalFailedRequest $(if($MaintenanceQualification -and $Command -cin @('repair.apply','move.apply','uninstall.apply')){$failed}else{$null})}
+            -OriginalFailedRequest $(if($MaintenanceQualification -and $Command -cin @('repair.apply','repair.recover','move.apply','uninstall.apply')){$failed}else{$null})}
         catch {$failed['readback_failure']=$_.Exception.Message}
         finally {
             # Closing this reader cannot close an already outstanding observer.

@@ -43,9 +43,10 @@ $script:observed=[pscustomobject]@{observer_task_removed=$true;independent=[pscu
 function Invoke-IndependentMetadataReadback {
  $script:invocations++;return $script:observed
 }
-foreach($variant in @('ordinary','original_failure','copied_failure','changed_capture','unconfirmed_close','qualification_changed')) {
+foreach($command in @('repair.apply','repair.recover')) {
+foreach($variant in @('ordinary','original_failure','copied_failure','changed_capture','different_command','unconfirmed_close','qualification_changed')) {
  $failed=[ordered]@{scope='original_failed_request_before_cleanup';qualification_granted=$false;
-  command='repair.apply';request_id='public.original';client_process_id=$PIDValue;
+  command=$command;request_id='public.original';client_process_id=$PIDValue;
   client_creation_file_time=$ownerCreation;readback=$null}
  $receipt=[ordered]@{request_execution_failure=$failed;client_captures=@([pscustomobject]@{
   request_id=$failed.request_id;command=$failed.command;process_id=$PIDValue;creation_file_time=$ownerCreation;
@@ -56,6 +57,7 @@ foreach($variant in @('ordinary','original_failure','copied_failure','changed_ca
   'ordinary' {$supplied=$null}
   'copied_failure' {$supplied=$failed|ConvertTo-Json -Depth 8|ConvertFrom-Json}
   'changed_capture' {$receipt.client_captures[0].creation_file_time='134360177507798015'}
+  'different_command' {$receipt.client_captures[0].command='uninstall.apply'}
   'unconfirmed_close' {$script:observed.independent.observer_token_handles_closed=$false}
   'qualification_changed' {$failed.qualification_granted=$true}
  }
@@ -72,9 +74,10 @@ foreach($variant in @('ordinary','original_failure','copied_failure','changed_ca
  } elseif($failed.readback -or $failed.Contains('readback_policy')) {
   throw ('An unrelated or unclosed reader retained approved diagnostics: '+$variant)
  }
- if($variant -cin @('copied_failure','changed_capture','qualification_changed') -and $script:invocations -ne $before) {
+ if($variant -cin @('copied_failure','changed_capture','different_command','qualification_changed') -and $script:invocations -ne $before) {
   throw 'Unbound failure invoked an observer'
  }
+}
 }
 """
         for binary in ("powershell", "pwsh"):
@@ -118,17 +121,18 @@ function Invoke-IndependentMetadataReadback {
  }
  return $script:observed
 }
+foreach($command in @('repair.apply','repair.recover')) {
 foreach($variant in @('original','ordinary','copied_failure','different_request','qualifying','unclosed')) {
  $failed=[ordered]@{scope='original_failed_request_before_cleanup';qualification_granted=$false;
-  request_id=('public.'+('a'*32));command='repair.apply';client_process_id=123;
+  request_id=('public.'+('a'*32));command=$command;client_process_id=123;
   client_creation_file_time=$ownerCreation;readback=$null}
  $receipt=@{request_execution_failure=$failed;client_captures=@(@{request_id=$failed.request_id;
-  command='repair.apply';process_id=123;creation_file_time=$ownerCreation;
+  command=$command;process_id=123;creation_file_time=$ownerCreation;
   captured_before_primary_thread_resume=$true;primary_token=@{user_sid=$accountSid}})}
  $script:observed=[pscustomobject]@{observer_task_removed=$true;independent=[pscustomobject]@{
   schema='usk.publisher.metadata_incomplete_failed_request_diagnostic.v1';identity='S-1-5-18';
   observer_token_handles_closed=$true;status='incomplete';scope='original_failed_request_content_read_only';
-  original_request=[pscustomobject]@{request_id=$failed.request_id;command='repair.apply';client_process_id=123;
+  original_request=[pscustomobject]@{request_id=$failed.request_id;command=$command;client_process_id=123;
    client_creation_file_time=$ownerCreation};rows=@(@{path='blocked.json';content_json=$null});
   content_read_failures=@(@{field='content_json';status='unreadable'});
   qualification_granted=$false;operation_completion_qualified=$false;native_restoration_qualified=$false;
@@ -151,6 +155,7 @@ foreach($variant in @('original','ordinary','copied_failure','different_request'
    -not $script:observersClosed -or $failed.qualification_granted -ne $false){throw 'Original incomplete rows lost'}
  } elseif($failed.Contains('incomplete_readback_diagnostic')) {throw 'Unbound/unclosed diagnostic retained'}
  if($variant -ceq 'copied_failure' -and $script:invocations -ne $before){throw 'Copied failure invoked observer'}
+}
 }
 """
         for binary in ('powershell', 'pwsh'):
