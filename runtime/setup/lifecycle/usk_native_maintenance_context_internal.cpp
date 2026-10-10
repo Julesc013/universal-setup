@@ -2657,40 +2657,57 @@ struct NativeMaintenanceContext::Impl {
     void require_recovery_authority(const transaction::TransactionSpec& supplied,
         const transaction::RecoveryInspection& inspected_transaction,
         const transaction::MaintenanceEffectInspection& inspected_history) {
-        require_authority(supplied);
-        if (!publication_confirmed || original_source_context.empty())
-            throw std::runtime_error("native live maintenance recovery has no original confirmed publication");
-        const auto current = transaction::TransactionSession::inspect_recovery(spec);
-        const auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
-        if (current.snapshot_sha256 != inspected_transaction.snapshot_sha256 ||
-            history.journal_digest != inspected_history.journal_digest ||
-            history.pending_sequence != inspected_history.pending_sequence ||
-            history.pending_kind != inspected_history.pending_kind ||
-            !equal(history.pending_details, inspected_history.pending_details) ||
-            current.stream_source_context != original_source_context || history.source_context != original_source_context ||
-            !equal(read_maintenance_reviewed_plan(spec).at("reviewed_plan"),
-                original_context.record().at("reviewed_snapshot").at("reviewed_plan")))
-            throw std::runtime_error("native maintenance recovery changed its original transaction or context");
-        transaction::TransactionSession::require_recovery_transition_extension(spec,
-            *publication_transaction_text, publication_transaction_sha256, current.snapshot_sha256);
-        const auto selected = inspect_maintenance_continuation(spec);
-        if (selected.transaction_snapshot_sha256 != current.snapshot_sha256 ||
-            selected.history_digest != history.journal_digest)
-            throw std::runtime_error("native maintenance recovery changed its original complete prefix");
-        if (!history.pending_kind.empty()) {
-            (void)require_pending(history.pending_kind);
-            const auto observation = reconcile_maintenance_effect(spec);
-            if (observation.state == "compatible_after_effect") {
-                if (history.pending_kind == "publish_target") {
-                    require_entry(*staging);
-                    for (const auto& file : files) require_bytes(*file.second);
-                } else {
-                    const auto actual = payload_outcomes.find(history.journal_digest);
-                    if (actual == payload_outcomes.end() || !actual->second->confirmed)
-                        throw std::runtime_error("native maintenance postcondition lacks its actual confirmed outcome");
-                    confirm_effect_completion(supplied, history, actual->second->outcome, observation.result_digest, false);
+        require_same_transaction(supplied);
+        if (!original_child) require_authority(supplied);
+        else if (GetCurrentProcessId() != worker_context.process_id ||
+            (cancel_event && WaitForSingleObject(cancel_event, 0) != WAIT_TIMEOUT))
+            throw std::runtime_error("native maintenance worker stopped or changed");
+        // Original-child recovery selection is read-only. Native observations
+        // retain their full pre/post fences, and completion confirmation below
+        // explicitly excludes grants. Complete the mandatory fresh authority
+        // fence before this callback returns; no selected result authorizes an
+        // effect. SCM retains its leading fence. Earlier separate sampling
+        // instants are unclaimed, as in require_pending.
+        try {
+            if (!publication_confirmed || original_source_context.empty())
+                throw std::runtime_error("native live maintenance recovery has no original confirmed publication");
+            const auto current = transaction::TransactionSession::inspect_recovery(spec);
+            const auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+            if (current.snapshot_sha256 != inspected_transaction.snapshot_sha256 ||
+                history.journal_digest != inspected_history.journal_digest ||
+                history.pending_sequence != inspected_history.pending_sequence ||
+                history.pending_kind != inspected_history.pending_kind ||
+                !equal(history.pending_details, inspected_history.pending_details) ||
+                current.stream_source_context != original_source_context || history.source_context != original_source_context ||
+                !equal(read_maintenance_reviewed_plan(spec).at("reviewed_plan"),
+                    original_context.record().at("reviewed_snapshot").at("reviewed_plan")))
+                throw std::runtime_error("native maintenance recovery changed its original transaction or context");
+            transaction::TransactionSession::require_recovery_transition_extension(spec,
+                *publication_transaction_text, publication_transaction_sha256, current.snapshot_sha256);
+            const auto selected = inspect_maintenance_continuation(spec);
+            if (selected.transaction_snapshot_sha256 != current.snapshot_sha256 ||
+                selected.history_digest != history.journal_digest)
+                throw std::runtime_error("native maintenance recovery changed its original complete prefix");
+            if (!history.pending_kind.empty()) {
+                (void)require_pending(history.pending_kind);
+                const auto observation = reconcile_maintenance_effect(spec);
+                if (observation.state == "compatible_after_effect") {
+                    if (history.pending_kind == "publish_target") {
+                        require_entry(*staging);
+                        for (const auto& file : files) require_bytes(*file.second);
+                    } else {
+                        const auto actual = payload_outcomes.find(history.journal_digest);
+                        if (actual == payload_outcomes.end() || !actual->second->confirmed)
+                            throw std::runtime_error("native maintenance postcondition lacks its actual confirmed outcome");
+                        confirm_effect_completion(supplied, history, actual->second->outcome, observation.result_digest, false);
+                    }
                 }
             }
+        } catch (...) {
+            // Preserve full authority precedence on a cold query failure;
+            // never re-enter an already failed native entry/record scope.
+            if (original_child && !entry_readback_failed) require_authority(supplied);
+            throw;
         }
         require_authority(supplied);
     }
