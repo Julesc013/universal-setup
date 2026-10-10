@@ -269,7 +269,7 @@ void MaintenanceEffectJournal::bind_original_owner()
     require_effect_authority();
 }
 
-void MaintenanceEffectJournal::require_effect_authority() const
+void MaintenanceEffectJournal::require_effect_owner_binding() const
 {
 #if defined(_WIN32)
     detail::require_native_maintenance_origin_binding(native_origin_, native_origin_binding_,
@@ -277,8 +277,16 @@ void MaintenanceEffectJournal::require_effect_authority() const
     const auto* native = detail::ScopedNativeMaintenanceTransaction::current();
     if (native_origin_) {
         if (!native) throw std::runtime_error("native maintenance effect journal lost its original owner");
-        native->require_authority(spec_);
     } else if (native) throw std::runtime_error("ordinary effect journal cannot adopt native maintenance custody");
+#endif
+}
+
+void MaintenanceEffectJournal::require_effect_authority() const
+{
+    require_effect_owner_binding();
+#if defined(_WIN32)
+    if (native_origin_)
+        detail::ScopedNativeMaintenanceTransaction::current()->require_authority(spec_);
 #endif
 }
 
@@ -288,8 +296,13 @@ void MaintenanceEffectJournal::persist(const std::string& phase, const Value& de
         throw std::runtime_error("maintenance journal cannot accept another record");
     try {
         require_effect_authority();
-        if (injector_) injector_(phase, "before_record");
-        require_effect_authority();
+        if (injector_) {
+            injector_(phase, "before_record");
+            require_effect_authority();
+        }
+        // With no callback or journal effect between the adjacent checks,
+        // keep one full query. Actual writer fences and the full post-write
+        // check remain; the former separate sample instant is unclaimed.
         if (observe_directory_identity(directory_) != directory_identity_)
             throw std::runtime_error("maintenance journal directory changed");
         if (sequence_ != 0u) {
@@ -390,7 +403,11 @@ void MaintenanceEffectJournal::complete_effect(const std::string& outcome, const
             history.pending_sequence != pending_sequence_ || history.pending_kind != pending_kind_)
             throw std::runtime_error("native maintenance completion lost its original pending intent");
         detail::ScopedNativeMaintenanceTransaction::current()->confirm_effect_completion(spec_, history, outcome, result_digest);
-        require_effect_authority();
+        // Only the original private concrete owner supplies this callback. Its
+        // completion ends with the full fresh authority check, after any grants.
+        // Recheck the bound lifetime here without repeating that native query;
+        // persistence below retains its own full pre/post mutation fences.
+        require_effect_owner_binding();
     }
 #endif
     validate_completion(pending_kind_, outcome, result_digest);

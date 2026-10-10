@@ -82,6 +82,7 @@ public:
 private:
     std::optional<std::pair<std::string, std::string>> apply_owned_effect();
     void bind_original_owner();
+    void require_effect_owner_binding() const;
 #if defined(_WIN32)
     bool native_origin_ = false;
     std::weak_ptr<const void> native_origin_binding_;

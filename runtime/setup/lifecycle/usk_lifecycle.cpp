@@ -876,10 +876,14 @@ MaintenanceSession begin_maintenance(
 #endif
     auto transaction = usk::transaction::TransactionSession::begin_streaming(
         spec, usk::json::sha256_canonical(context), text, injector);
-    auto effects = std::make_unique<usk::transaction::MaintenanceEffectJournal>(spec, text,
-        [injector](const std::string& phase, const std::string& point) {
+    usk::transaction::FaultInjector effect_injector;
+    if (injector) {
+        effect_injector = [injector](const std::string& phase, const std::string& point) {
             if (injector) injector("effects." + phase, point);
-        });
+        };
+    }
+    auto effects = std::make_unique<usk::transaction::MaintenanceEffectJournal>(spec, text,
+        std::move(effect_injector));
     if (injector) injector("reviewed_plan", "before_write");
     effects->require_effect_authority();
     usk::record_io::write_new_durable_text(artifact_path, artifact_text);

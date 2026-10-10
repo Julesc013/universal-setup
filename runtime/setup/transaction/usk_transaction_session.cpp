@@ -795,10 +795,15 @@ void TransactionSession::persist_transition(const std::string& next_state)
     if (!valid_transition(current_state_, next_state)) {
         throw std::logic_error("invalid setup transaction state transition");
     }
-    if (injector_) injector_(next_state, "before_journal");
+    if (injector_) {
+        injector_(next_state, "before_journal");
 #if defined(_WIN32)
-    (void)require_native_owner();
+        (void)require_native_owner();
 #endif
+    }
+    // The leading check covers query-only transition validation. Repeat it
+    // after an actual external callback; the concrete journal writer retains
+    // its fresh effect fences, and the full final owner check stays below.
     const std::string previous = current_state_;
     transitions_.push_back(Transition{
         static_cast<std::uint64_t>(transitions_.size()),
