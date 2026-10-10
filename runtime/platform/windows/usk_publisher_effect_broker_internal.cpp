@@ -472,6 +472,20 @@ struct PublisherBrokerObjectQuery::State {
             observe_publisher_handle_granted_access(handle) == query_rights,
             "broker query lost its original native object/volume/query-only handle");
     }
+    void require_live() const {
+        require(claimed && !attempted && handle != INVALID_HANDLE_VALUE,
+            "broker query lost its original native object/volume/query-only handle");
+    }
+    void fence_after_authenticated_access(const Value& observed) const {
+        // The private channel just completed both native object/descriptor and
+        // caller-token endpoints. Consume that fresh object observation here;
+        // never accept a caller-supplied value or retain it for another query.
+        require(claimed && !attempted && handle != INVALID_HANDLE_VALUE &&
+            same(object(volume), volume_facts) && same(observed, expected) &&
+            observe_publisher_noninheritable_handle_flags(handle) == 0 &&
+            observe_publisher_handle_granted_access(handle) == query_rights,
+            "broker query lost its original native object/volume/query-only handle");
+    }
 };
 PublisherBrokerObjectQuery::PublisherBrokerObjectQuery(HANDLE volume, const Value& expected) : state_(std::make_unique<State>()) {
     try {
@@ -510,9 +524,22 @@ bool PublisherBrokerObjectQuery::close() noexcept { return state_->close(); }
 Value PublisherBrokerObjectQuery::observation() const { state_->fence(); return state_->expected; }
 DWORD PublisherBrokerObjectQuery::granted_access() const { state_->fence(); return observe_publisher_handle_granted_access(state_->handle); }
 Value PublisherBrokerObjectQuery::authenticated_access(const PublisherRequestChannel& channel) const {
-    state_->fence();
-    auto result = channel.observe_authenticated_object_access(state_->handle);
-    state_->fence();
+    state_->require_live();
+    // This private read-only call has its own complete fresh object/descriptor
+    // and token checks. The constructor's initial fence and the final volume,
+    // handle and completed-object check still enclose the returned result;
+    // former separately sampled query instants are unclaimed.
+    auto result = [&] {
+        try { return channel.observe_authenticated_object_access(state_->handle); }
+        catch (...) {
+            // Restore original object/volume refusal precedence on a cold read
+            // failure. This inspects the already owned query; it starts no new
+            // record scope and neither retries the channel nor resets failure.
+            state_->fence();
+            throw;
+        }
+    }();
+    state_->fence_after_authenticated_access(result.at("native_object"));
     require(same(result.at("native_object"), state_->expected), "broker authenticated access native object differs");
     return result;
 }
