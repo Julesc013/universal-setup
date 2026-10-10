@@ -173,6 +173,21 @@ struct NativeMaintenanceContext::Impl {
         const Entry& entry;
         std::optional<transaction::detail::NativeMaintenanceFileObservation> result;
     };
+    struct OwnedRecordQuery {
+        std::size_t maximum;
+        std::optional<std::string> result;
+    };
+    enum class InstalledRecordQueryRole { unavailable, original_created, original_restored };
+    InstalledRecordQueryRole installed_record_query_role() const {
+        if (!installed_postimage_file || installed_postimage_file->reopened_observer)
+            return InstalledRecordQueryRole::unavailable;
+        const auto& entry = *installed_postimage_file;
+        if (entry.created && !entry.restored_creation)
+            return InstalledRecordQueryRole::original_created;
+        if (restored_owner && !entry.created && entry.restored_creation)
+            return InstalledRecordQueryRole::original_restored;
+        return InstalledRecordQueryRole::unavailable;
+    }
     // Only this owner can construct the synchronous, read-only authority
     // composition. Descriptor-only roles stay outside the original byte-read
     // record vector; the fixed owned-file query remains a distinct role.
@@ -180,13 +195,15 @@ struct NativeMaintenanceContext::Impl {
     private:
         friend struct Impl;
         AuthorityRecordRead(const Impl&, const std::vector<const Entry*>&,
-            const std::optional<PublisherHandleObservation>&, const std::string&, const Entry*);
+            const std::optional<PublisherHandleObservation>&, const std::string&, const Entry*,
+            std::optional<std::size_t>);
         std::optional<PublisherEffectSelectionKind> authority_selection_kind() const override;
         std::string authority_failure_context() const override;
         void require_authority_selection(const Value&, const Value&, const Value&) override;
         ~AuthorityRecordRead() override;
         bool eligible() const;
         transaction::detail::NativeMaintenanceFileObservation file_observation() const;
+        std::string owned_record_text() const;
         bool owns_round(const Impl&, const std::vector<const Entry*>&,
             PublisherEffectRecordByteRound*, const PublisherHandleObservation*) const;
         void prepare() override;
@@ -1402,7 +1419,7 @@ struct NativeMaintenanceContext::Impl {
     std::string require_authority_state(const transaction::TransactionSpec& supplied) const {
         // These current state predicates cannot grant native access or an
         // effect. require_authority completes the distinct full native proof;
-        // its fixed file query also repeats these predicates after that proof.
+        // its fixed byte queries also repeat these predicates after that proof.
         require_same_transaction(supplied);
         if (GetCurrentProcessId() != worker_context.process_id || (cancel_event && WaitForSingleObject(cancel_event, 0) != WAIT_TIMEOUT))
             throw std::runtime_error("native maintenance worker stopped or changed");
@@ -1476,13 +1493,15 @@ struct NativeMaintenanceContext::Impl {
     }
     void require_authority(const transaction::TransactionSpec& supplied,
         const Entry* leading_entry = nullptr, const Entry* trailing_entry = nullptr,
-        FileObservationQuery* file_query = nullptr) const {
-        if ((leading_entry || trailing_entry || file_query) && !original_child)
+        FileObservationQuery* file_query = nullptr, OwnedRecordQuery* record_query = nullptr) const {
+        if ((leading_entry || trailing_entry || file_query || record_query) && !original_child)
             throw std::runtime_error("native maintenance entry composition lacks its original child");
         const auto failure_context = require_authority_state(supplied);
         if (file_query && (file_query->result ||
             (&file_query->entry != leading_entry && &file_query->entry != trailing_entry)))
             throw std::runtime_error("native maintenance file query lacks its original entry occurrence");
+        if (record_query && (record_query->result || file_query || leading_entry || trailing_entry))
+            throw std::runtime_error("native maintenance record query is not its fixed distinct role");
         SelectedFenceCheck selected_check;
         if (original_child) {
             // Consume only an actual producer-owned completed selection in
@@ -1516,14 +1535,15 @@ struct NativeMaintenanceContext::Impl {
         if (original_child && !restoration_record_observers.empty()) {
             try {
                 AuthorityRecordRead read(*this, parents, installed_custody, failure_context,
-                    file_query ? &file_query->entry : nullptr);
+                    file_query ? &file_query->entry : nullptr,
+                    record_query ? std::optional<std::size_t>{record_query->maximum} : std::nullopt);
                 if (read.eligible()) {
                     // Actual fresh selection is validated provisionally before
                     // either round, then completed against both full endpoints.
                     // The former separate selection sampling instants are not
                     // claimed. No partial grant or tuple survives this fence.
                     original_child->verify_original_maintenance_record_bytes(read);
-                    if (file_query) {
+                    if (file_query || record_query) {
                         // The byte query is enclosed by this proof's complete
                         // native BEFORE/AFTER, raw9 rounds and final ancestry.
                         // Recheck every local state/lease predicate after it;
@@ -1532,7 +1552,8 @@ struct NativeMaintenanceContext::Impl {
                         (void)installed_custody_facts();
                         (void)relative_volume_path(spec.state_root);
                         (void)relative_volume_path(spec.target_root);
-                        file_query->result.emplace(read.file_observation());
+                        if (file_query) file_query->result.emplace(read.file_observation());
+                        else record_query->result.emplace(read.owned_record_text());
                     }
                     return;
                 }
@@ -1552,6 +1573,15 @@ struct NativeMaintenanceContext::Impl {
                 journal_identity(file_query->entry.handle.value), file_query->entry.sha256, file_query->entry.size};
             require_authority(supplied, &file_query->entry, nullptr);
             file_query->result.emplace(std::move(result));
+        }
+        if (record_query) {
+            // Pre-wire ineligibility retains the original separate authority
+            // and installed-custody scopes. No begun proof can reach this path.
+            require_installed_bytes();
+            auto text = read_installed_record_text();
+            require_installed_bytes();
+            require_authority(supplied);
+            record_query->result.emplace(std::move(text));
         }
     }
     // Fixed validation-only predicate shared by completed legacy selection and
@@ -1593,8 +1623,11 @@ struct NativeMaintenanceContext::Impl {
         require_installed_custody_identity(observed);
         if (installed_parent) require_entry(*installed_parent);
     }
-    void require_installed_bytes() const {
-        require_installed_custody();
+    void require_installed_byte_content() const {
+        // Fixed same-held byte query only. The caller supplies either the full
+        // installed-custody brackets or the completed sealed metadata proof.
+        if (!installed_postimage_file || installed_postimage_file->handle.value == INVALID_HANDLE_VALUE)
+            throw std::runtime_error("native maintenance installed byte creator is unavailable");
         const HANDLE file = installed_postimage_file->handle.value;
         FILE_STANDARD_INFO size{}; FILE_BASIC_INFO first{}, last{};
         LARGE_INTEGER zero{};
@@ -1617,18 +1650,13 @@ struct NativeMaintenanceContext::Impl {
             !GetFileInformationByHandleEx(file, FileBasicInfo, &last, sizeof(last)) ||
             first.LastWriteTime.QuadPart != last.LastWriteTime.QuadPart || first.ChangeTime.QuadPart != last.ChangeTime.QuadPart)
             throw std::runtime_error("native maintenance installed byte postimage changed");
+    }
+    void require_installed_bytes() const {
+        require_installed_custody();
+        require_installed_byte_content();
         require_installed_custody();
     }
-    std::optional<std::string> read_owned_record(const fs::path& path, std::size_t maximum) const {
-        // Only this operation's exact published installed postimage is served.
-        // Other records keep their ordinary no-mutation-sharing reader. Never
-        // reopen this creator with weaker sharing or release its custody.
-        if (normalized(path) != installed_record_path) return std::nullopt;
-        require_authority(spec);
-        if (!installed_confirmed || !installed_postimage_file || !installed_postimage_file->complete ||
-            installed_record_text.size() > maximum)
-            throw std::runtime_error("native maintenance record read lacks a confirmed bounded installed postimage");
-        require_installed_bytes();
+    std::string read_installed_record_text() const {
         const HANDLE file = installed_postimage_file->handle.value;
         LARGE_INTEGER zero{};
         if (!SetFilePointerEx(file, zero, nullptr, FILE_BEGIN))
@@ -1644,6 +1672,30 @@ struct NativeMaintenanceContext::Impl {
         }
         if (text != installed_record_text)
             throw std::runtime_error("native maintenance installed record differs from its original confirmed bytes");
+        return text;
+    }
+    std::optional<std::string> read_owned_record(const fs::path& path, std::size_t maximum) const {
+        // Only this operation's exact published installed postimage is served.
+        // Other records keep their ordinary no-mutation-sharing reader. Never
+        // reopen this creator with weaker sharing or release its custody.
+        if (normalized(path) != installed_record_path) return std::nullopt;
+        if (original_child && installed_confirmed && installed_postimage_file &&
+            installed_postimage_file->complete && installed_record_text.size() <= maximum &&
+            installed_record_query_role() != InstalledRecordQueryRole::unavailable) {
+            OwnedRecordQuery query{maximum, {}};
+            require_authority(spec, nullptr, nullptr, nullptr, &query);
+            if (!query.result)
+                throw std::runtime_error("native maintenance record query lacks its completed text");
+            return std::move(*query.result);
+        }
+        // SCM and other provenance roles retain the original full leading fence
+        // and refusal precedence. A fixed query never retries a begun scope.
+        require_authority(spec);
+        if (!installed_confirmed || !installed_postimage_file || !installed_postimage_file->complete ||
+            installed_record_text.size() > maximum)
+            throw std::runtime_error("native maintenance record read lacks a confirmed bounded installed postimage");
+        require_installed_bytes();
+        auto text = read_installed_record_text();
         require_installed_bytes(); require_authority(spec);
         return text;
     }
@@ -3001,6 +3053,10 @@ struct NativeMaintenanceContext::Impl::AuthorityRecordRead::State {
     std::vector<const Entry*> records, entries;
     const Entry* const byte_entry;
     std::optional<transaction::detail::NativeMaintenanceFileObservation> file_result;
+    const std::optional<std::size_t> installed_maximum;
+    const InstalledRecordQueryRole installed_role;
+    const std::string installed_text, installed_sha256;
+    std::optional<std::string> installed_result;
     struct Frozen {
         const Entry* entry;
         HANDLE handle;
@@ -3020,15 +3076,23 @@ struct NativeMaintenanceContext::Impl::AuthorityRecordRead::State {
     PublisherEffectRecordByteRound* active_round = nullptr;
     State(const Impl& value, const std::vector<const Entry*>& tail,
         const std::optional<PublisherHandleObservation>& observed, const std::string& context,
-        const Entry* query)
+        const Entry* query, std::optional<std::size_t> installed_limit)
         : owner(value), child(value.original_child), volume(value.volume), volume_facts(value.volume_facts),
           restored_owner(value.restored_owner), installed_issue_active(value.installed_issue_active),
           installed_confirmed(value.installed_confirmed), failure_context(context), creator(value.installed_postimage_file.get()),
-          creator_observation(observed), published_facts(value.installed_record_facts), byte_entry(query) {
+          creator_observation(observed), published_facts(value.installed_record_facts), byte_entry(query),
+          installed_maximum(installed_limit), installed_role(installed_limit ? value.installed_record_query_role() :
+              InstalledRecordQueryRole::unavailable), installed_text(installed_limit ? value.installed_record_text : std::string{}),
+          installed_sha256(installed_limit ? value.installed_record_sha256 : std::string{}) {
         if (!child || owner.entry_readback_failed || owner.restoration_record_observers.empty())
             throw std::runtime_error("native maintenance authority record scope lacks its original records");
         if (creator_observation && (!creator || creator->handle.value == INVALID_HANDLE_VALUE))
             throw std::runtime_error("native maintenance authority record creator is unavailable");
+        if (installed_maximum && (byte_entry || !creator_observation || !creator ||
+            !owner.installed_prepared || !installed_confirmed || installed_issue_active ||
+            installed_role == InstalledRecordQueryRole::unavailable || !creator->complete || creator->directory ||
+            installed_text.size() > *installed_maximum))
+            throw std::runtime_error("native maintenance authority installed query lacks its bounded confirmed metadata role");
         if (byte_entry) {
             const auto belongs = [&](const auto& collection) {
                 return std::any_of(collection.begin(), collection.end(),
@@ -3102,6 +3166,10 @@ struct NativeMaintenanceContext::Impl::AuthorityRecordRead::State {
             owner.installed_confirmed != installed_confirmed || owner.installed_postimage_file.get() != creator ||
             !same(owner.installed_record_facts, published_facts) || records.size() != owner.restoration_record_observers.size())
             throw std::runtime_error("native maintenance authority record owner/roles changed");
+        if (installed_maximum && (owner.installed_record_query_role() != installed_role ||
+            !owner.installed_prepared || owner.installed_record_text != installed_text ||
+            owner.installed_record_sha256 != installed_sha256 || installed_text.size() > *installed_maximum))
+            throw std::runtime_error("native maintenance authority installed query expectations changed");
         for (std::size_t index = 0; index < records.size(); ++index)
             if (records[index] != owner.restoration_record_observers[index].get())
                 throw std::runtime_error("native maintenance authority record order changed");
@@ -3118,8 +3186,8 @@ struct NativeMaintenanceContext::Impl::AuthorityRecordRead::State {
 };
 NativeMaintenanceContext::Impl::AuthorityRecordRead::AuthorityRecordRead(const Impl& owner,
     const std::vector<const Entry*>& tail, const std::optional<PublisherHandleObservation>& creator,
-    const std::string& failure_context, const Entry* query)
-    : state_(std::make_unique<State>(owner, tail, creator, failure_context, query)) {}
+    const std::string& failure_context, const Entry* query, std::optional<std::size_t> installed_limit)
+    : state_(std::make_unique<State>(owner, tail, creator, failure_context, query, installed_limit)) {}
 NativeMaintenanceContext::Impl::AuthorityRecordRead::~AuthorityRecordRead() = default;
 bool NativeMaintenanceContext::Impl::AuthorityRecordRead::eligible() const { return state_->eligible; }
 transaction::detail::NativeMaintenanceFileObservation
@@ -3129,6 +3197,13 @@ NativeMaintenanceContext::Impl::AuthorityRecordRead::file_observation() const {
     if (!s.byte_entry || !s.file_result || !s.finalized)
         throw std::runtime_error("native maintenance authority file query is not complete");
     return *s.file_result;
+}
+std::string NativeMaintenanceContext::Impl::AuthorityRecordRead::owned_record_text() const {
+    const auto& s = *state_;
+    s.require_frozen();
+    if (!s.installed_maximum || !s.installed_result || !s.finalized || *s.installed_result != s.installed_text)
+        throw std::runtime_error("native maintenance authority installed query is not complete");
+    return *s.installed_result;
 }
 std::optional<PublisherEffectSelectionKind>
 NativeMaintenanceContext::Impl::AuthorityRecordRead::authority_selection_kind() const {
@@ -3187,7 +3262,8 @@ void NativeMaintenanceContext::Impl::AuthorityRecordRead::run_round(PublisherEff
     s.require_frozen();
     if (!s.prepared || !s.selection_before_checked || s.selection_after_checked || s.active_round ||
         s.completed_rounds >= 2u || s.finalized || (s.completed_rounds == 1u) != s.bytes_checked ||
-        (s.completed_rounds == 1u && (s.byte_entry != nullptr) != s.file_result.has_value()))
+        (s.completed_rounds == 1u && ((s.byte_entry != nullptr) != s.file_result.has_value() ||
+            s.installed_maximum.has_value() != s.installed_result.has_value())))
         throw std::runtime_error("native maintenance authority record round order differs");
     s.active_round = &round;
     try {
@@ -3213,6 +3289,18 @@ void NativeMaintenanceContext::Impl::AuthorityRecordRead::read_original_bytes() 
         s.file_result.emplace(transaction::detail::NativeMaintenanceFileObservation{
             journal_identity(s.byte_entry->handle.value), s.byte_entry->sha256, s.byte_entry->size});
     }
+    if (s.installed_maximum) {
+        // The original created or restored installed handle is already a
+        // distinct frozen raw9 role in BOTH complete ledgers. Restoration
+        // retains its full lineage
+        // selection and never relabels this observer as a fresh creation.
+        // Hash before/after the same-held text read;
+        // invoke no custody readback, callback, authority or effect here. The
+        // private provisional text cannot escape the full second-round proof.
+        s.owner.require_installed_byte_content();
+        s.installed_result.emplace(s.owner.read_installed_record_text());
+        s.owner.require_installed_byte_content();
+    }
     s.require_frozen();
     s.bytes_checked = true;
 }
@@ -3221,7 +3309,8 @@ void NativeMaintenanceContext::Impl::AuthorityRecordRead::finalize(const Value& 
     s.require_frozen();
     if (s.active_round || s.completed_rounds != 2u || !s.bytes_checked || !s.selection_before_checked ||
         !s.selection_after_checked || s.finalized || raw_results.as_array().size() != 2u * s.ordered.size() ||
-        (s.byte_entry != nullptr) != s.file_result.has_value())
+        (s.byte_entry != nullptr) != s.file_result.has_value() ||
+        s.installed_maximum.has_value() != s.installed_result.has_value())
         throw std::runtime_error("native maintenance authority record final proof is incomplete");
     for (std::size_t index = 0; index < raw_results.as_array().size(); ++index)
         s.owner.require_client_read_only_access(raw_results.as_array()[index], s.ordered[index % s.ordered.size()]);
