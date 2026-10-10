@@ -1,0 +1,74 @@
+schema_version: aide.token-budget.v0
+policy_id: q09-token-survival-core
+status: active-pending-review
+purpose: >
+  Reduce future model-visible context by requiring compact task packets,
+  compact evidence review, approximate token estimates, and no full-history
+  restatement while preserving correctness, provenance, rationale,
+  durable memory, auditability, and review gates.
+approx_token_method:
+  id: chars_divided_by_4
+  formula: approx_tokens = ceil(chars / 4)
+  exact_tokenizer: deferred
+targets:
+  project_state_target_tokens: 1200
+  compact_task_packet_target_tokens: 1800
+  context_packet_target_tokens: 1200
+  review_packet_target_tokens: 1400
+  verification_report_target_tokens: 1600
+  evidence_packet_target_tokens: 1600
+  eval_report_target_tokens: 3200
+  codex_prompt_target_tokens: 2400
+  gpt_review_prompt_target_tokens: 1600
+hard_limits:
+  max_compact_task_packet_tokens: 3200
+  max_context_packet_tokens: 2400
+  max_review_packet_tokens: 2400
+  max_verification_report_tokens: 2400
+  max_evidence_packet_tokens: 2400
+  max_eval_report_tokens: 4800
+  max_project_state_tokens: 1600
+forbidden_prompt_patterns:
+  - id: full_prior_transcript
+    pattern: full prior transcript
+    reason: Use repo state, task packets, and evidence refs instead.
+  - id: whole_repo_dump
+    pattern: whole repo dump
+    reason: Use snapshot refs and exact files only when needed.
+  - id: repeated_roadmap_dump
+    pattern: repeated roadmap dump
+    reason: Reference roadmap files rather than restating them.
+  - id: unbounded_resynthesis
+    pattern: unbounded "what else should we do" resynthesis
+    reason: Queue work must stay bounded by task packet and acceptance checks.
+  - id: full_file_paste_unless_needed
+    pattern: full file paste unless explicitly needed
+    reason: Prefer file refs, line refs, and summaries before whole files.
+  - id: model_or_provider_keys
+    pattern: model/provider keys
+    reason: Provider secrets must never enter prompt packets or evidence.
+required_prompt_sections:
+  - phase
+  - goal
+  - why
+  - context_refs
+  - allowed_paths
+  - forbidden_paths
+  - implementation
+  - validation
+  - evidence
+  - non_goals
+  - acceptance
+output_discipline:
+  - status
+  - changed_files
+  - validation
+  - evidence
+  - risks
+  - next
+review_policy:
+  evidence_only_by_default: true
+  ask_for_more_context_only_if_required: true
+non_degradation_rule:
+  same_or_better_quality_required: true
+  quality_evidence_required: true

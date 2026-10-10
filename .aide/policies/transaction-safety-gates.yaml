@@ -1,0 +1,44 @@
+schema_version: aide.transaction-safety-gates-policy.v0
+policy_id: transaction_safety_gates_v0
+status: active_needs_review
+required_gates:
+  - repo_identity_confirmed
+  - no_dirty_unrelated_work
+  - file_owned
+  - ownership_boundary_recorded
+  - preimage_hash_recorded
+  - postimage_hash_predicted
+  - staged_diff_reviewed
+  - rollback_record_created
+  - rollback_record_reviewed
+  - conflict_scan_passed
+  - managed_section_markers_valid
+  - secret_scan_passed
+  - no_target_repo_mutation
+  - no_branch_or_worktree_mutation
+  - no_network_provider_github_release
+  - no_real_repo_apply_mode
+  - review_gate_recorded
+gate_results:
+  - pass
+  - warn
+  - fail
+  - blocked
+  - not_applicable
+blocking_rules:
+  - gate_id: no_real_repo_apply_mode
+    blocks_apply: true
+    aide_apply_00_expected_status: pass
+  - gate_id: no_target_repo_mutation
+    blocks_apply: true
+    aide_apply_00_expected_status: pass
+  - gate_id: no_branch_or_worktree_mutation
+    blocks_apply: true
+    aide_apply_00_expected_status: pass
+  - gate_id: no_network_provider_github_release
+    blocks_apply: true
+    aide_apply_00_expected_status: pass
+  - gate_id: rollback_record_created
+    blocks_apply: true
+    aide_apply_00_expected_status: pass
+real_apply_boundary: All gates are modeled for future reviewed apply phases; AIDE-APPLY-00 only validates report-only and fixture-only records.

@@ -1,0 +1,52 @@
+schema_version: aide.git-workflow-policy.v0
+policy_id: aide-git-workflow-policy-v0
+status: active
+purpose: >
+  Define AIDE's local branch workflow vocabulary, report-only detection rules,
+  and governance boundaries before merge, land, promote, prune, or GitHub
+  protection automation exists.
+default_model: trunk_with_dev_integration
+canonical_branch: main
+integration_branch: dev
+task_branch_prefixes:
+  - task/
+  - codex/
+  - aide/
+  - fix/
+  - repair/
+review_branch_prefixes:
+  - review/
+  - quarantine/
+release_branch_prefixes:
+  - release/
+hotfix_branch_prefixes:
+  - hotfix/
+special_branches:
+  - gh-pages
+workflow_principles:
+  - main_is_canonical_truth
+  - dev_is_shareable_integration_not_canonical_truth
+  - task_branches_are_short_lived
+  - remote_task_branches_are_opt_in
+  - promotion_to_main_requires_review_gates
+  - pruning_requires_ancestor_containment
+  - no_force_push_to_protected_roles
+  - no_remote_mutation_without_explicit_command
+detection_policy:
+  - inspect_local_branches
+  - inspect_remote_branches
+  - inspect_tags
+  - inspect_queue_state
+  - inspect_repo_identity
+  - infer_but_do_not_mutate
+reporting:
+  detection_json: .aide/git/workflow-detection.json
+  detection_markdown: .aide/git/workflow-detection.md
+  non_mutating: true
+  fetch_during_q28: false
+non_goals:
+  - no branch creation in Q28
+  - no branch merging in Q28
+  - no branch deletion in Q28
+  - no remote push in Q28
+  - no GitHub API mutation in Q28

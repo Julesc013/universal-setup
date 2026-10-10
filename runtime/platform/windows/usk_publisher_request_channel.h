@@ -37,6 +37,10 @@ public:
     PublisherRequestChannel(const PublisherRequestChannel&) = delete;
     PublisherRequestChannel& operator=(const PublisherRequestChannel&) = delete;
     std::string receive();
+    // Immutable canonical bytes actually received on this channel, available
+    // only while its original authenticated token is unchanged and unreplied.
+    // A caller cannot replace this binding with supplied request text.
+    std::string authenticated_canonical_request() const;
     // Actual authenticated identification token and current held file-object
     // descriptor only. This is read-only evidence, not publication admission.
     // The token stays private to this one-request channel and is never exported.

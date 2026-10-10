@@ -1,0 +1,34 @@
+schema_version: aide.upgrade-conflicts-policy.v0
+policy_id: aide.upgrade-conflicts.v0
+status: active
+purpose: >
+  Define conflict types that block or warn during no-apply AIDE upgrade
+  planning.
+conflict_types:
+  - source_pack_missing
+  - current_install_missing
+  - existing_manual_file
+  - target_specific_file
+  - stale_portable_file
+  - stale_generated_file
+  - schema_version_mismatch
+  - unsupported_schema_version
+  - command_surface_mismatch
+  - target_extension_conflict
+  - source_state_leak
+  - local_state_tracked
+  - secret_like_path
+  - ambiguous_owner
+  - unsafe_overwrite
+blocking_conflicts:
+  - source_pack_missing
+  - unsupported_schema_version
+  - source_state_leak
+  - local_state_tracked
+  - secret_like_path
+  - unsafe_overwrite
+rules:
+  conflicts_are_planning_evidence: true
+  conflicts_do_not_authorize_overwrite: true
+  target_specific_conflicts_preserve_by_default: true
+  future_apply_requires_review: true

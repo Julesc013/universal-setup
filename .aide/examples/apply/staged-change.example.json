@@ -1,0 +1,12 @@
+{
+  "schema_version": "aide.staged-change.v0",
+  "example": true,
+  "change_id": "stage-managed-section-fixture",
+  "operation_id": "op-managed-section-fixture",
+  "path": ".aide/examples/apply/fixture-root/AGENTS.fixture.md",
+  "operation_class": "update_managed_section",
+  "stage_path": ".aide/reports/transaction-fixture-plan.json",
+  "preimage_ref": "preimage.example.json",
+  "postimage_ref": "postimage.example.json",
+  "verification_status": "pending"
+}

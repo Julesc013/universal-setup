@@ -1,0 +1,53 @@
+schema_version: aide.impacted-tests-policy.v0
+policy_id: aide.impacted-test-planning.v0
+status: active-pending-review
+mode: report_only
+
+planning:
+  proof_status: plan_not_proof
+  changed_path_source: git diff --name-only <from>...HEAD
+  target_test_execution: false
+  target_specific_preservation: true
+  must_not_overwrite_target_manifests: true
+
+mappings:
+  - path_prefix: .aide/
+    tier: T1
+    test_roots: [.aide/scripts/tests, .aide/evals/golden-tasks]
+    commands:
+      - py -3 .aide/scripts/aide_lite.py validate
+      - py -3 -m unittest discover -s .aide/scripts/tests
+      - py -3 .aide/scripts/aide_lite.py eval run
+  - path_prefix: core/harness/
+    tier: T2
+    test_roots: [core/harness/tests]
+    commands:
+      - py -3 -m unittest discover -s core/harness/tests -t .
+  - path_prefix: core/compat/
+    tier: T2
+    test_roots: [core/compat/tests]
+    commands:
+      - py -3 -m unittest discover -s core/compat/tests -t .
+  - path_prefix: core/gateway/
+    tier: T2
+    test_roots: [core/gateway/tests]
+    commands:
+      - py -3 -m unittest discover -s core/gateway/tests -t .
+  - path_prefix: core/providers/
+    tier: T2
+    test_roots: [core/providers/tests]
+    commands:
+      - py -3 -m unittest discover -s core/providers/tests -t .
+  - path_prefix: docs/
+    tier: T1
+    test_roots: [docs/reference]
+    commands:
+      - py -3 .aide/scripts/aide_lite.py validate
+
+fallback:
+  unknown_mapping: true
+  recommended_tier: T2
+  commands:
+    - py -3 .aide/scripts/aide_lite.py validate
+  warning: unknown_mapping
+

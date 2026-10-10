@@ -1,0 +1,65 @@
+schema_version: aide.context-priority.v0
+priority_id: q11-context-priority-v0
+status: active-pending-review
+purpose: Rank context families for compact packet references without implying full-file inclusion.
+families:
+  - id: profile
+    priority: 100
+    patterns:
+      - .aide/profile.yaml
+  - id: aide-policies
+    priority: 95
+    patterns:
+      - .aide/policies/**
+  - id: aide-prompts
+    priority: 92
+    patterns:
+      - .aide/prompts/**
+  - id: aide-context
+    priority: 90
+    patterns:
+      - .aide/context/**
+  - id: aide-memory
+    priority: 88
+    patterns:
+      - .aide/memory/**
+  - id: queue-index
+    priority: 86
+    patterns:
+      - .aide/queue/index.yaml
+  - id: current-queue-item
+    priority: 85
+    patterns:
+      - .aide/queue/Q11-context-compiler-v0/**
+  - id: root-agent-law
+    priority: 84
+    patterns:
+      - AGENTS.md
+  - id: root-docs
+    priority: 80
+    patterns:
+      - README.md
+      - ROADMAP.md
+      - PLANS.md
+      - IMPLEMENT.md
+      - DOCUMENTATION.md
+  - id: harness
+    priority: 76
+    patterns:
+      - core/harness/**
+  - id: compatibility
+    priority: 74
+    patterns:
+      - core/compat/**
+  - id: shared-core
+    priority: 70
+    patterns:
+      - shared/**
+  - id: references
+    priority: 68
+    patterns:
+      - docs/reference/**
+  - id: roadmap
+    priority: 64
+    patterns:
+      - docs/roadmap/**

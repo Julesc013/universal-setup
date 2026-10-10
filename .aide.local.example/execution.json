@@ -1,0 +1,19 @@
+{
+  "schema": "aide.managed-workspace.local.v1",
+  "roots": {"scratch": "REQUIRED_OWNER_SELECTED_SCRATCH_ROOT", "retained": "REQUIRED_OWNER_SELECTED_RETAINED_ROOT", "control": "REQUIRED_OWNER_SELECTED_SHARED_CONTROL_ROOT"},
+  "volume_ids": {"scratch": "REQUIRED_ACTUAL_VOLUME_ID", "retained": "REQUIRED_ACTUAL_VOLUME_ID", "control": "REQUIRED_ACTUAL_VOLUME_ID"},
+  "working_roots": ["REQUIRED_APPROVED_EXISTING_SOURCE_CHECKOUT"],
+  "limits": {
+    "disk_reserve_bytes": 10737418240,
+    "physical_reserve_bytes": 4294967296,
+    "commit_reserve_bytes": 4294967296,
+    "scratch_bytes": 1073741824,
+    "retained_bytes": 268435456,
+    "canonical_bytes": 536870912,
+    "memory_bytes": 2147483648,
+    "log_bytes": 16777216,
+    "runtime_seconds": 3600,
+    "processes": 32,
+    "max_files": 100000
+  }
+}

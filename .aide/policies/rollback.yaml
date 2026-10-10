@@ -1,0 +1,48 @@
+schema_version: aide.rollback-policy.v0
+policy_id: aide.rollback.v0
+status: active
+purpose: >
+  Define deterministic, preservation-first rollback observation, ownership
+  inspection, planning, and dry-run behavior before any future rollback apply
+  phase.
+operating_mode:
+  - deterministic_local
+  - no_model_calls
+  - no_provider_calls
+  - no_network_calls
+  - observe_plan_dry_run_only
+  - no_apply_in_q46
+  - no_target_mutation
+  - no_file_overwrite
+  - no_file_deletion
+  - no_managed_section_removal
+lifecycle:
+  - observe
+  - inspect_ledger
+  - classify
+  - plan
+  - dry_run
+  - review
+  - future_apply
+  - future_verify
+rollback_sources:
+  - install_ownership_ledger
+  - install_plan
+  - upgrade_plan
+  - repair_plan
+  - current_repo_state
+  - target_specific_preservation_policy
+default_rules:
+  ownership_or_plan_evidence_required: true
+  preserve_target_state_by_default: true
+  unknown_ownership_preserved: true
+  overwrite_allowed_default: false
+  delete_allowed_default: false
+  managed_section_removal_allowed_default: false
+  apply_allowed_default: false
+non_goals:
+  - no apply
+  - no target mutation
+  - no uninstall apply
+  - no destructive cleanup
+

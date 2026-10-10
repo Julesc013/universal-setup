@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "doc_count": {
+      "type": "integer"
+    },
+    "evidence_count": {
+      "type": "integer"
+    },
+    "evidence_refs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "exists": {
+      "type": "boolean"
+    },
+    "generated_count": {
+      "type": "integer"
+    },
+    "kinds": {
+      "type": "object"
+    },
+    "owners": {
+      "type": "object"
+    },
+    "policy_count": {
+      "type": "integer"
+    },
+    "reasons": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "recommended_next_action": {
+      "type": "string"
+    },
+    "risk_class": {
+      "type": "string"
+    },
+    "root": {
+      "type": "string"
+    },
+    "root_status": {
+      "type": "string"
+    },
+    "schema_count": {
+      "type": "integer"
+    },
+    "source_count": {
+      "type": "integer"
+    },
+    "statuses": {
+      "type": "object"
+    },
+    "test_count": {
+      "type": "integer"
+    },
+    "total_size_bytes": {
+      "type": "integer"
+    },
+    "tracked_file_count": {
+      "type": "integer"
+    },
+    "unknown_count": {
+      "type": "integer"
+    }
+  },
+  "required": [
+    "root",
+    "exists",
+    "tracked_file_count",
+    "total_size_bytes",
+    "kinds",
+    "statuses",
+    "owners",
+    "generated_count",
+    "evidence_count",
+    "source_count",
+    "test_count",
+    "doc_count",
+    "policy_count",
+    "schema_count",
+    "unknown_count",
+    "root_status",
+    "risk_class",
+    "recommended_next_action",
+    "reasons",
+    "evidence_refs"
+  ],
+  "type": "object"
+}

@@ -1,0 +1,112 @@
+schema_version: q21.export-import-policy.v0
+policy_id: aide.export-import.v0
+status: active
+purpose: >
+  Define the safe boundary for exporting a portable AIDE Lite Pack from this
+  repository and importing it into target repositories without copying
+  source-specific identity, history, generated context, local state, secrets,
+  raw prompts, or raw responses.
+operating_mode:
+  - portable_pack_only
+  - no_external_repo_mutation
+  - no_network
+  - no_provider_calls
+export_pack_id:
+  - aide-lite-pack-v0
+portable_include_classes:
+  - scripts
+  - policies
+  - commit_message_policy
+  - commit_hook_template
+  - commit_template
+  - changelog_preview_support
+  - changelog_policy
+  - changelog_config_templates
+  - github_protection_policy
+  - branch_protection_policy
+  - ci_gates_policy
+  - github_ci_advisory_support
+  - task_resumption_policy
+  - workunit_policy
+  - recovery_policy
+  - git_workflow_policy
+  - branch_roles_policy
+  - promotion_rules_policy
+  - sync_policy
+  - prune_policy
+  - git_helper_policy
+  - project_workflow_profiles
+  - prompts
+  - context_templates
+  - verification_templates
+  - eval_starter_templates
+  - governance_golden_tasks
+  - adapter_templates
+  - portable_reference_docs
+  - install_instructions
+portable_exclude_classes:
+  - source_repo_identity
+  - source_repo_queue_history
+  - source_repo_memory
+  - source_repo_git_detection
+  - source_repo_git_helper_plan
+  - source_repo_branch_policy
+  - source_repo_changelog_previews
+  - source_repo_github_advisory_reports
+  - generated_context
+  - generated_reports
+  - generated_status_outputs
+  - route_decisions
+  - cache_key_reports
+  - gateway_status_reports
+  - provider_status_reports
+  - eval_runs
+  - outcome_ledgers
+  - local_state
+  - secrets
+  - raw_prompts
+  - raw_responses
+target_repo_generation:
+  create_target_profile_template: true
+  create_target_project_state_template: true
+  require_target_snapshot: true
+  require_target_index: true
+  require_target_pack: true
+safety_rules:
+  never_copy_aide_self_hosting_queue: true
+  never_copy_aide_generated_context: true
+  never_copy_aide_local_state: true
+  never_copy_provider_credentials: true
+  import_requires_target_specific_memory: true
+validation:
+  fixture_import_required: true
+  doctor_required: true
+  snapshot_required: true
+  pack_required: true
+  no_secrets_scan_required: true
+import_scope:
+  default_mode: safe
+  dry_run_required_before_target_write: true
+  safe_mode_writes:
+    - portable_aide_files
+    - target_templates
+    - local_state_example_templates
+    - portable_reference_docs
+    - agents_managed_section
+    - gitignore_local_state_rules
+  safe_mode_skips:
+    - core_root
+    - broad_docs_root_except_portable_reference
+    - product_code_roots
+  full_mode:
+    allowed_only_for_reviewed_local_fixtures: true
+    requires_explicit_flag: true
+  conflict_policy:
+    preserve_existing_manual_agents_content: true
+    do_not_overwrite_conflicting_target_files: true
+    report_exact_planned_writes: true
+raw_prompt_storage_default: false
+raw_response_storage_default: false
+live_provider_calls: false
+live_model_calls: false
+network_calls: false

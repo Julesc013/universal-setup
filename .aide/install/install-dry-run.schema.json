@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.install-dry-run.schema.v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "source_commit",
+    "plan_id",
+    "status",
+    "planned_writes_count",
+    "skips_count",
+    "conflicts_count",
+    "mandatory_migration_candidates_count",
+    "operations",
+    "warnings",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "plan_id": {"type": "string"},
+    "status": {"type": "string"},
+    "planned_writes_count": {"type": "integer"},
+    "skips_count": {"type": "integer"},
+    "conflicts_count": {"type": "integer"},
+    "mandatory_migration_candidates_count": {"type": "integer"},
+    "operations": {"type": "array"},
+    "warnings": {"type": "array"},
+    "no_apply": {"const": true}
+  }
+}

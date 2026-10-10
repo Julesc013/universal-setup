@@ -1,0 +1,43 @@
+schema_version: aide.waves-policy.v0
+policy_id: aide-task-os-waves-v0
+status: active-pending-review
+mode: report_only_no_apply
+purpose: >
+  Define report-only wave planning for groups of WorkUnits before future
+  branch/worktree automation exists.
+
+wave_planning:
+  requires_objective: true
+  requires_workunit_refs: true
+  requires_dependency_graph: true
+  requires_validation_policy: true
+  requires_evidence_refs: true
+
+parallelism_limits:
+  default_max_concurrent_tasks: 1
+  higher_parallelism_requires_independent_paths: true
+  shared_file_writes_require_serialization: true
+
+branch_isolation_recommendation:
+  normal_work_branch_recommended: true
+  branch_creation_in_x_os_00: false
+  worktree_creation_in_x_os_00: false
+
+integration_concepts:
+  integration_to_dev: report_only
+  checkpoint_candidate: report_only
+  dev_is_progress_surface: true
+  main_is_evidence_backed_truth_surface: true
+
+evidence_capture_requirements:
+  - changed files
+  - validation results
+  - blocker and warning disposition
+  - branch provenance if branches are used by future phases
+
+boundaries:
+  branch_apply_allowed: false
+  merge_allowed: false
+  push_allowed: false
+  promotion_allowed: false
+  checkpoint_apply_allowed: false

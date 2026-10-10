@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.repair-operation.schema.v0",
+  "type": "object",
+  "required": ["operation_id", "repair_class", "operation_type", "target_path", "source_reference", "action", "reason", "preserve_target_state", "overwrite_allowed", "delete_allowed", "migration_required", "apply_allowed", "validation_required", "rollback_hint"],
+  "properties": {
+    "operation_id": {"type": "string"},
+    "repair_class": {"type": "string"},
+    "operation_type": {"type": "string"},
+    "target_path": {"type": "string"},
+    "source_reference": {"type": "string"},
+    "action": {"type": "string"},
+    "reason": {"type": "string"},
+    "preserve_target_state": {"type": "boolean"},
+    "overwrite_allowed": {"const": false},
+    "delete_allowed": {"const": false},
+    "migration_required": {"type": "boolean"},
+    "apply_allowed": {"const": false},
+    "validation_required": {"type": "array"},
+    "rollback_hint": {"type": "string"}
+  }
+}

@@ -1,0 +1,10 @@
+id: task_os_lifecycle_policy_golden
+title: Task OS Lifecycle Policy Golden
+status: active
+objective: Verify lifecycle states, repairable states, unsafe states, and review/promotion gates are recorded.
+quality_dimensions:
+  - policy_anchors
+  - lifecycle_states
+  - review_required
+runner: .aide/scripts/aide_lite.py eval run --task task_os_lifecycle_policy_golden
+no_call: true

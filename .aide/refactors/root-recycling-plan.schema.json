@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "blocked_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "evidence_required": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "file_classifications": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "no_apply": {
+      "const": true
+    },
+    "plan_id": {
+      "type": "string"
+    },
+    "recommended_sequence": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "required_future_maps": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "retirement_conditions": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "risk_class": {
+      "type": "string"
+    },
+    "root": {
+      "type": "string"
+    },
+    "source_inputs": {
+      "items": {
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "status": {
+      "type": "string"
+    },
+    "validation_plan": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "plan_id",
+    "root",
+    "status",
+    "risk_class",
+    "source_inputs",
+    "file_classifications",
+    "recommended_sequence",
+    "blocked_reasons",
+    "required_future_maps",
+    "validation_plan",
+    "evidence_required",
+    "retirement_conditions",
+    "no_apply"
+  ],
+  "type": "object"
+}

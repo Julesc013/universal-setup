@@ -1,0 +1,97 @@
+schema_version: aide.root-risk-policy.v0
+policy_id: aide-root-risk-v0
+status: active
+purpose: >
+  Define deterministic root risk heuristics for dry-run root recycling plans.
+
+operating_mode:
+  deterministic_local: true
+  no_model_calls: true
+  no_provider_calls: true
+  no_network_calls: true
+  advisory_only: true
+  no_apply_in_q40: true
+
+risk_classes:
+  low:
+    meaning: Root has clear role, known owner, and low mutation sensitivity.
+  medium:
+    meaning: Root has mixed documentation/source/tooling or limited unknown ownership.
+  high:
+    meaning: Root has mixed source/generated/evidence boundaries, authority-sensitive content, build-sensitive content, or many unknown records.
+  critical:
+    meaning: Root contains tracked local state, secret-like paths, or policy-forbidden state.
+  identity_sensitive:
+    hints:
+      - pack
+      - profile
+      - bundle
+      - snapshot
+      - manifest
+      - registry
+      - schema
+      - contract
+      - release
+  build_sensitive:
+    hints:
+      - CMakeLists.txt
+      - Makefile
+      - .sln
+      - .csproj
+      - .vcxproj
+      - .xcodeproj
+      - .c
+      - .cpp
+      - .h
+      - .rs
+      - .go
+      - .java
+      - .py
+      - .ps1
+      - .sh
+  authority_sensitive:
+    hints:
+      - policy
+      - governance
+      - security
+      - safety
+      - canon
+      - AGENTS
+      - release
+      - repo
+      - contract
+  generated_sensitive:
+    hints:
+      - generated markers
+      - .aide/context/latest-*
+      - .aide/reports/**
+      - .aide/export/**
+      - dist/**
+      - build/**
+      - out/**
+
+root_status_rules:
+  canonical:
+    evidence: Policy clearly says the root is stable owner.
+  acceptable:
+    evidence: Root is allowed and mixed warnings are low.
+  mixed:
+    evidence: Multiple kinds, owners, generated/source states, or risk hints conflict.
+  transitional:
+    evidence: Path patterns or exception policy mark the root as temporary.
+  generated:
+    evidence: Generated artifacts dominate the root.
+  local_only:
+    evidence: Root is local state and must not be exported.
+  review_required:
+    evidence: Root has high or critical risk.
+  unknown:
+    evidence: Deterministic classification confidence is insufficient.
+
+rules:
+  unknown_owner_warns: true
+  generated_source_mix_warns: true
+  authority_roots_require_review: true
+  build_roots_require_validation_before_future_move: true
+  tracked_local_or_secret_state_is_critical: true
+  no_deletion_recommendation_from_risk: true

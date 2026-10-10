@@ -2066,3 +2066,48 @@ refuses registered installation before context entry and refuses registered
 forward recovery before publication or finalization. Existing material remains
 retained. Historical record parsing and private candidate paths keep their
 original platform floor, and read-only verification keeps its existing scope.
+
+### Prospective broker thread custody (qualification pending)
+
+The private SCM readback owner now retains the original query-only,
+non-inheritable native thread handles transferred from a completed, service-bound
+full policy observation before its first authenticated reply. This is separate
+from the effect child's immutable original-thread continuity. It cannot adopt a
+retained JSON record or acquire provenance by reopening a remembered thread ID.
+
+Later native walks compare returned objects to the continuously held originals
+using [CompareObjectHandles](https://learn.microsoft.com/en-us/windows/win32/api/handleapi/nf-handleapi-compareobjecthandles),
+then recheck native PID, TID, birth and exact stored owner/DACL facts. Only a
+previously completely admitted non-execution original may positively retire:
+its held object must signal, a separate post-signal time query must supply a
+nonzero exit at or after birth, repeated identity/birth/signal/exit must agree,
+and its stored security must remain readable and unchanged. Token/security read
+failures cannot become retirement evidence. Execution identity and primary
+token/defaults remain frozen; fresh SCM, configuration, caller, custody, process
+security and target observations still bracket replies.
+
+A retired original whose numeric ID appears in either independent census
+requires matching same-object evidence from that native walk. Its old exit
+alone cannot identify a BEFORE-only, missing or access-filtered census entry.
+
+New and partially observed threads remain pending through the entire native
+coverage and policy read. Death, access filtering, missing mandatory coverage,
+security changes and unresolved churn still refuse. Successful whole reads
+transfer their first handles and facts into the owner without reopening them.
+The cumulative provenance bound is 4096 objects, including retired originals;
+there is no eviction or baseline refresh. Collection keeps its four-round
+bound and bracketed census scope. Positive old-object retirement may extend a
+successful read; it cannot replay a failed read or forgive pending-object loss.
+
+The distinct closed `usk.publisher_broker_worker_security.v1` record carries a
+complete admitted history and live/retired partition under broker native
+readback v3. Native transport and independent retained-record checks require
+monotonic admission and immutable retirement facts across replies and phases.
+Older broker readback v2 still requires ordinary worker security v1; child
+retirement records and their frozen baseline rules remain separate.
+
+This source change does not retrospectively classify the failed head
+`67cc06d`'s thread, identify its creator, prove I/O quiescence, confer effect
+authority or establish public availability. Its new native controls distinguish
+completed original custody from otherwise equivalent unknown or pending loss.
+Exact-source review and the full supported hosted profile remain required.

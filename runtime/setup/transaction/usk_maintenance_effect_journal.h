@@ -1,0 +1,113 @@
+// SPDX-FileCopyrightText: 2026 Jules C
+// SPDX-License-Identifier: MIT
+#ifndef USK_MAINTENANCE_EFFECT_JOURNAL_H
+#define USK_MAINTENANCE_EFFECT_JOURNAL_H
+
+#include "usk_transaction_session.h"
+#include "usk_json.h"
+
+#include <cstdint>
+#include <filesystem>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+namespace usk::transaction {
+
+struct CompletedMaintenanceEffect {
+    std::uint64_t intent_sequence = 0;
+    std::string kind;
+    json::Value details;
+    std::string outcome;
+    std::string result_digest;
+};
+
+struct MaintenanceEffectInspection {
+    std::string source_context;
+    std::string source_digest;
+    std::string journal_digest;
+    std::uint64_t completed_effects = 0;
+    std::uint64_t next_sequence = 0;
+    std::uint64_t pending_sequence = 0;
+    std::uint64_t serialized_bytes = 0;
+    std::string directory_identity;
+    bool sealed = false;
+    // An intent without completion means the effect may have happened.
+    // Inspection never replays it or confers filesystem mutation authority.
+    std::string pending_kind;
+    json::Value pending_details;
+    // Optional ordered observations for whole-operation continuation. These
+    // remain journal facts, never native custody or evidence of the actor.
+    std::vector<CompletedMaintenanceEffect> completed;
+};
+
+// Internal append-only observations for the original maintenance transaction.
+// RecordWriteOperations may supply a protected metadata writer; this class
+// supplies neither native payload authority nor pathname cleanup permission.
+class MaintenanceEffectJournal {
+public:
+    MaintenanceEffectJournal(TransactionSpec spec, const std::string& source_context,
+        FaultInjector injector = {});
+    MaintenanceEffectJournal(const MaintenanceEffectJournal&) = delete;
+    MaintenanceEffectJournal& operator=(const MaintenanceEffectJournal&) = delete;
+
+    void begin_effect(const std::string& kind, const json::Value& details);
+    void complete_effect(const std::string& outcome = "applied",
+        const std::string& result_digest = {});
+    // Revalidate the journal's permanently bound original owner immediately
+    // after an external injector and before an effect. This read-only check
+    // grants no native backend, replay or generic fallback authority.
+    void require_effect_authority() const;
+    // nullopt only for an originally ordinary journal. A native journal must
+    // dispatch its exact pending payload intent through its original owner;
+    // missing, ended or failed custody throws, never permits a path fallback.
+    std::optional<std::string> apply_payload_effect();
+    // The original private owner writes the exact metadata postimage and
+    // returns its confirmed result digest; ordinary journals return nullopt.
+    std::optional<std::string> apply_metadata_effect();
+    void seal();
+    const std::filesystem::path& directory() const noexcept { return directory_; }
+
+    // The caller obtains expected_source_digest from the original transaction
+    // journal and separately validates the immutable installed-state context.
+    static MaintenanceEffectInspection inspect(const TransactionSpec& spec,
+        const std::string& expected_source_digest, bool retain_completed = false);
+    // Metadata continuation only, against an exact inspected snapshot. The
+    // caller must separately prove any effect and hold its required authority.
+    static std::unique_ptr<MaintenanceEffectJournal> resume(const TransactionSpec& spec,
+        const std::string& expected_source_digest, const std::string& expected_history_digest,
+        FaultInjector injector = {});
+
+private:
+    std::optional<std::pair<std::string, std::string>> apply_owned_effect();
+    void bind_original_owner();
+    void require_effect_owner_binding() const;
+#if defined(_WIN32)
+    bool native_origin_ = false;
+    std::weak_ptr<const void> native_origin_binding_;
+#endif
+    MaintenanceEffectJournal(TransactionSpec spec, MaintenanceEffectInspection inspected,
+        FaultInjector injector);
+    void persist(const std::string& phase, const json::Value& details);
+    TransactionSpec spec_;
+    FaultInjector injector_;
+    std::filesystem::path directory_;
+    std::string directory_identity_;
+    std::string source_digest_;
+    std::string last_digest_;
+    std::string pending_kind_;
+    std::uint64_t pending_sequence_ = 0;
+    std::uint64_t sequence_ = 0;
+    std::uint64_t bytes_ = 0;
+    bool sealed_ = false;
+    bool failed_ = false;
+    bool payload_attempted_ = false;
+    std::string payload_outcome_;
+#if defined(_WIN32)
+    bool resumed_ = false;
+#endif
+};
+
+} // namespace usk::transaction
+#endif

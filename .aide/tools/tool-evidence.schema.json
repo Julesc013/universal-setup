@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AIDE Tool Evidence",
+  "type": "object",
+  "required": ["tool_id", "path", "evidence_refs", "docs_refs", "tests_refs", "validation_refs", "notes"],
+  "properties": {
+    "tool_id": {"type": "string"},
+    "path": {"type": "string"},
+    "evidence_refs": {"type": "array", "items": {"type": "string"}},
+    "docs_refs": {"type": "array", "items": {"type": "string"}},
+    "tests_refs": {"type": "array", "items": {"type": "string"}},
+    "validation_refs": {"type": "array", "items": {"type": "string"}},
+    "notes": {"type": "array", "items": {"type": "string"}}
+  }
+}

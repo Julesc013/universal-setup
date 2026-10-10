@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: intent_compile_git_prompt_golden
+title: Intent Compile Git Prompt Golden
+status: active
+description: Verify Git promotion prompts require branch policy and review evidence.
+runner: .aide/scripts/aide_lite.py eval run --task intent_compile_git_prompt_golden
+quality_dimensions:
+  - branch_workflow
+  - promotion_gates
+  - no_mutation

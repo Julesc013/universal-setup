@@ -61,6 +61,10 @@ struct InstalledState {
     std::string lifecycle_status;
 };
 
+// Validated canonical record bytes only. Serialization confers no write or
+// current-revision authority; the repository still verifies owned bindings.
+std::string serialize_installed_state(const InstalledState& state);
+
 class StateRepository {
 public:
     explicit StateRepository(std::filesystem::path state_root);

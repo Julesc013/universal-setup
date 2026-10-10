@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: root_record_schema_golden
+title: Root Record Schema Golden
+status: active
+objective: Verify Q40 root record schema fields for root status and risk review.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task root_record_schema_golden
+no_model_calls: true
+no_network_calls: true

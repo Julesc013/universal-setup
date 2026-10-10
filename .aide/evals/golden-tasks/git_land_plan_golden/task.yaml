@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+task_id: git_land_plan_golden
+title: Git Land Plan Golden
+status: active
+purpose: Check land helper dry-run planning and fixture-only apply boundaries.
+input_refs:
+  - .aide/git/helper-commands.md
+  - .aide/git/latest-helper-plan.json
+acceptance_ref: .aide/evals/golden-tasks/git_land_plan_golden/acceptance.md
+expected_result: PASS

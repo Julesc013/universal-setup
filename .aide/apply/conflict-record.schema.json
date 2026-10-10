@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Transaction Conflict Record",
+  "type": "object",
+  "required": ["schema_version", "conflict_id", "path", "conflict_class", "severity", "resolution_state", "apply_blocked"],
+  "properties": {
+    "schema_version": {"const": "aide.conflict-record.v0"},
+    "conflict_id": {"type": "string"},
+    "path": {"type": "string"},
+    "conflict_class": {"type": "string"},
+    "severity": {"enum": ["low", "medium", "high", "critical", "unknown"]},
+    "resolution_state": {"enum": ["none", "planned", "resolved", "blocked"]},
+    "apply_blocked": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

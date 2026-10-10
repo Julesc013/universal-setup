@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "required": [
+    "schema_version",
+    "plan_id",
+    "generated_by",
+    "source_commit",
+    "target_root",
+    "mode",
+    "status",
+    "operations",
+    "preserved_paths",
+    "blocked_reasons",
+    "verification_plan",
+    "evidence_required",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "plan_id": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "target_root": {"type": "string"},
+    "mode": {"type": "string"},
+    "status": {"type": "string"},
+    "operations": {"type": "array"},
+    "preserved_paths": {"type": "array"},
+    "blocked_reasons": {"type": "array"},
+    "verification_plan": {"type": "array"},
+    "evidence_required": {"type": "array"},
+    "no_apply": {"type": "boolean"}
+  }
+}
+

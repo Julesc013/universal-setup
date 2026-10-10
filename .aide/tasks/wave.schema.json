@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aide.tasks.wave.v0",
+  "title": "AIDE Wave",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "wave_id",
+    "title",
+    "objective",
+    "workunit_refs",
+    "dependency_graph",
+    "parallelism_policy",
+    "branch_policy",
+    "validation_policy",
+    "checkpoint_policy",
+    "max_concurrent_tasks",
+    "max_repair_passes",
+    "evidence_refs",
+    "status",
+    "no_apply_boundary"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "aide.wave.v0" },
+    "wave_id": { "type": "string", "minLength": 1 },
+    "title": { "type": "string" },
+    "objective": { "type": "string" },
+    "workunit_refs": { "type": "array", "items": { "type": "string" } },
+    "dependency_graph": { "type": "array", "items": { "type": "object" } },
+    "parallelism_policy": { "type": "string" },
+    "branch_policy": { "type": "string" },
+    "validation_policy": { "type": "string" },
+    "checkpoint_policy": { "type": "string" },
+    "max_concurrent_tasks": { "type": "integer", "minimum": 1 },
+    "max_repair_passes": { "type": "integer", "minimum": 0 },
+    "evidence_refs": { "type": "array", "items": { "type": "string" } },
+    "status": { "type": "string", "enum": ["planned", "ready", "running", "checkpoint_candidate", "complete", "blocked", "quarantined", "superseded"] },
+    "no_apply_boundary": { "type": "boolean", "const": true }
+  },
+  "additionalProperties": false
+}

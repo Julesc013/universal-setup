@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Release Bundle",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "bundle_id",
+    "bundle_name",
+    "generated_by",
+    "source_repo",
+    "source_commit",
+    "source_branch",
+    "dirty_state",
+    "source_pack_ref",
+    "artifacts",
+    "checksums",
+    "validation",
+    "provenance",
+    "publication_status",
+    "preview_only"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "bundle_id": {"type": "string"},
+    "bundle_name": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_repo": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "source_branch": {"type": "string"},
+    "dirty_state": {"type": "boolean"},
+    "source_pack_ref": {"type": "object"},
+    "artifacts": {"type": "array", "items": {"type": "object"}},
+    "checksums": {"type": "object"},
+    "validation": {"type": "object"},
+    "provenance": {"type": "object"},
+    "publication_status": {"type": "string"},
+    "preview_only": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

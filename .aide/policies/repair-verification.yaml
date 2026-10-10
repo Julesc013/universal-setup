@@ -1,0 +1,30 @@
+schema_version: aide.repair-verification-policy.v0
+policy_id: aide.repair-verification.v0
+status: active
+purpose: Define validation commands expected before and after future repair apply phases.
+verification_commands:
+  - doctor
+  - validate
+  - test
+  - selftest
+  - eval run
+  - pack-status
+  - install validate
+  - repair validate
+  - intent validate
+  - repo validate
+  - quality validate
+  - refactor validate
+  - roots validate
+  - tools validate
+  - refactor validate-map
+  - commit check
+  - git policy
+  - changelog validate
+  - no secrets/local-state
+  - target-specific validators
+future_apply_requirements:
+  - capture pre-repair observation
+  - capture post-repair validation
+  - write rollback notes
+  - preserve target-specific state

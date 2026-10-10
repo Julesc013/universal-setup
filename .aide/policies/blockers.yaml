@@ -1,0 +1,76 @@
+schema_version: aide.blockers-policy.v0
+policy_id: aide-task-os-blockers-v0
+status: active-pending-review
+mode: report_only_no_apply
+purpose: >
+  Define typed blockers and conservative conversion rules from blocker records
+  to future repair tasks. X-OS-00 does not execute repairs.
+
+blocker_classes:
+  missing_prerequisite:
+    repair_class: prerequisite
+    human_decision_required: false
+  test_failure:
+    repair_class: test_repair
+    human_decision_required: false
+  merge_conflict:
+    repair_class: conflict_resolution
+    human_decision_required: false
+  missing_implementation:
+    repair_class: implementation_completion
+    human_decision_required: false
+  docs_overclaim:
+    repair_class: docs_code_conformance
+    human_decision_required: false
+  schema_mismatch:
+    repair_class: schema_alignment
+    human_decision_required: false
+  tool_unavailable:
+    repair_class: tool_alternative
+    human_decision_required: false
+  dependency_unavailable:
+    repair_class: dependency_isolation
+    human_decision_required: false
+  security_destructive_risk:
+    repair_class: safety_quarantine
+    human_decision_required: true
+    unsafe: true
+  ambiguous_product_decision:
+    repair_class: decision_request
+    human_decision_required: true
+  validation_runtime_exceeded:
+    repair_class: validation_runtime_split
+    human_decision_required: false
+  source_state_conflict:
+    repair_class: conflict_resolution
+    human_decision_required: true
+  target_pack_drift:
+    repair_class: schema_alignment
+    human_decision_required: false
+  promotion_gate_failed:
+    repair_class: prerequisite
+    human_decision_required: true
+  capability_reality_mismatch:
+    repair_class: docs_code_conformance
+    human_decision_required: false
+  unknown:
+    repair_class: unknown
+    human_decision_required: true
+
+severity_meanings:
+  low: visible but non-blocking for dev integration when classified
+  medium: blocks main promotion until evidence or repair exists
+  high: blocks dev integration and main promotion
+  critical: requires immediate review before continuation
+  unsafe: quarantine; no repair apply or promotion
+  unknown: classify before continuing
+
+blocker_to_repair_task_conversion:
+  allowed: report_only
+  requires_evidence_refs: true
+  preserves_allowed_paths: true
+  unsafe_blocker_rules:
+    quarantine_required: true
+    repair_apply_forbidden: true
+    human_decision_required: true
+  no_apply_behavior_in_x_os_00: true

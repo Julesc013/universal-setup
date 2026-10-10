@@ -1,0 +1,38 @@
+schema_version: aide.routing-hard-floors.v0
+registry_id: q17-hard-floors
+status: advisory_metadata_only
+hard_floors:
+  - floor_id: architecture_decision
+    minimum_route_class:
+      - frontier
+      - human_review
+    reason: Architectural decisions have long-lived blast radius and need premium or human review.
+  - floor_id: security_review
+    minimum_route_class:
+      - frontier
+      - human_review
+    reason: Security review cannot be demoted to cheap or unreviewed execution.
+  - floor_id: self_modification
+    minimum_route_class:
+      - frontier
+      - human_review
+    reason: Self-modifying prompts, policies, or routes require explicit review and rollback boundaries.
+  - floor_id: final_promotion_review
+    minimum_route_class:
+      - frontier
+      - human_review
+    reason: Promotion decisions require quality-gate evidence and accountable review.
+  - floor_id: governance_policy_change
+    minimum_route_class:
+      - frontier
+      - human_review
+    reason: Governance changes alter future agent behavior and review obligations.
+  - floor_id: irreversible_or_destructive_change
+    minimum_route_class:
+      - human_review
+    reason: Destructive or irreversible actions require human review before execution.
+  - floor_id: high_stakes_review
+    minimum_route_class:
+      - frontier
+      - human_review
+    reason: High-stakes decisions must not be optimized only for token cost.

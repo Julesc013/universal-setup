@@ -1,0 +1,6 @@
+schema_version: aide.golden-task.v0
+id: test_telemetry_export_golden
+title: Test Telemetry Export Golden
+status: active
+description: Verify validation tier and telemetry contracts are included in the portable export pack.
+

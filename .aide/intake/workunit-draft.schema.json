@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "acceptance": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "allowed_paths": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "dependencies": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "evidence": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "forbidden_paths": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "idempotency": {
+      "type": "string"
+    },
+    "implementation_outline": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "non_goals": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "objective": {
+      "type": "string"
+    },
+    "output_schema": {
+      "type": "string"
+    },
+    "preflight": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "recovery": {
+      "type": "string"
+    },
+    "risk_class": {
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "aide.workunit-draft.v0"
+    },
+    "sizing_class": {
+      "type": "string"
+    },
+    "status": {
+      "const": "draft"
+    },
+    "task_class": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "validation": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "why": {
+      "type": "string"
+    },
+    "workunit_id": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "schema_version",
+    "workunit_id",
+    "title",
+    "objective",
+    "why",
+    "task_class",
+    "risk_class",
+    "sizing_class",
+    "allowed_paths",
+    "forbidden_paths",
+    "dependencies",
+    "preflight",
+    "implementation_outline",
+    "validation",
+    "evidence",
+    "acceptance",
+    "non_goals",
+    "output_schema",
+    "idempotency",
+    "recovery",
+    "status"
+  ],
+  "title": "AIDE WorkUnit Draft v0",
+  "type": "object"
+}

@@ -1,0 +1,11 @@
+schema_version: aide.golden-task.v0
+id: task_os_report_only_no_apply_golden
+title: Task OS Report Only No Apply Golden
+status: active
+description: Verify all X-OS-01 command reports preserve no-apply and no-call boundaries.
+quality_dimensions:
+  - no_apply
+  - no_target_mutation
+  - no_provider_calls
+runner: .aide/scripts/aide_lite.py eval run --task task_os_report_only_no_apply_golden
+no_call: true

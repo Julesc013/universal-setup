@@ -127,6 +127,18 @@ class NativeProfileEvidenceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.check(prepared, visible, snapshot, context=context)
 
+    def test_historical_unavailable_projection_cannot_qualify_full_original_profile(self):
+        prepared, visible, snapshot = profile_fixture()
+        projection = snapshot['native_phase_descriptor_access']
+        missing = projection['objects'].pop()
+        projection.update(schema='usk.publisher.historical_phase_descriptor_access.v1',
+                          availability='partial', unavailable_payload_objects=[dict(
+                              native_object=missing['native_object'],
+                              reason='original_payload_identity_not_in_current_snapshot')],
+                          completed_maintenance_observation=dict(transaction_id='repair.current'))
+        with self.assertRaises(ValueError):
+            self.check(prepared, visible, snapshot)
+
     def test_reconstructed_access_refuses_every_mutation_and_nonempty_maximum(self):
         prepared, visible, snapshot = profile_fixture()
         for actor in ('initiating', 'filtered'):

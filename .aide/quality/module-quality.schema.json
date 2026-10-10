@@ -1,0 +1,22 @@
+{
+  "schema_version": "aide.module-quality.schema.v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "largest_source_tool_files",
+    "high_dependency_candidates",
+    "mixed_purpose_candidates",
+    "owner_summary",
+    "caveats"
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "generated_by": { "type": "string" },
+    "largest_source_tool_files": { "type": "array" },
+    "high_dependency_candidates": { "type": "array" },
+    "mixed_purpose_candidates": { "type": "array" },
+    "owner_summary": { "type": "object" },
+    "caveats": { "type": "array" }
+  }
+}

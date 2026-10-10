@@ -1,0 +1,43 @@
+schema_version: aide.sync-policy.v0
+policy_id: aide-git-sync-policy-v0
+status: active
+purpose: >
+  Define report-only sync expectations for multi-machine AIDE work before
+  helpers perform any fetch, pull, push, merge, or rebase operations.
+rules:
+  fetch_before_branch_decisions: recommended_for_future_helpers
+  q28_fetch_behavior: no_fetch
+  fast_forward_only_for_canonical_and_integration_where_possible: true
+  no_implicit_merge_during_sync: true
+  no_implicit_rebase_of_shared_branches: true
+  no_automatic_remote_mutation_in_q28: true
+human_readable_rules:
+  - fetch before branch decisions
+  - no implicit merge during sync
+  - no implicit rebase of shared branches
+  - no automatic remote mutation in Q28
+remote_tracking_expectations:
+  main: should_track_origin_main_when_remote_exists
+  dev: may_track_origin_dev_when_shareable_integration_branch_exists
+  task: local_by_default_remote_opt_in
+  release: remote_expected_for_maintained_release_line
+  hotfix: remote_opt_in_for_shared_review
+dirty_tree_behavior:
+  clean_required_for_sync_mutation: true
+  dirty_tree_in_q28: warn_and_report_only
+  preserve_unrelated_changes: true
+stale_main_dev_behavior:
+  stale_main: recommend fetch_and_fast_forward_before_promotion_decision
+  stale_dev: recommend sync_before_landing_task_work
+  unknown_upstream: warn_conservative
+multi_machine_behavior:
+  use_dev_for_latest_shareable_integration: true
+  do_not_treat_dev_as_canonical_truth: true
+  remote_task_branches_only_when_shared_or_resumable: true
+local_only_branch_behavior:
+  allowed_for_task_branches: true
+  recommended_action: land_or_share_before_switching_machines
+shared_branch_behavior:
+  avoid_force_push: true
+  avoid_rebase_after_push: true
+  require_validation_evidence_before_promotion: true

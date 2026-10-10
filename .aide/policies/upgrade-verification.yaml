@@ -1,0 +1,32 @@
+schema_version: aide.upgrade-verification-policy.v0
+policy_id: aide.upgrade-verification.v0
+status: active
+purpose: >
+  Define verification commands expected before and after any future explicit
+  AIDE upgrade apply phase.
+verification_commands:
+  - doctor
+  - validate
+  - test
+  - selftest
+  - eval run
+  - pack-status
+  - intent validate
+  - repo validate
+  - quality validate
+  - refactor validate
+  - roots validate
+  - tools validate
+  - install validate
+  - repair validate
+  - upgrade validate
+  - commit check
+  - git policy
+  - changelog validate
+  - no secrets/local-state
+  - target-specific validators
+rules:
+  future_apply_requires_before_and_after_validation: true
+  target_specific_validators_must_be_preserved: true
+  rollback_prerequisites_required: true
+  q45_records_expectations_only: true

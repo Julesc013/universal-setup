@@ -1,0 +1,73 @@
+schema_version: aide.ci-gates-policy.v0
+policy_id: aide.ci-gates.v0
+status: active
+purpose: >
+  Define advisory CI gates for future AIDE GitHub automation without creating
+  workflow files or activating CI during Q35.
+operating_mode:
+  - advisory_only
+  - no_workflow_installation
+  - no_github_api_mutation
+workflow_installation: false
+workflow_file_written: false
+github_api_mutation: false
+network_calls: false
+provider_or_model_calls: false
+required_gates:
+  - id: aide-harness-validate
+    command: py -3 scripts/aide validate
+    required_for:
+      - main
+      - dev
+  - id: aide-lite-validate
+    command: py -3 .aide/scripts/aide_lite.py validate
+    required_for:
+      - main
+      - dev
+  - id: aide-lite-test
+    command: py -3 .aide/scripts/aide_lite.py test
+    required_for:
+      - main
+      - dev
+  - id: aide-lite-eval
+    command: py -3 .aide/scripts/aide_lite.py eval run
+    required_for:
+      - main
+      - dev
+  - id: commit-check
+    command: py -3 .aide/scripts/aide_lite.py commit check --latest
+    required_for:
+      - main
+      - dev
+  - id: changelog-validate
+    command: py -3 .aide/scripts/aide_lite.py changelog validate
+    required_for:
+      - main
+  - id: git-policy
+    command: py -3 .aide/scripts/aide_lite.py git policy
+    required_for:
+      - main
+      - dev
+  - id: github-validate
+    command: py -3 .aide/scripts/aide_lite.py github validate
+    required_for:
+      - main
+      - dev
+  - id: pack-status
+    command: py -3 .aide/scripts/aide_lite.py pack-status
+    required_for:
+      - main
+  - id: secret-scan
+    command: targeted secret scan
+    required_for:
+      - main
+      - dev
+recommended_triggers:
+  - pull_request
+  - push_to_main
+  - push_to_dev
+non_goals:
+  - no workflow installation
+  - no GitHub API mutation
+  - no release publishing
+  - no branch mutation

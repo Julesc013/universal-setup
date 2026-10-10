@@ -9,3 +9,13 @@ out/
 bin/
 obj/
 *.egg-info/
+.aide.local/
+.aide.local/**
+.env
+
+# Target-generated context is local metadata, not imported source.
+/.aide/context/*
+!/.aide/context/compiler.yaml
+!/.aide/context/excerpt-policy.yaml
+!/.aide/context/ignore.yaml
+!/.aide/context/priority.yaml

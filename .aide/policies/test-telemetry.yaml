@@ -1,0 +1,25 @@
+schema_version: aide.test-telemetry-policy.v0
+policy_id: aide.test-telemetry-contracts.v0
+status: active-pending-review
+mode: compact_report_only
+
+summary_contract:
+  required_identity: [repo, commit, branch, dirty_state, command, tier]
+  required_timing: [started_at, finished_at_or_duration_seconds]
+  required_counts: [tests, pass, fail, error, skipped]
+  failure_families: required
+  stale_check: required
+  artifacts: path_strings_only
+  raw_log_policy: external_artifacts_only
+  no_raw_log_payload: true
+  timeout_classification: required
+
+ai_reasoning:
+  inspect: [summaries, failure_families, deltas, selected_tracebacks]
+  avoid: [raw_full_logs, long_stdout_streams]
+
+safety:
+  provider_or_model_calls: forbidden
+  network_calls: forbidden
+  target_test_execution_by_cross_repo_audit: forbidden
+

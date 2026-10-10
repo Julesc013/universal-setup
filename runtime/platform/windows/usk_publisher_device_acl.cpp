@@ -5,8 +5,10 @@
 
 #if defined(_WIN32)
 #include <array>
+#include <aclapi.h>
 #include <cstddef>
 #include <sddl.h>
+#include <set>
 #include <stdexcept>
 #include <string>
 
@@ -123,6 +125,96 @@ std::vector<BYTE> restrict_publisher_default_device_acl(PSID owner, PACL dacl, P
         throw std::runtime_error("publisher device lacks the known default modify grant");
     (void)require_publisher_device_acl_shape(owner, restricted, service_sid);
     return bytes;
+}
+
+std::vector<BYTE> publisher_device_admission_postimage(PSID owner, PACL dacl, PSID service_sid) {
+    if (!dacl || !IsValidAcl(dacl) || dacl->AceCount > 64u || dacl->AclSize > 16384u)
+        throw std::runtime_error("publisher device admission DACL is unavailable or exceeds its bound");
+    std::vector<BYTE> reduced;
+    bool granted = false;
+    try { granted = require_publisher_device_acl_shape(owner, dacl, service_sid); }
+    catch (const std::exception&) {
+        reduced = restrict_publisher_default_device_acl(owner, dacl, service_sid);
+        dacl = reinterpret_cast<PACL>(reduced.data());
+        granted = require_publisher_device_acl_shape(owner, dacl, service_sid);
+    }
+    PACL composed = dacl;
+    if (!granted) {
+        EXPLICIT_ACCESS_W grant{};
+        grant.grfAccessPermissions = FILE_ALL_ACCESS;
+        grant.grfAccessMode = GRANT_ACCESS;
+        grant.grfInheritance = NO_INHERITANCE;
+        grant.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+        grant.Trustee.TrusteeType = TRUSTEE_IS_USER;
+        grant.Trustee.ptstrName = reinterpret_cast<LPWSTR>(service_sid);
+        const DWORD error = SetEntriesInAclW(1, &grant, dacl, &composed);
+        if (error != ERROR_SUCCESS || !composed)
+            throw std::runtime_error("publisher device admission grant cannot be composed");
+    }
+    try {
+        if (!require_publisher_device_acl_shape(owner, composed, service_sid))
+            throw std::runtime_error("publisher device admission postimage lacks its exact service grant");
+        SECURITY_DESCRIPTOR descriptor{};
+        if (!InitializeSecurityDescriptor(&descriptor, SECURITY_DESCRIPTOR_REVISION) ||
+            !SetSecurityDescriptorOwner(&descriptor, owner, FALSE) ||
+            !SetSecurityDescriptorDacl(&descriptor, TRUE, composed, FALSE) ||
+            !SetSecurityDescriptorControl(&descriptor, SE_DACL_PROTECTED, SE_DACL_PROTECTED))
+            throw std::runtime_error("publisher device admission postimage cannot be initialized");
+        DWORD needed = 0;
+        MakeSelfRelativeSD(&descriptor, nullptr, &needed);
+        if (needed == 0 || needed > 16384u)
+            throw std::runtime_error("publisher device admission postimage exceeds its bound");
+        std::vector<BYTE> result(needed);
+        if (!MakeSelfRelativeSD(&descriptor, result.data(), &needed))
+            throw std::runtime_error("publisher device admission postimage cannot be retained");
+        if (!granted) LocalFree(composed);
+        return result;
+    } catch (...) {
+        if (!granted) LocalFree(composed);
+        throw;
+    }
+}
+
+std::vector<BYTE> publisher_read_only_device_admission_postimage(PSID owner, PACL dacl, PSID service_sid) {
+    // Validate the retained prestate before any default-right reduction.
+    (void)require_publisher_device_acl_shape(owner, dacl, service_sid);
+    return publisher_device_admission_postimage(owner, dacl, service_sid);
+}
+
+bool publisher_target_intent_has_device_transition(const json::Value& intent) {
+    const auto keys = [](const json::Value& value, const std::set<std::string>& expected) {
+        std::set<std::string> actual;
+        for (const auto& item : value.as_object()) actual.insert(item.first);
+        if (actual != expected) throw std::runtime_error("target admission intent fields are invalid");
+    };
+    const auto& schema = intent.at("schema").as_string();
+    std::set<std::string> expected{"schema", "identity", "original_metadata", "original_owner_dacl"};
+    if (schema == "usk.publisher_target_intent.v2") {
+        keys(intent, expected);
+        return false;
+    }
+    if (schema != "usk.publisher_target_intent.v3")
+        throw std::runtime_error("target admission intent version is unsupported");
+    expected.insert("mounted_device_transition");
+    keys(intent, expected);
+    const auto& transition = intent.at("mounted_device_transition");
+    keys(transition, {"original_owner_dacl", "intended_policy"});
+    const auto& original = transition.at("original_owner_dacl").as_string();
+    if (original.empty() || original.size() > 8192u)
+        throw std::runtime_error("target admission mounted prestate is unavailable or exceeds its bound");
+    const auto& policy = transition.at("intended_policy");
+    keys(policy, {"owner", "dacl_protected", "aces"});
+    if ((policy.at("owner").as_string() != "S-1-5-18" && policy.at("owner").as_string() != "S-1-5-32-544") ||
+        !policy.at("dacl_protected").as_boolean() || policy.at("aces").as_array().empty() ||
+        policy.at("aces").as_array().size() > 65u)
+        throw std::runtime_error("target admission intended mounted policy is invalid");
+    for (const auto& ace : policy.at("aces").as_array()) {
+        keys(ace, {"type", "flags", "mask", "sid"});
+        if (ace.at("type").as_unsigned() != ACCESS_ALLOWED_ACE_TYPE || ace.at("flags").as_unsigned() > 255u ||
+            ace.at("mask").as_unsigned() > 0xffffffffu || ace.at("sid").as_string().empty() || ace.at("sid").as_string().size() > 256u)
+            throw std::runtime_error("target admission intended mounted ACE is invalid");
+    }
+    return true;
 }
 
 } // namespace usk::platform::windows

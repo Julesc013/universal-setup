@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "usk_protected_install_publisher_internal.h"
 #include "usk_public_lifecycle.h"
+#include "usk_publisher_registration.h"
 #include "usk_stable_file.h"
 #include <iostream>
 
@@ -26,6 +27,58 @@ int main(int argc, char** argv)
     }
     if (argc != 1) return 5;
     using namespace usk::platform::windows;
+    // Closed grammar only: an enrolled maintenance request has its own plan
+    // identity and cannot inherit the original install envelope. No native
+    // registration, effect scope or callback is activated by these values.
+    for (const std::string operation : {"repair", "move", "uninstall"}) {
+        using usk::json::Value;
+        const Value plan(Value::Object{{"schema", Value("usk." + operation + "_plan_request.v1")},
+            {"request_id", Value("request.distinct")}, {"plan_id", Value("plan.maintenance")},
+            {"install_id", Value("install.original")}});
+        const Value apply(Value::Object{{"schema", Value("usk." + operation + "_apply_request.v1")},
+            {"plan_request", plan}, {"reviewed_plan_id", Value("plan.maintenance")},
+            {"reviewed_plan_digest", Value(std::string(64, 'a'))}, {"transaction_id", Value("maintenance.original")},
+            {"applied_at", Value("2026-10-06T00:00:00Z")}, {"confirmation", Value("APPLY")}});
+        const Value envelope(Value::Object{{"schema", Value("usk.publisher.maintenance_reviewed_plan_envelope.v1")},
+            {"activation", Value("operator_acceptance_candidate")}, {"state_root", Value("Q:\\setup")},
+            {"acceptance_root", Value("Q:\\")}, {"plan_request", plan},
+            {"reviewed_plan_digest", Value(std::string(64, 'a'))}, {"apply_request", apply}});
+        const auto request = usk::json::canonical(apply);
+        if (usk::json::canonical(parse_publisher_reviewed_operation_envelope(
+                usk::json::canonical(envelope), request)) != usk::json::canonical(envelope)) return 7;
+        for (const std::string field : {"schema", "activation", "state_root", "acceptance_root", "plan_request", "reviewed_plan_digest"}) {
+            auto changed = envelope;
+            if (field == "state_root" || field == "acceptance_root") {
+                changed.as_object().erase(field);
+                changed.as_object().emplace("unknown", Value("substituted"));
+            } else if (field == "schema") changed.as_object().at(field) = Value("usk.publisher.lab_reviewed_plan_envelope.v2");
+            else if (field == "plan_request") changed.as_object().at(field).as_object().at("install_id") = Value("install.other");
+            else changed.as_object().at(field) = Value("substituted");
+            bool refused = false;
+            try { (void)parse_publisher_reviewed_operation_envelope(usk::json::canonical(changed), request); }
+            catch (const std::exception&) { refused = true; }
+            if (!refused) return 7;
+        }
+        auto changed_apply = apply;
+        changed_apply.as_object().at("transaction_id") = Value("maintenance.other");
+        bool refused = false;
+        try { (void)parse_publisher_reviewed_operation_envelope(usk::json::canonical(envelope), usk::json::canonical(changed_apply)); }
+        catch (const std::exception&) { refused = true; }
+        if (!refused) return 7;
+        const Value recovery(Value::Object{{"schema", Value("usk.publisher_maintenance_recovery_request.v1")},
+            {"operation", Value(operation)}, {"install_id", Value("install.one")}, {"transaction_id", Value("tx.one")}});
+        if (usk::json::canonical(parse_publisher_maintenance_recovery_request(usk::json::canonical(recovery))) !=
+                usk::json::canonical(recovery)) return 8;
+        for (const auto field : {"schema", "operation", "install_id", "transaction_id", "source"}) {
+            auto wrong = recovery;
+            if (std::string(field) == "source") wrong.as_object().emplace(field, Value("unadmitted"));
+            else wrong.as_object().at(field) = Value(std::string(field) == "operation" ? "update" : "../substituted");
+            bool rejected = false;
+            try { (void)parse_publisher_maintenance_recovery_request(usk::json::canonical(wrong)); }
+            catch (const std::exception&) { rejected = true; }
+            if (!rejected) return 8;
+        }
+    }
     // Pure durable-binding fixture; these are not OS observations or a plan
     // acceptance test. A non-lab caller ID must survive, while substitutions
     // in either the request or durable operation fields must refuse.

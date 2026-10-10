@@ -19,6 +19,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <bcrypt.h>
 #else
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -48,6 +49,75 @@ fs::path require_absolute_path(const fs::path& path)
 }
 
 #if defined(_WIN32)
+
+class WindowsFileSha256 {
+public:
+    WindowsFileSha256()
+    {
+        require_success(BCryptOpenAlgorithmProvider(&algorithm_.value,
+            BCRYPT_SHA256_ALGORITHM, MS_PRIMITIVE_PROVIDER, 0), "open");
+        ULONG length = 0, returned = 0;
+        require_success(BCryptGetProperty(algorithm_.value, BCRYPT_HASH_LENGTH,
+            reinterpret_cast<PUCHAR>(&length), static_cast<ULONG>(sizeof(length)), &returned, 0), "length");
+        if (returned != sizeof(length) || length != 32u) {
+            throw std::runtime_error("native file SHA-256 digest length differs");
+        }
+        // CNG owns the object allocation until DestroyHash. No reusable hash,
+        // cached digest, provider fallback or file observation is introduced.
+        require_success(BCryptCreateHash(algorithm_.value, &hash_.value,
+            nullptr, 0, nullptr, 0, 0), "create");
+    }
+
+    void update(const unsigned char* data, std::size_t size)
+    {
+        if ((data == nullptr && size != 0) || size > std::numeric_limits<ULONG>::max()) {
+            throw std::logic_error("invalid native file SHA-256 update");
+        }
+        require_success(BCryptHashData(hash_.value, const_cast<PUCHAR>(data),
+            static_cast<ULONG>(size), 0), "update");
+    }
+
+    std::string finish()
+    {
+        std::array<unsigned char, 32> digest{};
+        require_success(BCryptFinishHash(hash_.value, digest.data(),
+            static_cast<ULONG>(digest.size()), 0), "finish");
+        constexpr char digits[] = "0123456789abcdef";
+        std::string result(digest.size() * 2, '0');
+        for (std::size_t index = 0; index < digest.size(); ++index) {
+            result[index * 2] = digits[digest[index] >> 4];
+            result[index * 2 + 1] = digits[digest[index] & 15u];
+        }
+        return result;
+    }
+
+private:
+    static void require_success(NTSTATUS status, const char* action)
+    {
+        if (status != 0) {
+            throw std::runtime_error(std::string("native file SHA-256 ") + action +
+                " failed (status " + std::to_string(status) + ")");
+        }
+    }
+    struct Algorithm {
+        BCRYPT_ALG_HANDLE value = nullptr;
+        Algorithm() = default;
+        Algorithm(const Algorithm&) = delete;
+        Algorithm& operator=(const Algorithm&) = delete;
+        ~Algorithm() { if (value) BCryptCloseAlgorithmProvider(value, 0); }
+    };
+    struct Hash {
+        BCRYPT_HASH_HANDLE value = nullptr;
+        Hash() = default;
+        Hash(const Hash&) = delete;
+        Hash& operator=(const Hash&) = delete;
+        ~Hash() { if (value) BCryptDestroyHash(value); }
+    };
+    // Reverse member destruction releases the hash before its provider, also
+    // when any constructor/update/finish operation throws.
+    Algorithm algorithm_;
+    Hash hash_;
+};
 
 HANDLE as_handle(std::intptr_t value)
 {
@@ -269,19 +339,22 @@ void StableFile::read_exact(
     if (offset > static_cast<std::uint64_t>(std::numeric_limits<LONGLONG>::max())) {
         throw std::runtime_error("stable local archive offset exceeds platform range");
     }
-    LARGE_INTEGER position{};
-    position.QuadPart = static_cast<LONGLONG>(offset);
-    if (!SetFilePointerEx(handle, position, nullptr, FILE_BEGIN)) {
-        throw windows_error("cannot seek stable local archive");
-    }
     while (size != 0) {
         const DWORD chunk = static_cast<DWORD>(
             std::min<std::size_t>(size, std::numeric_limits<DWORD>::max()));
+        // The original handle is synchronous. A per-read explicit offset
+        // completes before return, without a separate file-pointer seek or
+        // pending I/O storage. Every requested byte still comes from this
+        // held source; no hash, buffer or file observation survives the call.
+        OVERLAPPED position{};
+        position.Offset = static_cast<DWORD>(offset);
+        position.OffsetHigh = static_cast<DWORD>(offset >> 32);
         DWORD read_count = 0;
-        if (!ReadFile(handle, output, chunk, &read_count, nullptr) || read_count != chunk) {
+        if (!ReadFile(handle, output, chunk, &read_count, &position) || read_count != chunk) {
             throw windows_error("cannot read stable local archive");
         }
         output += read_count;
+        offset += read_count;
         size -= read_count;
     }
 #else
@@ -308,7 +381,11 @@ void StableFile::read_exact(
 
 std::string StableFile::sha256_hex() const
 {
+#if defined(_WIN32)
+    WindowsFileSha256 hash;
+#else
     Sha256 hash;
+#endif
     std::array<unsigned char, 64 * 1024> buffer{};
     std::uint64_t offset = 0;
     while (offset < identity_.size_bytes) {

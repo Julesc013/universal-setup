@@ -1,0 +1,34 @@
+schema_version: aide.gateway-lifecycle.v0
+gateway_policy: .aide/policies/gateway.yaml
+states:
+  start:
+    description: Start a local skeleton server only when explicitly requested.
+    default_host: 127.0.0.1
+    external_bind_allowed_in_q19: false
+    provider_calls: false
+    model_calls: false
+  stop:
+    description: Stop the foreground skeleton process with normal process control.
+    daemon_persistence_required: false
+    auto_restart: false
+  status:
+    description: Generate compact Gateway status artifacts from repo-local reports.
+    writes:
+      - .aide/gateway/latest-gateway-status.json
+      - .aide/gateway/latest-gateway-status.md
+  smoke_test:
+    description: Exercise local endpoint payloads without provider/model calls.
+    endpoints:
+      - /health
+      - /status
+      - /route/explain
+      - /summaries
+      - /version
+  no_daemon_persistence_required: true
+  no_auto_start_required: true
+  no_external_worker_invocation: true
+limitations:
+  - no service manager integration
+  - no authentication model
+  - no provider forwarding
+  - no Runtime worker

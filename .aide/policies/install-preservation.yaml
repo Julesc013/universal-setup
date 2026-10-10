@@ -1,0 +1,67 @@
+schema_version: aide.install-preservation-policy.v0
+policy_id: aide.install-preservation.v0
+status: active
+purpose: >
+  Preserve target repository memory, queue state, evidence, docs, local state,
+  manual content, and existing tools during install planning.
+preserve_target_state:
+  - path: .aide/memory/**
+    reason: target memory is target-owned state
+  - path: .aide/queue/**
+    reason: target queue tasks and evidence are target-owned state
+  - path: .aide/context/latest-*
+    reason: generated target context packets are target-local evidence
+  - path: .aide/reports/**
+    reason: generated target reports are target-local evidence
+  - path: .aide/evals/golden-tasks/**
+    reason: target-specific golden tasks may be target-owned
+  - path: AGENTS.md
+    reason: manual content outside managed sections is target-owned
+  - path: docs/canon/**
+    reason: target doctrine and canon are target-owned
+  - path: tools/**
+    reason: existing target tools must be discovered and preserved first
+  - path: .aide.local/**
+    reason: local-only state must not be installed or overwritten
+  - path: .env
+    reason: local environment state must not be installed or overwritten
+  - path: secrets/**
+    reason: secret-like paths are never install candidates
+  - path: raw-prompts/**
+    reason: raw prompts are not install artifacts
+  - path: raw-responses/**
+    reason: raw responses are not install artifacts
+source_generated_skip_rules:
+  - .aide/context/latest-*
+  - .aide/reports/**
+  - .aide/repo/file-inventory.json
+  - .aide/repo/ownership-map.json
+  - .aide/repo/dependency-map.json
+  - .aide/repo/test-map.json
+  - .aide/repo/doc-link-map.json
+  - .aide/repo/generated-map.json
+  - .aide/repo/orphan-candidates.json
+  - .aide/roots/latest-*
+  - .aide/tools/latest-*
+  - .aide/refactors/current-*
+  - .aide/refactors/reference-rewrite-plan.*
+  - .aide/refactors/migration-ledger.draft.jsonl
+  - .aide/install/latest-*
+managed_section_rules:
+  recognize_markers:
+    - AIDE-GENERATED:BEGIN
+    - AIDE-GENERATED:END
+  preserve_outside_managed_sections: true
+  q43_rewrite_allowed: false
+target_examples:
+  eureka_like:
+    - architecture checks
+    - target-specific golden tasks
+    - source and evidence reports
+    - .aide/queue/EUREKA-*
+  dominium_like:
+    - AGENTS.md manual doctrine
+    - XStack and AuditX style tools
+    - FAST STRICT FULL validators
+    - .aide/queue/DOMINIUM-*
+    - docs/canon/**

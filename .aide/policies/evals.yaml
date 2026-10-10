@@ -1,0 +1,47 @@
+schema_version: aide.evals-policy.v0
+policy_id: q15-golden-tasks-v0
+status: active-pending-review
+purpose: >
+  Define deterministic repo-local golden task quality gates for AIDE's
+  token-saving workflow. Q15 evals prove compact packets still preserve
+  required sections, references, evidence, verifier behavior, ledger metadata,
+  and managed guidance determinism before later optimization or routing work.
+evaluation_scope:
+  - deterministic_repo_local
+  - no_model_calls
+  - no_network
+  - no_external_benchmarks
+result_values:
+  - PASS
+  - WARN
+  - FAIL
+quality_dimensions:
+  - required_sections
+  - forbidden_content_absent
+  - references_present
+  - evidence_present
+  - verifier_passes
+  - token_budget_status
+  - deterministic_output
+token_quality_rule:
+  token_reduction_invalid_if_quality_fails: true
+storage_policy:
+  raw_prompt_storage_default: false
+  raw_response_storage_default: false
+  committed_eval_results_allowed: deterministic_metadata_and_reports
+non_goals:
+  - no LLM judging
+  - no provider calls
+  - no SWE-bench
+  - no semantic correctness benchmark yet
+required_initial_tasks:
+  - compact-task-packet-required-sections
+  - context-packet-no-full-repo-dump
+  - verifier-detects-bad-evidence
+  - review-packet-evidence-only
+  - token-ledger-budget-check
+  - adapter-managed-section-determinism
+reporting:
+  latest_json: .aide/evals/runs/latest-golden-tasks.json
+  latest_markdown: .aide/evals/runs/latest-golden-tasks.md
+  token_quality_statement: Token reduction remains valid only if golden tasks pass.

@@ -1,0 +1,12 @@
+schema_version: aide.golden-task.v0
+id: task_os_repair_requeue_resume_plan_golden
+title: Task OS Repair Requeue Resume Plan Golden
+status: active
+description: Verify repair, requeue, and resume plans remain planning-only.
+quality_dimensions:
+  - repair_plan
+  - requeue_plan
+  - resume_plan
+  - no_apply
+runner: .aide/scripts/aide_lite.py eval run --task task_os_repair_requeue_resume_plan_golden
+no_call: true

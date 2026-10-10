@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE GitHub Release Publication Boundary",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "tag_created",
+    "github_release_created",
+    "upload_performed",
+    "network_api_call",
+    "branch_mutation",
+    "active_ci_installed",
+    "blocked_actions",
+    "no_publish"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "tag_created": {"type": "boolean"},
+    "github_release_created": {"type": "boolean"},
+    "upload_performed": {"type": "boolean"},
+    "network_api_call": {"type": "boolean"},
+    "branch_mutation": {"type": "boolean"},
+    "active_ci_installed": {"type": "boolean"},
+    "blocked_actions": {"type": "array", "items": {"type": "string"}},
+    "no_publish": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

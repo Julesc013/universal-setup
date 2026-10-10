@@ -39,6 +39,9 @@ namespace usk::record_io {
 
 namespace {
 thread_local const RecordWriteOperations* record_write_operations = nullptr;
+#if defined(_WIN32)
+thread_local const NativeRecordReadOperations* native_record_read_operations = nullptr;
+#endif
 }
 
 ScopedRecordWriteOperations::ScopedRecordWriteOperations(const RecordWriteOperations& operations)
@@ -54,6 +57,15 @@ ScopedRecordWriteOperations::~ScopedRecordWriteOperations()
 {
     record_write_operations = previous_;
 }
+
+#if defined(_WIN32)
+ScopedNativeRecordReadOperations::ScopedNativeRecordReadOperations(const NativeRecordReadOperations& operations) {
+    if (native_record_read_operations || !operations.read_owned_text)
+        throw std::runtime_error("native owned record reader scope unavailable");
+    native_record_read_operations = &operations;
+}
+ScopedNativeRecordReadOperations::~ScopedNativeRecordReadOperations() { native_record_read_operations = nullptr; }
+#endif
 
 bool valid_identifier(const std::string& value)
 {
@@ -236,6 +248,15 @@ void write_new_durable_text(const fs::path& path, const std::string& content)
 
 std::string read_stable_text(const fs::path& path, std::size_t max_bytes)
 {
+#if defined(_WIN32)
+    if (native_record_read_operations) {
+        const auto text = native_record_read_operations->read_owned_text(path, max_bytes);
+        if (text) {
+            if (text->size() > max_bytes) throw std::runtime_error("durable record exceeds read budget");
+            return *text;
+        }
+    }
+#endif
     usk::base::StableFile file(path);
     if (file.identity().size_bytes > max_bytes) throw std::runtime_error("durable record exceeds read budget");
     const std::vector<unsigned char> bytes = file.read(0, static_cast<std::size_t>(file.identity().size_bytes));

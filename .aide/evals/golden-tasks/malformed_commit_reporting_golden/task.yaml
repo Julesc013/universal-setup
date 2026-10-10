@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+task_id: malformed_commit_reporting_golden
+title: Malformed Commit Reporting Golden
+status: active
+purpose: Check Q34 malformed and legacy commit reporting without history rewrite.
+input_refs:
+  - .aide/changelog/malformed-commits.md
+  - .aide/policies/changelog.yaml
+acceptance_ref: .aide/evals/golden-tasks/malformed_commit_reporting_golden/acceptance.md
+expected_result: PASS

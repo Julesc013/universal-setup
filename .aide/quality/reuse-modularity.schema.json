@@ -1,0 +1,20 @@
+{
+  "schema_version": "aide.reuse-modularity.schema.v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "duplicate_hash_candidates",
+    "repeated_helper_name_candidates",
+    "similar_filename_clusters",
+    "caveats"
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "generated_by": { "type": "string" },
+    "duplicate_hash_candidates": { "type": "array" },
+    "repeated_helper_name_candidates": { "type": "array" },
+    "similar_filename_clusters": { "type": "array" },
+    "caveats": { "type": "array" }
+  }
+}

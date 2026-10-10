@@ -1,0 +1,9 @@
+schema_version: aide.golden-task.v0
+task_id: verifier-detects-bad-evidence
+title: Verifier Detects Bad Evidence
+status: active
+purpose: Prove the verifier catches a fixture evidence packet missing required sections.
+input_refs:
+  - .aide/evals/golden-tasks/verifier-detects-bad-evidence/fixtures/missing-sections.md
+acceptance_ref: .aide/evals/golden-tasks/verifier-detects-bad-evidence/acceptance.md
+expected_result: PASS

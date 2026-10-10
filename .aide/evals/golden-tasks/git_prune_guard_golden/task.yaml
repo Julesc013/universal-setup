@@ -1,0 +1,11 @@
+schema_version: aide.golden-task.v0
+task_id: git_prune_guard_golden
+title: Git Prune Guard Golden
+status: active
+purpose: Check prune helper ancestor containment and protected-role guards.
+input_refs:
+  - .aide/git/helper-policy.yaml
+  - .aide/git/helper-commands.md
+  - .aide/policies/prune-policy.yaml
+acceptance_ref: .aide/evals/golden-tasks/git_prune_guard_golden/acceptance.md
+expected_result: PASS

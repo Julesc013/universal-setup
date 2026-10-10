@@ -1,0 +1,126 @@
+schema_version: aide.provider-capability-matrix.v0
+matrix_id: q20-provider-capabilities
+status: conservative_metadata_only
+live_calls_allowed_in_q20: false
+capability_status_values:
+  - supported_by_contract
+  - planned
+  - unknown
+  - not_applicable
+  - requires_future_probe
+capability_dimensions:
+  - capability_id: deterministic_transform
+    description: Can complete deterministic repo-local transformations or checks without model calls.
+  - capability_id: file_system_local
+    description: Can inspect or operate on repo-local files under explicit path boundaries.
+  - capability_id: structured_output
+    description: Can provide or require structured output contracts in a future phase.
+  - capability_id: json_schema
+    description: Can provide JSON-schema-shaped output if a future provider phase validates it.
+  - capability_id: tool_use
+    description: Can use tools only under a future controlled runtime.
+  - capability_id: long_context
+    description: Can handle larger compact packets if future measurements justify it.
+  - capability_id: local_execution
+    description: Can run locally without remote provider calls.
+  - capability_id: privacy_sensitive
+    description: Suitable for local or human-first handling of sensitive work.
+  - capability_id: cheap_bulk
+    description: Candidate for low-risk externally checkable bulk work in a future phase.
+  - capability_id: reasoning_heavy
+    description: Candidate for high-uncertainty work in a future phase.
+  - capability_id: frontier_review
+    description: Candidate for premium/human review of high-risk evidence packets in a future phase.
+  - capability_id: human_judgement
+    description: Accountable review or decision-making by a human reviewer.
+  - capability_id: test_execution
+    description: Can run deterministic local tests or report test status.
+  - capability_id: code_edit
+    description: Can participate in bounded code changes only when separately authorized and verified.
+  - capability_id: unavailable
+    description: Capability is unavailable or not applicable under the current adapter class.
+provider_capabilities:
+  deterministic_tools:
+    deterministic_transform: supported_by_contract
+    file_system_local: supported_by_contract
+    structured_output: supported_by_contract
+    json_schema: planned
+    tool_use: not_applicable
+    long_context: not_applicable
+    local_execution: supported_by_contract
+    privacy_sensitive: supported_by_contract
+    cheap_bulk: supported_by_contract
+    reasoning_heavy: not_applicable
+    frontier_review: not_applicable
+    human_judgement: not_applicable
+    test_execution: supported_by_contract
+    code_edit: supported_by_contract
+    unavailable: not_applicable
+  human:
+    deterministic_transform: not_applicable
+    file_system_local: unknown
+    structured_output: planned
+    json_schema: not_applicable
+    tool_use: not_applicable
+    long_context: unknown
+    local_execution: not_applicable
+    privacy_sensitive: supported_by_contract
+    cheap_bulk: not_applicable
+    reasoning_heavy: supported_by_contract
+    frontier_review: supported_by_contract
+    human_judgement: supported_by_contract
+    test_execution: unknown
+    code_edit: unknown
+    unavailable: not_applicable
+  local_model_families:
+    deterministic_transform: not_applicable
+    file_system_local: requires_future_probe
+    structured_output: requires_future_probe
+    json_schema: requires_future_probe
+    tool_use: requires_future_probe
+    long_context: requires_future_probe
+    local_execution: planned
+    privacy_sensitive: planned
+    cheap_bulk: planned
+    reasoning_heavy: requires_future_probe
+    frontier_review: requires_future_probe
+    human_judgement: not_applicable
+    test_execution: requires_future_probe
+    code_edit: requires_future_probe
+    unavailable: unknown
+  remote_model_families:
+    deterministic_transform: not_applicable
+    file_system_local: not_applicable
+    structured_output: requires_future_probe
+    json_schema: requires_future_probe
+    tool_use: requires_future_probe
+    long_context: requires_future_probe
+    local_execution: not_applicable
+    privacy_sensitive: unknown
+    cheap_bulk: requires_future_probe
+    reasoning_heavy: requires_future_probe
+    frontier_review: requires_future_probe
+    human_judgement: not_applicable
+    test_execution: not_applicable
+    code_edit: requires_future_probe
+    unavailable: unknown
+  aggregator_families:
+    deterministic_transform: not_applicable
+    file_system_local: not_applicable
+    structured_output: requires_future_probe
+    json_schema: requires_future_probe
+    tool_use: requires_future_probe
+    long_context: requires_future_probe
+    local_execution: not_applicable
+    privacy_sensitive: unknown
+    cheap_bulk: requires_future_probe
+    reasoning_heavy: requires_future_probe
+    frontier_review: requires_future_probe
+    human_judgement: not_applicable
+    test_execution: not_applicable
+    code_edit: requires_future_probe
+    unavailable: unknown
+notes:
+  - Q20 records conservative metadata only.
+  - Capability statuses are not measured provider performance claims.
+  - Remote and local model capabilities require future reviewed probe phases.

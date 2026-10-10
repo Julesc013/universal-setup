@@ -1,0 +1,10 @@
+{
+  "schema_version": "aide.ownership-boundary.v0",
+  "example": true,
+  "boundary_id": "fixture-owned-boundary",
+  "path": ".aide/examples/apply/fixture-root/**",
+  "owner": "AIDE-APPLY-00 fixture",
+  "ownership_state": "owned",
+  "allowed_operations": ["create", "update_managed_section", "noop"],
+  "review_required": true
+}

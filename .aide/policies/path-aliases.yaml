@@ -1,0 +1,49 @@
+schema_version: aide.path-alias-policy.v0
+policy_id: aide.path-aliases.v0
+status: active
+purpose: >
+  Define deterministic candidate path alias planning for future compatibility
+  aliases, temporary shims, documentation redirects, import aliases, generated
+  projections, and historical aliases.
+operating_mode:
+  - deterministic_local
+  - no_model_calls
+  - no_provider_calls
+  - no_network_calls
+  - candidate_only
+  - dry_run_first
+  - no_alias_application_in_q42
+  - no_shim_creation
+  - no_reference_rewrites
+alias_types:
+  - compatibility_alias
+  - temporary_shim
+  - documentation_redirect
+  - import_alias
+  - generated_projection_alias
+  - historical_alias
+alias_statuses:
+  - candidate
+  - active_future
+  - deprecated_future
+  - retired_future
+  - rejected
+required_fields:
+  - old_path
+  - new_path
+  - owner
+  - reason
+  - created_in
+  - retire_after
+  - validation
+  - consumers
+safety_rules:
+  q42_active_alias_allowed: false
+  apply_allowed_default: false
+  alias_is_target_truth: false
+  retire_condition_required: true
+non_goals:
+  - no alias application in Q42
+  - no shim creation
+  - no import alias creation
+  - no target mutation

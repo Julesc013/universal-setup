@@ -1,0 +1,44 @@
+schema_version: aide.tool-capabilities-policy.v0
+policy_id: aide.tool-capabilities.v0
+status: active
+purpose: >
+  Define deterministic capability families and mapping hints for discovered
+  tools.
+capability_families:
+  validate:
+    hints: [validate, check, doctor]
+  test:
+    hints: [test, unittest, pytest]
+  build:
+    hints: [build, cmake, make]
+  audit:
+    hints: [audit, report]
+  lint:
+    hints: [lint]
+  format:
+    hints: [format]
+  generate:
+    hints: [generate, render, compile]
+  migrate:
+    hints: [migrate, move, rewrite]
+  release:
+    hints: [release, publish, tag]
+  package:
+    hints: [package, dist, bundle]
+  install:
+    hints: [install, upgrade, rollback, uninstall]
+  docs:
+    hints: [docs, readme, documentation]
+  security:
+    hints: [secret, security, scan, credential]
+  repo_policy:
+    hints: [repo, policy, layout, root, governance]
+  context:
+    hints: [context, pack, snapshot]
+  unknown:
+    hints: []
+mapping_rules:
+  multiple_capabilities_allowed: true
+  unknown_is_valid_when_no_hint_matches: true
+  capability_mapping_is_advisory: true
+  no_wrapper_execution_from_mapping: true

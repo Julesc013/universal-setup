@@ -1,0 +1,55 @@
+schema_version: aide.changelog-policy.v0
+policy_id: aide-changelog-release-draft-v0
+status: active
+purpose: >
+  Generate deterministic, reviewable changelog and release-note previews from
+  local Git history and structured AIDE commit bodies without publishing a
+  release or rewriting history.
+operating_mode:
+  - preview_only
+  - no_release_publishing
+  - no_tag_creation
+  - no_github_release_creation
+source_inputs:
+  - git_commit_history
+  - conventional_commit_subject
+  - structured_markdown_body
+  - changelog_categories
+  - AIDE trailers
+output_files:
+  - .aide/changelog/CHANGELOG.preview.md
+  - .aide/changelog/RELEASE_NOTES.preview.md
+  - .aide/changelog/changelog.preview.json
+  - .aide/changelog/release-notes.preview.json
+  - .aide/changelog/malformed-commits.md
+default_range_policy:
+  - prefer_latest_tag_to_HEAD_if_tag_exists
+  - otherwise_use_recent_commit_window
+  - explicit_range_overrides_default
+categories:
+  - Added
+  - Changed
+  - Fixed
+  - Removed
+  - Deprecated
+  - Security
+  - Docs
+  - Tests
+  - Internal
+  - Risks
+  - Follow-up
+malformed_commit_policy:
+  - report_not_hide
+  - do_not_rewrite_history
+  - release_promotion_requires_review
+quality_rules:
+  - malformed_commits_reported_for_review
+  - missing_validation_warns
+  - missing_risks_warns
+  - security_items_prominent
+  - breaking_changes_prominent
+non_goals:
+  - no release publishing
+  - no tag creation
+  - no GitHub API mutation
+  - no semantic impact inference beyond structured inputs

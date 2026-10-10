@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+task_id: review-packet-evidence-only
+title: Review Packet Evidence Only
+status: active
+purpose: Check that the latest review packet is bounded to evidence and a decision request.
+input_refs:
+  - .aide/context/latest-review-packet.md
+  - .aide/prompts/evidence-review.md
+acceptance_ref: .aide/evals/golden-tasks/review-packet-evidence-only/acceptance.md
+expected_result: PASS

@@ -1,0 +1,6 @@
+schema_version: aide.golden-task.v0
+id: target_validator_preservation_golden
+title: Target Validator Preservation Golden
+status: active
+description: Verify target-specific validators and manifests are preserved by policy.
+

@@ -1,0 +1,17 @@
+{
+  "schema_version": "aide.managed-section-patch.v0",
+  "example": true,
+  "patch_id": "patch-managed-section-valid-fixture",
+  "operation_id": "op-managed-section-valid-fixture",
+  "path": ".aide/examples/apply/managed-section-fixtures/valid_input.md",
+  "section_name": "aide-fixture-section",
+  "replacement_content": "Generated fixture content v2.\n",
+  "replacement_hash": "sha256:example-replacement",
+  "preserve_trailing_newline": true,
+  "expected_existing_hash": "sha256:example-existing",
+  "resulting_file_hash": "sha256:example-resulting-file",
+  "status": "planned",
+  "warnings": [],
+  "conflicts": [],
+  "no_real_apply_boundary": true
+}

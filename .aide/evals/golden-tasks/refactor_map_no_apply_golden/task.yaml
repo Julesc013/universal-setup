@@ -1,0 +1,9 @@
+schema_version: aide.golden-task.v0
+task_id: refactor_map_no_apply_golden
+title: Refactor Map No Apply Golden
+status: active
+runner: aide_lite
+command: eval run --task refactor_map_no_apply_golden
+deterministic: true
+network_calls: false
+provider_calls: false

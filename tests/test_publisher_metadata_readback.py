@@ -3,6 +3,7 @@
 
 import json
 import base64
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -13,6 +14,412 @@ import unittest
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_failed_maintenance_readback_retains_rows_without_accepting_acl_role(self):
+        # Exercise only actual reader/policy control flow with inert observed
+        # data. No native access check, token custody or backup is manufactured.
+        root = Path(__file__).resolve().parents[1]
+        code = r"""$ErrorActionPreference='Stop'
+foreach($selection in @(@{file='windows_publisher_standard_public_probe.ps1';name='Read-NativeSnapshot'},
+ @{file='windows_publisher_metadata_readback.ps1';name='Assert-IndependentProtectedRows'})) {
+ $tokens=$null;$errors=$null
+ $ast=[Management.Automation.Language.Parser]::ParseFile((Join-Path $env:USK_TEST_SOURCE $selection.file),[ref]$tokens,[ref]$errors)
+ if($errors.Count){throw 'Actual reader/policy syntax differs'}
+ $functions=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+  $n.Name -ceq $selection.name},$true))
+ if($functions.Count -ne 1){throw 'Actual reader/policy function is ambiguous'}
+ . ([scriptblock]::Create($functions[0].Extent.Text))
+}
+$MaintenanceQualification=$true;$drive='E:\';$lab='inert';$ownerCreation='134360177507798014'
+$PIDValue=7832;$accountSid='S-1-5-21-1-2-3-4';$sid='S-1-5-80-1-2-3-4-5'
+$clientCaptureFile='inert';$clientCaptureSha256='a'*64;$VolumeRoot='inert'
+$disk=[pscustomobject]@{Number=1};$script:invocations=0
+$script:observed=[pscustomobject]@{observer_task_removed=$true;independent=[pscustomobject]@{
+ identity='S-1-5-18';observer_token_handles_closed=$true;rows=@([pscustomobject]@{
+ path='E:\publication\destination\.usk-repair-maintenance.repair.original\backup\bin\core.bin';
+ owner='S-1-5-18';protected=$true;aces=@(
+ @{sid='S-1-5-18';rights=2032127;type='Allow';inherited=$false;inheritance=0;propagation=0},
+ @{sid=$sid;rights=2032127;type='Allow';inherited=$false;inheritance=0;propagation=0},
+ @{sid=$accountSid;rights=1179817;type='Allow';inherited=$false;inheritance=0;propagation=0})})}}
+function Invoke-IndependentMetadataReadback {
+ $script:invocations++;return $script:observed
+}
+foreach($command in @('repair.apply','repair.recover')) {
+foreach($variant in @('ordinary','original_failure','copied_failure','changed_capture','different_command','unconfirmed_close','qualification_changed')) {
+ $failed=[ordered]@{scope='original_failed_request_before_cleanup';qualification_granted=$false;
+  command=$command;request_id='public.original';client_process_id=$PIDValue;
+  client_creation_file_time=$ownerCreation;readback=$null}
+ $receipt=[ordered]@{request_execution_failure=$failed;client_captures=@([pscustomobject]@{
+  request_id=$failed.request_id;command=$failed.command;process_id=$PIDValue;creation_file_time=$ownerCreation;
+  captured_before_primary_thread_resume=$true;primary_token=@{user_sid=$accountSid}})}
+ $supplied=$failed;$before=$script:invocations;$caught=$null
+ $script:observed.independent.observer_token_handles_closed=$true
+ switch($variant) {
+  'ordinary' {$supplied=$null}
+  'copied_failure' {$supplied=$failed|ConvertTo-Json -Depth 8|ConvertFrom-Json}
+  'changed_capture' {$receipt.client_captures[0].creation_file_time='134360177507798015'}
+  'different_command' {$receipt.client_captures[0].command='uninstall.apply'}
+  'unconfirmed_close' {$script:observed.independent.observer_token_handles_closed=$false}
+  'qualification_changed' {$failed.qualification_granted=$true}
+ }
+ try {$ignored=Read-NativeSnapshot -OriginalFailedRequest $supplied} catch {$caught=$_.Exception.Message}
+ if(-not $caught){throw ('Refused diagnostic returned an accepted snapshot: '+$variant)}
+ if($variant -ceq 'original_failure') {
+  if(-not $caught.StartsWith('Independent owner/DACL differs: ',[StringComparison]::Ordinal) -or
+   -not [object]::ReferenceEquals($failed.readback,$script:observed) -or
+   $failed.readback_policy.status -cne 'refused' -or $failed.readback_policy.qualification_granted -ne $false -or
+   $failed.readback_policy.failure -cne $caught -or $failed.readback_policy.failure_truncated -ne $false -or
+   $failed.qualification_granted -ne $false -or -not $script:observersClosed) {
+   throw 'Original refused policy erased rows or granted qualification'
+  }
+ } elseif($failed.readback -or $failed.Contains('readback_policy')) {
+  throw ('An unrelated or unclosed reader retained approved diagnostics: '+$variant)
+ }
+ if($variant -cin @('copied_failure','changed_capture','different_command','qualification_changed') -and $script:invocations -ne $before) {
+  throw 'Unbound failure invoked an observer'
+ }
+}
+}
+"""
+        for binary in ("powershell", "pwsh"):
+            executable = shutil.which(binary)
+            if not executable:
+                continue
+            with self.subTest(binary=binary):
+                environment = dict(os.environ, USK_TEST_SOURCE=str(root / "tests"))
+                result = subprocess.run([executable, "-NoProfile", "-NonInteractive", "-EncodedCommand",
+                    base64.b64encode(code.encode("utf-16le")).decode()], env=environment,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout.decode(errors="replace"))
+
+    def test_incomplete_original_failure_rows_remain_separate_and_refused(self):
+        # Actual reader control flow, inert diagnostic data; no native authority.
+        root = Path(__file__).resolve().parents[1]
+        code = r"""$ErrorActionPreference='Stop'
+$t=$null;$e=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($env:USK_READER_SOURCE,[ref]$t,[ref]$e)
+if($e){throw 'Reader parse differs'}
+$definition=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+ $n.Name -ceq 'Read-NativeSnapshot'},$true))
+if($definition.Count -ne 1){throw 'Reader ambiguous'}
+. ([scriptblock]::Create($definition[0].Extent.Text))
+$MaintenanceQualification=$true;$drive='E:\';$lab='inert';$ownerCreation='134360177507798014'
+$accountSid='S-1-5-21-1-2-3-4';$sid='S-1-5-80-1-2-3-4-5';$clientCaptureFile='inert'
+$clientCaptureSha256='a'*64;$VolumeRoot='inert';$disk=@{Number=1}
+$script:invocations=0;$script:policyInvocations=0
+function Assert-IndependentProtectedRows {$script:policyInvocations++;throw 'Incomplete rows reached policy'}
+function Invoke-IndependentMetadataReadback {
+ param($OriginalFailedRequestDiagnosticBinding)
+ $script:invocations++
+ if($supplied) {
+  $binding=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String(
+   $OriginalFailedRequestDiagnosticBinding))|ConvertFrom-Json
+  if($binding.request_id -cne $failed.request_id -or $binding.command -cne $failed.command -or
+   $binding.client_process_id -ne $failed.client_process_id -or
+   $binding.client_creation_file_time -cne $failed.client_creation_file_time -or
+   $binding.account_sid -cne $accountSid -or $binding.client_capture_sha256 -cne $clientCaptureSha256 -or
+   $binding.qualification_granted -ne $false){throw 'Diagnostic opt-in lost original binding'}
+ }
+ return $script:observed
+}
+foreach($command in @('repair.apply','repair.recover')) {
+foreach($variant in @('original','ordinary','copied_failure','different_request','qualifying','unclosed')) {
+ $failed=[ordered]@{scope='original_failed_request_before_cleanup';qualification_granted=$false;
+  request_id=('public.'+('a'*32));command=$command;client_process_id=123;
+  client_creation_file_time=$ownerCreation;readback=$null}
+ $receipt=@{request_execution_failure=$failed;client_captures=@(@{request_id=$failed.request_id;
+  command=$command;process_id=123;creation_file_time=$ownerCreation;
+  captured_before_primary_thread_resume=$true;primary_token=@{user_sid=$accountSid}})}
+ $script:observed=[pscustomobject]@{observer_task_removed=$true;independent=[pscustomobject]@{
+  schema='usk.publisher.metadata_incomplete_failed_request_diagnostic.v1';identity='S-1-5-18';
+  observer_token_handles_closed=$true;status='incomplete';scope='original_failed_request_content_read_only';
+  original_request=[pscustomobject]@{request_id=$failed.request_id;command=$command;client_process_id=123;
+   client_creation_file_time=$ownerCreation};rows=@(@{path='blocked.json';content_json=$null});
+  content_read_failures=@(@{field='content_json';status='unreadable'});
+  qualification_granted=$false;operation_completion_qualified=$false;native_restoration_qualified=$false;
+  whole_target_qualified=$false;authority_granted=$false}}
+ $supplied=$failed;$before=$script:invocations
+ switch($variant) {
+  'ordinary' {$supplied=$null}
+  'copied_failure' {$supplied=$failed|ConvertTo-Json|ConvertFrom-Json}
+  'different_request' {$script:observed.independent.original_request.request_id='public.'+('b'*32)}
+  'qualifying' {$script:observed.independent.qualification_granted=$true}
+  'unclosed' {$script:observed.independent.observer_token_handles_closed=$false}
+ }
+ $caught=$null
+ try {$ignored=Read-NativeSnapshot -OriginalFailedRequest $supplied} catch {$caught=$_.Exception.Message}
+ if(-not $caught -or $failed.readback -or $script:policyInvocations -ne 0 -or $failed.Contains('backup_role_diagnostic')) {
+  throw 'Incomplete data became an ordinary snapshot, policy input or backup provenance'
+ }
+ if($variant -ceq 'original') {
+  if(-not [object]::ReferenceEquals($failed.incomplete_readback_diagnostic,$script:observed) -or
+   -not $script:observersClosed -or $failed.qualification_granted -ne $false){throw 'Original incomplete rows lost'}
+ } elseif($failed.Contains('incomplete_readback_diagnostic')) {throw 'Unbound/unclosed diagnostic retained'}
+ if($variant -ceq 'copied_failure' -and $script:invocations -ne $before){throw 'Copied failure invoked observer'}
+}
+}
+"""
+        for binary in ('powershell', 'pwsh'):
+            executable = shutil.which(binary)
+            self.assertIsNotNone(executable)
+            with self.subTest(binary=binary):
+                result = subprocess.run([executable, '-NoProfile', '-NonInteractive', '-EncodedCommand',
+                    base64.b64encode(code.encode('utf-16le')).decode()],
+                    env=dict(os.environ, USK_READER_SOURCE=str(root / 'tests/windows_publisher_standard_public_probe.ps1')),
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout.decode(errors='replace'))
+
+    def test_failed_content_diagnostic_catches_only_actual_sharing_and_retains_native_facts(self):
+        # Owned local file/handles and the actual ReadClosure/content code.
+        # This isolates I/O diagnostics; no machine/request authority is claimed.
+        root = Path(__file__).resolve().parents[1]
+        source = (root / 'tests/windows_publisher_metadata_readback.ps1').read_text(encoding='utf-8')
+        native = source.split(' Add-Type -TypeDefinition @"\n', 1)[1].split('"@', 1)[0]
+        code = r"""$ErrorActionPreference='Stop'
+Add-Type -TypeDefinition ([IO.File]::ReadAllText($env:USK_CONTENT_NATIVE))
+$source=[IO.File]::ReadAllText($env:USK_CONTENT_SOURCE)
+$start=$source.IndexOf("  if(-not `$p.PSIsContainer -and `$p.Extension -eq '.json') {",[StringComparison]::Ordinal)
+$end=$source.IndexOf('  if($effectiveRights) {',$start,[StringComparison]::Ordinal)
+if($start -lt 0 -or $end -le $start){throw 'Actual content-read block missing'}
+$content=[scriptblock]::Create($source.Substring($start,$end-$start))
+$file=Join-Path $env:USK_CONTENT_ROOT 'held.json'
+[IO.File]::WriteAllText($file,'{"owned":true}',[Text.UTF8Encoding]::new($false))
+$holder=[IO.File]::Open($file,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,
+ ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+try {
+ $facts=[UskMetadataFacts]::ReadClosure($file)
+ foreach($observedPath in @($file,($file.Substring(0,1).ToLowerInvariant()+$file.Substring(1)))) {
+ foreach($optedIn in @($false,$true)) {
+  $p=Get-Item -LiteralPath $observedPath
+  $row=[ordered]@{file_id=[string]$facts[0];sha256=$facts[6];bytes=[long]$facts[7];content_json=$null}
+  $contentReadFailures=[Collections.Generic.List[object]]::new()
+  $failedContentBinding=if($optedIn){@{qualification_granted=$false}}else{$null}
+  $caught=$null
+  try {. $content} catch {$caught=$_}
+  if($optedIn) {
+   if($caught -or $contentReadFailures.Count -ne 1 -or $row.content_json -ne $null -or
+    $row.content_read_failure.field -cne 'content_json' -or $row.content_read_failure.status -cne 'unreadable' -or
+    $row.content_read_failure.win32_error -ne 32 -or $row.content_read_failure.path -cne $p.FullName -or
+    $row.file_id -cne [string]$facts[0] -or $row.sha256 -cne $facts[6] -or $row.bytes -ne $facts[7]) {
+    $details=[ordered]@{caught=$(if($caught){$caught.Exception.Message}else{$null});
+     failure_count=$contentReadFailures.Count;input_path=$observedPath;actual_path=$p.FullName;
+     row=$row;native_file_id=[string]$facts[0];native_sha256=$facts[6];native_bytes=[long]$facts[7]}
+    throw ('Sharing diagnostic lost actual native facts or manufactured content; '+
+     ($details|ConvertTo-Json -Depth 4 -Compress))
+   }
+  } elseif(-not $caught -or $contentReadFailures.Count -ne 0 -or $row.Contains('content_read_failure')) {
+   throw 'Ordinary content read no longer refuses sharing'
+  }
+ }
+ }
+} finally {$holder.Dispose()}
+$failedContentBinding=@{qualification_granted=$false};$contentReadFailures=[Collections.Generic.List[object]]::new()
+$row=@{content_json=$null};$p=Get-Item -LiteralPath $file
+. $content
+if($row.content_json -cne '{"owned":true}' -or $contentReadFailures.Count){throw 'Closed ordinary content changed'}
+[IO.File]::Delete($file)
+$caught=$null
+try {. $content} catch {$caught=$_}
+if(-not $caught -or $contentReadFailures.Count -ne 0){throw 'Nonsharing I/O failure was swallowed'}
+"""
+        for binary in ('powershell', 'pwsh'):
+            executable = shutil.which(binary)
+            self.assertIsNotNone(executable)
+            with self.subTest(binary=binary), tempfile.TemporaryDirectory(prefix='usk-sharing-control-') as temporary:
+                path = Path(temporary) / 'native.cs'
+                path.write_text(native, encoding='utf-8')
+                result = subprocess.run([executable, '-NoProfile', '-NonInteractive', '-EncodedCommand',
+                    base64.b64encode(code.encode('utf-16le')).decode()], env=dict(os.environ,
+                        USK_CONTENT_NATIVE=str(path), USK_CONTENT_ROOT=temporary,
+                        USK_CONTENT_SOURCE=str(root / 'tests/windows_publisher_metadata_readback.ps1')),
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=40)
+                self.assertEqual(result.returncode, 0, result.stdout.decode(errors='replace'))
+
+    def test_observer_failure_keeps_child_error_when_task_status_query_fails(self):
+        # Run only the owned failure serializer/formatter. No scheduled task,
+        # native observation or token-close acknowledgement is manufactured.
+        root = Path(__file__).resolve().parents[1]
+        code = r"""$ErrorActionPreference='Stop'
+$source=[IO.File]::ReadAllText($env:USK_FAILURE_SOURCE)
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors)
+if($errors){throw 'Outer reader syntax differs'}
+$strings=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.StringConstantExpressionAst] -and
+ $n.Value.Contains("schema='usk.publisher.metadata_observer_failure.v1';status='failed'")},$true))
+$branches=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.IfStatementAst] -and
+ $n.Extent.Text.StartsWith('if(Test-Path -LiteralPath $failureOutput)',[StringComparison]::Ordinal)},$true))
+if($strings.Count -ne 1 -or $branches.Count -ne 1){throw 'Actual failure serializer/formatter absent or ambiguous'}
+$output=Join-Path $env:USK_FAILURE_DIRECTORY 'success.json'
+$failureOutput=$output+'.failure.json'
+$child='$global:UskMetadataObserverPhase=''control_child_failure''; try { throw [InvalidOperationException]::new(''child-original-''+(''x''*10000)) }'+
+ $strings[0].Value.Replace('__FAILURE_OUTPUT__',$failureOutput.Replace("'","''"))
+& $env:USK_FAILURE_BINARY -NoProfile -NonInteractive -EncodedCommand ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($child)))
+if($LASTEXITCODE -ne 1 -or (Test-Path -LiteralPath $output) -or (Test-Path -LiteralPath ($failureOutput+'.pending'))){
+ throw 'Failure-only atomic publication differs'
+}
+$record=[IO.File]::ReadAllText($failureOutput)|ConvertFrom-Json
+if($record.schema -cne 'usk.publisher.metadata_observer_failure.v1' -or $record.status -cne 'failed' -or
+ $record.phase -cne 'control_child_failure' -or $record.exception_type -cne 'System.InvalidOperationException' -or
+ $record.hresult -ne -2146233079 -or -not $record.message.StartsWith('child-original-',[StringComparison]::Ordinal) -or
+ $record.message.Length -ne 8192 -or $record.stack.Length -gt 8192 -or $record.observer_token_handles_closed -ne $false -or
+ (Get-Item -LiteralPath $failureOutput).Length -gt 65536){throw 'Actual child diagnostic differs'}
+function Get-ScheduledTaskInfo {param($TaskName,$ErrorAction) throw [InvalidOperationException]::new('task-status-unavailable-'+('z'*10000))}
+$name='inert-control';$caught=$null
+try {& ([scriptblock]::Create($branches[0].Extent.Text))} catch {$caught=$_.Exception.Message}
+$prefix='Independent observer failed: '
+$separator='; task result observation='
+if(-not $caught -or -not $caught.StartsWith($prefix,[StringComparison]::Ordinal)){throw 'Child diagnostic was masked'}
+$index=$caught.LastIndexOf($separator,[StringComparison]::Ordinal)
+if($index -lt $prefix.Length){throw 'Supplementary query observation absent'}
+$propagated=$caught.Substring($prefix.Length,$index-$prefix.Length)|ConvertFrom-Json
+$query=$caught.Substring($index+$separator.Length)|ConvertFrom-Json
+if($propagated.phase -cne $record.phase -or $propagated.hresult -ne $record.hresult -or
+ $propagated.message -cne $record.message -or $propagated.observer_token_handles_closed -ne $false -or
+ $query.available -ne $false -or $null -ne $query.result -or $query.error.Length -ne 8192 -or
+ -not $query.error.StartsWith('task-status-unavailable-',[StringComparison]::Ordinal)) {
+ throw 'Child failure or bounded supplementary query error differs'
+}
+"""
+        for binary in ("powershell", "pwsh"):
+            executable = shutil.which(binary)
+            if not executable:
+                continue
+            with self.subTest(binary=binary), tempfile.TemporaryDirectory() as directory:
+                environment = dict(os.environ, USK_FAILURE_SOURCE=str(root / "tests/windows_publisher_metadata_readback.ps1"),
+                                   USK_FAILURE_DIRECTORY=directory, USK_FAILURE_BINARY=executable)
+                result = subprocess.run([executable, "-NoProfile", "-NonInteractive", "-EncodedCommand",
+                    base64.b64encode(code.encode("utf-16le")).decode()], env=environment,
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout.decode(errors="replace"))
+
+    def test_historical_payload_projection_requires_complete_current_record_links(self):
+        # Constructed metadata exercises the reader's observational join only;
+        # it supplies no native objects, access results or mutation authority.
+        root = Path(__file__).resolve().parents[1]
+        service = "S-1-5-80-1-2-3-4-5"
+        install, initial, current = "org.example.projection", "install.original", "repair.current"
+
+        def encoded(value):
+            return json.dumps(value, sort_keys=True, separators=(",", ":"))
+
+        def row(path, value):
+            text = encoded(value) + "\n"
+            return dict(path="E:\\" + path, directory=False, file_id="constructed-data-only", content_json=text,
+                        sha256=hashlib.sha256(text.encode()).hexdigest(), owner="S-1-5-18", protected=True,
+                        raw_aces=[dict(sid=sid, type=0, flags=0, access_mask=2032127)
+                                  for sid in ("S-1-5-18", service)])
+
+        snapshot = row("publication\\journal\\lab-reviewed-plan.json", dict(
+            schema="usk.publisher.lab_reviewed_plan_snapshot.v4", transaction_id=initial,
+            target_root="E:/publication/destination/visible", plan_request=dict(install_id=install)))
+        prepared = row("publication\\journal\\lab-prepared-evidence.json", dict(
+            source_binding=dict(reviewed_plan_snapshot_sha256=snapshot["sha256"])))
+        completion = row("publication\\state\\lab-installed-state.json", dict(
+            schema="usk.publisher.lab_installed_state.v2", prepared_record_sha256=prepared["sha256"],
+            source_binding=dict(reviewed_plan_snapshot_sha256=snapshot["sha256"]), visible_root_file_id="original-root"))
+        installed = [row(f"setup-state\\state\\installed\\{install}.{tx}.json", dict(
+            schema="usk.installed_state.v1", install_id=install, transaction_id=tx, created_at=stamp,
+            lifecycle_status=status, target_root="E:\\publication\\destination\\visible"))
+            for tx, stamp, status in ((initial, "2026-10-01T00:00:00Z", "installed"),
+                                     (current, "2026-10-01T00:00:01Z", "verified"))]
+        revision = hashlib.sha256(encoded([dict(record=entry["path"].rsplit("\\", 1)[1],
+            sha256=hashlib.sha256(entry["content_json"][:-1].encode()).hexdigest())
+            for entry in sorted(installed, key=lambda entry: entry["path"])]).encode()).hexdigest()
+        journal = row(f"setup-state\\state\\transactions\\{current}.journal.json", dict(
+            schema="usk.transaction_journal.v1", transaction_id=current, operation="repair", current_state="completed"))
+        lease = row("setup-state\\state\\leases\\install-owned\\g00000000000000000002-terminal.json", dict(
+            schema="usk.installation_lease_ownership.v1", install_id=install, operation_id=current,
+            operation="repair", status="completed", result_state_revision=revision, operation_context_sha256="a" * 64))
+        roots = row("installation-operations\\install-owned\\operation-owned-roots.json", dict(
+            schema="usk.installation_operation_roots.v1", install_id=install, operation_id=current,
+            roots_sha256="a" * 64, context_sha256="b" * 64))
+        context = row("installation-operations\\install-owned\\operation-owned.json", dict(
+            schema="usk.installation_operation_context.v2", install_id=install, operation_id=current,
+            operation="repair", context_sha256="b" * 64))
+        sealed = row(f"setup-state\\state\\transactions\\{current}.maintenance\\00000000000000000012.json", dict(
+            schema="usk.maintenance_effect_record.v1", transaction_id=current, phase="sealed"))
+        fixture = dict(service_sid=service, prepared=prepared, revision=revision,
+                       rows=[snapshot, completion, *installed, journal, lease, roots, context, sealed])
+        code = r"""$ErrorActionPreference='Stop'
+$source=[IO.File]::ReadAllText($env:USK_PROJECTION_SOURCE)
+$start=$source.IndexOf("`$observer=@'`n",[StringComparison]::Ordinal)
+if($start -lt 0){$start=$source.IndexOf("`$observer=@'`r`n",[StringComparison]::Ordinal)}
+if($start -lt 0){throw 'Observer body absent'}
+$body=$source.Substring($source.IndexOf("`n",$start)+1);$end=$body.IndexOf("`n'@",[StringComparison]::Ordinal)
+$t=$null;$e=$null;$ast=[Management.Automation.Language.Parser]::ParseInput($body.Substring(0,$end),[ref]$t,[ref]$e)
+if($e){throw 'Observer body syntax differs'}
+$functions=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+ $n.Name -ceq 'Get-CompletedMaintenanceProjectionBasis'},$true))
+if($functions.Count -ne 1){throw 'Completed observational join absent or ambiguous'}
+. ([scriptblock]::Create($functions[0].Extent.Text))
+$fixture=[IO.File]::ReadAllText($env:USK_PROJECTION_FIXTURE)|ConvertFrom-Json
+$DriveRoot='E:\';$ServiceSid=$fixture.service_sid;$preparedRows=@($fixture.prepared)
+$prepared=$fixture.prepared.content_json|ConvertFrom-Json;$tree=@{root=@{file_id='original-root'}}
+foreach($variant in @('supported','missing_current','pending_journal','missing_seal','wrong_revision','wrong_context',
+ 'outside_acl','outside_owner','unprotected','outside_mask','outside_flags','outside_ace_count')) {
+ $rows=$fixture.rows|ConvertTo-Json -Depth 32 -Compress|ConvertFrom-Json
+ switch($variant) {
+  'missing_current' {$rows=@($rows|Where-Object path -cnotlike '*repair.current.json')}
+  'missing_seal' {$rows=@($rows|Where-Object path -cnotlike '*.maintenance\*')}
+  'pending_journal' {
+   $j=@($rows|Where-Object path -clike '*.journal.json')[0]
+   $v=$j.content_json|ConvertFrom-Json;$v.current_state='committed';$j.content_json=$v|ConvertTo-Json -Depth 16 -Compress
+  }
+  'wrong_revision' {
+   $j=@($rows|Where-Object path -clike '*terminal.json')[0]
+   $v=$j.content_json|ConvertFrom-Json;$v.result_state_revision='0'*64;$j.content_json=$v|ConvertTo-Json -Depth 16 -Compress
+  }
+  'wrong_context' {
+   $j=@($rows|Where-Object path -ceq 'E:\installation-operations\install-owned\operation-owned.json')[0]
+   $v=$j.content_json|ConvertFrom-Json;$v.context_sha256='0'*64;$j.content_json=$v|ConvertTo-Json -Depth 16 -Compress
+  }
+  'outside_acl' {@($rows|Where-Object path -clike '*.journal.json')[0].raw_aces[1].sid='S-1-5-11'}
+  'outside_owner' {@($rows|Where-Object path -clike '*.journal.json')[0].owner='S-1-5-11'}
+  'unprotected' {@($rows|Where-Object path -clike '*.journal.json')[0].protected=$false}
+  'outside_mask' {@($rows|Where-Object path -clike '*.journal.json')[0].raw_aces[1].access_mask=1179785}
+  'outside_flags' {@($rows|Where-Object path -clike '*.journal.json')[0].raw_aces[1].flags=16}
+  'outside_ace_count' {@($rows|Where-Object path -clike '*.journal.json')[0].raw_aces=@()}
+ }
+ $refused=$false;$basis=$null
+ try {$basis=Get-CompletedMaintenanceProjectionBasis} catch {
+  $refused=$true;if($variant -ceq 'supported'){throw}
+  if($variant -cin @('outside_acl','outside_owner','unprotected','outside_mask','outside_flags','outside_ace_count')) {
+   $diagnosticPrefix='Historical payload projection metadata is outside the observed private policy; row='
+   if(-not $_.Exception.Message.StartsWith($diagnosticPrefix,[StringComparison]::Ordinal)){throw 'Private-row diagnostic absent'}
+   $facts=$_.Exception.Message.Substring($diagnosticPrefix.Length)|ConvertFrom-Json
+   $expected=@($rows|Where-Object path -clike '*.journal.json')[0]
+   if($facts.role -cne 'transaction_journal' -or $facts.path -cne $expected.path -or $facts.path_truncated -ne $false -or
+    $facts.file_id -cne $expected.file_id -or $facts.sha256 -cne $expected.sha256 -or $facts.owner -cne $expected.owner -or
+    $facts.protected -ne $expected.protected -or $facts.raw_ace_count -ne @($expected.raw_aces).Count) {
+    throw 'Private-row diagnostic differs from the offending constructed data'
+   }
+   for($i=0;$i -lt @($expected.raw_aces).Count;$i++) {
+    foreach($field in @('sid','type','flags','access_mask')) {
+     if($facts.raw_aces[$i].$field -cne $expected.raw_aces[$i].$field){throw 'Private-row ACE diagnostic differs'}
+    }
+   }
+  }
+ }
+ if($refused -ne ($variant -cne 'supported')){throw ('Observational join admission differs: '+$variant)}
+ if($basis -and ($basis.result_state_revision -cne $fixture.revision -or $basis.operation -cne 'repair' -or
+  $basis.transaction_id -cne 'repair.current' -or $basis.original_transaction_id -cne 'install.original')) {
+  throw 'Completed observational join result differs'
+ }
+}
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            fixture_path = Path(directory) / "constructed-records.json"
+            fixture_path.write_text(json.dumps(fixture), encoding="utf-8")
+            environment = dict(os.environ, USK_PROJECTION_SOURCE=str(root / "tests/windows_publisher_metadata_readback.ps1"),
+                               USK_PROJECTION_FIXTURE=str(fixture_path))
+            for binary in ("powershell", "pwsh"):
+                if not shutil.which(binary):
+                    continue
+                with self.subTest(binary=binary):
+                    result = subprocess.run([binary, "-NoProfile", "-NonInteractive", "-EncodedCommand",
+                        base64.b64encode(code.encode("utf-16le")).decode()], env=environment,
+                        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stdout.decode(errors="replace"))
+
     def test_observer_publishes_only_after_token_close_acknowledgement(self):
         root = Path(__file__).resolve().parents[1]
         code = r"""$ErrorActionPreference='Stop'
@@ -207,7 +614,25 @@ try {
  $boundary=@{root=@{path='Q:\';directory=$true;file_id=$native.file_id;native_name='\';attributes=22;
   link_count=1;case_sensitive=$false;streams=@();owner='S-1-5-18';protected=$true;raw_aces=$aces;effective_rights=$rights.CheckDescriptor($bytes)};
   device=@{path='\\?\Volume{00000000-0000-0000-0000-000000000001}';extent=$parsed;raw_security=$security;checks=$rights.CheckDescriptor($bytes)}}
- Assert-PublicVolumeBoundary $observed $boundary 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service
+ $deviceIntent=@{original_owner_dacl=$security;intended_policy=@{owner='S-1-5-18';dacl_protected=$true;
+  aces=@(@{type=0;flags=0;mask=2032127;sid='S-1-5-18'},@{type=0;flags=0;mask=2032127;sid=$service})}}|ConvertTo-Json -Depth 12|ConvertFrom-Json
+ Assert-PublicVolumeBoundary $observed $boundary 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service $deviceIntent
+ $badIntents=0
+ foreach($change in @(
+  {param($i) $i.PSObject.Properties.Remove('intended_policy')},
+  {param($i) $i.intended_policy=$null},
+  {param($i) $i.intended_policy.owner='S-1-5-32-544'},
+  {param($i) $i.intended_policy.dacl_protected=$false},
+  {param($i) $i.intended_policy.aces[0].mask=1179785},
+  {param($i) $i.intended_policy.aces[0].flags=16},
+  {param($i) $i.intended_policy.aces[1].sid='S-1-5-32-545'},
+  {param($i) $i.intended_policy.aces=@($i.intended_policy.aces[0])})) {
+  $bad=$deviceIntent|ConvertTo-Json -Depth 12|ConvertFrom-Json;& $change $bad
+  $refused=$false
+  try {Assert-PublicVolumeBoundary $observed $boundary 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service $bad}catch {$refused=$true}
+  if(-not $refused){throw 'Missing or mismatched mounted device intent was admitted'}
+  ++$badIntents
+ }
  $badBoundaries=0
  foreach($change in @(
   {param($b) $b.root.file_id='123456789abcdef0:06000000000005000000000000000000'},
@@ -220,7 +645,7 @@ try {
   {param($b) $b.device.checks.filtered.maximum_allowed.granted=65536})) {
   $bad=$boundary|ConvertTo-Json -Depth 16|ConvertFrom-Json;& $change $bad
   $refused=$false
-  try {Assert-PublicVolumeBoundary $observed $bad 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service}catch {$refused=$true}
+  try {Assert-PublicVolumeBoundary $observed $bad 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service $deviceIntent}catch {$refused=$true}
   if(-not $refused){throw 'Contradictory volume namespace/device facts were admitted'}
   ++$badBoundaries
  }
@@ -228,7 +653,7 @@ try {
  $three=$boundary|ConvertTo-Json -Depth 16|ConvertFrom-Json
  $three.root.effective_rights|Add-Member NoteProperty unrelated $three.root.effective_rights.filtered
  $three.device.checks|Add-Member NoteProperty unrelated $three.device.checks.filtered
- Assert-PublicVolumeBoundary $observed $three 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service -RequireUnrelated
+ Assert-PublicVolumeBoundary $observed $three 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service $deviceIntent -RequireUnrelated
  $unrelatedRefusals=0
  foreach($location in @('root','device')) {
   foreach($missing in @('all','maximum_allowed','write_or_add_file','append_or_add_directory','write_ea','delete_child','write_attributes','delete','write_dac','write_owner')) {
@@ -237,12 +662,12 @@ try {
    if($missing -ceq 'all'){$checks.PSObject.Properties.Remove('unrelated')}
    else {$checks.unrelated.PSObject.Properties.Remove($missing)}
    $refused=$false
-   try {Assert-PublicVolumeBoundary $observed $bad 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service -RequireUnrelated}catch {$refused=$true}
+   try {Assert-PublicVolumeBoundary $observed $bad 'Q:\' ($boundary.device.path+'\') 7 16777216 520028160 $service $deviceIntent -RequireUnrelated}catch {$refused=$true}
    if(-not $refused){throw 'Missing unrelated boundary evidence was admitted'}
    ++$unrelatedRefusals
   }
  }
- @{owned_token_control=$true;extent_refusals=$badExtents;boundary_refusals=$badBoundaries;missing_unrelated_refusals=$unrelatedRefusals}|ConvertTo-Json -Compress
+ @{owned_token_control=$true;extent_refusals=$badExtents;boundary_refusals=$badBoundaries;missing_unrelated_refusals=$unrelatedRefusals;device_intent_refusals=$badIntents}|ConvertTo-Json -Compress
 } finally {$rights.Dispose()}
 """
         for shell in [shutil.which('pwsh'), shutil.which('powershell.exe')]:
@@ -257,7 +682,7 @@ try {
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(json.loads(result.stdout), {
                     'owned_token_control': True, 'extent_refusals': 7, 'boundary_refusals': 8,
-                    'missing_unrelated_refusals': 20})
+                    'missing_unrelated_refusals': 20, 'device_intent_refusals': 8})
 
     def test_real_client_token_is_captured_before_resume_and_read_after_exit(self):
         root = Path(__file__).resolve().parents[1]

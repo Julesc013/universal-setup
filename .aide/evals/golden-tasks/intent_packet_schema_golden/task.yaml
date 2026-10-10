@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: intent_packet_schema_golden
+title: Intent Packet Schema Golden
+status: active
+description: Verify intent packet and WorkUnit draft schema shape, bounded excerpts, and no-call storage rules.
+runner: .aide/scripts/aide_lite.py eval run --task intent_packet_schema_golden
+quality_dimensions:
+  - json_shape
+  - raw_prompt_storage_boundary
+  - no_provider_model_network_calls

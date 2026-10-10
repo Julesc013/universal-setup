@@ -1,0 +1,8 @@
+{
+  "example_id": "security-review",
+  "task_text": "Review credential handling and secret safety policy",
+  "expected_task_class": "security_review",
+  "expected_route_class": "frontier",
+  "fallback_route_class": "human_review",
+  "hard_floor_applied": "security_review"
+}

@@ -136,40 +136,74 @@ CERTIFICATE_KEYS = frozenset({"schema", "scope", "creator", "native_call", "hand
 
 
 def reconcile_creation(certificate, anchors, tree, execution):
-    worker_bound = isinstance(certificate, dict) and certificate.get("schema") == "usk.publisher.creation_observation.v3"
+    retirement_bound = isinstance(certificate, dict) and certificate.get("schema") == "usk.publisher.creation_observation.v5"
+    effect_bound = retirement_bound or isinstance(certificate, dict) and certificate.get("schema") == "usk.publisher.creation_observation.v4"
+    retirement_execution = execution['schema'] == 'usk.publisher_execution_observation.v8'
+    effect_execution = retirement_execution or execution['schema'] == 'usk.publisher_execution_observation.v7'
+    require(retirement_bound == retirement_execution, 'creation retirement proof family differs')
+    require(effect_bound == effect_execution, 'creation certificate reinterpreted its child execution family')
+    worker_bound = effect_bound or isinstance(certificate, dict) and certificate.get("schema") == "usk.publisher.creation_observation.v3"
     process_bound = worker_bound or isinstance(certificate, dict) and certificate.get("schema") == "usk.publisher.creation_observation.v2"
     closed(certificate, CERTIFICATE_KEYS | (frozenset({"process_boundary"}) if process_bound else frozenset()) |
-           (frozenset({"worker_security"}) if worker_bound else frozenset()),
+           (frozenset({"worker_security"}) if worker_bound else frozenset()) |
+           (frozenset({'broker_readback'}) if effect_bound else frozenset()) |
+           (frozenset({'completed_worker_security'}) if retirement_bound else frozenset()),
            "creation certificate keys differ")
     require(execution["schema"] in ("usk.publisher_execution_observation.v1", "usk.publisher_execution_observation.v2",
-            "usk.publisher_execution_observation.v3", "usk.publisher_execution_observation.v4", "usk.publisher_execution_observation.v5", "usk.publisher_execution_observation.v6") and
+            "usk.publisher_execution_observation.v3", "usk.publisher_execution_observation.v4", "usk.publisher_execution_observation.v5", "usk.publisher_execution_observation.v6", "usk.publisher_execution_observation.v7", "usk.publisher_execution_observation.v8") and
             worker_bound == (execution["schema"] in ("usk.publisher_execution_observation.v3",
-                                                    "usk.publisher_execution_observation.v4", "usk.publisher_execution_observation.v5", "usk.publisher_execution_observation.v6")) and
+                                                    "usk.publisher_execution_observation.v4", "usk.publisher_execution_observation.v5", "usk.publisher_execution_observation.v6", "usk.publisher_execution_observation.v7", "usk.publisher_execution_observation.v8")) and
             process_bound == (execution["schema"] != "usk.publisher_execution_observation.v1") and
             process_bound == ("process_boundary" in execution) and worker_bound == ("worker_security" in execution),
             "creation certificate downgraded its original execution boundary")
     require(certificate["schema"] in ("usk.publisher.creation_observation.v1", "usk.publisher.creation_observation.v2",
-            "usk.publisher.creation_observation.v3") and
-            certificate["scope"] == ("successful_service_file_create_calls_and_worker_security_to_bound_graph" if worker_bound else
+            "usk.publisher.creation_observation.v3", "usk.publisher.creation_observation.v4", "usk.publisher.creation_observation.v5") and
+            certificate["scope"] == ("successful_child_file_create_calls_and_original_native_retirement_partition_to_bound_graph" if retirement_bound else
+                                     "successful_child_file_create_calls_and_pinned_worker_security_to_bound_graph" if effect_bound else
+                                     "successful_service_file_create_calls_and_worker_security_to_bound_graph" if worker_bound else
                                      "successful_service_file_create_calls_and_process_boundary_to_bound_graph" if
                                      process_bound else "successful_service_file_create_calls_to_bound_graph"),
             "creation certificate schema/scope differs")
-    closed(certificate["creator"], CREATOR_KEYS, "creation creator keys differ")
-    require(certificate["creator"] == {key: execution["service"][key] for key in CREATOR_KEYS},
-            "creation creator differs from original prepared worker")
-    require(type(certificate["creator"]["process_id"]) is int and
-            type(certificate["creator"]["token_type"]) is int, "creation creator integer types differ")
+    if effect_bound:
+        from publisher_effect_broker_evidence import (immutable_broker_record, validate_effect_execution_identity,
+                                                    validate_broker_continuity)
+        validate_broker_continuity(execution['broker_readback'], certificate['broker_readback'])
+        context = validate_effect_execution_identity(execution, execution['service']['service_name'],
+                                                    execution['service']['service_sid'], anchors['boundary'])
+        closed(certificate['creator'], frozenset({'service_name', 'service_sid', 'broker_process_id', 'effect_worker'}),
+               'child creation creator keys differ')
+        require(canonical_sha(certificate['creator']) == canonical_sha({'service_name': execution['service']['service_name'],
+            'service_sid': execution['service']['service_sid'], 'broker_process_id': execution['service']['process_id'],
+            'effect_worker': execution['effect_worker']}) and type(certificate['creator']['broker_process_id']) is int and
+            immutable_broker_record(certificate['broker_readback']) == immutable_broker_record(execution['broker_readback']),
+            'child creation creator/original broker differs from original prepared execution')
+    else:
+        context = execution['service']
+        closed(certificate["creator"], CREATOR_KEYS, "creation creator keys differ")
+        require(certificate["creator"] == {key: execution["service"][key] for key in CREATOR_KEYS},
+                "creation creator differs from original prepared worker")
+        require(type(certificate["creator"]["process_id"]) is int and
+                type(certificate["creator"]["token_type"]) is int, "creation creator integer types differ")
     if process_bound:
         require(certificate["process_boundary"] == execution["process_boundary"],
                 "creation process boundary differs from original prepared worker")
         from publisher_process_boundary import validate_process_boundary
-        validate_process_boundary(certificate["process_boundary"], execution["service"]["process_id"],
-                                  execution["service"]["service_sid"], execution["service"]["process_groups"])
+        validate_process_boundary(certificate["process_boundary"], context["process_id"],
+                                  context["service_sid"], context["process_groups"])
     if worker_bound:
-        require(certificate["worker_security"] == execution["worker_security"],
-                "creation worker security differs from original prepared worker")
-        from publisher_worker_security import validate_worker_security
-        validate_worker_security(certificate["worker_security"], execution["service"])
+        from publisher_worker_security import validate_worker_security, validate_worker_continuity
+        require(certificate["worker_security"]["schema"] == ("usk.publisher_worker_security.v2" if retirement_bound else "usk.publisher_worker_security.v1"),
+                "creation reinterpreted worker-security provenance")
+        validate_worker_security(certificate["worker_security"], context)
+        if retirement_bound:
+            require(certificate["completed_worker_security"]["schema"] == "usk.publisher_worker_security.v2",
+                    "creation completion lacks original retirement evidence")
+            validate_worker_security(certificate["completed_worker_security"], context)
+            validate_worker_continuity(certificate["worker_security"], execution["worker_security"])
+            validate_worker_continuity(execution["worker_security"], certificate["completed_worker_security"])
+        else:
+            require(certificate["worker_security"] == execution["worker_security"],
+                    "creation worker security differs from original prepared worker")
     closed(certificate["native_call"], CALL_PROFILE, "creation call profile keys differ")
     require(all(type(certificate["native_call"][key]) is type(expected) and
                 certificate["native_call"][key] == expected for key, expected in CALL_PROFILE.items()),
@@ -183,14 +217,19 @@ def reconcile_creation(certificate, anchors, tree, execution):
     graph_sha = canonical_sha(graph)
     require(type(certificate["created_object_count"]) is int and certificate["created_object_count"] == len(graph) and
             certificate["created_graph_sha256"] == graph_sha, "creation certificate differs from sealed graph")
-    report = {"schema": "usk.publisher_creation_reconciliation.v3" if worker_bound else
+    report = {"schema": "usk.publisher_creation_reconciliation.v5" if retirement_bound else "usk.publisher_creation_reconciliation.v4" if effect_bound else
+                        "usk.publisher_creation_reconciliation.v3" if worker_bound else
                         "usk.publisher_creation_reconciliation.v2" if process_bound else
                         "usk.publisher_creation_reconciliation.v1", "status": "bindings_consistent",
             "created_object_count": len(graph), "created_graph_sha256": graph_sha,
-            "creator_process_id": certificate["creator"]["process_id"],
+            "creator_process_id": context["process_id"],
             "scope": "retained_successful_create_graph_binding", "profile_qualified": False}
     if process_bound:
         report["process_boundary_checked"] = True
     if worker_bound:
         report["worker_security_checked"] = True
+    if effect_bound:
+        report['broker_process_id'] = execution['service']['process_id']
+        report['creator_process_birth'] = execution['effect_worker']['process_birth']
+        report['original_broker_checked'] = True
     return report

@@ -1,0 +1,9 @@
+schema_version: aide.golden-task.v0
+id: export_pack_excludes_source_branch_state_golden
+title: Export Pack Excludes Source Branch State Golden
+status: active
+description: Verify source-specific Git detection, helper plans, AIDE branch policy, and generated changelog previews are excluded from portable pack truth.
+quality_dimensions:
+  - export_exclusion
+  - source_state_boundary
+  - no_stale_branch_truth

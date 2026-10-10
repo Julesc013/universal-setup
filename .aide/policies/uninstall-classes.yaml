@@ -1,0 +1,149 @@
+schema_version: aide.uninstall-classes-policy.v0
+policy_id: aide.uninstall-classes.v0
+status: active
+purpose: >
+  Define uninstall planning classes used to describe future removal and
+  preservation decisions without applying them in Q46.
+class_requirements:
+  required_fields:
+    - class_id
+    - detection_hints
+    - risk_class
+    - preserve_by_default
+    - future_apply_allowed
+    - validation_required
+    - evidence_required
+classes:
+  remove_portable_file_future:
+    detection_hints:
+      - ownership ledger identifies an AIDE-owned portable file
+      - path is not target-specific, local, secret-like, or unknown ownership
+    risk_class: high
+    preserve_by_default: false
+    future_apply_allowed: explicit_phase_only
+    validation_required: true
+    evidence_required: true
+  remove_hook_template_future:
+    detection_hints:
+      - ownership ledger identifies an AIDE-owned hook template
+    risk_class: high
+    preserve_by_default: false
+    future_apply_allowed: explicit_phase_only
+    validation_required: true
+    evidence_required: true
+  remove_managed_section_future:
+    detection_hints:
+      - managed section ownership is known
+      - manual content outside markers is preserved
+    risk_class: high
+    preserve_by_default: true
+    future_apply_allowed: explicit_phase_only
+    validation_required: true
+    evidence_required: true
+  preserve_target_memory:
+    detection_hints:
+      - .aide/memory/**
+    risk_class: high
+    preserve_by_default: true
+    future_apply_allowed: false
+    validation_required: true
+    evidence_required: true
+  preserve_target_queue:
+    detection_hints:
+      - .aide/queue/**
+    risk_class: high
+    preserve_by_default: true
+    future_apply_allowed: false
+    validation_required: true
+    evidence_required: true
+  preserve_target_evidence:
+    detection_hints:
+      - .aide/evidence/**
+      - .aide/reports/**
+      - .aide/context/latest-*
+    risk_class: high
+    preserve_by_default: true
+    future_apply_allowed: false
+    validation_required: true
+    evidence_required: true
+  preserve_target_golden_tasks:
+    detection_hints:
+      - .aide/evals/golden-tasks/**
+    risk_class: high
+    preserve_by_default: true
+    future_apply_allowed: false
+    validation_required: true
+    evidence_required: true
+  preserve_existing_tools:
+    detection_hints:
+      - tools/**
+      - scripts/**
+      - existing repo tool surfaces
+    risk_class: high
+    preserve_by_default: true
+    future_apply_allowed: false
+    validation_required: true
+    evidence_required: true
+  preserve_manual_content:
+    detection_hints:
+      - AGENTS.md manual content
+      - docs/canon/**
+      - docs/doctrine/**
+    risk_class: high
+    preserve_by_default: true
+    future_apply_allowed: false
+    validation_required: true
+    evidence_required: true
+  preserve_local_state_ignored:
+    detection_hints:
+      - .aide.local/**
+      - .env
+      - secrets/**
+    risk_class: critical
+    preserve_by_default: true
+    future_apply_allowed: false
+    validation_required: true
+    evidence_required: true
+  manual_review_required:
+    detection_hints:
+      - unknown owner
+      - manual or target-local extension
+    risk_class: high
+    preserve_by_default: true
+    future_apply_allowed: explicit_phase_only
+    validation_required: true
+    evidence_required: true
+  blocked_ambiguous_ownership:
+    detection_hints:
+      - owner cannot be established
+      - path appears in portable and target-specific sets
+    risk_class: high
+    preserve_by_default: true
+    future_apply_allowed: false
+    validation_required: true
+    evidence_required: true
+  blocked_missing_ledger:
+    detection_hints:
+      - ownership ledger unavailable
+    risk_class: high
+    preserve_by_default: true
+    future_apply_allowed: false
+    validation_required: true
+    evidence_required: true
+  no_action:
+    detection_hints:
+      - no uninstall action is needed
+    risk_class: low
+    preserve_by_default: true
+    future_apply_allowed: false
+    validation_required: false
+    evidence_required: false
+  unknown:
+    detection_hints:
+      - no deterministic class matches
+    risk_class: high
+    preserve_by_default: true
+    future_apply_allowed: false
+    validation_required: true
+    evidence_required: true
+

@@ -1,0 +1,9 @@
+schema_version: aide.golden-task.v0
+id: export_pack_task_recovery_inclusion_golden
+title: Export Pack Task Recovery Inclusion Golden
+status: active
+description: Verify the portable pack or imported target contains task resumption, WorkUnit, recovery policy, and task command support.
+quality_dimensions:
+  - export_inclusion
+  - workunit_recovery
+  - repo_state_first

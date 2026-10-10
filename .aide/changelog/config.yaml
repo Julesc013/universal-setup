@@ -1,0 +1,21 @@
+schema_version: aide.changelog-config.v0
+status: active
+policy: .aide/policies/changelog.yaml
+default_limit: 50
+default_output_dir: .aide/changelog
+range_policy:
+  prefer_latest_tag_to_HEAD_if_tag_exists: true
+  otherwise_use_recent_commit_window: true
+  explicit_range_overrides_default: true
+markdown_outputs:
+  changelog: .aide/changelog/CHANGELOG.preview.md
+  release_notes: .aide/changelog/RELEASE_NOTES.preview.md
+  malformed_commits: .aide/changelog/malformed-commits.md
+  latest_report: .aide/changelog/latest-changelog-report.md
+json_outputs:
+  changelog: .aide/changelog/changelog.preview.json
+  release_notes: .aide/changelog/release-notes.preview.json
+preview_only: true
+release_publishing: false
+tag_creation: false
+github_release_creation: false

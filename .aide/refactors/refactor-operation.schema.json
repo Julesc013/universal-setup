@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.refactor-operation.schema.v0",
+  "type": "object",
+  "required": [
+    "operation_id",
+    "operation_type",
+    "source_path",
+    "target_path",
+    "fate",
+    "reason",
+    "risk",
+    "requires_review",
+    "validators_required",
+    "reference_rewrite_required",
+    "rollback_action",
+    "apply_allowed"
+  ],
+  "properties": {
+    "operation_id": {"type": "string"},
+    "operation_type": {"type": "string"},
+    "source_path": {"type": "string"},
+    "target_path": {"type": "string"},
+    "fate": {"type": "string"},
+    "reason": {"type": "string"},
+    "risk": {"type": "string"},
+    "requires_review": {"type": "boolean"},
+    "validators_required": {"type": "array"},
+    "reference_rewrite_required": {"type": "boolean"},
+    "rollback_action": {"type": "string"},
+    "apply_allowed": {"const": false}
+  }
+}

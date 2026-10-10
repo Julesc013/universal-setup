@@ -1,0 +1,8 @@
+{
+  "example_id": "architecture-decision",
+  "task_text": "Decide the architecture boundary for a new runtime service",
+  "expected_task_class": "architecture_decision",
+  "expected_route_class": "frontier",
+  "fallback_route_class": "human_review",
+  "hard_floor_applied": "architecture_decision"
+}

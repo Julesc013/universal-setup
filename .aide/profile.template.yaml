@@ -1,0 +1,23 @@
+schema_version: aide.profile.template.v0
+profile_id: <target_repo_id>
+project_name: <target_repo_name>
+generated_from: aide-lite-pack-v0
+status: target_template
+purpose: <target_project_summary>
+current_focus:
+  phase: <target_current_phase>
+  primary_goal: <target_primary_goal>
+  next_task: <target_next_task>
+deferred_surfaces:
+  - <target_deferred_surfaces>
+runtime:
+  gateway_forwarding: deferred
+  provider_calls: forbidden_until_reviewed_phase
+  model_calls: forbidden_until_reviewed_phase
+local_state:
+  root: .aide.local/
+  committed: false
+notes: >
+  Fill this template with target-specific truth before treating the target repo
+  as initialized. Do not copy AIDE's source `.aide/profile.yaml` into target
+  repos.

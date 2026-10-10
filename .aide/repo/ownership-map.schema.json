@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.ownership-map-schema.v0",
+  "title": "AIDE Ownership Map",
+  "type": "object",
+  "required": ["schema_version", "generated_by", "source_commit", "owners"],
+  "properties": {
+    "schema_version": {"const": "aide.ownership-map.v0"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "owners": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["owner", "file_count", "kinds", "files"],
+        "properties": {
+          "owner": {"type": "string"},
+          "file_count": {"type": "integer"},
+          "kinds": {"type": "object"},
+          "files": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}

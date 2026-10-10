@@ -1,0 +1,31 @@
+# AIDE Release Notes Preview
+
+This is a deterministic preview only. It does not publish a release.
+
+source_range: {{source_range}}
+source_head: {{source_head}}
+preview_only: true
+
+## Highlights
+
+{{highlights}}
+
+## Validation Summary
+
+{{validation_summary}}
+
+## Known Risks
+
+{{risk_summary}}
+
+## Follow-up
+
+{{follow_up}}
+
+## Warnings
+
+{{warnings}}
+
+## Preview Caveat
+
+- This draft is not an official release note and does not create tags or GitHub Releases.

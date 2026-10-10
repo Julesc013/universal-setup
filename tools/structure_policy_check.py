@@ -9,6 +9,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 ALLOWED_TOP_LEVEL = {
+    ".aide",
+    ".aide.local.example",
+    "AGENTS.md",
     ".github",
     ".gitattributes",
     ".gitignore",
@@ -30,7 +33,7 @@ ALLOWED_TOP_LEVEL = {
     "tools",
 }
 
-IGNORED_TOP_LEVEL = {".git", "__pycache__", ".pytest_cache", "build", "dist", "out", "bin", "obj"}
+IGNORED_TOP_LEVEL = {".aide.local", ".git", "__pycache__", ".pytest_cache", "build", "dist", "out", "bin", "obj"}
 RETIRED_ROOTS = {"core", "data", "factorio", "launcher", "packages", "packaging", "schema", "schemas", "setup", "source", "src", "ui"}
 ALLOWED_RUNTIME_ROOTS = {"base", "command", "diagnostics", "setup", "platform"}
 ALLOWED_SETUP_MODULES = {

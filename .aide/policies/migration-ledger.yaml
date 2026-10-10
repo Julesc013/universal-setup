@@ -1,0 +1,32 @@
+schema_version: aide.migration-ledger-policy.v0
+policy_id: aide.migration-ledger.v0
+status: active
+purpose: >
+  Define draft and future append-only migration ledger events for structural
+  planning, map generation, alias proposals, reference rewrite proposals,
+  future apply, future rollback, and future alias retirement.
+operating_mode:
+  - deterministic_local
+  - no_model_calls
+  - no_provider_calls
+  - no_network_calls
+  - draft_only_in_q42
+  - append_only_in_apply_phases
+event_types:
+  - plan_created
+  - map_generated
+  - alias_proposed
+  - reference_rewrite_proposed
+  - future_apply
+  - future_rollback
+  - future_retire_alias
+ledger_rules:
+  q42_may_write_draft_or_example_only: true
+  apply_events_require_future_authorization: true
+  rollback_refs_required_before_apply: true
+  validation_refs_required_before_apply: true
+  deletion_approval_allowed: false
+non_goals:
+  - no live migration ledger append in Q42
+  - no future_apply event execution in Q42
+  - no future_rollback execution in Q42

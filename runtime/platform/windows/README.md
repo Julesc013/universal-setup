@@ -2,6 +2,14 @@
 
 Windows platform capability adapter.
 
+Fresh native proof serializers construct owned object fields directly, moving
+new ACL, token, access and execution subtrees into their results after the
+existing checks. This avoids the additional subtree copies imposed by map
+initializer lists. Retained baselines and independent evidence still own their
+copies; native reads, custody checks, canonical fields and runtime bounds stay
+the same. This source change has no measured runtime benefit or profile
+qualification until the actual public maintenance probes pass.
+
 `usk_publisher_handle_observation` reads native directory identity, name,
 attributes, link count, case sensitivity, owner, DACL protection, and ordered
 allow/deny ACEs from one already-opened handle. Unknown ACE forms and missing

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.dependency-map-schema.v0",
+  "title": "AIDE Dependency Map",
+  "type": "object",
+  "required": ["schema_version", "generated_by", "source_commit", "records"],
+  "properties": {
+    "schema_version": {"const": "aide.dependency-map.v0"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["path", "imports", "path_references", "local_references", "unresolved_references", "reasons"],
+        "properties": {
+          "path": {"type": "string"},
+          "imports": {"type": "array", "items": {"type": "string"}},
+          "path_references": {"type": "array", "items": {"type": "string"}},
+          "local_references": {"type": "array", "items": {"type": "string"}},
+          "unresolved_references": {"type": "array", "items": {"type": "string"}},
+          "reasons": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}

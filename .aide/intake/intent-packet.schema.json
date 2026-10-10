@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "allowed_path_hints": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "blocked": {
+      "type": "boolean"
+    },
+    "blocker_reason": {
+      "type": "string"
+    },
+    "branch_state_refs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "canonical_sources": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "confidence": {
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "type": "string"
+    },
+    "evidence_hints": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "forbidden_path_hints": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "generated_by": {
+      "type": "string"
+    },
+    "generated_from": {
+      "type": "string"
+    },
+    "interpreted_goal": {
+      "type": "string"
+    },
+    "next_action": {
+      "type": "string"
+    },
+    "notes": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "raw_prompt_excerpt": {
+      "maxLength": 260,
+      "type": "string"
+    },
+    "raw_prompt_hash": {
+      "pattern": "^[a-f0-9]{64}$",
+      "type": "string"
+    },
+    "rejected_interpretations": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "repo_state_refs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "requires_split": {
+      "type": "boolean"
+    },
+    "risk_class": {
+      "type": "string"
+    },
+    "safe_to_execute": {
+      "type": "boolean"
+    },
+    "schema_version": {
+      "const": "aide.intent-packet.v0"
+    },
+    "sizing_class": {
+      "type": "string"
+    },
+    "suggested_workunit": {
+      "type": "object"
+    },
+    "task_class": {
+      "type": "string"
+    },
+    "validation_hints": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "schema_version",
+    "generated_by",
+    "generated_from",
+    "raw_prompt_hash",
+    "raw_prompt_excerpt",
+    "interpreted_goal",
+    "confidence",
+    "task_class",
+    "risk_class",
+    "sizing_class",
+    "safe_to_execute",
+    "requires_split",
+    "blocked",
+    "blocker_reason",
+    "canonical_sources",
+    "repo_state_refs",
+    "branch_state_refs",
+    "rejected_interpretations",
+    "allowed_path_hints",
+    "forbidden_path_hints",
+    "validation_hints",
+    "evidence_hints",
+    "suggested_workunit",
+    "next_action",
+    "notes"
+  ],
+  "title": "AIDE Intent Packet v0",
+  "type": "object"
+}

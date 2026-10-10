@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Release Checksums",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "algorithm",
+    "bundle_id",
+    "checksums",
+    "sha256sums_ref",
+    "no_publish"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "algorithm": {"type": "string"},
+    "bundle_id": {"type": "string"},
+    "checksums": {"type": "object"},
+    "sha256sums_ref": {"type": "string"},
+    "no_publish": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

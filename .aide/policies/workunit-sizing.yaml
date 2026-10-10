@@ -1,0 +1,94 @@
+schema_version: aide.workunit-sizing-policy.v0
+policy_id: aide-workunit-sizing-v0
+status: active
+purpose: >
+  Define deterministic WorkUnit size classes for intent compilation. Sizing is
+  conservative: broad, destructive, external, or behavior-claiming prompts must
+  split or stop before implementation.
+maximum_default_changed_file_expectation:
+  one_shot: 5
+  note: >
+    One-shot tasks should normally touch no more than five related files unless
+    an existing reviewed queue item explicitly authorizes a larger generated
+    artifact update.
+classes:
+  one_shot:
+    criteria:
+      - one subsystem
+      - clear allowed paths
+      - clear validation
+      - no destructive ambiguity
+      - no external credential
+      - no broad migration
+    default_next_action: implement after normal queue preflight
+  two_shot:
+    criteria:
+      - first shot makes task deterministic
+      - second shot implements
+      - scope is bounded but not yet sufficiently classified
+    default_next_action: create classification or preflight WorkUnit first
+  refactor_gate:
+    criteria:
+      - structure changes
+      - root moves
+      - tool migration
+      - path rewrites
+      - ownership-sensitive changes
+    default_next_action: inventory, move map, salvage map, or refactor control plane first
+  live_test_gate:
+    criteria:
+      - product/runtime behavior
+      - source/network behavior
+      - release behavior
+      - persisted-state behavior
+    default_next_action: require behavior proof and explicit live-test validation plan
+  audit_only:
+    criteria:
+      - report/evidence only
+      - no product behavior change
+      - no branch or external mutation
+    default_next_action: write bounded audit/report WorkUnit
+  split_required:
+    criteria:
+      - multiple subsystems
+      - unclear success criteria
+      - broad refactor
+      - broad product change
+      - too many unrelated outputs
+    default_next_action: split into audit, inventory, policy, implementation, and validation WorkUnits
+  blocked:
+    criteria:
+      - missing credentials
+      - legal/licensing decision
+      - destructive action without approval
+      - unresolvable manual-content conflict
+      - release/tag/publish request without release gate approval
+      - target repo mutation request from the AIDE source repo
+    default_next_action: write blocker report and request reviewed authorization only after repo-state reconciliation
+inventory_first_required_when:
+  - prompt asks to clean up the repo
+  - prompt asks to move all roots
+  - prompt asks to delete old systems
+  - prompt asks to absorb, migrate, or replace existing tools
+  - prompt lacks a salvage map for roots, tools, hosts, or generated artifacts
+behavior_proof_required_when:
+  - prompt claims production readiness
+  - prompt claims release readiness
+  - prompt changes runtime behavior
+  - prompt changes persisted state
+  - prompt changes provider, Gateway, network, install, upgrade, or rollback behavior
+artifact_existence_is_insufficient_when:
+  - behavior is claimed but not exercised
+  - release readiness is claimed without gate evidence
+  - target import is claimed without target-local validation
+  - generated files exist without provenance and checksum validation
+ask_user_only_after_repo_state_reconciliation_when:
+  - prompt is repeated or duplicate
+  - task order is unclear
+  - dependencies are missing or partial
+  - branch role is unknown
+  - destructive or external side effects are requested
+non_goals:
+  - no semantic model inference
+  - no task execution
+  - no approval bypass

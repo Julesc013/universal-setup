@@ -1,0 +1,8 @@
+schema_version: aide.path-aliases-template.v0
+template_id: aide-path-aliases-template
+status: portable_template
+purpose: >
+  Empty portable template for target repositories that generate their own
+  candidate path alias plans. This is not AIDE source-generated target truth.
+aliases: []
+no_apply: true

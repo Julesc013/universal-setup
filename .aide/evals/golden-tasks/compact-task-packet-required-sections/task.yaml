@@ -1,0 +1,9 @@
+schema_version: aide.golden-task.v0
+task_id: compact-task-packet-required-sections
+title: Compact Task Packet Required Sections
+status: active
+purpose: Check that the latest compact task packet remains usable without long chat history.
+input_refs:
+  - .aide/context/latest-task-packet.md
+acceptance_ref: .aide/evals/golden-tasks/compact-task-packet-required-sections/acceptance.md
+expected_result: PASS

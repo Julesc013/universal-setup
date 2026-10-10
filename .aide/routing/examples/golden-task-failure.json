@@ -1,0 +1,7 @@
+{
+  "example_id": "golden-task-failure",
+  "task_text": "Optimize prompt tokens after golden tasks failed",
+  "expected_task_class": "compact_task_generation",
+  "expected_route_class": "blocked",
+  "reason": "Token optimization cannot be promoted when deterministic golden tasks fail."
+}

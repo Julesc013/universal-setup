@@ -1,0 +1,55 @@
+schema_version: aide.release-bundle-policy.v0
+policy_id: aide-release-bundle-v0
+status: active
+purpose: >
+  Define deterministic local release-bundle generation for the portable
+  aide-lite-pack-v0 export pack without publishing, tagging, uploading,
+  mutating branches, mutating targets, or calling providers/models/network.
+operating_mode:
+  - deterministic_local
+  - no_model_calls
+  - no_provider_calls
+  - no_network_calls
+  - local_artifact_generation_only
+  - no_publish_in_q47
+  - no_tag_creation
+  - no_github_release_creation
+  - no_branch_mutation
+  - no_target_install
+lifecycle:
+  - validate_repo
+  - regenerate_export_pack
+  - validate_pack_status
+  - build_archives
+  - compute_checksums
+  - write_manifest
+  - write_install_notes
+  - fixture_extract
+  - fixture_validate
+  - write_evidence
+  - review
+  - future_release_draft
+  - future_publish
+source_artifacts:
+  - .aide/export/aide-lite-pack-v0
+local_output_locations:
+  - .aide/release/dist/
+  - dist/ if repo policy permits
+publication_boundary:
+  tag_created: false
+  github_release_created: false
+  upload_performed: false
+  branch_mutation: false
+  active_ci_installed: false
+  public_release_claim: false
+non_goals:
+  - no GitHub Release
+  - no tag
+  - no upload
+  - no CI install
+  - no target repo mutation
+  - no install apply
+  - no repair apply
+  - no upgrade apply
+  - no rollback apply
+  - no uninstall apply

@@ -4,6 +4,7 @@
 #include "usk_stable_file.h"
 #include "usk_utf8_path.h"
 #include "usk_record_io.h"
+#include "usk_sha256.h"
 
 #include <chrono>
 #include <algorithm>
@@ -12,6 +13,7 @@
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 #if defined(_WIN32)
 #ifndef NOMINMAX
@@ -21,6 +23,68 @@
 #endif
 
 namespace fs = std::filesystem;
+
+int fresh_hash_proof(const fs::path& root)
+{
+    // Independent portable SHA-256 covers padding, file-read boundaries and
+    // binary contents. Each call must hash the newly held bytes from scratch.
+    const fs::path path = root / "hash-input.bin";
+    for (const std::size_t size : {0u, 1u, 55u, 56u, 63u, 64u, 65u,
+            65535u, 65536u, 65537u, 3703296u}) {
+        std::vector<unsigned char> bytes(size);
+        for (std::size_t index = 0; index < bytes.size(); ++index) {
+            bytes[index] = static_cast<unsigned char>((index * 131u + size) & 255u);
+        }
+        {
+            std::ofstream output(path, std::ios::binary | std::ios::trunc);
+            if (!bytes.empty()) {
+                output.write(reinterpret_cast<const char*>(bytes.data()),
+                    static_cast<std::streamsize>(bytes.size()));
+            }
+            if (!output) return 45;
+        }
+        usk::base::Sha256 portable;
+        portable.update(bytes.data(), bytes.size());
+        const std::string expected = portable.finish();
+        usk::base::StableFile file(path);
+        if (file.sha256_hex() != expected || file.sha256_hex() != expected) return 46;
+        // Interleave backward/forward and crossing-buffer reads with complete
+        // hashes. Each read must use its own offset, regardless of the last
+        // read's file pointer; expected bytes come from the independent input.
+        for (const std::size_t offset : {size, size / 2u, std::size_t{0},
+                size > 65536u ? std::size_t{65530} : std::size_t{0},
+                size > 1u ? std::size_t{1} : std::size_t{0}}) {
+            const auto count = std::min<std::size_t>(70u, size - offset);
+            const auto actual = file.read(offset, count);
+            if (actual.size() != count || !std::equal(actual.begin(), actual.end(),
+                    bytes.begin() + static_cast<std::ptrdiff_t>(offset))) return 49;
+            std::vector<unsigned char> into(count, 0xffu);
+            file.read_into(offset, into.data(), count);
+            if (into != actual) return 50;
+        }
+        file.read_into(size, nullptr, 0);
+        bool refused_offset = false, refused_null = false;
+        try { file.read_into(size + 1u, nullptr, 0); }
+        catch (const std::runtime_error&) { refused_offset = true; }
+        try { file.read_into(0, nullptr, 1); }
+        catch (const std::runtime_error&) { refused_null = true; }
+        if (!refused_offset || !refused_null || file.sha256_hex() != expected) return 51;
+        file.verify_unchanged();
+    }
+    // A different byte sequence with the SAME size must not reuse a prior hash.
+    for (const std::string& value : {std::string("abc"), std::string("abd")}) {
+        {
+            std::ofstream output(path, std::ios::binary | std::ios::trunc);
+            output << value;
+            if (!output) return 47;
+        }
+        usk::base::Sha256 portable;
+        portable.update(reinterpret_cast<const unsigned char*>(value.data()), value.size());
+        usk::base::StableFile file(path);
+        if (file.sha256_hex() != portable.finish()) return 48;
+    }
+    return 0;
+}
 
 int record_backend_failure_proof(const fs::path& root)
 {
@@ -153,6 +217,7 @@ int main()
     if (error) {
         return 1;
     }
+    if (const int hash = fresh_hash_proof(root)) return hash;
 
     const fs::path source = root / "source.zip";
     {

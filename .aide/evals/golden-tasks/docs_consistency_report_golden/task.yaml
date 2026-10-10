@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: docs_consistency_report_golden
+title: Docs Consistency Report Golden
+status: active
+objective: Verify Q38 docs consistency reports expose stale-path and missing-doc candidates.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task docs_consistency_report_golden
+no_model_calls: true
+no_network_calls: true

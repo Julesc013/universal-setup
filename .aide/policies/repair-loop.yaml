@@ -1,0 +1,42 @@
+schema_version: aide.repair-loop-policy.v0
+policy_id: aide-task-os-repair-loop-v0
+status: active-pending-review
+mode: report_only_no_apply
+purpose: >
+  Define conservative retry and split controls for future repair loops.
+  X-OS-00 records policy only and performs no repair apply behavior.
+
+defaults:
+  max_attempts_per_task: 3
+  max_repair_depth: 2
+  max_checkpoint_repair_passes: 2
+
+quarantine_when:
+  - unsafe blocker severity is present
+  - repair depth exceeds max_repair_depth
+  - repeated repair attempts emit the same blocker
+  - source state conflict cannot be merged without losing manual content
+
+require_human_decision_when:
+  - blocker class is ambiguous_product_decision
+  - blocker severity is unsafe
+  - target state ownership is unknown
+  - repair would require forbidden paths or operations
+
+split_task_when:
+  - validation_runtime_exceeded
+  - dependency graph cannot be represented in one WorkUnit
+  - repair scope spans unrelated ownership boundaries
+
+mark_superseded_when:
+  - a newer WorkUnit replaces the objective
+  - prerequisite decision changes the acceptance target
+  - duplicate work is already accepted in queue truth
+
+boundaries:
+  repair_apply_allowed: false
+  overwrite_allowed: false
+  delete_allowed: false
+  branch_mutation_allowed: false
+  provider_or_model_calls_allowed: false
+  network_calls_allowed: false

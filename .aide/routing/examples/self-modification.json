@@ -1,0 +1,8 @@
+{
+  "example_id": "self-modification",
+  "task_text": "Automatically rewrite routing policy based on controller suggestions",
+  "expected_task_class": "self_modification",
+  "expected_route_class": "human_review",
+  "fallback_route_class": "frontier",
+  "hard_floor_applied": "self_modification"
+}

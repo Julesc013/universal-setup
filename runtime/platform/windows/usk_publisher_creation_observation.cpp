@@ -4,6 +4,7 @@
 #include "usk_publisher_creation_observation.h"
 #include "usk_publisher_process_boundary.h"
 #include "usk_publisher_worker_security.h"
+#include "usk_publisher_effect_broker_internal.h"
 
 #if defined(_WIN32)
 #include "usk_publisher_directory_entries.h"
@@ -69,6 +70,11 @@ Value creator(const PublisherServiceObservation& service) {
 }
 
 Value execution_creator(const Value& execution) {
+    if (execution.at("schema").as_string() == "usk.publisher_execution_observation.v7" ||
+        execution.at("schema").as_string() == "usk.publisher_execution_observation.v8")
+        return Value(Value::Object{{"service_name", execution.at("service").at("service_name")},
+            {"service_sid", execution.at("service").at("service_sid")},
+            {"broker_process_id", execution.at("service").at("process_id")}, {"effect_worker", execution.at("effect_worker")}});
     Value::Object result;
     for (const auto* key : {"service_name", "service_sid", "process_id", "token_id",
                            "authentication_id", "modified_id", "token_type"}) {
@@ -133,62 +139,135 @@ std::string changed_fields(const Value& previous, const Value& current) {
     return names;
 }
 
-std::string worker_security_change_diagnostic(const Value& previous, const Value& current) {
+std::string worker_security_change_diagnostic(const Value& previous, const Value& current,
+    const char* checkpoint, std::size_t creates, LARGE_INTEGER started, LARGE_INTEGER frequency) {
     // Both observations have passed the closed native worker-security policy.
     // Describe the measured mismatch without refreshing any frozen fact or
     // weakening the complete-snapshot equality requirement.
-    return "publisher creation token/default/thread security changed [changed_fields=" +
+    const auto differences = [](const Value& a, const Value& b) {
+        std::set<std::string> left, right;
+        for (const auto& thread : a.at("threads").as_array())
+            left.insert(std::to_string(thread.at("thread_id").as_unsigned()) + ":" + thread.at("creation_time").as_string());
+        for (const auto& thread : b.at("threads").as_array())
+            right.insert(std::to_string(thread.at("thread_id").as_unsigned()) + ":" + thread.at("creation_time").as_string());
+        std::string result;
+        std::size_t count = 0;
+        for (const auto& identity : left) if (!right.count(identity)) {
+            if (++count > 12u) { result += ",..."; break; }
+            if (!result.empty()) result += ',';
+            result += identity;
+        }
+        return result;
+    };
+    LARGE_INTEGER now{};
+    const auto elapsed = QueryPerformanceCounter(&now) && frequency.QuadPart > 0 && now.QuadPart >= started.QuadPart ?
+        std::to_string(static_cast<std::uint64_t>((now.QuadPart - started.QuadPart) * 1000 / frequency.QuadPart)) : "unavailable";
+    return "publisher creation token/default/thread security changed [checkpoint=" + std::string(checkpoint) +
+        "; completed_creates=" + std::to_string(creates) + "; elapsed_ms=" + elapsed + "; changed_fields=" +
         changed_fields(previous, current) + "; primary_fields=" +
         changed_fields(previous.at("primary_token"), current.at("primary_token")) +
         "; threads_before=" + std::to_string(previous.at("threads").as_array().size()) +
-        "; threads_after=" + std::to_string(current.at("threads").as_array().size()) + ']';
+        "; threads_after=" + std::to_string(current.at("threads").as_array().size()) +
+        "; removed_threads=" + differences(previous, current) + "; added_threads=" + differences(current, previous) + ']';
 }
 } // namespace
 
 struct PublisherCreationCapture::Implementation {
     PublisherServiceObservation service;
+    PublisherWorkerTokenContext worker{};
+    PublisherEffectWorkerReadback* effect_readback = nullptr;
+    PublisherEffectWorkerNativeSecurity* effect_security = nullptr;
+    Value broker;
     Value process_boundary;
     Value worker_security;
+    mutable Value completed_worker_security;
     PublisherHandleObservation boundary;
     std::vector<unsigned char> descriptor;
     std::map<std::string, Value> entries;
     std::size_t serialized_bytes = 0;
+    LARGE_INTEGER capture_started{}, clock_frequency{};
 
-    void require_worker() const {
+    void require_worker(const char* checkpoint) const {
         const auto token = observe_current_publisher_token();
         require(has_restricted_publisher_token_facts(token, service.service_sid) &&
-            GetCurrentProcessId() == service.process_id &&
-            token.identity.token_id == service.token.identity.token_id &&
-            token.identity.authentication_id == service.token.identity.authentication_id &&
-            token.identity.modified_id == service.token.identity.modified_id &&
+            GetCurrentProcessId() == worker.process_id &&
+            token.identity.token_id == worker.token.identity.token_id &&
+            token.identity.authentication_id == worker.token.identity.authentication_id &&
+            token.identity.modified_id == worker.token.identity.modified_id &&
             token.identity.token_type == TokenPrimary,
             "publisher creation worker token changed");
         const auto process_current = observe_current_publisher_process_boundary();
-        require_publisher_process_boundary(process_current, service.process_id, service.service_sid,
-            service.token.process_groups);
+        require_publisher_process_boundary(process_current, worker.process_id, service.service_sid, worker.token.process_groups);
         require(usk::json::canonical(process_current) == usk::json::canonical(process_boundary),
             "publisher creation process owner/DACL changed");
-        const auto security_current = observe_current_publisher_worker_security();
-        require_publisher_worker_security(security_current, service);
-        if (usk::json::canonical(security_current) != usk::json::canonical(worker_security)) {
-            throw std::runtime_error(worker_security_change_diagnostic(worker_security, security_current));
+        Value security_current;
+        if (effect_readback) {
+            require(effect_security != nullptr &&
+                usk::json::canonical(publisher_effect_broker_immutable_record(effect_readback->service_admission())) ==
+                    usk::json::canonical(publisher_effect_broker_immutable_record(broker)),
+                "publisher creation original native broker/child binding changed");
+            const auto native = effect_security->observe_current();
+            require(native.at("worker").at("process_id").as_unsigned() == worker.process_id &&
+                native.at("worker").at("service_sid").as_string() == worker.service_sid &&
+                usk::json::canonical(native.at("worker").at("primary_token")) == usk::json::canonical(broker.at("effect_primary_token")),
+                "publisher creation security belongs to another native child");
+            security_current = native.at("worker_security");
+        } else security_current = observe_current_publisher_worker_security();
+        require_publisher_worker_security(security_current, worker);
+        if (effect_readback) {
+            require_publisher_worker_security_continuity(worker_security, security_current);
+            if (completed_worker_security.type() != Value::Type::null_value)
+                require_publisher_worker_security_continuity(completed_worker_security, security_current);
+            completed_worker_security = security_current;
+        } else if (usk::json::canonical(security_current) != usk::json::canonical(worker_security)) {
+            throw std::runtime_error(worker_security_change_diagnostic(worker_security, security_current,
+                checkpoint, entries.size(), capture_started, clock_frequency));
         }
     }
 };
 
-PublisherCreationCapture::PublisherCreationCapture(HANDLE boundary, const std::wstring& service_name)
+PublisherCreationCapture::PublisherCreationCapture(HANDLE boundary, const std::wstring& service_name, HANDLE cancel_event)
     : implementation_(std::make_unique<Implementation>()) {
     require(active_capture == nullptr, "publisher creation capture cannot nest");
     auto& state = *implementation_;
     state.service = observe_current_restricted_publisher_service(service_name);
+    state.worker = {state.service.process_id, state.service.service_sid, state.service.token};
     state.process_boundary = observe_current_publisher_process_boundary();
     require_publisher_process_boundary(state.process_boundary, state.service.process_id,
         state.service.service_sid, state.service.token.process_groups);
-    state.worker_security = observe_current_publisher_worker_security();
-    require_publisher_worker_security(state.worker_security, state.service);
-    state.require_worker();
+    state.worker_security = observe_settled_publisher_worker_security(state.service, cancel_event);
+    require(QueryPerformanceFrequency(&state.clock_frequency) && state.clock_frequency.QuadPart > 0 &&
+        QueryPerformanceCounter(&state.capture_started), "publisher creation observation clock unavailable");
+    state.require_worker("capture_initial");
     state.boundary = observe_publisher_directory_handle(boundary);
     require_publisher_object_security_shape(state.boundary, state.service.service_sid);
+    state.descriptor = creation_descriptor(state.service.service_sid);
+    active_capture = this;
+}
+PublisherCreationCapture::PublisherCreationCapture(HANDLE boundary, const std::wstring& service_name,
+    PublisherEffectWorkerReadback& readback, PublisherEffectWorkerNativeSecurity& security)
+    : implementation_(std::make_unique<Implementation>()) {
+    require(active_capture == nullptr, "publisher creation capture cannot nest");
+    auto& state = *implementation_;
+    state.broker = readback.service_admission();
+    state.service = publisher_effect_broker_service_record(state.broker);
+    state.worker = publisher_effect_worker_record_context(state.broker);
+    require(state.service.service_name == service_name && state.service.process_id != GetCurrentProcessId() &&
+        state.worker.process_id == GetCurrentProcessId(), "publisher creation requires its actual child and separate original SCM parent");
+    state.effect_readback = &readback;
+    state.effect_security = &security;
+    const auto native = security.observe_current();
+    state.process_boundary = native.at("process_boundary");
+    state.worker_security = native.at("worker_security");
+    require_publisher_process_boundary(state.process_boundary, state.worker.process_id, state.worker.service_sid, state.worker.token.process_groups);
+    require_publisher_worker_security(state.worker_security, state.worker);
+    require(QueryPerformanceFrequency(&state.clock_frequency) && state.clock_frequency.QuadPart > 0 &&
+        QueryPerformanceCounter(&state.capture_started), "publisher creation observation clock unavailable");
+    state.require_worker("capture_initial");
+    state.boundary = observe_publisher_directory_handle(boundary);
+    require_publisher_object_security_shape(state.boundary, state.service.service_sid);
+    require(state.boundary.file_id == state.broker.at("volume_root").at("file_id").as_string(),
+        "publisher child creation boundary differs from original native registered target");
     state.descriptor = creation_descriptor(state.service.service_sid);
     active_capture = this;
 }
@@ -201,7 +280,7 @@ std::optional<PublisherCreationParentObservation> prepare_publisher_creation_obs
     HANDLE parent, const std::vector<unsigned char>& descriptor) {
     if (!active_capture) return std::nullopt;
     auto& state = *active_capture->implementation_;
-    state.require_worker();
+    state.require_worker("before_create");
     require(descriptor == state.descriptor, "publisher creation descriptor differs from its exact protected descriptor");
     const auto observed = observe_publisher_directory_handle(parent);
     require_publisher_object_security_shape(observed, state.service.service_sid);
@@ -219,7 +298,7 @@ void finish_publisher_creation_observation(
     require(before.has_value() == (active_capture != nullptr), "publisher creation capture changed across native call");
     if (!before) return;
     auto& state = *active_capture->implementation_;
-    state.require_worker();
+    state.require_worker("after_create");
     const auto profile = call_profile();
     require(call.ntstatus == profile.at("ntstatus").as_unsigned() &&
         call.creation_result == profile.at("creation_result").as_unsigned() &&
@@ -246,7 +325,7 @@ void finish_publisher_creation_observation(
         ((object.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0) == directory,
         "publisher created object differs from its supplied parent, component or handle flags");
     auto row = graph_row(object.file_id, before->parent.file_id, utf8(name), directory);
-    state.require_worker();
+    state.require_worker("after_create_lineage");
     constexpr std::size_t maximum_objects = 200016;
     constexpr std::size_t maximum_bytes = 64u * 1024u * 1024u;
     const auto size = usk::json::canonical(row).size();
@@ -308,7 +387,7 @@ Value publisher_creation_graph(const Value& anchors, const Value& tree) {
 Value PublisherCreationCapture::certificate(const Value& anchors,
     const Value& sealed_tree, const Value& execution) const {
     const auto& state = *implementation_;
-    state.require_worker();
+    state.require_worker("certificate");
     require(object_id(anchors.at("boundary")) == state.boundary.file_id,
         "publisher creation certificate changed its volume boundary");
     const auto graph = publisher_creation_graph(anchors, sealed_tree);
@@ -317,8 +396,10 @@ Value PublisherCreationCapture::certificate(const Value& anchors,
         require(found != state.entries.end() && usk::json::canonical(found->second) == usk::json::canonical(row),
             "publisher sealed graph contains an object without matching native creation lineage");
     }
-    auto result = Value(Value::Object{{"schema", Value("usk.publisher.creation_observation.v3")},
-        {"scope", Value("successful_service_file_create_calls_and_worker_security_to_bound_graph")},
+    const bool effect = state.effect_readback != nullptr;
+    auto result = Value(Value::Object{{"schema", Value(effect ? "usk.publisher.creation_observation.v5" : "usk.publisher.creation_observation.v3")},
+        {"scope", Value(effect ? "successful_child_file_create_calls_and_original_native_retirement_partition_to_bound_graph" :
+            "successful_service_file_create_calls_and_worker_security_to_bound_graph")},
         {"creator", creator(state.service)}, {"native_call", call_profile()},
         {"process_boundary", state.process_boundary},
         {"worker_security", state.worker_security},
@@ -328,6 +409,21 @@ Value PublisherCreationCapture::certificate(const Value& anchors,
         {"creation_descriptor_hex", Value(bytes_hex(state.descriptor.data(), state.descriptor.size()))},
         {"created_object_count", Value(static_cast<std::uint64_t>(graph.as_array().size()))},
         {"created_graph_sha256", Value(usk::json::sha256_canonical(graph))}});
+    if (effect) {
+        const auto current = state.effect_readback->service_admission();
+        require(usk::json::canonical(publisher_effect_broker_immutable_record(current)) ==
+            usk::json::canonical(publisher_effect_broker_immutable_record(state.broker)),
+            "publisher creation native broker/child changed across certificate");
+        Value effect_worker(Value::Object{{"process_id", Value(static_cast<std::uint64_t>(state.worker.process_id))},
+            {"process_birth", state.broker.at("custody").at("peer_process_birth")},
+            {"service_sid", Value(state.worker.service_sid)}, {"primary_token", state.broker.at("effect_primary_token")}});
+        result.as_object().at("creator") = Value(Value::Object{{"service_name", current.at("service").at("service_name")},
+            {"service_sid", Value(state.worker.service_sid)}, {"broker_process_id", current.at("service").at("process_id")},
+            {"effect_worker", std::move(effect_worker)}});
+        result.as_object().emplace("broker_readback", current);
+        state.require_worker("certificate_complete");
+    if (effect) result.as_object().emplace("completed_worker_security", state.completed_worker_security);
+    }
     require_publisher_creation_certificate(result, anchors, sealed_tree, execution);
     return result;
 }
@@ -336,24 +432,32 @@ void require_publisher_creation_certificate(const Value& certificate,
     const Value& anchors, const Value& tree, const Value& execution) {
     const auto descriptor = creation_descriptor(execution.at("service").at("service_sid").as_string());
     const auto graph = publisher_creation_graph(anchors, tree);
-    const bool worker_bound = certificate.at("schema").as_string() == "usk.publisher.creation_observation.v3";
+    const bool retirement_bound = certificate.at("schema").as_string() == "usk.publisher.creation_observation.v5";
+    const bool effect_bound = retirement_bound || certificate.at("schema").as_string() == "usk.publisher.creation_observation.v4";
+    const bool retirement_execution = execution.at("schema").as_string() == "usk.publisher_execution_observation.v8";
+    const bool effect_execution = retirement_execution || execution.at("schema").as_string() == "usk.publisher_execution_observation.v7";
+    require(retirement_bound == retirement_execution, "publisher creation retirement proof family differs");
+    require(effect_bound == effect_execution, "publisher creation certificate downgraded or reinterpreted its child execution binding");
+    const bool worker_bound = effect_bound || certificate.at("schema").as_string() == "usk.publisher.creation_observation.v3";
     const bool process_bound = worker_bound || certificate.at("schema").as_string() == "usk.publisher.creation_observation.v2";
     require((execution.at("schema").as_string() == "usk.publisher_execution_observation.v1" ||
              execution.at("schema").as_string() == "usk.publisher_execution_observation.v2" ||
              execution.at("schema").as_string() == "usk.publisher_execution_observation.v3" ||
              execution.at("schema").as_string() == "usk.publisher_execution_observation.v4" ||
              execution.at("schema").as_string() == "usk.publisher_execution_observation.v5" ||
-             execution.at("schema").as_string() == "usk.publisher_execution_observation.v6") &&
+             execution.at("schema").as_string() == "usk.publisher_execution_observation.v6" || effect_execution) &&
         worker_bound == (execution.at("schema").as_string() == "usk.publisher_execution_observation.v3" ||
                          execution.at("schema").as_string() == "usk.publisher_execution_observation.v4" ||
                          execution.at("schema").as_string() == "usk.publisher_execution_observation.v5" ||
-                         execution.at("schema").as_string() == "usk.publisher_execution_observation.v6") &&
+                         execution.at("schema").as_string() == "usk.publisher_execution_observation.v6" || effect_execution) &&
         process_bound == (execution.at("schema").as_string() != "usk.publisher_execution_observation.v1") &&
         process_bound == execution.contains("process_boundary") && worker_bound == execution.contains("worker_security"),
         "publisher creation certificate downgraded its original execution boundary");
-    require(certificate.as_object().size() == (worker_bound ? 12u : process_bound ? 11u : 10u) &&
+    require(certificate.as_object().size() == (retirement_bound ? 14u : effect_bound ? 13u : worker_bound ? 12u : process_bound ? 11u : 10u) &&
         (process_bound || certificate.at("schema").as_string() == "usk.publisher.creation_observation.v1") &&
-        certificate.at("scope").as_string() == (worker_bound ?
+        certificate.at("scope").as_string() == (retirement_bound ?
+            "successful_child_file_create_calls_and_original_native_retirement_partition_to_bound_graph" : effect_bound ?
+            "successful_child_file_create_calls_and_pinned_worker_security_to_bound_graph" : worker_bound ?
             "successful_service_file_create_calls_and_worker_security_to_bound_graph" : process_bound ?
             "successful_service_file_create_calls_and_process_boundary_to_bound_graph" :
             "successful_service_file_create_calls_to_bound_graph") &&
@@ -366,15 +470,34 @@ void require_publisher_creation_certificate(const Value& certificate,
         certificate.at("created_object_count").as_unsigned() == graph.as_array().size() &&
         certificate.at("created_graph_sha256").as_string() == usk::json::sha256_canonical(graph),
         "publisher retained creation certificate differs from its sealed graph or creator binding");
+    if (effect_bound) {
+        require_publisher_effect_broker_readback_continuity(execution.at("broker_readback"), certificate.at("broker_readback"));
+        require(usk::json::canonical(publisher_effect_broker_immutable_record(certificate.at("broker_readback"))) ==
+            usk::json::canonical(publisher_effect_broker_immutable_record(execution.at("broker_readback"))),
+            "publisher retained creation broker/child differs from its original native execution binding");
+    }
     if (process_bound) {
         require(usk::json::canonical(certificate.at("process_boundary")) ==
                 usk::json::canonical(execution.at("process_boundary")),
             "publisher creation process boundary differs from its original prepared worker");
     }
     if (worker_bound) {
-        require(usk::json::canonical(certificate.at("worker_security")) ==
-            usk::json::canonical(execution.at("worker_security")),
-            "publisher creation worker security differs from its original prepared worker");
+        if (retirement_bound) {
+            const auto context = publisher_effect_worker_record_context(execution.at("broker_readback"));
+            require(certificate.at("worker_security").at("schema").as_string() == "usk.publisher_worker_security.v2" &&
+                certificate.at("completed_worker_security").at("schema").as_string() == "usk.publisher_worker_security.v2",
+                "publisher creation original retirement evidence is absent");
+            require_publisher_worker_security(certificate.at("worker_security"), context);
+            require_publisher_worker_security(certificate.at("completed_worker_security"), context);
+            require_publisher_worker_security_continuity(certificate.at("worker_security"), execution.at("worker_security"));
+            require_publisher_worker_security_continuity(execution.at("worker_security"), certificate.at("completed_worker_security"));
+        } else {
+            require(certificate.at("worker_security").at("schema").as_string() == "usk.publisher_worker_security.v1",
+                "publisher legacy creation reinterpreted retirement provenance");
+            require(usk::json::canonical(certificate.at("worker_security")) ==
+                usk::json::canonical(execution.at("worker_security")),
+                "publisher creation worker security differs from its original prepared worker");
+        }
     }
 }
 } // namespace usk::platform::windows

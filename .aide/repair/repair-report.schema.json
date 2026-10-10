@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.repair-report.schema.v0",
+  "type": "object",
+  "required": ["schema_version", "generated_by", "source_commit", "summary", "diagnoses", "operations", "warnings", "no_apply"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "summary": {"type": "object"},
+    "diagnoses": {"type": "array"},
+    "operations": {"type": "array"},
+    "warnings": {"type": "array"},
+    "no_apply": {"const": true}
+  }
+}

@@ -1,0 +1,6 @@
+schema_version: aide.golden-task.v0
+id: full_discovery_handoff_no_run_golden
+title: Full Discovery Handoff No Run Golden
+status: active
+description: Verify full-discovery handoff is report-only, waits for external execution, and does not run target tests.
+

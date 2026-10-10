@@ -6,8 +6,10 @@
 #include "usk_sha256.h"
 #include "usk_record_io.h"
 #include "usk_stable_file.h"
+#include "usk_maintenance_effect_journal.h"
 #include "usk_json.h"
 #include "usk_utf8_path.h"
+#include "usk_native_maintenance_transaction_internal.h"
 
 #include <algorithm>
 #include <array>
@@ -543,9 +545,21 @@ TransactionSession::TransactionSession(
     journal_path_ = spec_.state_root / "transactions" /
         (spec_.transaction_id + ".journal.json");
     require_path_capacity(spec_);
+#if defined(_WIN32)
+    if (detail::ScopedNativeMaintenanceTransaction::current()) {
+        native_origin_ = true;
+        native_origin_binding_ = detail::ScopedNativeMaintenanceTransaction::current_binding();
+        (void)require_native_owner();
+        // Native creation may be retained even if its completion record cannot
+        // be written. Ordinary pathname rollback never acquires its custody.
+        retain_stream_cleanup_ = true;
+        retain_commit_cleanup_ = true;
+    }
+#endif
     created_at_ = iso8601_now();
 
-    if (resume_mode == ResumeMode::finalization) require_commit_authority(spec_.required_commit_authority);
+    if (resume_mode == ResumeMode::finalization || resume_mode == ResumeMode::maintenance_finalization)
+        require_commit_authority(spec_.required_commit_authority);
     if (resume_mode != ResumeMode::none) {
         require_safe_directory(spec_.staging_parent);
         require_safe_directory(spec_.target_root.parent_path());
@@ -556,6 +570,9 @@ TransactionSession::TransactionSession(
         require_disjoint(spec_.target_root, spec_.audit_root);
         require_disjoint(spec_.state_root, spec_.audit_root);
         const std::string text = read_bounded_text(journal_path_, 4u * 1024u * 1024u);
+        usk::base::Sha256 persisted;
+        persisted.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        persisted_journal_sha256_ = persisted.finish();
         const usk::json::Value document = usk::json::parse(text, {4u * 1024u * 1024u, 64u, 2u * 1024u * 1024u, 1024u * 1024u});
         if (document.at("schema").as_string() != "usk.transaction_journal.v1" ||
             document.at("transaction_id").as_string() != spec_.transaction_id ||
@@ -632,7 +649,38 @@ TransactionSession::TransactionSession(
                 staged_files_.push_back(StagedFile{relative, sha256, size_bytes});
             }
         }
-        if (resume_mode == ResumeMode::finalization) {
+        if (resume_mode == ResumeMode::maintenance_finalization) {
+            if ((spec_.operation != "repair" && spec_.operation != "move" && spec_.operation != "uninstall") ||
+                (prior != "committing" && prior != "committed" && prior != "recovery_required" && prior != "completed"))
+                throw std::runtime_error("transaction is not a maintenance finalization candidate");
+            const auto history = MaintenanceEffectJournal::inspect(spec_, stream_journal_.source_digest, true);
+            if (!history.sealed || !history.pending_kind.empty() || history.source_context != stream_journal_.source_context ||
+                history.completed.empty() || stream_journal_.publication_root_identity.empty())
+                throw std::runtime_error("maintenance finalization has no sealed original history");
+            std::error_code stage_error;
+            const auto stage_status = fs::symlink_status(staging_root_, stage_error);
+            if (stage_status.type() != fs::file_type::not_found ||
+                (stage_error && stage_error != std::errc::no_such_file_or_directory))
+                throw std::runtime_error("maintenance finalization staging is not genuinely absent");
+            const auto& last = history.completed.back();
+            if (spec_.operation != "move") {
+                const bool was_committed = std::any_of(transitions_.begin(), transitions_.end(),
+                    [](const auto& transition) { return transition.to == "committed"; });
+                std::error_code target_error;
+                const auto target_status = fs::symlink_status(spec_.target_root, target_error);
+                if (!was_committed || last.kind != "remove_directory" || last.outcome != "applied" ||
+                    last.details.at("root_role").as_string() != "operation_target" ||
+                    !last.details.at("relative_path").as_string().empty() ||
+                    last.details.at("native_identity").as_string() != stream_journal_.publication_root_identity ||
+                    target_status.type() != fs::file_type::not_found ||
+                    (target_error && target_error != std::errc::no_such_file_or_directory))
+                    throw std::runtime_error("maintenance finalization lacks confirmed operation-root removal");
+            } else if (last.kind != "append_audit" || !fs::is_directory(spec_.target_root) ||
+                reparse_or_symlink(spec_.target_root) || directory_identity(spec_.target_root) != stream_journal_.publication_root_identity) {
+                throw std::runtime_error("move finalization lost its published root");
+            }
+            maintenance_finalization_ = true;
+        } else if (resume_mode == ResumeMode::finalization) {
             if ((prior != "committing" && prior != "committed" && prior != "recovery_required") ||
                 fs::exists(staging_root_) || !fs::is_directory(spec_.target_root) ||
                 reparse_or_symlink(spec_.target_root)) {
@@ -655,10 +703,19 @@ TransactionSession::TransactionSession(
     if (fs::exists(journal_path_)) {
         throw std::runtime_error("transaction journal already exists; recovery inspection is required");
     }
-    persist_transition("created");
-    persist_transition("validated");
-    persist_transition("planned");
-    persist_transition("staging");
+#if defined(_WIN32)
+    if (native_origin_ && stream_journal_.present && !injector_) {
+        persist_native_initial_transitions();
+    } else
+#endif
+    {
+        // A caller asking to observe individual phase checkpoints retains the
+        // original durable prefix and before/after callbacks for every phase.
+        persist_transition("created");
+        persist_transition("validated");
+        persist_transition("planned");
+        persist_transition("staging");
+    }
     create_staging_root();
 }
 
@@ -686,12 +743,72 @@ void TransactionSession::verify_roots_for_plan()
     journal_directory_identity_ = directory_identity(spec_.state_root / "transactions");
 }
 
+#if defined(_WIN32)
+const detail::NativeMaintenanceTransactionOperations* TransactionSession::native_owner_binding() const {
+    detail::require_native_maintenance_origin_binding(native_origin_, native_origin_binding_,
+        detail::ScopedNativeMaintenanceTransaction::current_binding());
+    const auto* native = detail::ScopedNativeMaintenanceTransaction::current();
+    if (native_origin_) {
+        if (!native) throw std::runtime_error("native maintenance transaction owner is absent");
+    } else if (native) throw std::runtime_error("ordinary transaction cannot enter native maintenance custody");
+    return native;
+}
+const detail::NativeMaintenanceTransactionOperations* TransactionSession::require_native_owner() const {
+    const auto* native = native_owner_binding();
+    if (native) native->require_authority(spec_);
+    return native;
+}
+
+void TransactionSession::persist_native_initial_transitions() {
+    if (!require_native_owner() || injector_ || !stream_journal_.present ||
+        !transitions_.empty() || !current_state_.empty())
+        throw std::logic_error("native initial journal is not an unstarted bound stream");
+    // Root/plan/source validation has completed. There is no staging or payload
+    // effect between these logical phases: one no-replace durable snapshot can
+    // carry their complete prior intent before create_staging_root. This is one
+    // durability boundary, not four independently observable durable writes.
+    try {
+        for (const auto* next : {"created", "validated", "planned", "staging"}) {
+            if (!valid_transition(current_state_, next))
+                throw std::logic_error("invalid native initial transaction chain");
+            transitions_.push_back(Transition{static_cast<std::uint64_t>(transitions_.size()),
+                current_state_, next, iso8601_now()});
+            current_state_ = next;
+        }
+        persist_journal(transitions_.back().sequence, true);
+    } catch (...) {
+        // The native callback latches uncertain persistence and retains any
+        // durable material. Construction fails; no staging, retry or overwrite.
+        transitions_.clear();
+        current_state_.clear();
+        throw;
+    }
+    (void)require_native_owner();
+}
+#endif
+
 void TransactionSession::persist_transition(const std::string& next_state)
 {
+#if defined(_WIN32)
+    (void)native_owner_binding();
+#endif
     if (!valid_transition(current_state_, next_state)) {
         throw std::logic_error("invalid setup transaction state transition");
     }
-    if (injector_) injector_(next_state, "before_journal");
+    if (injector_) {
+#if defined(_WIN32)
+        (void)require_native_owner();
+#endif
+        injector_(next_state, "before_journal");
+#if defined(_WIN32)
+        (void)require_native_owner();
+#endif
+    }
+    // The private concrete journal writer completes fresh authority fences
+    // around its durable effects and after publication. Keep the original
+    // binding through query-only transition bookkeeping; actual external
+    // callbacks retain full enclosing checks. Former wrapper samples are
+    // unclaimed, and no authority result survives a writer call.
     const std::string previous = current_state_;
     transitions_.push_back(Transition{
         static_cast<std::uint64_t>(transitions_.size()),
@@ -704,27 +821,55 @@ void TransactionSession::persist_transition(const std::string& next_state)
         if (!first && directory_identity(journal_path_.parent_path()) != journal_directory_identity_) {
             throw std::runtime_error("transaction journal directory identity changed");
         }
-        atomic_write_journal(
-            journal_path_,
-            render_journal(),
-            transitions_.back().sequence,
-            first);
+        persist_journal(transitions_.back().sequence, first);
     } catch (...) {
         current_state_ = previous;
         transitions_.pop_back();
         throw;
     }
-    if (injector_) injector_(next_state, "after_journal");
+    if (injector_) {
+        injector_(next_state, "after_journal");
+#if defined(_WIN32)
+        (void)require_native_owner();
+#endif
+    } else {
+#if defined(_WIN32)
+        (void)native_owner_binding();
+#endif
+    }
 }
 
 void TransactionSession::persist_snapshot()
 {
+#if defined(_WIN32)
+    // No external callback precedes this original concrete journal writer.
+    // Its fresh mutation/final fences stay in persist_journal's producer.
+    (void)native_owner_binding();
+#endif
     if (transitions_.empty() ||
         directory_identity(journal_path_.parent_path()) != journal_directory_identity_) {
         throw std::runtime_error("transaction journal directory identity changed");
     }
-    atomic_write_journal(
-        journal_path_, render_journal(), transitions_.back().sequence + 1u, false);
+    persist_journal(transitions_.back().sequence + 1u, false);
+}
+
+void TransactionSession::persist_journal(std::uint64_t sequence, bool first)
+{
+    const std::string text = render_journal();
+#if defined(_WIN32)
+    if (const auto* native = native_owner_binding()) {
+        native->persist_journal(spec_, journal_path_, text, persisted_journal_sha256_, first);
+        // The concrete callback completed full native fences before and after
+        // its durable effect. Recheck original scope, without nesting another
+        // authority observation around that already completed callback.
+        (void)native_owner_binding();
+        usk::base::Sha256 persisted;
+        persisted.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        persisted_journal_sha256_ = persisted.finish();
+        return;
+    }
+#endif
+    atomic_write_journal(journal_path_, text, sequence, first);
 }
 
 void TransactionSession::create_staging_root()
@@ -733,9 +878,17 @@ void TransactionSession::create_staging_root()
         fs::exists(staging_root_)) {
         throw std::runtime_error("staging parent changed or staging root now exists");
     }
-    std::error_code error;
-    if (!fs::create_directory(staging_root_, error) || error) {
-        throw std::runtime_error("cannot exclusively create setup-owned staging root");
+#if defined(_WIN32)
+    const auto* native = native_owner_binding();
+    if (native) {
+        native->create_staging_root(spec_, staging_root_);
+        (void)native_owner_binding();
+    } else
+#endif
+    {
+        std::error_code error;
+        if (!fs::create_directory(staging_root_, error) || error)
+            throw std::runtime_error("cannot exclusively create setup-owned staging root");
     }
     staging_identity_ = directory_identity(staging_root_);
     if (stream_journal_.present) {
@@ -755,6 +908,12 @@ void TransactionSession::verify_staging_identity() const
 
 void TransactionSession::remove_recorded_staging_closure()
 {
+#if defined(_WIN32)
+    if (const auto* native = require_native_owner()) {
+        native->require_authority(spec_);
+        throw std::runtime_error("native maintenance staging remains under engine custody; pathname cleanup refused");
+    }
+#endif
     if (retain_stream_cleanup_ || retain_commit_cleanup_) {
         throw std::runtime_error("streamed staging is retained; automatic rollback has no deletion authority");
     }
@@ -838,6 +997,12 @@ void TransactionSession::stage_file(
     const fs::path& relative_path,
     const std::vector<unsigned char>& bytes)
 {
+#if defined(_WIN32)
+    if (const auto* native = require_native_owner()) {
+        native->require_authority(spec_);
+        throw std::runtime_error("native maintenance requires the creation-bound streaming path");
+    }
+#endif
     if (current_state_ != "staging" || !safe_relative_path(relative_path)) {
         throw std::runtime_error("staged file path or transaction state is invalid");
     }
@@ -872,6 +1037,11 @@ void TransactionSession::stage_file(
         require_safe_directory(current);
     }
     if (injector_) injector_(current_state_, "before_stage_file");
+#if defined(_WIN32)
+    // The caller's injector may have changed the active owner lifetime. An
+    // ordinary session cannot adopt that scope for its pathname write.
+    (void)require_native_owner();
+#endif
     const fs::path destination = staging_root_ / relative_path;
     write_new_durable_file(destination, bytes.data(), bytes.size());
     staged_files_.push_back(StagedFile{
@@ -937,10 +1107,18 @@ StreamStageResult TransactionSession::stage_file_stream(
     --last;
     for (auto iterator = relative_path.begin(); iterator != last; ++iterator) {
         current /= *iterator;
-        std::error_code error;
-        if (!fs::exists(current)) {
-            if (!fs::create_directory(current, error) || error) {
-                throw std::runtime_error("cannot create owned streaming staging directory");
+#if defined(_WIN32)
+        if (const auto* native = native_owner_binding()) {
+            native->ensure_stream_parent(spec_, current);
+            (void)native_owner_binding();
+        } else
+#endif
+        {
+            std::error_code error;
+            if (!fs::exists(current)) {
+                if (!fs::create_directory(current, error) || error) {
+                    throw std::runtime_error("cannot create owned streaming staging directory");
+                }
             }
         }
         require_safe_directory(current);
@@ -957,8 +1135,10 @@ StreamStageResult TransactionSession::stage_file_stream(
     try {
         if (injector_) injector_(current_state_, "before_stage_stream");
 #if defined(_WIN32)
-        handle = CreateFileW(
-            destination.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
+        if (const auto* native = native_owner_binding()) {
+            handle = reinterpret_cast<HANDLE>(native->open_stream(spec_, destination, expected_size, expected_sha256));
+            native_owner_binding()->require_stream(spec_, reinterpret_cast<std::intptr_t>(handle));
+        } else handle = CreateFileW(destination.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW,
             FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
         if (handle == INVALID_HANDLE_VALUE) {
             throw std::runtime_error("cannot exclusively create streamed transaction file");
@@ -1001,6 +1181,9 @@ StreamStageResult TransactionSession::stage_file_stream(
 #if defined(_WIN32)
                 const DWORD request = static_cast<DWORD>(count - written_total);
                 DWORD written = 0;
+                if (const auto* native = native_owner_binding()) {
+                    native->require_stream(spec_, reinterpret_cast<std::intptr_t>(handle));
+                }
                 if (!WriteFile(handle, buffer.data() + written_total, request, &written, nullptr) ||
                     written == 0) {
                     throw std::runtime_error("cannot write streamed transaction file");
@@ -1024,17 +1207,32 @@ StreamStageResult TransactionSession::stage_file_stream(
             throw std::runtime_error("streamed source exceeded its reviewed size");
         }
         if (injector_) injector_(current_state_, "before_stream_finalize");
+        std::string actual_sha256;
 #if defined(_WIN32)
-        const BOOL flushed = FlushFileBuffers(handle);
-        if (stream_output_identity(reinterpret_cast<std::intptr_t>(handle)) != observation.output_identity) {
-            throw std::runtime_error("stream output handle identity changed");
-        }
-        if (!CloseHandle(handle)) {
-            throw std::runtime_error("cannot close streamed transaction file");
-        }
-        handle = INVALID_HANDLE_VALUE;
-        if (!flushed) {
-            throw std::runtime_error("cannot flush streamed transaction file");
+        if (const auto* native = native_owner_binding()) {
+            actual_sha256 = digest.finish();
+            if (total != expected_size || actual_sha256 != expected_sha256)
+                throw std::runtime_error("streamed staged file integrity changed");
+            native->require_stream(spec_, reinterpret_cast<std::intptr_t>(handle));
+            native->finish_stream(spec_, reinterpret_cast<std::intptr_t>(handle),
+                observation.output_identity, total, actual_sha256);
+            (void)native_owner_binding();
+            // Borrowed custody stays with the concrete engine. No close or
+            // rollback by pathname follows failure of its native operation.
+            handle = INVALID_HANDLE_VALUE;
+        } else {
+            const BOOL flushed = FlushFileBuffers(handle);
+            if (stream_output_identity(reinterpret_cast<std::intptr_t>(handle)) != observation.output_identity) {
+                throw std::runtime_error("stream output handle identity changed");
+            }
+            if (!CloseHandle(handle)) {
+                throw std::runtime_error("cannot close streamed transaction file");
+            }
+            handle = INVALID_HANDLE_VALUE;
+            if (!flushed) {
+                throw std::runtime_error("cannot flush streamed transaction file");
+            }
+            actual_sha256 = digest.finish();
         }
 #else
         const int flushed = ::fsync(descriptor);
@@ -1046,8 +1244,8 @@ StreamStageResult TransactionSession::stage_file_stream(
         if (flushed != 0 || closed != 0) {
             throw std::runtime_error("cannot flush streamed transaction file");
         }
+        actual_sha256 = digest.finish();
 #endif
-        const std::string actual_sha256 = digest.finish();
         if (total != expected_size || actual_sha256 != expected_sha256) {
             throw std::runtime_error("streamed staged file integrity changed");
         }
@@ -1058,7 +1256,9 @@ StreamStageResult TransactionSession::stage_file_stream(
         return {actual_sha256, total, static_cast<std::uint64_t>(buffer.capacity())};
     } catch (...) {
 #if defined(_WIN32)
-        if (handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
+        // Borrowed native handles remain owned by the original engine even
+        // after its scope has ended. Never select cleanup from current TLS.
+        if (!native_origin_ && handle != INVALID_HANDLE_VALUE) CloseHandle(handle);
 #else
         if (descriptor >= 0) ::close(descriptor);
 #endif
@@ -1131,6 +1331,13 @@ CommitClosureObservation TransactionSession::observe_staged_commit_closure() con
         files.push_back({file.relative_path, file.sha256, file.size_bytes,
             stream == stream_journal_.entries.end() ? std::string{} : stream->output_identity});
     }
+#if defined(_WIN32)
+    if (const auto* native = require_native_owner()) {
+        const auto result = native->observe_commit_closure(spec_, staging_root_, files);
+        (void)require_native_owner();
+        return result;
+    }
+#endif
     return observe_commit_closure(staging_root_, files);
 }
 
@@ -1162,7 +1369,9 @@ void TransactionSession::commit_effect()
             throw std::runtime_error("commit preparation refuses a changed verified closure");
         }
     } catch (...) {
-        persist_transition("recovery_required");
+        // Preserve the primary refusal if its fence also prevents recording
+        // recovery. The durable cleanup latch already withholds rollback.
+        try { persist_transition("recovery_required"); } catch (...) {}
         throw;
     }
     // Observations end here. This legacy hook/rename window has no protected
@@ -1176,9 +1385,18 @@ void TransactionSession::commit_effect()
         throw std::runtime_error("target changed immediately before no-replace commit");
     }
     try {
-        rename_directory_no_replace(staging_root_, spec_.target_root);
+#if defined(_WIN32)
+        const auto* native = require_native_owner();
+        if (native) {
+            native->commit(spec_, staging_root_, staging_identity_, verified_closure_);
+            (void)require_native_owner();
+        } else
+#endif
+            rename_directory_no_replace(staging_root_, spec_.target_root);
     } catch (...) {
-        persist_transition("recovery_required");
+        // An uncertain native effect may refuse every subsequent record write.
+        // Retain the original exception without relaxing that effect fence.
+        try { persist_transition("recovery_required"); } catch (...) {}
         throw;
     }
     if (injector_) injector_(current_state_, "after_commit_effect");
@@ -1187,8 +1405,8 @@ void TransactionSession::commit_effect()
 void TransactionSession::mark_committed()
 {
     require_commit_authority(spec_.required_commit_authority);
-    if (current_state_ != "committing" || fs::exists(staging_root_) ||
-        !fs::is_directory(spec_.target_root) || reparse_or_symlink(spec_.target_root)) {
+    if (current_state_ != "committing" || (!maintenance_finalization_ && (fs::exists(staging_root_) ||
+        !fs::is_directory(spec_.target_root) || reparse_or_symlink(spec_.target_root)))) {
         throw std::runtime_error("transaction commit effect is not present and stable");
     }
     persist_transition("committed");
@@ -1214,8 +1432,8 @@ void TransactionSession::mark_recovery_required()
 void TransactionSession::resume_committing()
 {
     require_commit_authority(spec_.required_commit_authority);
-    if (current_state_ != "recovery_required" || fs::exists(staging_root_) ||
-        !fs::is_directory(spec_.target_root) || reparse_or_symlink(spec_.target_root)) {
+    if (current_state_ != "recovery_required" || (!maintenance_finalization_ && (fs::exists(staging_root_) ||
+        !fs::is_directory(spec_.target_root) || reparse_or_symlink(spec_.target_root)))) {
         throw std::runtime_error("only visible-target recovery can resume finalization");
     }
     persist_transition("committing");
@@ -1333,6 +1551,11 @@ std::string TransactionSession::render_journal() const
 
 RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& input)
 {
+    return inspect_recovery_impl(input, true);
+}
+
+RecoveryInspection TransactionSession::inspect_recovery_impl(const TransactionSpec& input, bool observe_payload)
+{
     TransactionSpec spec = input;
     spec.staging_parent = absolute_normal(spec.staging_parent);
     spec.target_root = absolute_normal(spec.target_root);
@@ -1393,6 +1616,11 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
             const auto& state = transition.at("to").as_string();
             return state == "committing" || state == "committed" || state == "completed";
         });
+    result.commit_confirmed = std::any_of(document.at("transitions").as_array().begin(),
+        document.at("transitions").as_array().end(), [](const json::Value& transition) {
+            const auto& state = transition.at("to").as_string();
+            return state == "committed" || state == "completed";
+        });
     result.current_state = document.at("current_state").as_string();
     result.journal_digest = document.at("journal_digest").as_string();
     result.recorded_at = document.at("updated_at").as_string();
@@ -1411,6 +1639,11 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
     usk::base::Sha256 snapshot_digest;
     snapshot_digest.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
     result.snapshot_sha256 = snapshot_digest.finish();
+    if (!observe_payload) {
+        if (result.current_state != "completed")
+            throw std::runtime_error("historical transaction journal is not completed");
+        return result;
+    }
     result.staging_exists = fs::exists(staging);
     result.target_exists = fs::exists(spec.target_root);
     if (result.staging_exists && reparse_or_symlink(staging)) {
@@ -1452,6 +1685,92 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
         result.available_actions = {"retain_for_operator"};
     }
     return result;
+}
+
+void TransactionSession::require_recovery_transition_extension(const TransactionSpec& spec,
+    const std::string& original_text, const std::string& original_snapshot_sha256,
+    const std::string& expected_current_snapshot_sha256)
+{
+    require_transition_extension_impl(spec, original_text, original_snapshot_sha256,
+        expected_current_snapshot_sha256, false);
+}
+void TransactionSession::require_completed_transition_extension(const TransactionSpec& spec,
+    const std::string& original_text, const std::string& original_snapshot_sha256,
+    const std::string& expected_current_snapshot_sha256)
+{
+    require_transition_extension_impl(spec, original_text, original_snapshot_sha256,
+        expected_current_snapshot_sha256, true);
+}
+void TransactionSession::require_transition_extension_impl(const TransactionSpec& spec,
+    const std::string& original_text, const std::string& original_snapshot_sha256,
+    const std::string& expected_current_snapshot_sha256, bool completed_history)
+{
+    constexpr std::size_t maximum = 4u * 1024u * 1024u;
+    const auto hash = [](const std::string& text) {
+        base::Sha256 digest;
+        digest.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        return digest.finish();
+    };
+    if (original_text.size() > maximum || !valid_sha256(original_snapshot_sha256) ||
+        !valid_sha256(expected_current_snapshot_sha256) || hash(original_text) != original_snapshot_sha256)
+        throw std::runtime_error("maintenance original transaction snapshot is unavailable");
+    const auto inspect = [&] { return inspect_recovery_impl(spec, !completed_history); };
+    const auto before = inspect();
+    if (before.snapshot_sha256 != expected_current_snapshot_sha256 || !before.commit_started)
+        throw std::runtime_error("maintenance current transaction snapshot changed");
+    const auto current_text = read_bounded_text(absolute_normal(spec.state_root) / "transactions" /
+        (spec.transaction_id + ".journal.json"), maximum);
+    if (hash(current_text) != expected_current_snapshot_sha256)
+        throw std::runtime_error("maintenance current transaction bytes changed");
+    auto original = json::parse(original_text, {maximum, 64u, 2u * 1024u * 1024u, 1024u * 1024u});
+    auto current = json::parse(current_text, {maximum, 64u, 2u * 1024u * 1024u, 1024u * 1024u});
+    const auto& prefix = original.at("transitions").as_array();
+    const auto& transitions = current.at("transitions").as_array();
+    const auto& original_state = original.at("current_state").as_string();
+    if (prefix.empty() || transitions.size() < prefix.size() ||
+        (original_state != "committing" && original_state != "committed" && original_state != "recovery_required") ||
+        prefix.back().at("to").as_string() != original_state)
+        throw std::runtime_error("maintenance original transition prefix is not a committed effect anchor");
+    std::ostringstream original_chain;
+    for (std::size_t index = 0; index < transitions.size(); ++index) {
+        if (index < prefix.size()) {
+            if (json::canonical(transitions[index]) != json::canonical(prefix[index]))
+                throw std::runtime_error("maintenance original transaction transition was rewritten");
+            const auto& item = prefix[index];
+            const auto from = item.at("from").type() == json::Value::Type::null_value ?
+                std::string{} : item.at("from").as_string();
+            original_chain << index << '\0' << from << '\0' << item.at("to").as_string() << '\0'
+                << item.at("recorded_at").as_string() << '\n';
+        } else {
+            const auto& state = transitions[index].at("to").as_string();
+            if (state != "recovery_required" && state != "committing" && state != "committed" && state != "completed")
+                throw std::runtime_error("maintenance transaction extension is not finalization");
+        }
+    }
+    if (hash(original_chain.str()) != original.at("journal_digest").as_string())
+        throw std::runtime_error("maintenance original transaction chain digest changed");
+    // The current chain/digest was validated by inspect_recovery. Check the
+    // changing presentation fields as well; everything else remains exact.
+    for (const auto* document : {&original, &current}) {
+        const auto& state = document->at("current_state").as_string();
+        const auto& last = document->at("transitions").as_array().back();
+        const auto actions = (retain_stream_cleanup(*document) || retain_commit_cleanup(*document)) &&
+            state != "completed" && state != "committed" ?
+            std::vector<std::string>{"retain_for_operator"} : journal_actions(state);
+        json::Value::Array available;
+        for (const auto& action : actions) available.emplace_back(action);
+        const json::Value recovery(json::Value::Object{{"required", json::Value(state == "recovery_required")},
+            {"available_actions", json::Value(std::move(available))}});
+        if (document->at("updated_at").as_string() != last.at("recorded_at").as_string() ||
+            json::canonical(document->at("recovery")) != json::canonical(recovery))
+            throw std::runtime_error("maintenance transaction extension changed derived recovery fields");
+    }
+    for (const auto* key : {"transitions", "current_state", "journal_digest", "updated_at", "recovery"}) {
+        original.as_object().erase(key); current.as_object().erase(key);
+    }
+    if (json::canonical(original) != json::canonical(current) ||
+        inspect().snapshot_sha256 != expected_current_snapshot_sha256)
+        throw std::runtime_error("maintenance transaction extension changed immutable fields or its snapshot");
 }
 
 std::unique_ptr<TransactionSession> TransactionSession::restart_streaming(
@@ -1530,6 +1849,71 @@ std::unique_ptr<TransactionSession> TransactionSession::restart_streaming(
     // in its first journal, before any new staging directory or payload effect.
     return std::unique_ptr<TransactionSession>(new TransactionSession(
         next, std::move(injector), ResumeMode::none, std::move(lineage)));
+}
+
+StreamJournal TransactionSession::inspect_recovery_stream(const TransactionSpec& spec,
+    const std::string& expected_snapshot_sha256)
+{
+    const auto before = inspect_recovery(spec);
+    if (!valid_sha256(expected_snapshot_sha256) || before.snapshot_sha256 != expected_snapshot_sha256)
+        throw std::runtime_error("recovery stream snapshot changed");
+    const fs::path journal = absolute_normal(spec.state_root) / "transactions" /
+        (spec.transaction_id + ".journal.json");
+    const auto text = read_bounded_text(journal, 4u * 1024u * 1024u);
+    usk::base::Sha256 hash;
+    hash.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+    if (hash.finish() != expected_snapshot_sha256)
+        throw std::runtime_error("recovery stream bytes changed");
+    const auto document = json::parse(text, {4u * 1024u * 1024u, 64u, 2u * 1024u * 1024u, 1024u * 1024u});
+    auto result = read_stream_journal(document, safe_relative_path);
+    if (inspect_recovery(spec).snapshot_sha256 != expected_snapshot_sha256)
+        throw std::runtime_error("recovery stream changed during inspection");
+    return result;
+}
+
+CompletedTransactionHistory TransactionSession::inspect_completed_history(const TransactionSpec& spec)
+{
+    const auto before = inspect_recovery_impl(spec, false);
+    const fs::path journal = absolute_normal(spec.state_root) / "transactions" /
+        (spec.transaction_id + ".journal.json");
+    const auto text = read_bounded_text(journal, 4u * 1024u * 1024u);
+    base::Sha256 hash;
+    hash.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+    if (hash.finish() != before.snapshot_sha256)
+        throw std::runtime_error("historical transaction bytes changed");
+    const auto document = json::parse(text, {4u * 1024u * 1024u, 64u, 2u * 1024u * 1024u, 1024u * 1024u});
+    auto stream = read_stream_journal(document, safe_relative_path);
+    if (inspect_recovery_impl(spec, false).snapshot_sha256 != before.snapshot_sha256)
+        throw std::runtime_error("historical transaction changed during inspection");
+    return {before.journal_digest, before.recorded_at, before.snapshot_sha256, std::move(stream)};
+}
+
+RecoveryInspection TransactionSession::finalize_maintenance(const TransactionSpec& spec,
+    const std::string& expected_snapshot_sha256, const std::string& expected_history_digest, FaultInjector injector)
+{
+    const auto before = inspect_recovery(spec);
+    if (!valid_sha256(expected_snapshot_sha256) || !valid_sha256(expected_history_digest) ||
+        before.snapshot_sha256 != expected_snapshot_sha256 || !before.commit_started)
+        throw std::runtime_error("maintenance finalization snapshot changed or has no committed effect");
+    TransactionSession session(spec, std::move(injector), ResumeMode::maintenance_finalization);
+    const auto pin = [&] {
+        const auto current = inspect_recovery(spec);
+        const auto history = MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+        const auto expected_text = session.render_journal();
+        usk::base::Sha256 expected_hash;
+        expected_hash.update(reinterpret_cast<const unsigned char*>(expected_text.data()), expected_text.size());
+        if (history.journal_digest != expected_history_digest || !history.sealed || !history.pending_kind.empty() ||
+            current.current_state != session.current_state_ || current.snapshot_sha256 != expected_hash.finish())
+            throw std::runtime_error("maintenance finalization changed its sealed history or transaction");
+    };
+    if (inspect_recovery(spec).snapshot_sha256 != expected_snapshot_sha256)
+        throw std::runtime_error("maintenance finalization snapshot changed during reopening");
+    pin();
+    if (session.current_state_ == "recovery_required") { session.resume_committing(); pin(); }
+    if (session.current_state_ == "committing") { session.mark_committed(); pin(); }
+    if (session.current_state_ == "committed") { session.mark_completed(); pin(); }
+    if (session.current_state_ != "completed") throw std::runtime_error("maintenance finalization did not complete");
+    return inspect_recovery(spec);
 }
 
 std::unique_ptr<TransactionSession> TransactionSession::resume_finalization(

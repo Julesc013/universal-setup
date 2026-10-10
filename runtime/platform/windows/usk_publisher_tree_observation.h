@@ -18,6 +18,7 @@
 #include <vector>
 
 namespace usk::platform::windows {
+class PublisherEffectExecutionOwner;
 class PublisherRequestChannel;
 
 struct PublisherTreeEntry {
@@ -85,6 +86,12 @@ PublisherTreeObservation observe_publisher_tree(HANDLE root, bool backup_observa
 usk::json::Value observe_publisher_authenticated_descendant_access(HANDLE root,
     const PublisherTreeObservation& bound, const PublisherRequestChannel& request,
     const usk::json::Value& client);
+// The same complete held-tree checks, using only the actual native child
+// owner's finite authenticated broker readbacks. No caller-token transfer or
+// supplied access provider is accepted.
+usk::json::Value observe_publisher_authenticated_descendant_access(HANDLE root,
+    const PublisherTreeObservation& bound, PublisherEffectExecutionOwner& owner,
+    const usk::json::Value& client);
 
 // Consistency oracle for two independently observed phases. A non-empty
 // visible_root_name permits only the expected root-prefix path transition;
@@ -109,6 +116,11 @@ void require_publisher_object_security_shape(
 PublisherTreeObservation publisher_consumer_read_projection(
     const PublisherTreeObservation& tree, const std::string& service_sid,
     const std::string& consumer_sid, bool require_every_grant = false);
+// Same read-only predicate for one independently observed payload object.
+// The caller must separately prove the original consumer policy and role.
+PublisherHandleObservation publisher_consumer_read_object_projection(
+    const PublisherHandleObservation& object, const std::string& service_sid,
+    const std::string& consumer_sid, bool require_grant = false);
 
 // Reopen one exact visible component relative to a retained destination-parent
 // handle, freshly observe its tree, and compare it with the sealed tree. This

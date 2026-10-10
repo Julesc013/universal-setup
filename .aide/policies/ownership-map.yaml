@@ -1,0 +1,65 @@
+schema_version: aide.ownership-map-policy.v0
+policy_id: aide-ownership-map-v0
+status: active
+purpose: >
+  Assign deterministic owner hints from path prefixes so future WorkUnits know
+  which control plane, harness, compatibility, gateway, provider, documentation,
+  or unknown surface to inspect first.
+owner_rules:
+  - owner: AIDE repo intelligence
+    patterns:
+      - .aide/repo/**
+      - .aide/policies/repo-intelligence.yaml
+      - .aide/policies/file-classification.yaml
+      - .aide/policies/ownership-map.yaml
+      - .aide/policies/dependency-map.yaml
+      - .aide/policies/test-map.yaml
+      - .aide/policies/doc-link-map.yaml
+  - owner: AIDE intent compiler
+    patterns:
+      - .aide/intake/**
+      - .aide/policies/intent.yaml
+      - .aide/policies/prompt-normalization.yaml
+      - .aide/policies/workunit-sizing.yaml
+  - owner: AIDE control plane
+    patterns:
+      - .aide/**
+  - owner: AIDE harness
+    patterns:
+      - core/harness/**
+      - scripts/aide
+  - owner: compatibility baseline
+    patterns:
+      - core/compat/**
+      - .aide/compat/**
+  - owner: gateway skeleton
+    patterns:
+      - core/gateway/**
+      - .aide/gateway/**
+  - owner: provider metadata and contracts
+    patterns:
+      - core/providers/**
+      - .aide/providers/**
+  - owner: documentation reference
+    patterns:
+      - docs/reference/**
+      - DOCUMENTATION.md
+      - README.md
+      - ROADMAP.md
+      - PLANS.md
+      - IMPLEMENT.md
+      - AGENTS.md
+  - owner: bridge records
+    patterns:
+      - bridges/**
+  - owner: host adapters
+    patterns:
+      - hosts/**
+fallback_owner: unknown
+unknown_owner_rule: >
+  Unknown owner means Q37 did not find a deterministic owner prefix. It does
+  not imply the file is unused or low quality.
+non_goals:
+  - no ownership reassignment
+  - no source deletion
+  - no architectural refactor

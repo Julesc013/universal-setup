@@ -1,0 +1,108 @@
+schema_version: aide.commands-catalog.portable-v0
+catalog_status: portable-aide-lite-pack
+source_of_truth_note: Portable AIDE Lite command surface for target repositories.
+commands:
+  - id: aide-lite
+    display_name: AIDE Lite
+    invocation: py -3 .aide/scripts/aide_lite.py <command>
+    command_kind: repo-local-helper
+    status: implemented-portable
+    owner_component: aide-lite-pack
+    mutates_repo: command-dependent
+    notes: Portable no-call helper for doctor, validate, estimate, snapshot, index, context, pack, verify, review-pack, ledger, eval, outcome, optimize, route, cache, gateway, provider metadata, adapter rendering, intent compilation, repo intelligence indexing, file quality ledger reporting, refactor dry-run planning, adapt, selftest, and test.
+  - id: aide-lite-test
+    display_name: AIDE Lite canonical test runner
+    invocation: py -3 .aide/scripts/aide_lite.py test
+    command_kind: repo-local-helper
+    status: implemented
+    owner_component: aide-lite-pack
+    mutates_repo: false
+    notes: canonical AIDE Lite validation command; no provider/model/network calls.
+  - id: aide-lite-plan-removal
+    display_name: AIDE Lite portable removal planner
+    invocation: py -3 .aide/scripts/aide_lite.py plan-removal --target <target-repo> [--json]
+    command_kind: repo-local-helper
+    status: implemented-portable-read-only
+    owner_component: aide-lite-pack
+    mutates_repo: false
+    notes: validates the portable import receipt and classifies only unchanged recorded managed bytes as future removal candidates; never deletes files or removes managed sections.
+  - id: aide-lite-test-tier-model
+    display_name: AIDE Lite validation tier planning
+    invocation: py -3 .aide/scripts/aide_lite.py test <tiers|tier-plan|impact-plan|summary-validate|telemetry-status|full-discovery-handoff|slow-report-validate>
+    command_kind: repo-local-helper
+    status: implemented-portable
+    owner_component: validation-tier-model
+    mutates_repo: command-dependent
+    notes: report-only T0/T1/T2/T3 validation tier, impacted-test planning, compact test-summary validation, telemetry status, slow-test report validation, and external full-discovery handoff helpers; they do not run target suites, install CI, call providers/models/network, or mutate target repositories.
+  - id: aide-lite-adapter
+    display_name: AIDE Lite adapter compiler
+    invocation: py -3 .aide/scripts/aide_lite.py adapter <list|render|preview|validate|drift|generate>
+    command_kind: repo-local-helper
+    status: implemented-preview
+    owner_component: existing-tool-adapters
+    mutates_repo: command-dependent
+    notes: renders compact existing-tool guidance previews and safe managed AGENTS output only; no provider/model/network calls.
+  - id: aide-lite-commit
+    display_name: AIDE Lite commit discipline
+    invocation: py -3 .aide/scripts/aide_lite.py commit <check|template|status|install-hook>
+    command_kind: repo-local-helper
+    status: implemented-portable
+    owner_component: commit-discipline
+    mutates_repo: command-dependent
+    notes: validates structured commit messages and prints/writes templates; hook installation remains explicit and opt-in.
+  - id: aide-lite-task
+    display_name: AIDE Lite task recovery
+    invocation: py -3 .aide/scripts/aide_lite.py task <inspect|status|noop-check|dependencies|recover|evidence|current>
+    command_kind: repo-local-helper
+    status: implemented-portable
+    owner_component: workunit-recovery
+    mutates_repo: false
+    notes: report-first task inspection and recovery guidance for repeated or out-of-order prompts.
+  - id: aide-lite-git
+    display_name: AIDE Lite Git workflow
+    invocation: py -3 .aide/scripts/aide_lite.py git <detect|doctor|status|policy|plan|sync|land|promote|prune>
+    command_kind: repo-local-helper
+    status: implemented-portable
+    owner_component: git-workflow
+    mutates_repo: command-dependent
+    notes: policy and dry-run helpers default to no live branch or remote mutation; --apply/--push require explicit future operator intent.
+  - id: aide-lite-github
+    display_name: AIDE Lite GitHub advisory
+    invocation: py -3 .aide/scripts/aide_lite.py github <advisory|status|protection|ci|validate>
+    command_kind: repo-local-helper
+    status: implemented-portable
+    owner_component: github-advisory
+    mutates_repo: command-dependent
+    notes: report-only GitHub protection and CI advisory commands; no GitHub API calls, workflow installation, branch mutation, tags, or releases.
+  - id: aide-lite-intent
+    display_name: AIDE Lite intent compiler
+    invocation: py -3 .aide/scripts/aide_lite.py intent <compile|validate|examples|status>
+    command_kind: repo-local-helper
+    status: implemented-portable
+    owner_component: intent-compiler
+    mutates_repo: command-dependent
+    notes: compile-only deterministic prompt normalization; no compiled WorkUnit execution or provider/model/network calls.
+  - id: aide-lite-repo
+    display_name: AIDE Lite repo intelligence
+    invocation: py -3 .aide/scripts/aide_lite.py repo <inventory|classify|validate|status|explain-file|docs|tests|deps>
+    command_kind: repo-local-helper
+    status: implemented-portable
+    owner_component: repo-intelligence
+    mutates_repo: command-dependent
+    notes: index-only deterministic repo inventory and maps; no file moves, deletes, refactors, target mutation, provider/model/network calls, or deletion advice.
+  - id: aide-lite-quality
+    display_name: AIDE Lite file quality ledger
+    invocation: py -3 .aide/scripts/aide_lite.py quality <ledger|validate|status|explain-file|docs|tests|modules|reuse>
+    command_kind: repo-local-helper
+    status: implemented-portable
+    owner_component: file-quality-ledger
+    mutates_repo: command-dependent
+    notes: advisory-only deterministic quality reports from repo intelligence; no file moves, deletes, refactors, automatic fixes, target mutation, provider/model/network calls, or deletion advice.
+  - id: aide-lite-refactor
+    display_name: AIDE Lite refactor control plane
+    invocation: py -3 .aide/scripts/aide_lite.py refactor <status|plan|validate|dry-run|schemas|ledger>
+    command_kind: repo-local-helper
+    status: implemented-portable
+    owner_component: refactor-control-plane
+    mutates_repo: generated-refactor-artifacts-only
+    notes: dry-run/no-apply planning substrate; no file moves, deletes, reference rewrites, target mutation, provider/model/network calls, or deletion approval.

@@ -1,0 +1,73 @@
+schema_version: aide.routing-policy.v0
+policy_id: q17-router-profile-v0
+status: advisory_only
+purpose: >
+  Define deterministic repo-local advisory routing for AIDE work units before
+  any live Gateway, provider, model, Runtime, UI, or autonomous execution
+  exists. Route decisions explain what executor class is justified from compact
+  evidence and quality gates; they do not execute anything.
+
+operating_mode:
+  - advisory_only
+
+routing_unit:
+  - work_unit_or_task_packet
+  - not_raw_prompt_only
+
+route_classes:
+  - no_model_tool
+  - local_small
+  - local_strong
+  - cheap_remote
+  - frontier
+  - human_review
+  - blocked
+
+hard_floors:
+  - architecture_decision
+  - security_review
+  - self_modification
+  - high_stakes_review
+  - final_promotion_review
+  - governance_policy_change
+  - irreversible_or_destructive_change
+
+quality_gates:
+  - verifier_required_for_checkable_work
+  - golden_tasks_required_for_token_optimization
+  - evidence_packet_required_for_review
+  - token_budget_required_for_prompt_surfaces
+
+default_decision_rules:
+  - deterministic_transform_prefers_no_model_tool
+  - low_risk_checkable_prefers_local_or_cheap
+  - medium_risk_patch_requires_verifier_and_review_policy
+  - high_risk_requires_frontier_or_human_review
+  - failed_golden_tasks_block_optimization
+  - failed_verifier_blocks_review_or_requires_repair
+  - missing_context_blocks_or_warns
+
+forbidden_behaviors:
+  - provider_calls
+  - model_calls
+  - network_calls
+  - automatic_execution
+  - automatic_policy_mutation
+  - bypassing_review_gates
+
+output_requirements:
+  - route_class
+  - rationale
+  - required_checks
+  - fallback
+  - blocked_reason
+  - evidence_sources
+  - token_budget_status
+  - quality_gate_status
+
+safety:
+  live_calls_allowed_in_q17: false
+  route_decisions_apply_automatically: false
+  provider_credentials_allowed: false
+  exact_pricing_claims_allowed: false
+  gateway_behavior_allowed: false

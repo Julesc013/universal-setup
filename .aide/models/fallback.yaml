@@ -1,0 +1,33 @@
+schema_version: aide.routing-fallback.v0
+registry_id: q17-advisory-fallbacks
+status: advisory_metadata_only
+fallback_behavior:
+  - condition: preferred_unavailable
+    action: use_advisory_fallback_route
+    live_calls_allowed_in_q17: false
+  - condition: verifier_fails
+    action: repair_evidence_or_block
+    route_class: blocked
+  - condition: golden_tasks_fail
+    action: block_token_optimization_promotion
+    route_class: blocked
+  - condition: budget_exceeded
+    action: tighten_context_or_escalate_with_warning
+    route_class: local_strong
+  - condition: task_class_unknown
+    action: route_conservatively_to_frontier_or_human_review
+    route_class: frontier
+  - condition: privacy_sensitive
+    action: prefer_local_or_human_first
+    route_class: human_review
+privacy_rule:
+  privacy_sensitive_prefers:
+    - no_model_tool
+    - local_small
+    - local_strong
+    - human_review
+forbidden_fallbacks:
+  - provider_call_in_q17
+  - model_call_in_q17
+  - network_probe_in_q17
+  - automatic_route_execution

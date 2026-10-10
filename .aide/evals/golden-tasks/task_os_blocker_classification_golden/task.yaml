@@ -1,0 +1,11 @@
+schema_version: aide.golden-task.v0
+id: task_os_blocker_classification_golden
+title: Task OS Blocker Classification Golden
+status: active
+description: Verify blocker status and classification reports are typed and no-apply.
+quality_dimensions:
+  - blockers
+  - classification
+  - repair_boundary
+runner: .aide/scripts/aide_lite.py eval run --task task_os_blocker_classification_golden
+no_call: true

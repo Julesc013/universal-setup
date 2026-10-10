@@ -1,0 +1,12 @@
+{
+  "schema_version": "aide.managed-section-conflict.v0",
+  "example": true,
+  "conflict_id": "conflict-duplicate-marker-fixture",
+  "path": ".aide/examples/apply/managed-section-fixtures/duplicate_marker.md",
+  "section_name": "aide-fixture-section",
+  "conflict_class": "duplicate_start_marker",
+  "message": "More than one managed-section start marker matched the requested section.",
+  "severity": "error",
+  "apply_blocked": true,
+  "no_real_apply_boundary": true
+}

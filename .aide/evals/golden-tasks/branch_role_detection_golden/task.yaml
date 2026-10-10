@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+task_id: branch_role_detection_golden
+title: Branch Role Detection Golden
+status: active
+purpose: Check deterministic branch role classification and conservative unknown-role handling.
+input_refs:
+  - .aide/policies/branch-roles.yaml
+  - .aide/git/branch-roles.md
+acceptance_ref: .aide/evals/golden-tasks/branch_role_detection_golden/acceptance.md
+expected_result: PASS

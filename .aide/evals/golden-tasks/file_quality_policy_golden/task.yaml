@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: file_quality_policy_golden
+title: File Quality Policy Golden
+status: active
+objective: Verify Q38 file quality policies define deterministic advisory-only measurement anchors.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task file_quality_policy_golden
+no_model_calls: true
+no_network_calls: true

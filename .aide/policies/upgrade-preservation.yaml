@@ -1,0 +1,46 @@
+schema_version: aide.upgrade-preservation-policy.v0
+policy_id: aide.upgrade-preservation.v0
+status: active
+purpose: >
+  Define target state that an AIDE upgrade must preserve or regenerate locally
+  rather than overwrite from the source pack.
+preserve_target_paths:
+  - .aide/memory/**
+  - .aide/queue/**
+  - .aide/context/latest-*
+  - .aide/reports/**
+  - .aide/evals/golden-tasks/**
+  - .aide/git/latest-*
+  - .aide/repo/file-inventory.json
+  - .aide/roots/latest-*
+  - .aide/tools/latest-*
+  - .aide/install/latest-*
+  - .aide/repair/latest-*
+  - .aide/upgrade/latest-*
+  - AGENTS.md
+  - docs/canon/**
+  - docs/doctrine/**
+  - tools/**
+local_or_forbidden_paths:
+  - .aide.local/**
+  - .env
+  - secrets/**
+  - raw prompts
+  - raw responses
+source_generated_skip_paths:
+  - .aide/queue/**
+  - .aide/memory/**
+  - .aide/context/latest-*
+  - .aide/reports/**
+  - .aide/repo/file-inventory.json
+  - .aide/roots/latest-*
+  - .aide/tools/latest-*
+  - .aide/refactors/current-*
+  - .aide/install/latest-*
+  - .aide/repair/latest-*
+  - .aide/upgrade/latest-*
+rules:
+  target_specific_state_preserved: true
+  manual_agents_content_preserved_outside_managed_sections: true
+  source_generated_state_regenerated_by_target: true
+  no_overwrite_by_default: true

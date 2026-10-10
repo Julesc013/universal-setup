@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Transaction Postimage",
+  "type": "object",
+  "required": ["schema_version", "path", "predicted_sha256", "size_bytes", "prediction_mode", "derived_from"],
+  "properties": {
+    "schema_version": {"const": "aide.transaction-postimage.v0"},
+    "path": {"type": "string"},
+    "predicted_sha256": {"type": "string"},
+    "size_bytes": {"type": "integer"},
+    "prediction_mode": {"enum": ["report_only", "fixture_only"]},
+    "derived_from": {"type": "string"}
+  },
+  "additionalProperties": true
+}

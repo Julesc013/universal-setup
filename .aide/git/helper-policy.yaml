@@ -1,0 +1,78 @@
+schema_version: aide.git-helper-policy.v0
+policy_id: q29-merge-land-promote-helper-v0
+status: active
+purpose: >
+  Define the local Git helper safety model for sync planning, task branch
+  landing, integration promotion, and branch prune guards.
+operating_mode:
+  dry_run_by_default: true
+  live_repo_no_mutation_without_explicit_apply: true
+  fixture_mutation_allowed: true
+  no_remote_push_without_explicit_push_flag: true
+commands:
+  sync:
+    purpose: Inspect branch/upstream state and recommend safe sync actions.
+    default_mode: dry_run
+    mutates_by_default: false
+  land:
+    purpose: Land task/subtask branches into the integration branch.
+    default_target: dev
+    default_mode: dry_run
+    mutates_by_default: false
+  promote:
+    purpose: Promote integration branch changes to canonical branch after gates.
+    default_source: dev
+    default_target: main
+    default_mode: dry_run
+    mutates_by_default: false
+  prune:
+    purpose: Plan local branch pruning after ancestor containment is proven.
+    default_mode: dry_run
+    mutates_by_default: false
+  plan:
+    purpose: Generate the current safe Git helper recommendation.
+    default_mode: dry_run
+    mutates_by_default: false
+protected_roles:
+  - canonical
+  - integration
+  - release
+  - deploy
+safety_rules:
+  - require_clean_or_understood_worktree
+  - require_policy_files
+  - require_branch_role_detection
+  - require_validation_before_land
+  - require_review_before_promote
+  - require_ancestor_containment_before_prune
+  - no_force_push
+  - no_delete_protected_branches
+  - no_live_remote_mutation_in_tests
+evidence_required:
+  - helper plan
+  - validation result
+  - branch roles
+  - changed files
+  - promotion/prune rationale
+validation_recommendations:
+  before_land:
+    - py -3 .aide/scripts/aide_lite.py commit check --latest
+    - py -3 .aide/scripts/aide_lite.py validate
+    - py -3 .aide/scripts/aide_lite.py test
+  before_promote:
+    - py -3 .aide/scripts/aide_lite.py commit check --range <base>..HEAD
+    - py -3 .aide/scripts/aide_lite.py changelog preview
+    - py -3 .aide/scripts/aide_lite.py eval run
+    - py -3 .aide/scripts/aide_lite.py pack-status
+push_policy:
+  force_push: forbidden
+  remote_push_default: forbidden
+  remote_push_future_gate: explicit_push_flag_and_operator_review
+prune_policy:
+  protected_roles_never_prune: true
+  ancestor_containment_required: true
+  remote_delete: future_explicit_gate_only
+non_goals:
+  - no GitHub API mutation
+  - no CI configuration
+  - no release publishing

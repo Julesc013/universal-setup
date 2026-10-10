@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Rollback Record",
+  "type": "object",
+  "required": ["schema_version", "rollback_id", "transaction_id", "mode", "preimages", "inverse_operations", "apply_allowed", "review_required", "evidence_refs"],
+  "properties": {
+    "schema_version": {"const": "aide.rollback-record.v0"},
+    "rollback_id": {"type": "string"},
+    "transaction_id": {"type": "string"},
+    "mode": {"enum": ["report_only", "fixture_only"]},
+    "preimages": {"type": "array", "items": {"type": "object"}},
+    "inverse_operations": {"type": "array", "items": {"type": "object"}},
+    "apply_allowed": {"const": false},
+    "review_required": {"type": "boolean"},
+    "evidence_refs": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

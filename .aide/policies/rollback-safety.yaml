@@ -1,0 +1,38 @@
+schema_version: aide.rollback-safety-policy.v0
+policy_id: aide.rollback-safety.v0
+status: active
+purpose: >
+  Define safety gates for rollback planning so recovery remains
+  evidence-backed, reversible, and non-destructive.
+rules:
+  no_rollback_without_ownership_or_plan_evidence: true
+  no_deletion_of_target_memory_queue_evidence_or_golden_tasks: true
+  no_deletion_of_existing_tools: true
+  no_deletion_of_docs_canon_or_doctrine: true
+  no_deletion_of_generated_target_state_without_future_approval: true
+  no_managed_section_removal_in_q46: true
+  no_target_mutation_in_q46: true
+  local_state_or_secret_paths_block_unsafe_actions: true
+preserve_paths:
+  - .aide/memory/**
+  - .aide/queue/**
+  - .aide/evidence/**
+  - .aide/evals/golden-tasks/**
+  - .aide/context/latest-*
+  - .aide/reports/**
+  - .aide/git/latest-*
+  - .aide/repo/*.json
+  - .aide/roots/latest-*
+  - .aide/tools/latest-*
+  - AGENTS.md
+  - docs/canon/**
+  - docs/doctrine/**
+  - tools/**
+  - scripts/**
+forbidden_unsafe_paths:
+  - .aide.local/**
+  - .env
+  - secrets/**
+  - raw prompts
+  - raw responses
+

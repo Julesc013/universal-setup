@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.salvage-map-entry.schema.v0",
+  "type": "object",
+  "required": [
+    "entry_id",
+    "source_path",
+    "item_kind",
+    "item_description",
+    "recommended_fate",
+    "target_hint",
+    "reason",
+    "preservation_notes",
+    "validators_required",
+    "review_required",
+    "apply_allowed"
+  ],
+  "properties": {
+    "entry_id": {"type": "string"},
+    "source_path": {"type": "string"},
+    "item_kind": {"type": "string"},
+    "item_description": {"type": "string"},
+    "recommended_fate": {"type": "string"},
+    "target_hint": {"type": "string"},
+    "reason": {"type": "string"},
+    "preservation_notes": {"type": "array"},
+    "validators_required": {"type": "array"},
+    "review_required": {"type": "boolean"},
+    "apply_allowed": {"const": false}
+  }
+}

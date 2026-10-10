@@ -13,6 +13,8 @@
 #include <winioctl.h>
 
 #include "usk_publisher_registration.h"
+#include "usk_publisher_service_readback_internal.h"
+#include "usk_publisher_effect_worker_custody_internal.h"
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_data_partition.h"
 #include "usk_publisher_handle_observation.h"
@@ -27,6 +29,7 @@
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_service_access.h"
 #include "usk_stable_file.h"
+#include "usk_record_io.h"
 #include "usk_json.h"
 #include "usk_sha256.h"
 #include "usk_effect_dispatch.h"
@@ -62,12 +65,22 @@ private:
 class FileHandle {
 public:
     explicit FileHandle(HANDLE value) : value_(value) {}
+    FileHandle(const wchar_t* path, DWORD access, DWORD sharing, DWORD flags) noexcept
+        : value_(CreateFileW(path, access, sharing, nullptr, OPEN_EXISTING, flags, nullptr)) {}
     ~FileHandle() { if (value_ != INVALID_HANDLE_VALUE) CloseHandle(value_); }
     FileHandle(const FileHandle&) = delete;
     FileHandle& operator=(const FileHandle&) = delete;
     HANDLE get() const noexcept { return value_; }
     HANDLE release() noexcept { const HANDLE value = value_; value_ = INVALID_HANDLE_VALUE; return value; }
     void close() noexcept { if (value_ != INVALID_HANDLE_VALUE) CloseHandle(release()); }
+    void close_confirmed() {
+        // Consume custody before the call: an unknown close is never retried
+        // or used as proof that this controller released raw mutation access.
+        const HANDLE closing = release();
+        if (closing == INVALID_HANDLE_VALUE || !CloseHandle(closing))
+            throw std::runtime_error("publisher raw device handle close unconfirmed; Win32 " +
+                std::to_string(GetLastError()));
+    }
 private:
     HANDLE value_;
 };
@@ -643,6 +656,36 @@ void require_volume(const std::wstring& value) {
     (void)usk::platform::windows::publisher_volume_operation_guard_name(value);
 }
 
+std::string owner_dacl_sddl(const std::vector<BYTE>& bytes);
+usk::json::Value device_owner_dacl_policy(const std::vector<BYTE>& bytes);
+std::vector<BYTE> device_security_from_sddl(const std::string& text);
+std::vector<BYTE> intended_device_security(const std::vector<BYTE>& original,
+    const std::vector<BYTE>& service_sid, bool read_only_original = false);
+usk::json::Value registration_volume_identity(const std::wstring& volume, bool controller_backup);
+usk::json::Value dedicated_target_disk_identity(const std::wstring& volume);
+usk::json::Value target_empty_namespace(HANDLE root, bool require_metadata_protected);
+
+// Bounded read-only diagnostics, never an admission verdict. When collected
+// after refusal they describe a fresh observation, not the earlier failing
+// descriptor. Keep the original strict failure as the primary reason.
+usk::json::Value device_acl_diagnostic(HANDLE handle) {
+    using usk::json::Value;
+    try {
+        const auto bytes = usk::platform::windows::read_publisher_owner_dacl_from_handle(handle);
+        SECURITY_DESCRIPTOR_CONTROL control{}; DWORD revision = 0;
+        if (!GetSecurityDescriptorControl(const_cast<BYTE*>(bytes.data()), &control, &revision))
+            throw std::runtime_error("device security control unavailable; Win32 " + std::to_string(GetLastError()));
+        const auto sddl = owner_dacl_sddl(bytes);
+        return Value(Value::Object{{"status", Value(sddl.size() <= 16384u ? "observed" : "oversized")},
+            {"security_control", Value(static_cast<std::uint64_t>(control))},
+            {"dacl_protected", Value((control & SE_DACL_PROTECTED) != 0)},
+            {"owner_dacl", sddl.size() <= 16384u ? Value(sddl) : Value()},
+            {"owner_dacl_bytes", Value(static_cast<std::uint64_t>(sddl.size()))}});
+    } catch (const std::exception&) {
+        return Value(Value::Object{{"status", Value("unavailable")}});
+    }
+}
+
 // Locking NTFS dismounts it. The remounted volume device can lose the
 // per-service ACE installed by the dedicated-volume provisioner. The known
 // Windows Authenticated Users modify grant must first be reduced to read and
@@ -667,8 +710,13 @@ void require_volume_device_service_access(HANDLE volume,
         throw std::runtime_error("publisher volume device DACL is unavailable; Win32 " +
             std::to_string(read_error));
     bool already_granted = false;
+    bool already_protected = false;
     std::vector<BYTE> restricted_default;
     try {
+        SECURITY_DESCRIPTOR_CONTROL control{}; DWORD revision = 0;
+        if (!GetSecurityDescriptorControl(before_descriptor, &control, &revision))
+            throw std::runtime_error("publisher volume device security control is unavailable");
+        already_protected = (control & SE_DACL_PROTECTED) != 0;
         try { already_granted = inspect(before_owner, before); }
         catch (const std::exception&) {
             if (!allow_locked_default) throw;
@@ -679,7 +727,7 @@ void require_volume_device_service_access(HANDLE volume,
         }
     }
     catch (...) { LocalFree(before_descriptor); throw; }
-    if (!already_granted || !restricted_default.empty()) {
+    if (!already_granted || !restricted_default.empty() || !already_protected) {
         EXPLICIT_ACCESS_W grant{};
         grant.grfAccessPermissions = FILE_ALL_ACCESS;
         grant.grfAccessMode = GRANT_ACCESS;
@@ -698,7 +746,8 @@ void require_volume_device_service_access(HANDLE volume,
             }
         }
         const DWORD set_error = SetSecurityInfo(volume, SE_FILE_OBJECT,
-            DACL_SECURITY_INFORMATION, nullptr, nullptr, updated, nullptr);
+            DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+            nullptr, nullptr, updated, nullptr);
         if (!already_granted) LocalFree(updated);
         if (set_error != ERROR_SUCCESS) {
             LocalFree(before_descriptor);
@@ -719,6 +768,10 @@ void require_volume_device_service_access(HANDLE volume,
     try {
         if (!inspect(after_owner, after))
             throw std::runtime_error("publisher volume device service ACE was not retained");
+        SECURITY_DESCRIPTOR_CONTROL control{}; DWORD revision = 0;
+        if (!GetSecurityDescriptorControl(after_descriptor, &control, &revision) ||
+            (control & SE_DACL_PROTECTED) == 0)
+            throw std::runtime_error("publisher volume device DACL protection was not retained");
     } catch (...) { LocalFree(after_descriptor); throw; }
     LocalFree(after_descriptor);
 }
@@ -730,7 +783,15 @@ void require_volume_device_service_access(HANDLE volume,
 // dedicated volume. First check its exact service-owned NTFS root, and close
 // that observation handle before requesting the lock.
 void require_exclusive_volume_admission(const std::wstring& name,
-    const std::wstring& root) {
+    const std::wstring& root, FileHandle* retained_mounted_device = nullptr,
+    const usk::json::Value* retained_intended_policy = nullptr,
+    const usk::json::Value* unpublished_device_transition = nullptr,
+    const usk::json::Value* unpublished_admission_identity = nullptr) {
+    if ((retained_mounted_device != nullptr) != (retained_intended_policy != nullptr))
+        throw std::runtime_error("mounted device admission custody/policy association differs");
+    if ((unpublished_device_transition == nullptr) != (unpublished_admission_identity == nullptr) ||
+        (unpublished_device_transition && !retained_mounted_device))
+        throw std::runtime_error("mounted bootstrap identity/transition association differs");
     require_volume(root);
     auto sid = publisher_service_sid(name);
     LPWSTR rendered = nullptr;
@@ -749,19 +810,18 @@ void require_exclusive_volume_admission(const std::wstring& name,
     ULONGLONG root_volume_serial = 0;
     const auto observe_root = [&] {
         ScopedControllerPrivilege backup_observation;
-        FileHandle held_root(CreateFileW(root.c_str(),
+        auto held_root = std::make_unique<FileHandle>(root.c_str(),
             FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-            OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-            nullptr));
-        if (held_root.get() == INVALID_HANDLE_VALUE) {
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+        if (held_root->get() == INVALID_HANDLE_VALUE) {
             throw std::runtime_error("cannot open protected volume root for admission; Win32 " +
                 std::to_string(GetLastError()));
         }
         const auto volume_facts =
-            usk::platform::windows::observe_local_ntfs_volume_handle(held_root.get());
+            usk::platform::windows::observe_local_ntfs_volume_handle(held_root->get());
         const auto root_facts =
-            usk::platform::windows::observe_publisher_directory_handle(held_root.get());
+            usk::platform::windows::observe_publisher_directory_handle(held_root->get());
         usk::platform::windows::require_publisher_object_security_shape(
             root_facts, service_sid_ascii);
         if (root_file_id.empty()) {
@@ -771,18 +831,23 @@ void require_exclusive_volume_admission(const std::wstring& name,
             volume_facts.file_id_volume_serial != root_volume_serial) {
             throw std::runtime_error("publisher volume root changed across exclusive admission");
         }
+        return held_root;
     };
     observe_root();
     const std::wstring device = root.substr(0, root.size() - 1);
-    FileHandle volume(CreateFileW(device.c_str(),
+    FileHandle volume(!retained_mounted_device ? CreateFileW(device.c_str(),
         GENERIC_READ | GENERIC_WRITE | READ_CONTROL | WRITE_DAC,
-        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr));
-    if (volume.get() == INVALID_HANDLE_VALUE) {
+        FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr) : INVALID_HANDLE_VALUE);
+    // The unpublished v3 caller owns the exact mounted transition file object.
+    // Borrow it through lock/remount rather than closing that native reference
+    // and hardening a different direct-volume file object after dismount.
+    const HANDLE locking_volume = retained_mounted_device ? retained_mounted_device->get() : volume.get();
+    if (locking_volume == INVALID_HANDLE_VALUE) {
         throw std::runtime_error("cannot open dedicated publisher volume for exclusive admission; Win32 " +
             std::to_string(GetLastError()));
     }
     DWORD returned = 0;
-    if (!DeviceIoControl(volume.get(), FSCTL_LOCK_VOLUME, nullptr, 0,
+    if (!DeviceIoControl(locking_volume, FSCTL_LOCK_VOLUME, nullptr, 0,
             nullptr, 0, &returned, nullptr)) {
         throw std::runtime_error("publisher volume has a pre-opened file or cannot be locked; Win32 " +
             std::to_string(GetLastError()));
@@ -791,12 +856,13 @@ void require_exclusive_volume_admission(const std::wstring& name,
     // Inspect and repair its device ACL before any other process can acquire a
     // newly granted raw-volume handle after unlock.
     try {
-        require_volume_device_service_access(volume.get(), sid, true);
+        require_volume_device_service_access(locking_volume, sid, true);
     } catch (const std::exception& error) {
         throw std::runtime_error(
             std::string("locked publisher volume device ACL admission: ") + error.what());
     }
-    if (!DeviceIoControl(volume.get(), FSCTL_UNLOCK_VOLUME, nullptr, 0,
+    const auto locked_admitted_device = device_acl_diagnostic(locking_volume);
+    if (!DeviceIoControl(locking_volume, FSCTL_UNLOCK_VOLUME, nullptr, 0,
             nullptr, 0, &returned, nullptr)) {
         throw std::runtime_error("publisher volume could not be unlocked after exclusive admission; Win32 " +
             std::to_string(GetLastError()));
@@ -805,19 +871,113 @@ void require_exclusive_volume_admission(const std::wstring& name,
     // device-security check before releasing that native reference. Unlock has
     // already completed; the new mount must independently pass the strict
     // profile. A restored outside-mutation grant still refuses admission.
-    observe_root(); // Remount through the same GUID and recheck the exact root.
-    FileHandle remounted(CreateFileW(device.c_str(), READ_CONTROL | WRITE_DAC,
+    auto remounted_root = observe_root(); // Pin the exact remounted root read-only.
+    FileHandle remounted(CreateFileW(device.c_str(), READ_CONTROL,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
         OPEN_EXISTING, 0, nullptr));
     if (remounted.get() == INVALID_HANDLE_VALUE)
-        throw std::runtime_error("remounted publisher device cannot be secured; Win32 " +
+        throw std::runtime_error("remounted publisher device cannot be observed; Win32 " +
             std::to_string(GetLastError()));
+    const auto require_strict_device = [&](HANDLE handle) {
+        // This strict predicate never repairs a failed policy. Unpublished
+        // safe-original completion below has separate, narrower effect gates.
+        const auto bytes = read_publisher_owner_dacl_from_handle(handle);
+        auto* descriptor = const_cast<BYTE*>(bytes.data());
+        PSID owner = nullptr; PACL dacl = nullptr;
+        BOOL owner_defaulted = FALSE, present = FALSE, dacl_defaulted = FALSE;
+        SECURITY_DESCRIPTOR_CONTROL control{}; DWORD revision = 0;
+        if (!GetSecurityDescriptorOwner(descriptor, &owner, &owner_defaulted) ||
+            !GetSecurityDescriptorDacl(descriptor, &present, &dacl, &dacl_defaulted) ||
+            !present || !dacl || !GetSecurityDescriptorControl(descriptor, &control, &revision) ||
+            (control & SE_DACL_PROTECTED) == 0 ||
+            !require_publisher_device_acl_shape(owner, dacl, const_cast<BYTE*>(sid.data())))
+            throw std::runtime_error("remounted publisher device lacks its protected service policy");
+        if (retained_intended_policy &&
+            usk::json::canonical(device_owner_dacl_policy(bytes)) !=
+                usk::json::canonical(*retained_intended_policy))
+            throw std::runtime_error("mounted device differs from retained intended policy");
+    };
+    std::unique_ptr<FileHandle> remounted_acl_writer;
     try {
-        require_volume_device_service_access(remounted.get(), sid);
+        if (unpublished_device_transition) {
+            const auto expected = usk::json::canonical(*retained_intended_policy);
+            if (usk::json::canonical(device_owner_dacl_policy(
+                    read_publisher_owner_dacl_from_handle(remounted.get()))) != expected) {
+                const auto& original_text = unpublished_device_transition->at("original_owner_dacl").as_string();
+                const auto original = device_security_from_sddl(original_text);
+                // This pure derivation refuses outside mutation BEFORE any
+                // known-default reduction can run. E4's AU modify still refuses.
+                const auto intended = intended_device_security(original, sid, true);
+                if (usk::json::canonical(device_owner_dacl_policy(intended)) != expected)
+                    throw std::runtime_error("safe mounted bootstrap postimage differs from retained intent");
+                const auto require_original = [&](HANDLE handle) {
+                    const auto bytes = read_publisher_owner_dacl_from_handle(handle);
+                    if (owner_dacl_sddl(bytes) != original_text)
+                        throw std::runtime_error("remounted device differs from exact safe original intent");
+                    (void)intended_device_security(bytes, sid, true);
+                };
+                const auto require_bootstrap_identity = [&] {
+                    ScopedControllerPrivilege backup_observation;
+                    if (usk::json::canonical(registration_volume_identity(root, true)) !=
+                            usk::json::canonical(unpublished_admission_identity->at("volume_identity")) ||
+                        usk::json::canonical(dedicated_target_disk_identity(root)) !=
+                            usk::json::canonical(unpublished_admission_identity->at("disk_identity")) ||
+                        usk::json::canonical(target_empty_namespace(remounted_root->get(), true)) !=
+                            usk::json::canonical(unpublished_admission_identity->at("metadata")))
+                        throw std::runtime_error("safe mounted bootstrap identity or namespace differs");
+                    observe_root();
+                };
+                require_original(locking_volume);
+                require_original(remounted.get());
+                require_bootstrap_identity();
+                remounted_acl_writer = std::make_unique<FileHandle>(device.c_str(),
+                    READ_CONTROL | WRITE_DAC,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0);
+                if (remounted_acl_writer->get() == INVALID_HANDLE_VALUE)
+                    throw std::runtime_error("safe mounted bootstrap ACL writer is unavailable");
+                require_bootstrap_identity();
+                require_original(remounted_acl_writer->get());
+                require_original(remounted.get());
+                PACL dacl = nullptr; BOOL present = FALSE, defaulted = FALSE;
+                if (!GetSecurityDescriptorDacl(const_cast<BYTE*>(intended.data()),
+                        &present, &dacl, &defaulted) || !present || !dacl)
+                    throw std::runtime_error("safe mounted bootstrap intended DACL is unavailable");
+                const DWORD error = SetSecurityInfo(remounted_acl_writer->get(), SE_FILE_OBJECT,
+                    DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                    nullptr, nullptr, dacl, nullptr);
+                if (error != ERROR_SUCCESS)
+                    throw std::runtime_error("safe mounted bootstrap outcome is uncertain; Win32 " +
+                        std::to_string(error));
+                require_strict_device(remounted_acl_writer->get());
+                require_bootstrap_identity();
+            }
+        }
+        require_strict_device(locking_volume);
+        require_strict_device(remounted.get());
     } catch (const std::exception& error) {
+        const auto diagnostic = usk::json::Value(usk::json::Value::Object{
+            {"schema", usk::json::Value("usk.publisher_device_remount_diagnostic.v1")},
+            {"locked_admitted_device", locked_admitted_device},
+            {"fresh_observations_after_refusal", usk::json::Value(usk::json::Value::Object{
+                {"original_locking_handle", device_acl_diagnostic(locking_volume)},
+                {"remounted_device_handle", device_acl_diagnostic(remounted.get())}})}});
         throw std::runtime_error(
-            std::string("remounted publisher volume device ACL admission: ") + error.what());
+            std::string("remounted publisher volume device ACL admission: ") + error.what() +
+            "; diagnostic " + usk::json::canonical(diagnostic));
     }
+    // Keep a read-only mounted root while releasing the actual raw writer.
+    // No controller WRITE_DAC/direct-write handle survives successful admission.
+    if (remounted_acl_writer) remounted_acl_writer->close_confirmed();
+    if (retained_mounted_device) retained_mounted_device->close_confirmed();
+    else volume.close_confirmed();
+    FileHandle released_device(CreateFileW(device.c_str(), READ_CONTROL,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING, 0, nullptr));
+    if (released_device.get() == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("publisher device post-release observation unavailable; Win32 " +
+            std::to_string(GetLastError()));
+    require_strict_device(released_device.get());
+    const auto root_after_release = observe_root();
 }
 
 std::wstring command_prefix(const std::wstring& service,
@@ -855,6 +1015,12 @@ struct ServiceConfiguration {
     DWORD start = 0;
     DWORD sid_type = 0;
 };
+
+bool same_configuration(const ServiceConfiguration& first, const ServiceConfiguration& second) {
+    return first.binary_path == second.binary_path && first.account == second.account &&
+        first.display_name == second.display_name && first.type == second.type &&
+        first.start == second.start && first.sid_type == second.sid_type;
+}
 
 ServiceConfiguration query_configuration(SC_HANDLE service) {
     DWORD needed = 0;
@@ -1167,6 +1333,139 @@ std::string owner_dacl_sddl(HANDLE object) {
     return owner_dacl_sddl(read_publisher_owner_dacl_from_handle(object));
 }
 
+// Owner, ordered ACEs and inheritance protection are the intended policy.
+// AUTO_INHERITED bookkeeping can differ after SetSecurityInfo; it supplies
+// no additional grant and is not substituted for these actual policy fields.
+usk::json::Value device_owner_dacl_policy(const std::vector<BYTE>& bytes) {
+    using usk::json::Value;
+    if (bytes.empty() || bytes.size() > 16384u || !IsValidSecurityDescriptor(const_cast<BYTE*>(bytes.data())))
+        throw std::runtime_error("mounted device security is unavailable or exceeds its bound");
+    auto* descriptor = const_cast<BYTE*>(bytes.data());
+    PSID owner = nullptr; PACL dacl = nullptr;
+    BOOL defaulted = FALSE, present = FALSE;
+    SECURITY_DESCRIPTOR_CONTROL control{}; DWORD revision = 0;
+    if (!GetSecurityDescriptorOwner(descriptor, &owner, &defaulted) || !owner || !IsValidSid(owner) ||
+        !GetSecurityDescriptorDacl(descriptor, &present, &dacl, &defaulted) || !present || !dacl ||
+        !IsValidAcl(dacl) || dacl->AceCount > 65u ||
+        !GetSecurityDescriptorControl(descriptor, &control, &revision))
+        throw std::runtime_error("mounted device owner or DACL cannot be retained");
+    const auto sid_text = [](PSID sid) {
+        LPWSTR rendered = nullptr;
+        if (!sid || !IsValidSid(sid) || !ConvertSidToStringSidW(sid, &rendered) || !rendered)
+            throw std::runtime_error("mounted device principal is unavailable");
+        const auto text = utf8(rendered);
+        LocalFree(rendered);
+        return text;
+    };
+    Value::Array aces;
+    for (DWORD index = 0; index < dacl->AceCount; ++index) {
+        void* entry = nullptr;
+        if (!GetAce(dacl, index, &entry) || !entry)
+            throw std::runtime_error("mounted device ACE is unavailable");
+        const auto* ace = static_cast<const ACCESS_ALLOWED_ACE*>(entry);
+        if (ace->Header.AceType != ACCESS_ALLOWED_ACE_TYPE || ace->Header.AceSize < sizeof(ACCESS_ALLOWED_ACE))
+            throw std::runtime_error("mounted device ACE is unsupported");
+        const auto* sid = reinterpret_cast<const SID*>(&ace->SidStart);
+        if (sid->SubAuthorityCount > SID_MAX_SUB_AUTHORITIES ||
+            offsetof(ACCESS_ALLOWED_ACE, SidStart) + 8u + 4u * sid->SubAuthorityCount > ace->Header.AceSize)
+            throw std::runtime_error("mounted device ACE principal is truncated");
+        aces.emplace_back(Value::Object{{"type", Value(static_cast<std::uint64_t>(ace->Header.AceType))},
+            {"flags", Value(static_cast<std::uint64_t>(ace->Header.AceFlags))},
+            {"mask", Value(static_cast<std::uint64_t>(ace->Mask))},
+            {"sid", Value(sid_text(const_cast<SID*>(sid)))}});
+    }
+    return Value(Value::Object{{"owner", Value(sid_text(owner))},
+        {"dacl_protected", Value((control & SE_DACL_PROTECTED) != 0)}, {"aces", Value(std::move(aces))}});
+}
+
+std::vector<BYTE> device_security_from_sddl(const std::string& text) {
+    if (text.empty() || text.size() > 8192u)
+        throw std::runtime_error("mounted original security exceeds its text bound");
+    PSECURITY_DESCRIPTOR raw = nullptr;
+    const std::wstring wide(text.begin(), text.end());
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(wide.c_str(), SDDL_REVISION_1, &raw, nullptr))
+        throw std::runtime_error("mounted original security cannot be decoded");
+    std::unique_ptr<void, decltype(&LocalFree)> owned(raw, &LocalFree);
+    const auto length = GetSecurityDescriptorLength(raw);
+    if (length == 0 || length > 16384u)
+        throw std::runtime_error("mounted original security exceeds its byte bound");
+    const auto* first = static_cast<const BYTE*>(raw);
+    return std::vector<BYTE>(first, first + length);
+}
+
+std::vector<BYTE> intended_device_security(const std::vector<BYTE>& original,
+    const std::vector<BYTE>& service_sid, bool read_only_original) {
+    (void)device_owner_dacl_policy(original);
+    auto* descriptor = const_cast<BYTE*>(original.data());
+    PSID owner = nullptr; PACL dacl = nullptr; BOOL defaulted = FALSE, present = FALSE;
+    if (!GetSecurityDescriptorOwner(descriptor, &owner, &defaulted) ||
+        !GetSecurityDescriptorDacl(descriptor, &present, &dacl, &defaulted) || !present)
+        throw std::runtime_error("mounted device prestate cannot be decoded");
+    if (read_only_original)
+        return usk::platform::windows::publisher_read_only_device_admission_postimage(owner, dacl,
+            const_cast<BYTE*>(service_sid.data()));
+    return usk::platform::windows::publisher_device_admission_postimage(owner, dacl,
+        const_cast<BYTE*>(service_sid.data()));
+}
+
+usk::json::Value capture_mounted_device_transition(const std::wstring& volume,
+    const std::vector<BYTE>& service_sid) {
+    FileHandle device(CreateFileW(volume.substr(0, volume.size() - 1).c_str(), READ_CONTROL,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr));
+    if (device.get() == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("mounted device prestate is unavailable");
+    const auto original = read_publisher_owner_dacl_from_handle(device.get());
+    const auto original_sddl = owner_dacl_sddl(original);
+    if (original_sddl.size() > 8192u) throw std::runtime_error("mounted device prestate exceeds its text bound");
+    const auto intended = intended_device_security(original, service_sid);
+    return usk::json::Value(usk::json::Value::Object{
+        {"original_owner_dacl", usk::json::Value(original_sddl)},
+        {"intended_policy", device_owner_dacl_policy(intended)}});
+}
+
+// Only the unpublished target's protected v3 intent supplies this bootstrap
+// prestate. Generic admission/recovery keeps the strict remount check.
+std::unique_ptr<FileHandle> apply_mounted_device_transition(const std::wstring& volume, const std::vector<BYTE>& service_sid,
+    const usk::json::Value& transition, bool permit_original_effect) {
+    if (transition.as_object().size() != 2 || !transition.contains("original_owner_dacl") || !transition.contains("intended_policy"))
+        throw std::runtime_error("mounted device transition has invalid fields");
+    const auto& original_text = transition.at("original_owner_dacl").as_string();
+    if (original_text.empty() || original_text.size() > 8192u)
+        throw std::runtime_error("mounted device transition prestate is unavailable or exceeds its bound");
+    const std::wstring original_wide(original_text.begin(), original_text.end());
+    LocalDescriptor original(original_wide.c_str());
+    const auto length = GetSecurityDescriptorLength(original.get());
+    const auto* first = static_cast<const BYTE*>(original.get());
+    const auto intended = intended_device_security(std::vector<BYTE>(first, first + length), service_sid);
+    const auto expected = usk::json::canonical(device_owner_dacl_policy(intended));
+    if (usk::json::canonical(transition.at("intended_policy")) != expected)
+        throw std::runtime_error("mounted device intended policy differs from its original prestate");
+    // make_unique allocates custody before this constructor opens the handle.
+    auto device = std::make_unique<FileHandle>(volume.substr(0, volume.size() - 1).c_str(),
+        GENERIC_READ | GENERIC_WRITE | READ_CONTROL | WRITE_DAC,
+        FILE_SHARE_READ | FILE_SHARE_WRITE, 0);
+    if (device->get() == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("mounted device bootstrap security handle is unavailable");
+    const auto current = read_publisher_owner_dacl_from_handle(device->get());
+    if (usk::json::canonical(device_owner_dacl_policy(current)) == expected) return device;
+    if (!permit_original_effect)
+        throw std::runtime_error("admitted target cannot repeat its mounted device bootstrap effect");
+    if (owner_dacl_sddl(current) != original_text)
+        throw std::runtime_error("mounted device differs from retained original and intended security");
+    PACL dacl = nullptr; BOOL present = FALSE, defaulted = FALSE;
+    if (!GetSecurityDescriptorDacl(const_cast<BYTE*>(intended.data()), &present, &dacl, &defaulted) || !present || !dacl)
+        throw std::runtime_error("mounted device intended DACL is unavailable");
+    const DWORD error = SetSecurityInfo(device->get(), SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, nullptr, nullptr, dacl, nullptr);
+    if (error != ERROR_SUCCESS)
+        throw std::runtime_error("mounted device bootstrap security outcome is uncertain; Win32 " + std::to_string(error));
+    if (usk::json::canonical(device_owner_dacl_policy(read_publisher_owner_dacl_from_handle(device->get()))) != expected)
+        throw std::runtime_error("mounted device bootstrap security poststate differs; retained");
+    // Keep this exact mounted file object through the final lock and strict
+    // remount checks. This metadata effect alone does not revoke open handles.
+    return device;
+}
+
 bool native_metadata_security_matches(const std::vector<BYTE>& bytes,
     const PublisherHandleObservation& observation, bool require_protected = true) {
     auto* descriptor = const_cast<BYTE*>(bytes.data());
@@ -1410,16 +1709,16 @@ void provision_registered_target(const std::wstring& name) {
     try {
         const auto disk = dedicated_target_disk_identity(volume);
         prove_initial_exclusive_access(volume);
-        Value original_metadata, expected_metadata, retained;
+        Value original_metadata, expected_metadata, retained, device_transition;
+        const auto service_sid = publisher_service_sid(name);
         std::string original_security;
         if (intent_retained) {
             retained = read_protected_document(intent_path);
-            if (retained.as_object().size() != 4 ||
-                retained.at("schema").as_string() != "usk.publisher_target_intent.v2")
-                throw std::runtime_error("retained target admission intent has an unsupported shape");
+            const bool has_device_transition = publisher_target_intent_has_device_transition(retained);
             original_metadata = retained.at("original_metadata");
             expected_metadata = protected_metadata_snapshot(original_metadata);
             original_security = retained.at("original_owner_dacl").as_string();
+            if (has_device_transition) device_transition = retained.at("mounted_device_transition");
         }
         {
             ScopedControllerPrivilege backup;
@@ -1444,10 +1743,12 @@ void provision_registered_target(const std::wstring& name) {
             if (usk::json::canonical(retained.at("identity")) != usk::json::canonical(identity))
                 throw std::runtime_error("retained target admission identity or intended metadata differs");
         } else {
+            device_transition = capture_mounted_device_transition(volume, service_sid);
             write_protected_document(intent_path, Value(Value::Object{
-                {"schema", Value("usk.publisher_target_intent.v2")}, {"identity", identity},
+                {"schema", Value("usk.publisher_target_intent.v3")}, {"identity", identity},
                 {"original_metadata", original_metadata},
-                {"original_owner_dacl", Value(original_security)}
+                {"original_owner_dacl", Value(original_security)},
+                {"mounted_device_transition", device_transition}
             }));
         }
         intent_retained = true;
@@ -1477,10 +1778,26 @@ void provision_registered_target(const std::wstring& name) {
             require_publisher_object_security_shape(observe_publisher_directory_handle(root.get()),
                 binding.at("service_sid").as_string());
         }
+        std::unique_ptr<FileHandle> mounted_device;
+        bool unpublished_device_bootstrap = false;
+        if (device_transition.type() != Value::Type::null_value) {
+            // Reentry/new mutation is bound to the same protected unpublished
+            // namespace, registration and disk before the device-only effect.
+            if (usk::json::canonical(registration_volume_identity(volume)) !=
+                    usk::json::canonical(binding.at("volume_identity")) ||
+                usk::json::canonical(dedicated_target_disk_identity(volume)) != usk::json::canonical(disk))
+                throw std::runtime_error("mounted device bootstrap identity is unavailable");
+            unpublished_device_bootstrap = !protected_document_exists(admitted_path);
+            mounted_device = apply_mounted_device_transition(volume, service_sid, device_transition,
+                unpublished_device_bootstrap);
+        }
         // This second successful lock proves no conflicting file handles
         // remain after root hardening; it never revokes an open handle. It also verifies
         // the remounted root and restricted-service raw-device access.
-        require_exclusive_volume_admission(name, volume);
+        require_exclusive_volume_admission(name, volume,
+            mounted_device.get(), mounted_device ? &device_transition.at("intended_policy") : nullptr,
+            unpublished_device_bootstrap ? &device_transition : nullptr,
+            unpublished_device_bootstrap ? &identity : nullptr);
         {
             ScopedControllerPrivilege backup;
             FileHandle root(CreateFileW(volume.c_str(), FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | READ_CONTROL,
@@ -1505,6 +1822,114 @@ void provision_registered_target(const std::wstring& name) {
             std::string("target admission incomplete; protected intent retained: ") + error.what());
         throw;
     }
+}
+
+// Initial enrollment already records both successful provisioning locks.
+// Owned safe-original v3 starts observe that completed hardware boundary;
+// they do not dismount it again or acquire ACL mutation authority.
+struct RegisteredTargetStartObservation {
+    std::wstring volume;
+    usk::json::Value binding;
+    usk::json::Value identity;
+    usk::json::Value intended_policy;
+    std::string service_sid;
+    std::unique_ptr<FileHandle> root;
+    std::unique_ptr<FileHandle> device;
+    std::array<std::unique_ptr<FileHandle>, 3> records;
+
+    void verify(const std::wstring& name, const std::wstring& command) const {
+        if (usk::json::canonical(read_registration_binding(name, command, volume)) !=
+                usk::json::canonical(binding))
+            throw std::runtime_error("registered start binding changed");
+        require_publisher_stream_shape(root->get());
+        const auto root_facts = observe_publisher_directory_handle(root->get());
+        const auto volume_facts = observe_local_ntfs_volume_handle(root->get());
+        require_publisher_object_security_shape(root_facts, service_sid);
+        const auto& expected_volume = identity.at("volume_identity");
+        if (root_facts.file_id != expected_volume.at("root_file_id").as_string() ||
+            std::to_string(volume_facts.file_id_volume_serial) != expected_volume.at("volume_serial").as_string() ||
+            usk::json::canonical(registration_volume_identity(volume)) !=
+                usk::json::canonical(expected_volume) ||
+            usk::json::canonical(dedicated_target_disk_identity(volume)) !=
+                usk::json::canonical(identity.at("disk_identity")) ||
+            usk::json::canonical(device_owner_dacl_policy(
+                read_publisher_owner_dacl_from_handle(device->get()))) !=
+                usk::json::canonical(intended_policy))
+            throw std::runtime_error("registered start native boundary or intended device policy differs");
+    }
+};
+
+std::unique_ptr<RegisteredTargetStartObservation> observe_registered_target_for_start(
+    const std::wstring& name, const std::wstring& command, const std::wstring& volume) {
+    const auto parent = registration_binding_path(name).parent_path();
+    const auto intent_path = parent / (name + L".target-intent.json");
+    const auto admitted_path = parent / (name + L".target-admitted.json");
+    if (!protected_document_exists(intent_path)) {
+        if (protected_document_exists(admitted_path))
+            throw std::runtime_error("registered start admission has no original intent");
+        return {}; // Existing generic registrations retain exclusive admission.
+    }
+    auto observation = std::make_unique<RegisteredTargetStartObservation>();
+    const std::array<std::filesystem::path, 3> paths{
+        registration_binding_path(name), intent_path, admitted_path};
+    // Keep the original protected records closed to writes/replacement through
+    // SCM start. Parsing still uses the existing bounded no-link/stream checks.
+    for (std::size_t index = 0; index < paths.size(); ++index) {
+        if (index == 2 && !protected_document_exists(admitted_path)) break;
+        observation->records[index] = std::make_unique<FileHandle>(paths[index].c_str(),
+            GENERIC_READ | READ_CONTROL | FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+            FILE_FLAG_OPEN_REPARSE_POINT);
+        if (observation->records[index]->get() == INVALID_HANDLE_VALUE)
+            throw std::runtime_error("registered start protected record custody unavailable");
+        require_control_lock_shape(observation->records[index]->get(), false);
+        require_publisher_stream_shape(observation->records[index]->get());
+        if (observe_publisher_file_handle(observation->records[index]->get()).link_count != 1)
+            throw std::runtime_error("registered start protected record has another link");
+    }
+    const auto intent = read_protected_document(intent_path);
+    if (!publisher_target_intent_has_device_transition(intent)) return {}; // V2 unchanged.
+    if (!observation->records[2])
+        throw std::runtime_error("registered start target enrollment is incomplete");
+    const auto admitted = read_protected_document(admitted_path);
+    observation->binding = read_registration_binding(name, command, volume);
+    observation->identity = intent.at("identity");
+    if (observation->identity.as_object().size() != 4 ||
+        admitted.as_object().size() != 2 ||
+        admitted.at("schema").as_string() != "usk.publisher_target_admitted.v1" ||
+        usk::json::canonical(admitted.at("identity")) != usk::json::canonical(observation->identity) ||
+        observation->identity.at("registration_sha256").as_string() !=
+            usk::json::sha256_canonical(observation->binding) ||
+        usk::json::canonical(observation->identity.at("volume_identity")) !=
+            usk::json::canonical(observation->binding.at("volume_identity")) ||
+        usk::json::canonical(observation->identity.at("metadata")) !=
+            usk::json::canonical(protected_metadata_snapshot(intent.at("original_metadata"))))
+        throw std::runtime_error("registered start protected admission identity differs");
+    const auto sid = publisher_service_sid(name);
+    const auto& transition = intent.at("mounted_device_transition");
+    const auto original = device_security_from_sddl(transition.at("original_owner_dacl").as_string());
+    observation->intended_policy = transition.at("intended_policy");
+    if (usk::json::canonical(device_owner_dacl_policy(intended_device_security(original, sid))) !=
+            usk::json::canonical(observation->intended_policy))
+        throw std::runtime_error("registered start intended policy differs from original derivation");
+    try {
+        (void)intended_device_security(original, sid, true);
+    } catch (const std::runtime_error&) {
+        return {}; // Recognized default-AU originals keep their existing lock path.
+    }
+    observation->volume = volume;
+    observation->service_sid = observation->binding.at("service_sid").as_string();
+    ScopedControllerPrivilege backup;
+    observation->root = std::make_unique<FileHandle>(volume.c_str(),
+        FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+    observation->device = std::make_unique<FileHandle>(volume.substr(0, volume.size() - 1).c_str(),
+        READ_CONTROL, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0);
+    if (observation->root->get() == INVALID_HANDLE_VALUE ||
+        observation->device->get() == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("registered start read-only native custody unavailable");
+    observation->verify(name, command);
+    return observation;
 }
 
 void register_service(const std::wstring& name, const std::wstring& binary,
@@ -1643,7 +2068,7 @@ void request_start(const std::wstring& name, const std::wstring& binary,
     const std::wstring& mode, const std::wstring* exact_command);
 
 std::string read_reviewed_apply(const std::wstring& envelope_path,
-    const std::wstring& envelope_sha256, const std::wstring& apply_path) {
+    const std::wstring& envelope_sha256, const std::wstring& apply_path, bool maintenance = false) {
     if (!lower_sha256(envelope_sha256)) {
         throw std::runtime_error("reviewed envelope digest is invalid");
     }
@@ -1675,10 +2100,15 @@ std::string read_reviewed_apply(const std::wstring& envelope_path,
         std::string(envelope_bytes.begin(), envelope_bytes.end()), limits);
     const auto request = usk::json::parse(
         std::string(apply_bytes.begin(), apply_bytes.end()), limits);
-    if (reviewed.at("schema").as_string() !=
-            "usk.publisher.lab_reviewed_plan_envelope.v2" ||
+    const bool maintenance_envelope = maintenance && reviewed.at("schema").as_string() ==
+        "usk.publisher.maintenance_reviewed_plan_envelope.v1";
+    const auto request_schema = request.at("schema").as_string();
+    if ((!maintenance_envelope && reviewed.at("schema").as_string() !=
+            "usk.publisher.lab_reviewed_plan_envelope.v2") ||
         reviewed.at("activation").as_string() != "operator_acceptance_candidate" ||
-        request.at("schema").as_string() != "usk.install_local_apply_request.v1" ||
+        (maintenance_envelope ? (request_schema != "usk.repair_apply_request.v1" &&
+            request_schema != "usk.move_apply_request.v1" && request_schema != "usk.uninstall_apply_request.v1") :
+            request_schema != "usk.install_local_apply_request.v1") ||
         request.at("confirmation").as_string() != "APPLY" ||
         usk::json::canonical(reviewed.at("apply_request")) !=
             usk::json::canonical(request)) {
@@ -1718,10 +2148,26 @@ usk::json::Value parse_reviewed_operation_envelope(const std::string& bytes,
     limits.max_bytes = 1024u * 1024u;
     limits.max_string_bytes = 512u * 1024u;
     const auto envelope = usk::json::parse(bytes, limits);
+    const auto schema = envelope.at("schema").as_string();
+    const auto& apply = envelope.at("apply_request");
+    const auto request_schema = apply.at("schema").as_string();
+    std::string operation;
+    if (schema == "usk.publisher.maintenance_reviewed_plan_envelope.v1") {
+        if (request_schema == "usk.repair_apply_request.v1") operation = "repair";
+        else if (request_schema == "usk.move_apply_request.v1") operation = "move";
+        else if (request_schema == "usk.uninstall_apply_request.v1") operation = "uninstall";
+        else throw std::runtime_error("reviewed maintenance operation schema is unavailable");
+        if (apply.as_object().size() != 7u ||
+            envelope.at("plan_request").at("schema").as_string() != "usk." + operation + "_plan_request.v1" ||
+            !usk::record_io::valid_identifier(apply.at("transaction_id").as_string()) ||
+            !usk::record_io::valid_identifier(envelope.at("plan_request").at("install_id").as_string()) ||
+            apply.at("applied_at").as_string().empty())
+            throw std::runtime_error("reviewed maintenance identity differs");
+    }
     if (envelope.as_object().size() != 7 ||
-        envelope.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_envelope.v2" ||
+        (operation.empty() && schema != "usk.publisher.lab_reviewed_plan_envelope.v2") ||
         envelope.at("activation").as_string() != "operator_acceptance_candidate" ||
-        envelope.at("apply_request").at("schema").as_string() != "usk.install_local_apply_request.v1" ||
+        (operation.empty() && request_schema != "usk.install_local_apply_request.v1") ||
         envelope.at("apply_request").at("confirmation").as_string() != "APPLY" ||
         usk::json::canonical(envelope.at("apply_request")) != request ||
         usk::json::canonical(envelope.at("apply_request").at("plan_request")) !=
@@ -1729,8 +2175,12 @@ usk::json::Value parse_reviewed_operation_envelope(const std::string& bytes,
         envelope.at("apply_request").at("reviewed_plan_digest").as_string() !=
             envelope.at("reviewed_plan_digest").as_string() ||
         envelope.at("apply_request").at("reviewed_plan_id").as_string() !=
-            envelope.at("plan_request").at("request_id").as_string())
+            envelope.at("plan_request").at(operation.empty() ? "request_id" : "plan_id").as_string())
         throw std::runtime_error("protected reviewed envelope differs from exact approved request");
+    // All seven envelope fields are mandatory; an unknown replacement field
+    // cannot hide behind the cardinality check. Native mapping follows later.
+    (void)envelope.at("state_root").as_string();
+    (void)envelope.at("acceptance_root").as_string();
     return envelope;
 }
 
@@ -1764,7 +2214,7 @@ usk::json::Value enroll_reviewed_operation(const std::wstring& name, const std::
         usk::json::canonical(target.at("volume_identity")) != usk::json::canonical(binding.at("volume_identity")) ||
         usk::json::canonical(target.at("disk_identity")) != usk::json::canonical(dedicated_target_disk_identity(args[4])))
         throw std::runtime_error("reviewed operation target admission differs");
-    const auto request = read_reviewed_apply(envelope_path, envelope_digest, apply_path);
+    const auto request = read_reviewed_apply(envelope_path, envelope_digest, apply_path, true);
     usk::base::StableFile source{std::filesystem::path(envelope_path)};
     if (!source.identity().size_bytes || source.identity().size_bytes > 1024u * 1024u ||
         source.sha256_hex() != utf8(envelope_digest))
@@ -1958,8 +2408,11 @@ void request_start(const std::wstring& name, const std::wstring& binary,
     if (exact_command && config.binary_path != *exact_command) {
         throw std::runtime_error("registered reviewed source or caller differs");
     }
-    if (command_arguments(config.binary_path)[5] != L"--verify-installed")
-        require_exclusive_volume_admission(name, volume);
+    std::unique_ptr<RegisteredTargetStartObservation> start_observation;
+    if (command_arguments(config.binary_path)[5] != L"--verify-installed") {
+        start_observation = observe_registered_target_for_start(name, config.binary_path, volume);
+        if (!start_observation) require_exclusive_volume_admission(name, volume);
+    }
     if (!StartServiceW(service.get(), 0, nullptr)) {
         const DWORD error = GetLastError();
         if (exact_command) {
@@ -1972,6 +2425,13 @@ void request_start(const std::wstring& name, const std::wstring& binary,
         }
         throw std::runtime_error("matching publisher service could not start; Win32 " +
             std::to_string(error));
+    }
+    if (start_observation) {
+        const auto after = query_configuration(service.get());
+        require_profile(after);
+        if (after.binary_path != config.binary_path)
+            throw std::runtime_error("registered start configuration changed");
+        start_observation->verify(name, after.binary_path);
     }
 }
 
@@ -2156,9 +2616,35 @@ void retire_protected_binary(const std::wstring& name,
 
 } // namespace
 
+usk::json::Value parse_publisher_reviewed_operation_envelope(
+    const std::string& bytes, const std::string& canonical_request) {
+    return parse_reviewed_operation_envelope(bytes, canonical_request);
+}
+usk::json::Value parse_publisher_maintenance_recovery_request(const std::string& bytes) {
+    usk::json::ParseLimits limits;
+    limits.max_bytes = 2048;
+    limits.max_string_bytes = 256;
+    const auto request = usk::json::parse(bytes, limits);
+    const auto& operation = request.at("operation").as_string();
+    if (request.as_object().size() != 4 ||
+        request.at("schema").as_string() != "usk.publisher_maintenance_recovery_request.v1" ||
+        (operation != "repair" && operation != "move" && operation != "uninstall"))
+        throw std::runtime_error("maintenance recovery requires a closed original operation selector");
+    for (const auto field : {"install_id", "transaction_id"}) {
+        const auto& id = request.at(field).as_string();
+        if (id.empty() || id.size() > 128 || id.find_first_not_of(
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") != std::string::npos)
+            throw std::runtime_error("maintenance recovery original identity differs");
+    }
+    return request;
+}
+
 struct RegisteredPublisherAdmission::State {
+    ExecutionObservation observe_native(bool include_configuration) const;
     std::unique_ptr<ServiceControlGuard> control;
-    std::unique_ptr<ServiceHandle> service;
+    std::shared_ptr<ServiceHandle> service;
+    std::unique_ptr<PublisherServiceReadbackScope> service_readback;
+    ServiceConfiguration configuration;
     std::unique_ptr<usk::base::StableFile> binary;
     usk::json::Value service_access;
     usk::json::Value admission_evidence;
@@ -2171,6 +2657,7 @@ struct RegisteredPublisherAdmission::State {
 
 RegisteredPublisherAdmission::RegisteredPublisherAdmission(const std::wstring& name,
     const std::wstring& volume, const std::wstring& caller) : state_(std::make_unique<State>()) {
+    PublisherServiceReadbackScope::require_available();
     // Actual SCM/current-token corroboration precedes every filesystem effect,
     // including controller-guard creation. Caller text does not grant authority.
     const auto observed = observe_current_restricted_publisher_service(name);
@@ -2181,7 +2668,7 @@ RegisteredPublisherAdmission::RegisteredPublisherAdmission(const std::wstring& n
     state_->control = std::make_unique<ServiceControlGuard>(name, true);
     ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
     if (!manager.get()) throw std::runtime_error("registered publisher SCM unavailable");
-    state_->service = std::make_unique<ServiceHandle>(OpenServiceW(manager.get(), name.c_str(),
+    state_->service = std::make_shared<ServiceHandle>(OpenServiceW(manager.get(), name.c_str(),
         SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | READ_CONTROL));
     if (!state_->service->get()) throw std::runtime_error("registered publisher service unavailable");
     const auto before = query_configuration(state_->service->get());
@@ -2214,7 +2701,7 @@ RegisteredPublisherAdmission::RegisteredPublisherAdmission(const std::wstring& n
     const auto after = query_configuration(state_->service->get());
     require_profile(after);
     const auto current = observe_current_restricted_publisher_service(name);
-    if (after.binary_path != before.binary_path || after.display_name != before.display_name ||
+    if (!same_configuration(after, before) ||
         usk::json::canonical(observe_publisher_service_access(state_->service->get(), utf8(caller))) !=
             usk::json::canonical(state_->service_access) ||
         current.process_id != observed.process_id || current.service_sid != observed.service_sid)
@@ -2235,35 +2722,95 @@ RegisteredPublisherAdmission::RegisteredPublisherAdmission(const std::wstring& n
         {"registration_sha256", Value(usk::json::sha256_canonical(binding))},
         {"target_admitted_sha256", Value(usk::json::sha256_canonical(admitted))},
         {"target_identity", target}});
+    state_->configuration = before;
+    // Establish the original native readback lifetime before any selected
+    // operation freezes worker security. All named readbacks on this exact
+    // execution thread now query this same held object and fresh token facts.
+    state_->service_readback.reset(new PublisherServiceReadbackScope(
+        state_->service->get(), state_->service, current));
 }
 RegisteredPublisherAdmission::~RegisteredPublisherAdmission() = default;
 
-usk::json::Value RegisteredPublisherAdmission::evidence() const {
-    state_->binary->verify_unchanged();
-    const auto current = observe_current_restricted_publisher_service(state_->name);
-    if (current.process_id != state_->admission_evidence.at("process_id").as_unsigned() ||
-        current.service_sid != state_->admission_evidence.at("service_sid").as_string() ||
-        usk::json::canonical(observe_publisher_service_access(state_->service->get(),
-            state_->admission_evidence.at("configured_caller_sid").as_string())) !=
-                usk::json::canonical(state_->service_access))
+RegisteredPublisherAdmission::ExecutionObservation
+RegisteredPublisherAdmission::State::observe_native(bool include_configuration) const {
+    service_readback->require_current();
+    const auto before = query_configuration(service->get());
+    require_profile(before);
+    if (!same_configuration(before, configuration))
+        throw std::runtime_error("registered publisher original configuration changed");
+    binary->verify_unchanged();
+    const auto current = observe_current_restricted_publisher_service(name);
+    if (current.process_id != admission_evidence.at("process_id").as_unsigned() ||
+        current.service_sid != admission_evidence.at("service_sid").as_string() ||
+        usk::json::canonical(observe_publisher_service_access(service->get(),
+            admission_evidence.at("configured_caller_sid").as_string())) !=
+                usk::json::canonical(service_access))
         throw std::runtime_error("registered publisher admission observation lost its held binding");
-    state_->binary->verify_unchanged();
-    if (state_->selected_envelope_source) {
-        require_control_lock_shape(state_->selected_approval_file->get(), false);
-        require_control_lock_shape(state_->selected_envelope_file->get(), false);
-        require_publisher_stream_shape(state_->selected_approval_file->get());
-        require_publisher_stream_shape(state_->selected_envelope_file->get());
-        if (usk::json::canonical(read_protected_document(state_->selected_approval_path)) !=
-                usk::json::canonical(state_->selected_approval))
-            throw std::runtime_error("held reviewed operation approval changed");
-        state_->selected_envelope_source->verify_unchanged();
+    usk::json::Value execution;
+    if (include_configuration) {
+        // Derive only from this actual SCM read, inside its unchanged native
+        // configuration bracket and the original admission lifetime.
+        const auto args = command_arguments(before.binary_path);
+        const auto& caller = admission_evidence.at("configured_caller_sid").as_string();
+        require_existing_command(before.binary_path, name, args.at(0), args.at(4),
+            std::wstring(caller.begin(), caller.end()), L"--service-admitted-client");
+        using usk::json::Value;
+        Value::Array arguments;
+        for (const auto& argument : args) arguments.emplace_back(utf8(argument));
+        execution = Value(Value::Object{
+            {"schema", Value("usk.publisher_registered_execution_configuration.v1")},
+            {"scope", Value("original_held_scm_configuration")},
+            {"command", Value(utf8(before.binary_path))}, {"arguments", Value(std::move(arguments))},
+            {"account", Value(utf8(before.account))}, {"display_name", Value(utf8(before.display_name))},
+            {"service_type", Value(static_cast<std::uint64_t>(before.type))},
+            {"start_type", Value(static_cast<std::uint64_t>(before.start))},
+            {"service_sid_type", Value(static_cast<std::uint64_t>(before.sid_type))}});
     }
-    return state_->admission_evidence;
+    const auto after = query_configuration(service->get());
+    require_profile(after);
+    if (!same_configuration(after, before) || !same_configuration(after, configuration))
+        throw std::runtime_error("registered publisher original configuration changed during readback");
+    service_readback->require_current();
+    binary->verify_unchanged();
+    if (selected_envelope_source) {
+        require_control_lock_shape(selected_approval_file->get(), false);
+        require_control_lock_shape(selected_envelope_file->get(), false);
+        require_publisher_stream_shape(selected_approval_file->get());
+        require_publisher_stream_shape(selected_envelope_file->get());
+        if (usk::json::canonical(read_protected_document(selected_approval_path)) !=
+                usk::json::canonical(selected_approval))
+            throw std::runtime_error("held reviewed operation approval changed");
+        selected_envelope_source->verify_unchanged();
+    }
+    // The broker's selected facts come from this same original native guard.
+    // Standalone evidence/selection APIs retain their own observation paths.
+    const bool selected = include_configuration && selected_envelope_source != nullptr;
+    usk::json::Value envelope, observation;
+    if (selected) {
+        using usk::json::Value;
+        envelope = selected_envelope;
+        observation = Value(Value::Object{
+            {"schema", Value("usk.publisher_selected_reviewed_operation_observation.v1")},
+            {"scope", Value("authenticated_exact_request_and_held_protected_enrollment_files")},
+            {"approval", selected_approval},
+            {"approval_sha256", Value(usk::json::sha256_canonical(selected_approval))},
+            {"approval_file", publisher_handle_observation_json(observe_publisher_file_handle(selected_approval_file->get()))},
+            {"envelope_sha256", Value(selected_envelope_source->sha256_hex())},
+            {"envelope_file", publisher_handle_observation_json(observe_publisher_file_handle(selected_envelope_file->get()))}});
+    }
+    return ExecutionObservation(admission_evidence, std::move(execution), current,
+        selected, std::move(envelope), std::move(observation));
+}
+usk::json::Value RegisteredPublisherAdmission::evidence() const {
+    return state_->observe_native(false).take_admission();
+}
+RegisteredPublisherAdmission::ExecutionObservation RegisteredPublisherAdmission::observe_native_execution() const {
+    return state_->observe_native(true);
 }
 
 bool RegisteredPublisherAdmission::select_reviewed_operation(const std::string& request,
     const PublisherRequestChannel& channel, std::wstring& envelope_path,
-    std::string& envelope_sha256) {
+    std::string& envelope_sha256) const {
     if (state_->selected_envelope_source)
         throw std::runtime_error("one-request registration already selected its operation");
     const auto admission = evidence();
@@ -2308,6 +2855,52 @@ bool RegisteredPublisherAdmission::has_selected_reviewed_operation() const noexc
     return state_->selected_envelope_source != nullptr;
 }
 
+usk::json::Value RegisteredPublisherAdmission::execution_configuration_observation() const {
+    const auto before = evidence();
+    const auto current = query_configuration(state_->service->get());
+    if (!same_configuration(current, state_->configuration))
+        throw std::runtime_error("registered original native execution configuration changed");
+    const auto args = command_arguments(current.binary_path);
+    const auto& caller = before.at("configured_caller_sid").as_string();
+    require_existing_command(current.binary_path, state_->name, args.at(0), args.at(4),
+        std::wstring(caller.begin(), caller.end()), L"--service-admitted-client");
+    using usk::json::Value;
+    Value::Array arguments;
+    for (const auto& argument : args) arguments.emplace_back(utf8(argument));
+    Value result(Value::Object{
+        {"schema", Value("usk.publisher_registered_execution_configuration.v1")},
+        {"scope", Value("original_held_scm_configuration")},
+        {"command", Value(utf8(current.binary_path))}, {"arguments", Value(std::move(arguments))},
+        {"account", Value(utf8(current.account))}, {"display_name", Value(utf8(current.display_name))},
+        {"service_type", Value(static_cast<std::uint64_t>(current.type))},
+        {"start_type", Value(static_cast<std::uint64_t>(current.start))},
+        {"service_sid_type", Value(static_cast<std::uint64_t>(current.sid_type))}});
+    if (usk::json::canonical(evidence()) != usk::json::canonical(before) ||
+        !same_configuration(query_configuration(state_->service->get()), current))
+        throw std::runtime_error("registered execution configuration changed during observation");
+    return result;
+}
+
+std::unique_ptr<PublisherEffectWorkerCustody> RegisteredPublisherAdmission::launch_effect_worker(
+    const PublisherRequestChannel& channel, HANDLE cancel_event) const {
+    const auto before = evidence();
+    const auto request = channel.authenticated_canonical_request();
+    const auto& sid = before.at("service_sid").as_string();
+    auto result = std::make_unique<PublisherEffectWorkerCustody>(*state_->binary,
+        std::wstring(sid.begin(), sid.end()), request, cancel_event);
+    try {
+        if (usk::json::canonical(evidence()) != usk::json::canonical(before) ||
+            channel.authenticated_canonical_request() != request)
+            throw std::runtime_error("original registered request/image changed during private worker launch");
+    } catch (...) {
+        const auto original = std::current_exception();
+        const auto closure = result->close();
+        if (!closure.confirmed()) throw PublisherEffectWorkerClosureUnknown(closure, original);
+        std::rethrow_exception(original);
+    }
+    return result;
+}
+
 usk::json::Value RegisteredPublisherAdmission::selected_reviewed_envelope() const {
     if (!has_selected_reviewed_operation())
         throw std::runtime_error("no protected reviewed operation was selected");
@@ -2330,8 +2923,10 @@ usk::json::Value RegisteredPublisherAdmission::selected_reviewed_operation_obser
         {"envelope_file", publisher_handle_observation_json(observe_publisher_file_handle(state_->selected_envelope_file->get()))}});
 }
 
-usk::json::Value RegisteredPublisherAdmission::capability_observation(const std::string& request_id, bool scoped_profile) const {
+usk::json::Value RegisteredPublisherAdmission::capability_observation(const std::string& request_id, unsigned protocol_version) const {
     using usk::json::Value;
+    if (protocol_version != 2 && protocol_version != 5)
+        throw std::runtime_error("current publisher capability protocol is unavailable");
     const auto admitted = evidence();
     const auto observed = observe_current_restricted_publisher_service(state_->name);
     if (observed.process_id != admitted.at("process_id").as_unsigned() ||
@@ -2370,24 +2965,28 @@ usk::json::Value RegisteredPublisherAdmission::capability_observation(const std:
             {"volume_guid_root", volume.at("volume_root")},
             {"root_file_id", volume.at("root_file_id")},
             {"volume_serial", volume.at("volume_serial")}})}});
-    if (scoped_profile) {
-        // Qualified source-path bounds, not a grant from a query or a claim
-        // about historical records. All operation checks still precede effects.
+    if (protocol_version == 5) {
+        // Compatibility makes this candidate available for genuine qualification.
+        // It does not qualify the new child path or grant effects or restoration.
         const auto actual = observe_publisher_execution_platform();
-        const bool qualified = publisher_registered_execution_platform_qualified(actual);
+        const bool compatible = publisher_registered_execution_platform_qualified(actual);
         auto& fields = result.as_object();
-        fields.at("schema") = Value("usk.publisher_capability.v3");
-        fields.at("availability") = Value(qualified);
-        fields.at("qualification") = Value(qualified ? "qualified_for_scope" : "incomplete");
-        fields.at("support") = Value(qualified ? "supported_for_scope" : "unsupported");
-        fields.at("qualification_scope") = Value("registered_public_apply_v9_process_restart_replay_verify");
-        fields.at("recovery_ceiling") = Value("source_free_process_restart_v9");
+        fields.at("schema") = Value("usk.publisher_capability.v5");
+        fields.at("availability") = Value(compatible);
+        fields.at("support") = Value(compatible ? "candidate_for_scope" : "unsupported");
+        fields.at("qualification_scope") = Value("registered_public_apply_v11_owned_child_native_retirement_process_restart_replay_verify");
+        fields.at("recovery_ceiling") = Value("candidate_source_free_process_restart_v11");
         fields.at("platform").as_object().emplace("sdk_version", actual.at("sdk_version"));
         fields.emplace("qualification_bounds", Value(Value::Object{
-            {"phase_schema", Value("usk.publisher.lab_phase_evidence.v9")},
-            {"execution_schema", Value("usk.publisher_execution_observation.v6")},
+            {"phase_schema", Value("usk.publisher.lab_phase_evidence.v11")},
+            {"execution_schema", Value("usk.publisher_execution_observation.v8")},
+            {"creation_schema", Value("usk.publisher.creation_observation.v5")},
+            {"worker_security_schema", Value("usk.publisher_worker_security.v2")},
+            {"original_custody_schema", Value("usk.publisher.maintenance_original_custody.v4")},
+            {"process_loss_schema", Value("usk.publisher.production_rename_observer.v2")},
+            {"active_contention_schema", Value("usk.publisher_active_install_contention_probe.v2")},
             {"sdk_version", Value("10.0.26100.0")},
-            {"qualified_windows_build", Value(std::uint64_t{20348})}}));
+            {"candidate_windows_build", Value(std::uint64_t{20348})}}));
     }
     return result;
 }
@@ -2411,7 +3010,7 @@ std::string submit_registered_publisher_request(const std::wstring& name,
         schema = submitted.at("schema").as_string();
         if (schema == "usk.publisher_capability_request.v1" ||
             schema == "usk.publisher_capability_request.v2" ||
-            schema == "usk.publisher_capability_request.v3") {
+            schema == "usk.publisher_capability_request.v5") {
             service_observation = schema != "usk.publisher_capability_request.v1";
             inspection_id = submitted.at("request_id").as_string();
             if (submitted.as_object().size() != 2 || inspection_id.empty() || inspection_id.size() > 128 ||
@@ -2420,9 +3019,14 @@ std::string submit_registered_publisher_request(const std::wstring& name,
                 throw std::runtime_error("publisher inspection request differs");
             windows_build = observe_supported_discovery_windows_build();
         } else if (schema != "usk.install_local_apply_request.v1" &&
+            schema != "usk.repair_apply_request.v1" && schema != "usk.move_apply_request.v1" &&
+            schema != "usk.uninstall_apply_request.v1" &&
             schema != "usk.publisher_recovery_request.v1" &&
+            schema != "usk.publisher_maintenance_recovery_request.v1" &&
             schema != "usk.publisher_installed_verify_request.v1")
             throw std::runtime_error("publisher request schema is unavailable");
+        if (schema == "usk.publisher_maintenance_recovery_request.v1")
+            (void)parse_publisher_maintenance_recovery_request(request);
         if (options.conflict_wait_milliseconds > publisher_request_max_conflict_wait_milliseconds)
             throw std::invalid_argument("publisher contention wait exceeds bound");
         if (options.cancel_event) {
@@ -2442,6 +3046,7 @@ std::string submit_registered_publisher_request(const std::wstring& name,
     std::unique_ptr<ServiceControlGuard> control;
     std::unique_ptr<ServiceHandle> service;
     std::unique_ptr<usk::base::StableFile> binary;
+    std::unique_ptr<RegisteredTargetStartObservation> start_observation;
     std::wstring admitted_image;
     try {
         ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
@@ -2635,14 +3240,23 @@ std::string submit_registered_publisher_request(const std::wstring& name,
             reinterpret_cast<BYTE*>(&status), sizeof(status), &needed))
             throw std::runtime_error("publisher process status is unavailable");
         if (status.dwCurrentState == SERVICE_STOPPED) {
-            if (schema != "usk.publisher_installed_verify_request.v1")
-                require_exclusive_volume_admission(name, args[4]);
+            if (schema != "usk.publisher_installed_verify_request.v1") {
+                start_observation = observe_registered_target_for_start(name, before.binary_path, args[4]);
+                if (!start_observation) require_exclusive_volume_admission(name, args[4]);
+            }
             const auto after_admission = query_configuration(service->get());
             require_profile(after_admission);
             if (after_admission.binary_path != before.binary_path)
                 throw std::runtime_error("publisher registration changed during admission");
             if (!StartServiceW(service->get(), 0, nullptr))
                 throw std::runtime_error("publisher could not be started");
+            if (start_observation) {
+                const auto after_start = query_configuration(service->get());
+                require_profile(after_start);
+                if (after_start.binary_path != before.binary_path)
+                    throw std::runtime_error("publisher registration changed across start");
+                start_observation->verify(name, after_start.binary_path);
+            }
         } else if (status.dwCurrentState != SERVICE_RUNNING &&
                    status.dwCurrentState != SERVICE_START_PENDING) {
             throw std::runtime_error("publisher is unavailable while stopping");

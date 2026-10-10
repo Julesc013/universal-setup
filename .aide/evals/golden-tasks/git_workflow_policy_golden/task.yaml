@@ -1,0 +1,11 @@
+schema_version: aide.golden-task.v0
+task_id: git_workflow_policy_golden
+title: Git Workflow Policy Golden
+status: active
+purpose: Check Q28 Git workflow policy anchors, report-only boundaries, and project profile coverage.
+input_refs:
+  - .aide/policies/git-workflow.yaml
+  - .aide/policies/branch-roles.yaml
+  - .aide/git/project-profiles.yaml
+acceptance_ref: .aide/evals/golden-tasks/git_workflow_policy_golden/acceptance.md
+expected_result: PASS

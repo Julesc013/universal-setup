@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE GitHub Release Draft Validation",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "validation_id",
+    "result",
+    "draft_ref",
+    "asset_validation",
+    "checksum_validation",
+    "publication_boundary",
+    "blockers",
+    "warnings",
+    "no_publish"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "validation_id": {"type": "string"},
+    "result": {"type": "string"},
+    "draft_ref": {"type": "string"},
+    "asset_validation": {"type": "object"},
+    "checksum_validation": {"type": "object"},
+    "publication_boundary": {"type": "object"},
+    "blockers": {"type": "array", "items": {"type": "string"}},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "no_publish": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

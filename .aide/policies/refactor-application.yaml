@@ -1,0 +1,28 @@
+schema_version: aide.refactor-application-policy.v0
+policy_id: aide-refactor-application-v0
+status: active
+purpose: >
+  State the application boundary for Q39 and future refactor phases.
+q39_behavior:
+  planning_only: true
+  dry_run_only: true
+  no_apply: true
+  no_file_moves: true
+  no_file_deletes: true
+  no_reference_rewrites: true
+  no_target_repo_mutation: true
+  no_branch_mutation: true
+future_apply_requirements:
+  separately_authorized_queue_item: true
+  explicit_apply_policy: true
+  reviewed_move_map: true
+  reviewed_salvage_map: true
+  reviewed_path_alias_plan: true
+  rollback_notes: true
+  validation_evidence: true
+  review_gate: true
+apply_command_available_in_q39: false
+non_goals:
+  - no concrete apply behavior
+  - no automatic source/doc/test repairs
+  - no release or publishing behavior

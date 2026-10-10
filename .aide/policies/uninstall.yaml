@@ -1,0 +1,58 @@
+schema_version: aide.uninstall-policy.v0
+policy_id: aide.uninstall.v0
+status: active
+purpose: >
+  Define deterministic, preservation-first AIDE uninstall observation,
+  ownership classification, planning, and dry-run behavior before any future
+  uninstall apply phase.
+operating_mode:
+  - deterministic_local
+  - no_model_calls
+  - no_provider_calls
+  - no_network_calls
+  - observe_plan_dry_run_only
+  - no_apply_in_q46
+  - no_target_mutation
+  - no_file_deletion
+  - no_managed_section_removal
+lifecycle:
+  - observe
+  - classify_owned_files
+  - classify_preserved_files
+  - plan
+  - dry_run
+  - review
+  - future_apply
+  - future_verify
+uninstall_scope_classes:
+  - portable_aide_file
+  - generated_target_state
+  - target_memory
+  - target_queue
+  - target_evidence
+  - target_golden_tasks
+  - manual_content
+  - existing_tool
+  - local_state
+  - unknown
+default_preserve_classes:
+  - target_memory
+  - target_queue
+  - target_evidence
+  - target_golden_tasks
+  - manual_content
+  - existing_tool
+  - local_state
+  - docs_canon_doctrine
+  - unknown
+default_rules:
+  uninstall_is_not_blanket_aide_delete: true
+  unknown_ownership_preserved: true
+  delete_allowed_default: false
+  managed_section_removal_allowed_default: false
+  apply_allowed_default: false
+non_goals:
+  - no apply
+  - no target mutation
+  - no broad `.aide` deletion
+

@@ -1,0 +1,105 @@
+schema_version: aide.repo-intelligence-policy.v0
+policy_id: aide-repo-intelligence-v0
+status: active
+purpose: >
+  Define deterministic local repo indexing for AIDE so future WorkUnits can
+  inspect file inventory, ownership, dependencies, tests, documentation links,
+  generated outputs, and conservative orphan candidates before acting.
+operating_mode:
+  deterministic_local: true
+  no_model_calls: true
+  no_provider_calls: true
+  no_network_calls: true
+  index_only: true
+  no_file_moves: true
+  no_file_deletes: true
+source_inputs:
+  - git_tracked_files
+  - repo_tree
+  - file_extensions
+  - path_patterns
+  - known_aide_surfaces
+  - known_test_paths
+  - known_doc_paths
+  - import_reference_scan
+  - markdown_link_scan
+output_files:
+  - .aide/repo/file-inventory.json
+  - .aide/repo/ownership-map.json
+  - .aide/repo/dependency-map.json
+  - .aide/repo/test-map.json
+  - .aide/repo/doc-link-map.json
+  - .aide/repo/generated-map.json
+  - .aide/repo/orphan-candidates.json
+  - .aide/repo/latest-repo-intelligence.md
+file_kinds:
+  - source
+  - test
+  - doc
+  - contract
+  - policy
+  - schema
+  - fixture
+  - generated
+  - tool
+  - evidence
+  - template
+  - archive
+  - local
+  - unknown
+status_classes:
+  - active
+  - generated
+  - evidence_only
+  - template_only
+  - local_only
+  - archived
+  - unknown
+required_record_fields:
+  file_inventory:
+    - path
+    - kind
+    - status
+    - owner
+    - extension
+    - size_bytes
+    - sha256
+    - generated
+    - evidence
+    - template
+    - local_state
+    - exportable_hint
+    - risk_hint
+    - reasons
+    - referenced_by_count
+    - references_count
+    - tests_count
+    - docs_count
+  dependency_map:
+    - path
+    - imports
+    - path_references
+    - local_references
+    - unresolved_references
+    - reasons
+  test_map:
+    - test_path
+    - likely_targets
+    - confidence
+    - reasons
+  doc_link_map:
+    - doc_path
+    - links
+    - path_references
+    - stale_candidates
+    - reasons
+warnings:
+  - Unknown files are inspection prompts, not failures by themselves.
+  - Orphan candidates are conservative candidates and are never deletion advice.
+  - Source-generated repo intelligence outputs are local evidence, not target truth.
+non_goals:
+  - no quality scoring beyond basic flags
+  - no semantic LLM classification
+  - no refactor application
+  - no deletion
+  - no migration

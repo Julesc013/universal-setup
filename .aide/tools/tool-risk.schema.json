@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AIDE Tool Risk",
+  "type": "object",
+  "required": ["tool_id", "path", "risk_class", "risk_hints", "reasons", "execution_allowed"],
+  "properties": {
+    "tool_id": {"type": "string"},
+    "path": {"type": "string"},
+    "risk_class": {"type": "string"},
+    "risk_hints": {"type": "array", "items": {"type": "string"}},
+    "reasons": {"type": "array", "items": {"type": "string"}},
+    "execution_allowed": {"type": "boolean"}
+  }
+}

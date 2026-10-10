@@ -4,6 +4,7 @@
 #include "usk/usk_api.h"
 #include "usk_json.h"
 #include "usk_live_evidence.h"
+#include "usk_one_shot.h"
 #include "usk_public_lifecycle.h"
 #include "usk_replacement_session.h"
 #include "usk_sha256.h"
@@ -121,6 +122,23 @@ std::string execute(usk_context* context, const char* command, const Value& payl
     status = usk_command_execute_v1(context, &request, &response);
     return response.json_payload.data == nullptr ? std::string() :
         std::string(response.json_payload.data, response.json_payload.size);
+}
+
+bool machine_plan_matches(const fs::path& setup, const fs::path& acceptance,
+    const char* command, const Value& payload, const std::string& expected)
+{
+    usk::command::OneShotContextConfig configured{setup.u8string(), acceptance.u8string(), "operator_acceptance_candidate"};
+    const auto request = usk::json::canonical(Value(Value::Object{
+        {"schema", Value("usk.oneshot_request.v1")}, {"request_id", Value("machine.maintenance.plan")},
+        {"command", Value(command)}, {"payload", payload}, {"dry_run", Value(true)}}));
+    const auto result = usk::command::run_one_shot(request, &configured);
+    const auto reply = usk::json::parse(result.document);
+    if (result.exit_code != 0 || reply.at("status").as_string() != "ok" ||
+        usk::json::canonical(reply.at("result")) != usk::json::canonical(usk::json::parse(expected))) {
+        std::cerr << command << " actual machine preview differs: " << result.document << '\n';
+        return false;
+    }
+    return true;
 }
 
 std::string execute_with_fault(
@@ -788,6 +806,7 @@ int main()
         }
         const std::string deflate_repair_digest =
             usk::json::parse(response).at("payload").at("plan_digest").as_string();
+        if (!machine_plan_matches(deflate_setup_root, root, "repair.plan", deflate_repair_plan, response)) return 219;
         const Value deflate_repair_apply = apply_request(
             "usk.repair_apply_request.v1",
             deflate_repair_plan,
@@ -1052,6 +1071,7 @@ int main()
         {"plan_id", Value("plan.move.1")}, {"request_id", Value("move.request.1")},
         {"schema", Value("usk.move_plan_request.v1")}});
     response = execute(context, "move.plan", move_plan, 1, status);
+    if (!machine_plan_matches(setup_root, root, "move.plan", move_plan, response)) return 220;
     if (status != USK_STATUS_OK || fs::exists(moved)) return 15;
     const std::string move_digest = usk::json::parse(response).at("payload").at("plan_digest").as_string();
     const Value move_apply = apply_request("usk.move_apply_request.v1", move_plan,
@@ -1066,6 +1086,7 @@ int main()
         {"request_id", Value("uninstall.request.review")},
         {"schema", Value("usk.uninstall_plan_request.v1")}});
     response = execute(context, "uninstall.plan", uninstall_review, 1, status);
+    if (!machine_plan_matches(setup_root, root, "uninstall.plan", uninstall_review, response)) return 221;
     if (status != USK_STATUS_OK || response.find("operator-note.txt") == std::string::npos) return 17;
     const std::string review_digest = usk::json::parse(response).at("payload").at("plan_digest").as_string();
     const Value uninstall_refused = apply_request("usk.uninstall_apply_request.v1", uninstall_review,

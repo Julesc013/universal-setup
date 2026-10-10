@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+task_id: promotion_rules_golden
+title: Promotion Rules Golden
+status: active
+purpose: Check promotion policy gates for task-to-dev and dev-to-main without implementing branch mutation helpers.
+input_refs:
+  - .aide/policies/promotion-rules.yaml
+  - .aide/git/promotion-rules.md
+acceptance_ref: .aide/evals/golden-tasks/promotion_rules_golden/acceptance.md
+expected_result: PASS

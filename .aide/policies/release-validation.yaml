@@ -1,0 +1,39 @@
+schema_version: aide.release-validation-policy.v0
+policy_id: aide-release-validation-v0
+status: active
+purpose: >
+  Define local validation gates for AIDE Lite release bundles before review.
+validation_gates:
+  - git status checked
+  - scripts/aide validate
+  - scripts/aide doctor
+  - AIDE Lite validate/test/selftest/eval
+  - pack-status
+  - changelog preview
+  - install validate
+  - repair validate
+  - upgrade validate
+  - rollback validate
+  - uninstall validate
+  - fixture extraction
+  - checksum verification
+  - secret scan
+release_command_validation:
+  release_bundle: creates archives and reports locally only
+  release_validate: verifies archives, checksums, forbidden paths, and required files
+  release_clean_dry_run: reports generated artifacts and deletes nothing
+hard_failures:
+  - missing zip archive
+  - missing tar.gz archive
+  - checksum mismatch
+  - forbidden path in archive
+  - missing pack manifest
+  - missing pack checksums
+  - missing portable AIDE Lite script
+  - publication action detected
+  - target install apply detected
+warnings:
+  - dirty source state recorded
+  - changelog preview unavailable
+  - malformed legacy commits in preview
+  - top-level dist mirror disabled

@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: file_quality_ledger_schema_golden
+title: File Quality Ledger Schema Golden
+status: active
+objective: Verify Q38 quality schemas exist and the latest or generated ledger has required fields.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task file_quality_ledger_schema_golden
+no_model_calls: true
+no_network_calls: true

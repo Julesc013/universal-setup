@@ -1,0 +1,58 @@
+schema_version: aide.token-ledger.v0
+policy_id: q14-token-ledger-savings-report
+status: active-pending-review
+purpose: >
+  Record estimated token metadata for AIDE task, context, review,
+  verification, evidence, prompt, baseline, and generated-adapter surfaces so
+  token savings can be measured without storing raw prompts, raw responses, or
+  provider secrets.
+approximation_method:
+  chars_divided_by_4: true
+  formula: approx_tokens = ceil(chars / 4)
+  exact_tokenizer_available: false
+storage_policy:
+  raw_prompt_storage_default: false
+  raw_response_storage_default: false
+  committed_ledger_allowed: estimated_metadata_only
+  secrets_forbidden: true
+record_surfaces:
+  - task_packet
+  - context_packet
+  - review_packet
+  - verification_report
+  - evidence_packet
+  - eval_report
+  - controller_report
+  - baseline_surface
+  - generated_adapter
+required_record_fields:
+  - run_id
+  - phase
+  - surface
+  - path
+  - chars
+  - lines
+  - approx_tokens
+  - method
+  - budget
+  - budget_status
+  - notes
+comparison_policy:
+  compare_compact_to_naive_baseline: true
+  report_percent_reduction: true
+  warn_on_regression: true
+regression_policy:
+  default_warning_threshold_percent: 20
+  hard_budget_exceeded_is_warning: true
+  no_previous_record_status: baseline_only
+limitations:
+  - not_exact_provider_billing
+  - not_exact_tokenizer
+  - no_reasoning_token_measurement
+  - no_cached_token_measurement
+forbidden_behaviors:
+  - store_raw_prompt_body
+  - store_raw_response_body
+  - store_provider_key
+  - scan_aide_local_state
+  - claim_exact_billing_savings

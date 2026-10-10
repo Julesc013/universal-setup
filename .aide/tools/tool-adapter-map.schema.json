@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AIDE Tool Adapter Map",
+  "type": "object",
+  "required": ["adapter_map_id", "mappings", "unmapped_tools", "unsupported_tools", "warnings", "no_apply"],
+  "properties": {
+    "adapter_map_id": {"type": "string"},
+    "mappings": {"type": "array", "items": {"type": "object"}},
+    "unmapped_tools": {"type": "array", "items": {"type": "string"}},
+    "unsupported_tools": {"type": "array", "items": {"type": "string"}},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "no_apply": {"type": "boolean"}
+  }
+}

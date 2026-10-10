@@ -10,57 +10,105 @@
 #include <limits>
 #include <sstream>
 #include <stdexcept>
+#include <type_traits>
 #include <utility>
 
 namespace usk::json {
 
-Value::Value(bool value) : type_(Type::boolean), boolean_(value) {}
-Value::Value(std::uint64_t value) : type_(Type::unsigned_integer), unsigned_(value) {}
-Value::Value(std::string value) : type_(Type::string), string_(std::move(value)) {}
+Value::Value(bool value) : storage_(value) {}
+Value::Value(std::uint64_t value) : storage_(value) {}
+Value::Value(std::string value) : storage_(std::move(value)) {}
 Value::Value(const char* value) : Value(std::string(value)) {}
-Value::Value(Array value) : type_(Type::array), array_(std::move(value)) {}
-Value::Value(Object value) : type_(Type::object), object_(std::move(value)) {}
+Value::Value(Array value) : storage_(std::move(value)) {}
+Value::Value(Object value) : storage_(std::make_unique<Object>(std::move(value))) {}
+
+Value::Value(const Value& other)
+    : storage_(std::visit([](const auto& value) -> Storage {
+        using Alternative = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<Alternative, OwnedObject>) {
+            return std::make_unique<Object>(*value);
+        } else {
+            return value;
+        }
+    }, other.storage_))
+{
+}
+
+Value::Value(Value&& other) noexcept : storage_(std::move(other.storage_))
+{
+    static_assert(std::is_nothrow_move_constructible_v<Storage> &&
+        std::is_nothrow_move_assignable_v<Storage> && std::is_nothrow_swappable_v<Storage>,
+        "owned JSON storage must transfer without becoming valueless");
+    // Every successfully constructed object alternative has an owned map.
+    // A transferred-from Value remains readable/reusable as JSON null.
+    other.storage_.emplace<std::monostate>();
+}
+
+Value& Value::operator=(const Value& other)
+{
+    static_assert(std::is_nothrow_move_constructible_v<Storage> &&
+        std::is_nothrow_move_assignable_v<Storage> && std::is_nothrow_swappable_v<Storage>,
+        "owned JSON storage must transfer without becoming valueless");
+    // Complete the independent copy before replacing the current value. A
+    // failed allocation cannot leave a changed discriminator or partial proof.
+    if (this != &other) {
+        Value replacement(other);
+        storage_.swap(replacement.storage_);
+    }
+    return *this;
+}
+
+Value& Value::operator=(Value&& other) noexcept
+{
+    if (this != &other) {
+        // Finish the transfer before destroying this tree, including when
+        // other is a descendant of this Value. No source access follows swap.
+        Value replacement(std::move(other));
+        storage_.swap(replacement.storage_);
+    }
+    return *this;
+}
 
 bool Value::as_boolean() const
 {
-    if (type_ != Type::boolean) throw std::runtime_error("JSON value is not a boolean");
-    return boolean_;
+    if (type() != Type::boolean) throw std::runtime_error("JSON value is not a boolean");
+    return std::get<bool>(storage_);
 }
 
 std::uint64_t Value::as_unsigned() const
 {
-    if (type_ != Type::unsigned_integer) throw std::runtime_error("JSON value is not an unsigned integer");
-    return unsigned_;
+    if (type() != Type::unsigned_integer) throw std::runtime_error("JSON value is not an unsigned integer");
+    return std::get<std::uint64_t>(storage_);
 }
 
 const std::string& Value::as_string() const
 {
-    if (type_ != Type::string) throw std::runtime_error("JSON value is not a string");
-    return string_;
+    if (type() != Type::string) throw std::runtime_error("JSON value is not a string");
+    return std::get<std::string>(storage_);
 }
 
 const Value::Array& Value::as_array() const
 {
-    if (type_ != Type::array) throw std::runtime_error("JSON value is not an array");
-    return array_;
+    if (type() != Type::array) throw std::runtime_error("JSON value is not an array");
+    return std::get<Array>(storage_);
 }
 
 const Value::Object& Value::as_object() const
 {
-    if (type_ != Type::object) throw std::runtime_error("JSON value is not an object");
-    return object_;
+    if (type() != Type::object) throw std::runtime_error("JSON value is not an object");
+    return *std::get<OwnedObject>(storage_);
 }
 
 Value::Array& Value::as_array()
 {
-    if (type_ != Type::array) throw std::runtime_error("JSON value is not an array");
-    return array_;
+    if (type() != Type::array) throw std::runtime_error("JSON value is not an array");
+    return std::get<Array>(storage_);
 }
 
 Value::Object& Value::as_object()
 {
-    if (type_ != Type::object) throw std::runtime_error("JSON value is not an object");
-    return object_;
+    if (type() != Type::object) throw std::runtime_error("JSON value is not an object");
+    return *std::get<OwnedObject>(storage_);
 }
 
 const Value& Value::at(const std::string& key) const
@@ -73,7 +121,7 @@ const Value& Value::at(const std::string& key) const
 
 bool Value::contains(const std::string& key) const
 {
-    return type_ == Type::object && object_.find(key) != object_.end();
+    return type() == Type::object && as_object().find(key) != as_object().end();
 }
 
 namespace {
@@ -296,7 +344,13 @@ void append_escaped(std::string& output, const std::string& value)
 {
     static const char hex[] = "0123456789abcdef";
     output.push_back('"');
-    for (unsigned char ch : value) {
+    std::size_t plain = 0;
+    for (std::size_t index = 0; index < value.size(); ++index) {
+        const auto ch = static_cast<unsigned char>(value[index]);
+        if (ch >= 0x20u && ch != '"' && ch != '\\') continue;
+        // Transfer each unchanged byte run once. Escapes, embedded NULs and
+        // UTF-8 bytes keep exactly the existing canonical representation.
+        output.append(value, plain, index - plain);
         switch (ch) {
         case '"': output += "\\\""; break;
         case '\\': output += "\\\\"; break;
@@ -310,11 +364,11 @@ void append_escaped(std::string& output, const std::string& value)
                 output += "\\u00";
                 output.push_back(hex[ch >> 4]);
                 output.push_back(hex[ch & 0x0fu]);
-            } else {
-                output.push_back(static_cast<char>(ch));
             }
         }
+        plain = index + 1;
     }
+    output.append(value, plain, value.size() - plain);
     output.push_back('"');
 }
 
@@ -352,6 +406,89 @@ void append_canonical(std::string& output, const Value& value)
     }
 }
 
+class CanonicalBudget {
+public:
+    explicit CanonicalBudget(const ParseLimits& limits) : limits_(limits) {}
+    void object(const CanonicalObjectView& fields)
+    {
+        count_value(0);
+        bytes(2); // braces
+        bool first = true;
+        for (const auto& field : fields) member(field.first, field.second.get(), 0, first);
+    }
+private:
+    void bytes(std::size_t count)
+    {
+        if (count > limits_.max_bytes - bytes_) throw std::runtime_error("JSON input exceeds byte budget");
+        bytes_ += count;
+    }
+    void count_value(std::size_t depth)
+    {
+        if (depth > limits_.max_depth) throw std::runtime_error("JSON exceeds depth budget");
+        if (values_ == limits_.max_values) throw std::runtime_error("JSON exceeds value budget");
+        ++values_;
+    }
+    void string(const std::string& text)
+    {
+        if (text.size() > limits_.max_string_bytes) throw std::runtime_error("JSON string exceeds budget");
+        if (!usk::base::valid_utf8(text)) throw std::runtime_error("JSON string is not valid UTF-8");
+        bytes(2); // quotes; budget measures encoded bytes, not decoded length
+        for (const unsigned char ch : text) {
+            switch (ch) {
+            case '"': case '\\': case '\b': case '\f': case '\n': case '\r': case '\t': bytes(2); break;
+            default: bytes(ch < 0x20u ? 6 : 1); break;
+            }
+        }
+    }
+    void child(const Value& item, std::size_t depth)
+    {
+        // Check before incrementing; empty containers need no child depth.
+        if (depth >= limits_.max_depth) throw std::runtime_error("JSON exceeds depth budget");
+        value(item, depth + 1);
+    }
+    void member(const std::string& key, const Value& item, std::size_t depth, bool& first)
+    {
+        if (!first) bytes(1);
+        first = false;
+        string(key);
+        bytes(1); // colon; keys do not count toward the parser's value budget
+        child(item, depth);
+    }
+    void value(const Value& item, std::size_t depth)
+    {
+        count_value(depth);
+        switch (item.type()) {
+        case Value::Type::null_value: bytes(4); return;
+        case Value::Type::boolean: bytes(item.as_boolean() ? 4 : 5); return;
+        case Value::Type::unsigned_integer: {
+            auto number = item.as_unsigned();
+            std::size_t digits = 1;
+            while (number >= 10) { number /= 10; ++digits; }
+            bytes(digits); return;
+        }
+        case Value::Type::string: string(item.as_string()); return;
+        case Value::Type::array: {
+            bytes(2);
+            bool first = true;
+            for (const auto& entry : item.as_array()) {
+                if (!first) bytes(1);
+                first = false;
+                child(entry, depth);
+            }
+            return;
+        }
+        case Value::Type::object: {
+            bytes(2);
+            bool first = true;
+            for (const auto& entry : item.as_object()) member(entry.first, entry.second, depth, first);
+            return;
+        }
+        }
+    }
+    const ParseLimits& limits_;
+    std::size_t bytes_ = 0, values_ = 0;
+};
+
 } // namespace
 
 Value parse(const std::string& text, const ParseLimits& limits)
@@ -364,6 +501,57 @@ std::string canonical(const Value& value)
     std::string result;
     append_canonical(result, value);
     return result;
+}
+
+std::string canonical_object(const CanonicalObjectView& fields)
+{
+    std::string result(1, '{');
+    bool first = true;
+    for (const auto& field : fields) {
+        if (!first) result.push_back(',');
+        first = false;
+        append_escaped(result, field.first);
+        result.push_back(':');
+        append_canonical(result, field.second.get());
+    }
+    result.push_back('}');
+    return result;
+}
+
+void require_canonical_object_parse_limits(const CanonicalObjectView& fields, const ParseLimits& limits)
+{
+    CanonicalBudget(limits).object(fields);
+}
+
+bool equal_values(const Value& left, const Value& right)
+{
+    if (left.type() != right.type()) return false;
+    switch (left.type()) {
+    case Value::Type::null_value: return true;
+    case Value::Type::boolean: return left.as_boolean() == right.as_boolean();
+    case Value::Type::unsigned_integer: return left.as_unsigned() == right.as_unsigned();
+    case Value::Type::string: return left.as_string() == right.as_string();
+    case Value::Type::array: {
+        const auto& a = left.as_array();
+        const auto& b = right.as_array();
+        if (a.size() != b.size()) return false;
+        for (std::size_t i = 0; i < a.size(); ++i)
+            if (!equal_values(a[i], b[i])) return false;
+        return true;
+    }
+    case Value::Type::object: {
+        const auto& a = left.as_object();
+        const auto& b = right.as_object();
+        if (a.size() != b.size()) return false;
+        auto other = b.begin();
+        for (const auto& member : a) {
+            if (member.first != other->first || !equal_values(member.second, other->second)) return false;
+            ++other;
+        }
+        return true;
+    }
+    }
+    return false;
 }
 
 std::string sha256_canonical(const Value& value)

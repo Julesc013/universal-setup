@@ -1,0 +1,134 @@
+schema_version: aide.prompt-normalization-policy.v0
+policy_id: aide-prompt-normalization-v0
+status: active
+purpose: >
+  Define deterministic normalization patterns for raw prompts. The compiler
+  selects the smallest safe next action and records rejected interpretations.
+storage:
+  hash_algorithm: sha256
+  excerpt_max_chars: 240
+  raw_long_prompt_storage: false
+  prompt_logs: false
+classes:
+  vague_prompt:
+    phrases:
+      - next
+      - continue
+      - do it
+      - make better
+      - fix this
+    safe_next_action: inspect latest task, queue state, and recovery/no-op status
+    rejected_interpretations:
+      - do not invent product work
+      - do not skip queue dependency checks
+  overbroad_prompt:
+    phrases:
+      - fix everything
+      - finish everything
+      - make it production ready
+      - clean up the repo
+      - make it ready
+    safe_next_action: split into audit or readiness/inventory gate first
+    rejected_interpretations:
+      - do not perform broad repo-wide implementation
+      - do not claim product readiness without behavior proof
+  unsafe_prompt:
+    phrases:
+      - delete
+      - remove all
+      - force
+      - wipe
+      - purge
+      - publish
+      - push
+      - tag
+    safe_next_action: block or require reviewed gate before irreversible/external action
+    rejected_interpretations:
+      - do not delete roots directly
+      - do not publish releases or push branches
+  repeated_prompt:
+    phrases:
+      - repeat
+      - again
+      - continue q
+      - same task
+    safe_next_action: run task no-op/recovery inspection
+    rejected_interpretations:
+      - do not duplicate accepted work
+  out_of_order_prompt:
+    phrases:
+      - skip
+      - do q
+      - jump to
+      - before q
+    safe_next_action: check dependency status and queue order
+    rejected_interpretations:
+      - do not bypass missing prerequisites
+  target_repo_prompt:
+    phrases:
+      - Dominium
+      - Eureka
+      - target repo
+      - install AIDE into
+      - upgrade target
+    safe_next_action: target preflight WorkUnit only; preserve target doctrine/tooling
+    rejected_interpretations:
+      - do not mutate target repo from AIDE source repo
+      - do not assume target branch or validation truth
+examples:
+  - raw_prompt: next
+    task_class: context
+    risk_class: low
+    sizing_class: audit_only
+    next_action: inspect latest task/queue and do not invent product work
+  - raw_prompt: fix everything
+    task_class: repair
+    risk_class: high
+    sizing_class: split_required
+    next_action: run repo health/audit or identify smallest failing validation
+  - raw_prompt: clean up the repo
+    task_class: refactor
+    risk_class: high
+    sizing_class: split_required
+    next_action: inventory/classify roots before moves
+  - raw_prompt: delete old XStack stuff
+    task_class: refactor
+    risk_class: destructive
+    sizing_class: blocked
+    next_action: reject direct deletion and suggest tool absorption inventory
+  - raw_prompt: merge dev to main
+    task_class: git
+    risk_class: release
+    sizing_class: blocked
+    next_action: require branch plan, validation, review, and promotion evidence
+  - raw_prompt: publish a release
+    task_class: release
+    risk_class: release
+    sizing_class: blocked
+    next_action: block until release gates, tags, and assets are approved
+  - raw_prompt: install AIDE into Dominium
+    task_class: install
+    risk_class: external_side_effect
+    sizing_class: two_shot
+    next_action: target preflight first; preserve target doctrine/tooling
+  - raw_prompt: make it production ready
+    task_class: audit
+    risk_class: release
+    sizing_class: split_required
+    next_action: readiness audit gate
+  - raw_prompt: repair failing test
+    task_class: repair
+    risk_class: medium
+    sizing_class: one_shot
+    next_action: identify targeted failing test and repair within allowed paths
+  - raw_prompt: move all roots into clean layout
+    task_class: refactor
+    risk_class: destructive
+    sizing_class: split_required
+    next_action: root inventory/root recycling framework first
+guarantees:
+  no_raw_intent_execution: true
+  no_model_calls: true
+  no_provider_calls: true
+  no_network_calls: true
+  repo_state_first: true

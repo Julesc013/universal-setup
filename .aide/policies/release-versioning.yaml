@@ -1,0 +1,155 @@
+schema_version: aide.release-versioning-policy.v0
+policy_id: aide-release-versioning-v0
+status: active
+purpose: >
+  Preserve Q47/Q48 local bundle identity and define the conditional public
+  version rule for a later qualified AIDE Lite release.
+bundle_name: aide-lite-pack-v0
+release_id_policy:
+  - use pack name plus source commit when no stable semver exists
+  - do not invent SemVer
+  - future SemVer only after public compatibility contract
+  - do not choose a final stable version or tag before a frozen release manifest
+artifact_naming:
+  zip_archive: aide-lite-pack-v0.zip
+  tar_gz_archive: aide-lite-pack-v0.tar.gz
+  checksums_json: aide-lite-pack-v0.checksums.json
+  sha256sums_text: SHA256SUMS.txt
+  manifest: manifest.yaml
+  install_notes: install.md
+  changelog_preview: CHANGELOG.preview.md
+  release_notes_preview: RELEASE_NOTES.preview.md
+compatibility_statement:
+  public_compatibility_contract: aide-lite-local-windows-v1
+  stable_semver: established_for_aide_lite_portable_package
+  preview_only: false
+  activation_state: conditional_release_candidate_pending_exact_ACCEPT_and_publication
+  preview_boundary: Q47/Q48 bundles and draft outputs remain preview_only and no_publish
+stable_lite_contract_candidate:
+  status: active_for_exact_release_effect_review_not_yet_published
+  release_axis: aide_lite_portable_package
+  version_syntax: MAJOR.MINOR.PATCH
+  tag_pattern: aide-lite-v<MAJOR.MINOR.PATCH>
+  first_stable_rule: >
+    If a fresh read-only history check at freeze confirms no prior stable
+    AIDE Lite tag or release, the first qualified stable candidate is 1.0.0.
+    Otherwise classify changes against the actual published predecessor.
+    The exact version and tag are selected only in the frozen release manifest.
+  independent_identities:
+    - aide-lite-pack-v0 is the portable pack format name, not product SemVer
+    - protocol, object schema, persisted state, adapter, and profile versions are separate compatibility axes
+  candidate_profile_id: aide-lite-local-windows
+  candidate_public_cli:
+    - doctor
+    - validate
+    - context
+    - pack --task <task>
+    - verify --evidence <evidence-path>
+    - task inspect
+    - task status
+    - import-pack --pack <new-pack> --target <target> --mode safe --dry-run
+    - import-pack --pack <new-pack> --target <target> --mode safe --expect-plan <digest>
+    - import-pack --pack <new-pack> --from-pack <old-pack> --target <target> --mode safe --dry-run
+    - import-pack --pack <new-pack> --from-pack <old-pack> --target <target> --mode safe --expect-plan <digest>
+    - import-pack --pack <new-pack> --from-pack <old-pack> --target <target> --mode safe --resolve <target-path> <resolution-file> --dry-run
+    - import-pack --pack <new-pack> --from-pack <old-pack> --target <target> --mode safe --resolve <target-path> <resolution-file> --expect-plan <digest>
+    - import-pack --pack <new-pack> --target <target> --mode safe --dry-run --explain
+    - import-pack --pack <new-pack> --from-pack <old-pack> --target <target> --mode safe --dry-run --explain
+    - import-pack --pack <new-pack> --from-pack <old-pack> --target <target> --mode safe --resolve <target-path> <resolution-file> --dry-run --explain
+    - import-pack --pack <new-pack> --target <target> --mode safe --dry-run --explain --feedback-out <local-packet>
+    - import-pack --pack <new-pack> --from-pack <old-pack> --target <target> --mode safe --dry-run --explain --feedback-out <local-packet>
+    - import-pack --pack <new-pack> --from-pack <old-pack> --target <target> --mode safe --resolve <target-path> <resolution-file> --dry-run --explain --feedback-out <local-packet>
+    - import-pack --pack <new-pack> --target <target> --mode safe --recover-partial --expect-plan <digest>
+    - import-pack --pack <new-pack> --from-pack <old-pack> --target <target> --mode safe --recover-partial --expect-plan <digest>
+    - import-pack --pack <new-pack> --from-pack <old-pack> --target <target> --mode safe --resolve <target-path> <resolution-file> --recover-partial --expect-plan <digest>
+    - rollback-pack --current-pack <current-pack> --previous-pack <previous-pack> --target <target> --dry-run
+    - rollback-pack --current-pack <current-pack> --previous-pack <previous-pack> --target <target> --expect-plan <digest>
+    - plan-removal --target <target>
+    - apply-removal --target <target> --expect-plan <digest>
+    - repair-owned-file --pack <pack> --target <target> --path <owned-path> --dry-run
+    - repair-owned-file --pack <pack> --target <target> --path <owned-path> --expect-plan <digest>
+    - job setup --config <local-config> --selection <local-selection-json> --approved-parent <approved-parent>
+    - job inspect --config <local-config> --manifest <job-json>
+    - job run --config <local-config> --manifest <job-json>
+    - job run --config <local-config> --manifest <job-json> --full
+    - job recover --config <local-config>
+    - job wait --config <local-config> --job-id <exact-id> --manifest-digest <exact-digest>
+    - job wait --config <local-config> --job-id <exact-id> --manifest-digest <exact-digest> --timeout-seconds <seconds>
+    - job usage --stream <codex-exec-jsonl>
+    - job usage --attempt-set <attempt-roster-json>
+    - job context
+  cli_scope_rule: >
+    These are candidate command forms, not a shipping claim. The final release
+    manifest must pin each supported form and option, supported target state,
+    tested environment, and evidence. Unlisted CLI commands and options,
+    including import-pack --mode full, are outside the first
+    stable public contract unless separately qualified and added by review.
+    The attempt-set form attributes only supplied streams; complete work usage
+    and internal host model requests remain unknown.
+  public_scope: >
+    Only the final-manifest-qualified forms from candidate_public_cli for
+    aide-lite-local-windows, portable pack interpretation, and ownership/receipt
+    lifecycle behavior recorded for that profile are public package
+    compatibility promises.
+  customization_contract:
+    metadata_path: .aide/customizations.json
+    metadata_schemas:
+      - aide.project-customizations.v1
+      - aide.project-customizations.v2
+    documentation: docs/reference/cross-repo-pack-export-import.md
+    ownership_rule: Project-owned metadata is never supplied by an incoming pack.
+    explanation_rule: >
+      Explain observed differences and ownership decisions. Show project-authored
+      rationale only while bound to the current observed bytes; absent or stale
+      rationale remains unknown. Rationale grants no mutation authority.
+    controls_rule: >
+      Preserve the supported strict v2 disabled-feature intent across updates;
+      missing, malformed or unknown controls cannot silently reenable it.
+      The final manifest must pin supported metadata and feature IDs.
+    feedback_rule: >
+      Feedback requires an explicit dry-run option and a new local path outside
+      both target and packs. The CLI never transmits the packet; sharing is
+      separately authorized. These are candidate promises requiring final
+      delivered-byte qualification, not activated support claims.
+  partial_recovery_contract: >
+    Continue a partially applied import only from its saved full plan with the exact original plan digest,
+    packs, mode, project controls and each original resolution input. Ordinary
+    retry does not grant recovery authority. Changed or unsafe inputs and legacy
+    partial intents without a full saved plan remain retained refusals. Completed
+    and no-effect intents have separate existing reconciliation/retirement paths;
+    those paths do not replay payload writes. The final
+    Windows archive must qualify these exact recovery forms before support.
+  same_major_rule: >
+    Preserve documented supported behavior for declared predecessor versions
+    on the qualified Windows profile. Changes to persisted ownership or receipt
+    meaning require an explicit migration or safe refusal and cross-version
+    consumer evidence; opening or observing a target never auto-upgrades it.
+  minor_rule: >
+    Add compatible supported behavior without removing or reinterpreting
+    existing documented commands, options, or persisted-state meaning.
+  patch_rule: >
+    Repair behavior without an intended public contract change; rerun affected
+    lifecycle and predecessor update checks.
+  major_rule: >
+    An incompatible documented contract change requires a new major version,
+    migration or refusal documentation, recovery path, and explicit review.
+  limits:
+    - no forward compatibility promise for unknown future versions
+    - no host, native, hosted, model-enabled, or non-Windows apply promise
+    - no implied support for a predecessor absent from the release compatibility matrix
+  activation_gate: >
+    Before main promotion, tag or publication, freeze profile, exact source
+    and tree, version and tag, predecessor matrix, assets and hashes, local
+    machine and delivered-byte consumer evidence, and an independent technical
+    release ACCEPT for the exact release-effect manifest. The effect manifest
+    must bind every declared public CLI form and option to supported target
+    state, tested environment and exact evidence. This first stable release
+    uses the stricter ACCEPT threshold, even though the generic campaign
+    review gate can qualify disposed ACCEPT_WITH_NOTES for other exact source
+    and effect subjects.
+  postpublication_gate: >
+    Publication is incomplete until remote main/tag/release identities and
+    uploaded asset bytes are observed, all four assets are downloaded and
+    hashed, and fresh and brownfield acquisition/update work from those exact
+    downloaded bytes. Record any failed or uncertain effect before retry;
+    do not retag or replace published bytes.

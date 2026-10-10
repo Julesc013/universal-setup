@@ -13,6 +13,8 @@
 #include <vector>
 
 namespace usk::platform::windows {
+class PublisherEffectWorkerReadback;
+class PublisherEffectWorkerNativeSecurity;
 
 struct PublisherCreationParentObservation {
     PublisherHandleObservation parent;
@@ -36,7 +38,12 @@ struct PublisherCreationCallObservation {
 // This does not enumerate capabilities outside the service or qualify a profile.
 class PublisherCreationCapture final {
 public:
-    PublisherCreationCapture(HANDLE boundary, const std::wstring& service_name);
+    PublisherCreationCapture(HANDLE boundary, const std::wstring& service_name, HANDLE cancel_event = nullptr);
+    // Concrete native child route. The original readback/security owners must
+    // outlive this capture on their original child execution thread. Only
+    // successful FILE_CREATE calls on this child's held handles are recorded.
+    PublisherCreationCapture(HANDLE boundary, const std::wstring& service_name,
+        PublisherEffectWorkerReadback&, PublisherEffectWorkerNativeSecurity&);
     ~PublisherCreationCapture();
     PublisherCreationCapture(const PublisherCreationCapture&) = delete;
     PublisherCreationCapture& operator=(const PublisherCreationCapture&) = delete;

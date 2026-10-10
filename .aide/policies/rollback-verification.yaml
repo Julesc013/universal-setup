@@ -1,0 +1,31 @@
+schema_version: aide.rollback-verification-policy.v0
+policy_id: aide.rollback-verification.v0
+status: active
+purpose: >
+  Define future verification commands for any reviewed rollback apply phase.
+future_verification_commands:
+  - doctor
+  - validate
+  - test
+  - selftest
+  - eval run
+  - pack-status
+  - intent validate
+  - repo validate
+  - quality validate
+  - refactor validate
+  - roots validate
+  - tools validate
+  - install validate
+  - repair validate
+  - upgrade validate
+  - rollback validate
+  - commit check
+  - git policy
+  - changelog validate
+  - no secrets/local-state
+  - target-specific validators
+q46_behavior:
+  verification_is_planned_only: true
+  no_apply_or_mutation: true
+

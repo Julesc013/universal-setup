@@ -1,0 +1,6 @@
+schema_version: aide.golden-task.v0
+id: no_skip_to_pass_golden
+title: No Skip To Pass Golden
+status: active
+description: Verify policy forbids deleting or skipping tests to fake green validation.
+

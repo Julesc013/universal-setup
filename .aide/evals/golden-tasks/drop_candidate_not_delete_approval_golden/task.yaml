@@ -1,0 +1,9 @@
+schema_version: aide.golden-task.v0
+task_id: drop_candidate_not_delete_approval_golden
+title: Drop Candidate Not Delete Approval Golden
+status: active
+runner: aide_lite
+command: eval run --task drop_candidate_not_delete_approval_golden
+deterministic: true
+network_calls: false
+provider_calls: false
