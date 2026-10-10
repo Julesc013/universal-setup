@@ -295,14 +295,17 @@ void MaintenanceEffectJournal::persist(const std::string& phase, const Value& de
     if (failed_ || sealed_ || sequence_ >= maximum_records)
         throw std::runtime_error("maintenance journal cannot accept another record");
     try {
-        require_effect_authority();
+        require_effect_owner_binding();
         if (injector_) {
+            require_effect_authority();
             injector_(phase, "before_record");
             require_effect_authority();
         }
-        // With no callback or journal effect between the adjacent checks,
-        // keep one full query. Actual writer fences and the full post-write
-        // check remain; the former separate sample instant is unclaimed.
+        // Native journals use the original concrete protected record writer.
+        // It completes fresh authority fences before its durable effects and
+        // after publication. These query-only journal checks need the original
+        // binding; actual external callbacks retain full enclosing fences.
+        // No writer result is cached, and former wrapper samples are unclaimed.
         if (observe_directory_identity(directory_) != directory_identity_)
             throw std::runtime_error("maintenance journal directory changed");
         if (sequence_ != 0u) {
@@ -326,8 +329,10 @@ void MaintenanceEffectJournal::persist(const std::string& phase, const Value& de
         last_digest_ = hash;
         bytes_ += text.size();
         ++sequence_;
-        if (injector_) injector_(phase, "after_record");
-        require_effect_authority();
+        if (injector_) {
+            injector_(phase, "after_record");
+            require_effect_authority();
+        } else require_effect_owner_binding();
     } catch (...) {
         // A failed write/callback may have left a durable record. Reopening
         // through inspection is required; this object cannot retry over it.
@@ -366,7 +371,10 @@ std::optional<std::string> MaintenanceEffectJournal::apply_metadata_effect()
 
 std::optional<std::pair<std::string, std::string>> MaintenanceEffectJournal::apply_owned_effect()
 {
-    require_effect_authority();
+    // The sole private concrete apply callback completes its full fresh
+    // require_pending fence before any effect. Bind these query-only inputs
+    // to that original owner; keep the full post-callback check below.
+    require_effect_owner_binding();
     if (failed_ || sealed_ || pending_kind_.empty() || payload_attempted_)
         throw std::runtime_error("maintenance owned intent is absent, failed or already attempted");
 #if defined(_WIN32)
@@ -394,7 +402,9 @@ void MaintenanceEffectJournal::complete_effect(const std::string& outcome, const
     if (pending_kind_.empty()) throw std::logic_error("maintenance completion has no intent");
 #if defined(_WIN32)
     if (native_origin_) {
-        require_effect_authority();
+        // The concrete confirmation encloses its actual original pending
+        // selection and any grants in full fresh authority checks.
+        require_effect_owner_binding();
         if (!resumed_ && pending_kind_ != "publish_target" &&
             (!payload_attempted_ || payload_outcome_.empty() || outcome != payload_outcome_))
             throw std::runtime_error("native maintenance payload completion lacks its actual owner outcome");

@@ -790,20 +790,25 @@ void TransactionSession::persist_native_initial_transitions() {
 void TransactionSession::persist_transition(const std::string& next_state)
 {
 #if defined(_WIN32)
-    (void)require_native_owner();
+    (void)native_owner_binding();
 #endif
     if (!valid_transition(current_state_, next_state)) {
         throw std::logic_error("invalid setup transaction state transition");
     }
     if (injector_) {
+#if defined(_WIN32)
+        (void)require_native_owner();
+#endif
         injector_(next_state, "before_journal");
 #if defined(_WIN32)
         (void)require_native_owner();
 #endif
     }
-    // The leading check covers query-only transition validation. Repeat it
-    // after an actual external callback; the concrete journal writer retains
-    // its fresh effect fences, and the full final owner check stays below.
+    // The private concrete journal writer completes fresh authority fences
+    // around its durable effects and after publication. Keep the original
+    // binding through query-only transition bookkeeping; actual external
+    // callbacks retain full enclosing checks. Former wrapper samples are
+    // unclaimed, and no authority result survives a writer call.
     const std::string previous = current_state_;
     transitions_.push_back(Transition{
         static_cast<std::uint64_t>(transitions_.size()),
@@ -822,16 +827,24 @@ void TransactionSession::persist_transition(const std::string& next_state)
         transitions_.pop_back();
         throw;
     }
-    if (injector_) injector_(next_state, "after_journal");
+    if (injector_) {
+        injector_(next_state, "after_journal");
 #if defined(_WIN32)
-    (void)require_native_owner();
+        (void)require_native_owner();
 #endif
+    } else {
+#if defined(_WIN32)
+        (void)native_owner_binding();
+#endif
+    }
 }
 
 void TransactionSession::persist_snapshot()
 {
 #if defined(_WIN32)
-    (void)require_native_owner();
+    // No external callback precedes this original concrete journal writer.
+    // Its fresh mutation/final fences stay in persist_journal's producer.
+    (void)native_owner_binding();
 #endif
     if (transitions_.empty() ||
         directory_identity(journal_path_.parent_path()) != journal_directory_identity_) {

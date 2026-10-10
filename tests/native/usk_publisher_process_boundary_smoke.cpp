@@ -1283,6 +1283,26 @@ public:
             std::_Exit(1);
         }
         CloseHandle(thread_);
+        // A signaled join proves this owned helper ended; it does not prove
+        // that the complete process census has detached it. Drain this exact
+        // fixture ID before another control starts its native acquisition.
+        // Numeric reuse stays conservative (it can only delay/fail teardown).
+        // This query-only wait grants no authority and changes no acquisition
+        // or retirement assertion, product fence, or public request deadline.
+        try {
+            const auto deadline = GetTickCount64() + 5000u;
+            for (;;) {
+                const auto population = detail::observe_publisher_system_thread_census_for_test();
+                if (!std::binary_search(population.begin(), population.end(), id_)) break;
+                if (GetTickCount64() >= deadline)
+                    throw std::runtime_error("retired test helper remained in the complete process census; fixture_thread_id=" +
+                        std::to_string(id_));
+                Sleep(1);
+            }
+        } catch (const std::exception& error) {
+            std::cerr << "test helper census teardown failed: " << error.what() << '\n';
+            std::_Exit(1);
+        }
         if (ready_) CloseHandle(ready_);
         CloseHandle(stop_);
     }
