@@ -169,18 +169,24 @@ struct NativeMaintenanceContext::Impl {
         std::uint64_t size = 0;
         std::string sha256, stream_identity;
     };
+    struct FileObservationQuery {
+        const Entry& entry;
+        std::optional<transaction::detail::NativeMaintenanceFileObservation> result;
+    };
     // Only this owner can construct the synchronous, read-only authority
-    // composition. Descriptor-only roles never become byte-read records.
+    // composition. Descriptor-only roles stay outside the original byte-read
+    // record vector; the fixed owned-file query remains a distinct role.
     class AuthorityRecordRead final : public NativeMaintenanceRecordByteRead {
     private:
         friend struct Impl;
         AuthorityRecordRead(const Impl&, const std::vector<const Entry*>&,
-            const std::optional<PublisherHandleObservation>&, const std::string&);
+            const std::optional<PublisherHandleObservation>&, const std::string&, const Entry*);
         std::optional<PublisherEffectSelectionKind> authority_selection_kind() const override;
         std::string authority_failure_context() const override;
         void require_authority_selection(const Value&, const Value&, const Value&) override;
         ~AuthorityRecordRead() override;
         bool eligible() const;
+        transaction::detail::NativeMaintenanceFileObservation file_observation() const;
         bool owns_round(const Impl&, const std::vector<const Entry*>&,
             PublisherEffectRecordByteRound*, const PublisherHandleObservation*) const;
         void prepare() override;
@@ -1393,10 +1399,10 @@ struct NativeMaintenanceContext::Impl {
             normalized(supplied.audit_root) != normalized(spec.audit_root) || supplied.required_commit_authority != spec.required_commit_authority)
             throw std::runtime_error("native maintenance callback received a different transaction");
     }
-    void require_authority(const transaction::TransactionSpec& supplied,
-        const Entry* leading_entry = nullptr, const Entry* trailing_entry = nullptr) const {
-        if ((leading_entry || trailing_entry) && !original_child)
-            throw std::runtime_error("native maintenance entry composition lacks its original child");
+    std::string require_authority_state(const transaction::TransactionSpec& supplied) const {
+        // These current state predicates cannot grant native access or an
+        // effect. require_authority completes the distinct full native proof;
+        // its fixed file query also repeats these predicates after that proof.
         require_same_transaction(supplied);
         if (GetCurrentProcessId() != worker_context.process_id || (cancel_event && WaitForSingleObject(cancel_event, 0) != WAIT_TIMEOUT))
             throw std::runtime_error("native maintenance worker stopped or changed");
@@ -1444,14 +1450,7 @@ struct NativeMaintenanceContext::Impl {
             if (!equal(current_process, process_boundary))
                 throw std::runtime_error("native maintenance frozen process boundary changed");
         };
-        SelectedFenceCheck selected_check;
-        if (original_child) {
-            // Consume only an actual producer-owned completed selection in
-            // this fence; no selected tuple survives it or spans an effect.
-            selected_check = [&](const PublisherEffectSelectedSecurityObservation& observed) {
-                require_selected_security(observed.broker(), observed.selection(), observed.native());
-            };
-        } else {
+        if (!original_child) {
             if (!equal(registered_native_evidence(), registration) || !equal(selected_native_observation(), selection))
                 throw std::runtime_error("native maintenance held registration or selected operation changed");
             const auto current_worker = worker_continuity->observe_current(failure_context);
@@ -1473,6 +1472,25 @@ struct NativeMaintenanceContext::Impl {
         if (installed_confirmed ? !postimage_revision :
             (installed_issue_active ? (!original_revision && !postimage_revision) : !original_revision))
             throw transaction::InstallStateRevisionStale();
+        return failure_context;
+    }
+    void require_authority(const transaction::TransactionSpec& supplied,
+        const Entry* leading_entry = nullptr, const Entry* trailing_entry = nullptr,
+        FileObservationQuery* file_query = nullptr) const {
+        if ((leading_entry || trailing_entry || file_query) && !original_child)
+            throw std::runtime_error("native maintenance entry composition lacks its original child");
+        const auto failure_context = require_authority_state(supplied);
+        if (file_query && (file_query->result ||
+            (&file_query->entry != leading_entry && &file_query->entry != trailing_entry)))
+            throw std::runtime_error("native maintenance file query lacks its original entry occurrence");
+        SelectedFenceCheck selected_check;
+        if (original_child) {
+            // Consume only an actual producer-owned completed selection in
+            // this fence; no selected tuple survives it or spans an effect.
+            selected_check = [&](const PublisherEffectSelectedSecurityObservation& observed) {
+                require_selected_security(observed.broker(), observed.selection(), observed.native());
+            };
+        }
         std::optional<PublisherHandleObservation> installed_custody;
         if (original_child) installed_custody = installed_custody_facts();
         else require_installed_custody();
@@ -1497,13 +1515,25 @@ struct NativeMaintenanceContext::Impl {
             PublisherEffectSelectionKind::reviewed_operation;
         if (original_child && !restoration_record_observers.empty()) {
             try {
-                AuthorityRecordRead read(*this, parents, installed_custody, failure_context);
+                AuthorityRecordRead read(*this, parents, installed_custody, failure_context,
+                    file_query ? &file_query->entry : nullptr);
                 if (read.eligible()) {
                     // Actual fresh selection is validated provisionally before
                     // either round, then completed against both full endpoints.
                     // The former separate selection sampling instants are not
                     // claimed. No partial grant or tuple survives this fence.
                     original_child->verify_original_maintenance_record_bytes(read);
+                    if (file_query) {
+                        // The byte query is enclosed by this proof's complete
+                        // native BEFORE/AFTER, raw9 rounds and final ancestry.
+                        // Recheck every local state/lease predicate after it;
+                        // no provisional result is exposed or grants an effect.
+                        (void)require_authority_state(supplied);
+                        (void)installed_custody_facts();
+                        (void)relative_volume_path(spec.state_root);
+                        (void)relative_volume_path(spec.target_root);
+                        file_query->result.emplace(read.file_observation());
+                    }
                     return;
                 }
                 // Bounds are decided before any wire begin/marker. Keep the
@@ -1514,6 +1544,15 @@ struct NativeMaintenanceContext::Impl {
         }
         require_entries(parents, original_child != nullptr, selected_check, selected_kind,
             failure_context, installed_custody ? &*installed_custody : nullptr);
+        if (file_query) {
+            // Ineligibility is decided before any begin. Preserve the separate
+            // pre/read/post route, with no retry after a begun or failed proof.
+            require_byte_content(file_query->entry);
+            transaction::detail::NativeMaintenanceFileObservation result{
+                journal_identity(file_query->entry.handle.value), file_query->entry.sha256, file_query->entry.size};
+            require_authority(supplied, &file_query->entry, nullptr);
+            file_query->result.emplace(std::move(result));
+        }
     }
     // Fixed validation-only predicate shared by completed legacy selection and
     // the sealed authority reader's actual provisional/final endpoints.
@@ -2749,22 +2788,20 @@ struct NativeMaintenanceContext::Impl {
             throw;
         }
         if (original_child) {
-            // The selected file remains a descriptor-only tail. Complete the
-            // full fresh authority/entry group before its first byte read;
-            // the former separately sampled lookup/entry instants are unclaimed.
-            require_authority_then_entry(spec, *selected);
-            require_byte_content(*selected);
-        } else require_bytes(*selected);
+            // Only this fixed, retained file query can enter the sealed read
+            // interval. Its result stays private until the complete proof and
+            // fresh post-read state/lease checks finish. Former separate proof
+            // sampling instants are unclaimed; no effect spans this group.
+            FileObservationQuery query{*selected, {}};
+            require_authority(spec, nullptr, selected, &query);
+            if (!query.result)
+                throw std::runtime_error("native maintenance file query lacks its completed observation");
+            return std::move(*query.result);
+        }
+        require_bytes(*selected);
         transaction::detail::NativeMaintenanceFileObservation result{
             journal_identity(selected->handle.value), selected->sha256, selected->size};
-        // The original child's post-byte entry and adjacent authority checks
-        // complete in the existing sealed read-only group. Its full fresh
-        // endpoints, ordered raw9 checks, ancestry joins and observer closures
-        // all finish before returning the file result. No effect or retained
-        // authority tuple spans this group; the former separate post-entry
-        // sampling instant is unclaimed. Keep SCM's original path unchanged.
-        if (original_child) require_entry_then_authority(spec, *selected);
-        else require_authority(spec);
+        require_authority(spec); // SCM keeps its original separate route.
         return result;
     }
     transaction::CommitClosureObservation observe_created_closure(const transaction::TransactionSpec& s,
@@ -2962,6 +2999,8 @@ struct NativeMaintenanceContext::Impl::AuthorityRecordRead::State {
     const std::optional<PublisherHandleObservation> creator_observation;
     const PublisherHandleObservation published_facts;
     std::vector<const Entry*> records, entries;
+    const Entry* const byte_entry;
+    std::optional<transaction::detail::NativeMaintenanceFileObservation> file_result;
     struct Frozen {
         const Entry* entry;
         HANDLE handle;
@@ -2980,15 +3019,27 @@ struct NativeMaintenanceContext::Impl::AuthorityRecordRead::State {
     bool selection_before_checked = false, selection_after_checked = false;
     PublisherEffectRecordByteRound* active_round = nullptr;
     State(const Impl& value, const std::vector<const Entry*>& tail,
-        const std::optional<PublisherHandleObservation>& observed, const std::string& context)
+        const std::optional<PublisherHandleObservation>& observed, const std::string& context,
+        const Entry* query)
         : owner(value), child(value.original_child), volume(value.volume), volume_facts(value.volume_facts),
           restored_owner(value.restored_owner), installed_issue_active(value.installed_issue_active),
           installed_confirmed(value.installed_confirmed), failure_context(context), creator(value.installed_postimage_file.get()),
-          creator_observation(observed), published_facts(value.installed_record_facts) {
+          creator_observation(observed), published_facts(value.installed_record_facts), byte_entry(query) {
         if (!child || owner.entry_readback_failed || owner.restoration_record_observers.empty())
             throw std::runtime_error("native maintenance authority record scope lacks its original records");
         if (creator_observation && (!creator || creator->handle.value == INVALID_HANDLE_VALUE))
             throw std::runtime_error("native maintenance authority record creator is unavailable");
+        if (byte_entry) {
+            const auto belongs = [&](const auto& collection) {
+                return std::any_of(collection.begin(), collection.end(),
+                    [&](const auto& item) { return item.second.get() == byte_entry; });
+            };
+            if (byte_entry->handle.value == INVALID_HANDLE_VALUE || byte_entry->directory ||
+                (byte_entry->created && !byte_entry->complete) ||
+                std::find(tail.begin(), tail.end(), byte_entry) == tail.end() ||
+                (!belongs(owner.files) && !belongs(owner.original_files) && !belongs(owner.verification_files)))
+                throw std::runtime_error("native maintenance authority file query lacks its completed owned tail");
+        }
         // Preflight only freezes original typed expectations and counts the
         // COMPLETE ledger. Exceeding a bound chooses the separate route before
         // any native readback begin. No caught native failure is ineligibility.
@@ -3067,10 +3118,18 @@ struct NativeMaintenanceContext::Impl::AuthorityRecordRead::State {
 };
 NativeMaintenanceContext::Impl::AuthorityRecordRead::AuthorityRecordRead(const Impl& owner,
     const std::vector<const Entry*>& tail, const std::optional<PublisherHandleObservation>& creator,
-    const std::string& failure_context)
-    : state_(std::make_unique<State>(owner, tail, creator, failure_context)) {}
+    const std::string& failure_context, const Entry* query)
+    : state_(std::make_unique<State>(owner, tail, creator, failure_context, query)) {}
 NativeMaintenanceContext::Impl::AuthorityRecordRead::~AuthorityRecordRead() = default;
 bool NativeMaintenanceContext::Impl::AuthorityRecordRead::eligible() const { return state_->eligible; }
+transaction::detail::NativeMaintenanceFileObservation
+NativeMaintenanceContext::Impl::AuthorityRecordRead::file_observation() const {
+    const auto& s = *state_;
+    s.require_frozen();
+    if (!s.byte_entry || !s.file_result || !s.finalized)
+        throw std::runtime_error("native maintenance authority file query is not complete");
+    return *s.file_result;
+}
 std::optional<PublisherEffectSelectionKind>
 NativeMaintenanceContext::Impl::AuthorityRecordRead::authority_selection_kind() const {
     state_->require_frozen();
@@ -3127,7 +3186,8 @@ void NativeMaintenanceContext::Impl::AuthorityRecordRead::run_round(PublisherEff
     auto& s = *state_;
     s.require_frozen();
     if (!s.prepared || !s.selection_before_checked || s.selection_after_checked || s.active_round ||
-        s.completed_rounds >= 2u || s.finalized || (s.completed_rounds == 1u) != s.bytes_checked)
+        s.completed_rounds >= 2u || s.finalized || (s.completed_rounds == 1u) != s.bytes_checked ||
+        (s.completed_rounds == 1u && (s.byte_entry != nullptr) != s.file_result.has_value()))
         throw std::runtime_error("native maintenance authority record round order differs");
     s.active_round = &round;
     try {
@@ -3143,9 +3203,16 @@ void NativeMaintenanceContext::Impl::AuthorityRecordRead::read_original_bytes() 
     s.require_frozen();
     if (!s.prepared || s.active_round || s.completed_rounds != 1u || s.bytes_checked || s.finalized)
         throw std::runtime_error("native maintenance authority record read lacks its complete first round");
-    // Exact original same-held byte iteration only. Descriptor-only authority
-    // roles never enter this vector or invoke authority/readback/effect code.
+    // Preserve every original same-held byte read. Descriptor-only authority
+    // roles never enter the original record vector. The optional owned-file
+    // query is fixed by this owner and stays private through the second round;
+    // it cannot invoke authority, readback, an external callback or an effect.
     for (const auto* record : s.records) s.owner.require_byte_content(*record);
+    if (s.byte_entry) {
+        s.owner.require_byte_content(*s.byte_entry);
+        s.file_result.emplace(transaction::detail::NativeMaintenanceFileObservation{
+            journal_identity(s.byte_entry->handle.value), s.byte_entry->sha256, s.byte_entry->size});
+    }
     s.require_frozen();
     s.bytes_checked = true;
 }
@@ -3153,7 +3220,8 @@ void NativeMaintenanceContext::Impl::AuthorityRecordRead::finalize(const Value& 
     auto& s = *state_;
     s.require_frozen();
     if (s.active_round || s.completed_rounds != 2u || !s.bytes_checked || !s.selection_before_checked ||
-        !s.selection_after_checked || s.finalized || raw_results.as_array().size() != 2u * s.ordered.size())
+        !s.selection_after_checked || s.finalized || raw_results.as_array().size() != 2u * s.ordered.size() ||
+        (s.byte_entry != nullptr) != s.file_result.has_value())
         throw std::runtime_error("native maintenance authority record final proof is incomplete");
     for (std::size_t index = 0; index < raw_results.as_array().size(); ++index)
         s.owner.require_client_read_only_access(raw_results.as_array()[index], s.ordered[index % s.ordered.size()]);
