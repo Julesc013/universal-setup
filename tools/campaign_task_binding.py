@@ -151,8 +151,9 @@ def receipt_document(path: Path) -> dict[str, Any]:
 
 def workunit_evidence_errors(
     workunit: str, item: Any, source_commit: str, source_tree: str, index: int,
+    containing_commit: str,
 ) -> list[str]:
-    """Validate a bounded leaf evidence receipt; nested WorkUnit receipts are never followed."""
+    """Bind leaf evidence to the task checkout and its earlier implementation source."""
     prefix = "accepted WorkUnit receipt evidence[" + str(index) + "]"
     if (not isinstance(item, dict) or set(item) != {"path", "sha256", "kind"} or
             not isinstance(item.get("path"), str) or not item["path"].startswith("release/evidence/") or
@@ -168,8 +169,8 @@ def workunit_evidence_errors(
         errors.append(prefix + " digest is stale")
         return errors
     try:
-        if hashlib.sha256(git_file_bytes(source_commit, item["path"])).hexdigest() != item["sha256"]:
-            errors.append(prefix + " is not bound to the predecessor source")
+        if hashlib.sha256(git_file_bytes(containing_commit, item["path"])).hexdigest() != item["sha256"]:
+            errors.append(prefix + " is not bound to the exact task source")
             return errors
         nested = receipt_document(path)
     except BindingError as exc:
@@ -234,7 +235,8 @@ def predecessor_receipt_errors(
             errors.append("accepted WorkUnit receipt exceeds bounded evidence count")
         else:
             for index, item in enumerate(evidence):
-                errors.extend(workunit_evidence_errors(workunit, item, commit, tree, index))
+                errors.extend(workunit_evidence_errors(
+                    workunit, item, commit, tree, index, source_commit))
     else:
         errors.append("unsupported predecessor receipt schema")
         return errors

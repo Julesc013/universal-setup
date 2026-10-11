@@ -1,0 +1,21 @@
+{
+  "schema": "universal.workunit_evidence.v1",
+  "status": "accepted",
+  "campaign": "USK-SPEC-TO-RELEASE-01",
+  "workunit": "USK-WU-010",
+  "kind": "integration",
+  "claim": "workunit:USK-WU-010:integration",
+  "source_commit": "0d77955a11656ac6524e538b58cfbe180ae45e3b",
+  "source_tree": "7d249664ffd1d6f5e445c92d35e6601b58033277",
+  "details": {
+    "pull_request": 72,
+    "merge_commit": "1a665fead7fd2fbfed4885720a422d7f00aafe74",
+    "successful_ci_runs": [
+      35995411040,
+      35995423580
+    ],
+    "agent_review_comment_id": 5813556378,
+    "implemented_scope": "Additive transaction/transaction_plan v2 operation vocabularies, schema-valid reference version adapter and fixtures, native command graph v2 descriptor operation mapping, retained v1 readers",
+    "qualification": "Source contract compatibility and 29-descriptor Debug graph checks; no transaction executor activation, full ID/PLAN/OPS product acceptance, native publisher or release qualification"
+  }
+}

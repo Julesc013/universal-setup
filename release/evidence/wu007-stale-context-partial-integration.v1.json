@@ -1,0 +1,94 @@
+{
+  "schema": "universal.workunit_partial_integration.v1",
+  "status": "partial",
+  "campaign": "USK-SPEC-TO-RELEASE-01",
+  "workunit": "USK-WU-007",
+  "source_commit": "6fea0f3cde839046bbc34259f34c31f570125009",
+  "source_tree": "e76003e0294521a3db206fc7df0be91828b025a0",
+  "pull_request": 235,
+  "merge_commit": "a1fb2d438a66aa226584c021b453c597bf245613",
+  "successful_ci_run": 37293863598,
+  "successful_ci_attempt": 1,
+  "agent_review_comment_id": 5992704672,
+  "reviewer_context": "/root/review_pr216",
+  "qualified_scope": "Authenticated immutable apply-context refusals for changed reviewed digest, plan request, transaction and applied time across sourceful and source-free installed operation contexts, with independently bound unchanged native target/volume readbacks. The connected eight-case installation/recovery path and prior passive/active endpoint predicates also reconcile.",
+  "stale_context_scope": "authenticated_immutable_apply_context_before_effects",
+  "stale_context_refusals_checked": 4,
+  "passive_endpoint_outcomes_checked": 12,
+  "active_installer_outcomes_checked": 4,
+  "changed_state_revision_qualified": false,
+  "reconciliation_sha256": "abc233f6e58ec23bd171c2b2b42263ccfdb1a06c7c076dcacb18fae41be0cb3d",
+  "runtime_evidence": [
+    {
+      "case": "ordinary",
+      "artifact_id": 11337578833,
+      "sha256": "bc5e1a7a23899b257605cf4a7795d1abb9262832d42e335238a5ec11a2c81f51",
+      "bytes": 1654262
+    },
+    {
+      "case": "prepublish",
+      "artifact_id": 11338420379,
+      "sha256": "15cfe4ae801f8d18cb14e2941836d6035fd3f4b281da135991c4851615e094f6",
+      "bytes": 1954802
+    },
+    {
+      "case": "postrename",
+      "artifact_id": 11338420379,
+      "sha256": "2023e28fe11c0bab1d347bb173ce3c27668a0700c71d5bc87c4dfec3c9976fd3",
+      "bytes": 1849733
+    },
+    {
+      "case": "payload_changed",
+      "artifact_id": 11337269723,
+      "sha256": "0a89f01c5a4e1a8e6f53ce438a3cd46ea0c8033123e7e553d5b72a6da58fe70a",
+      "bytes": 1583644
+    },
+    {
+      "case": "metadata_collision",
+      "artifact_id": 11337269723,
+      "sha256": "5b9db47ba0d00baf791559949d4d3d7179184998a2f23e6a0b32ffb58bf3f6b5",
+      "bytes": 1759639
+    },
+    {
+      "case": "standard",
+      "artifact_id": 11338805270,
+      "sha256": "f3e814c18e8a8d559a3cda317bca093553e8f6e035845bab64b1716370f90e59",
+      "bytes": 3709680
+    },
+    {
+      "case": "bootstrap",
+      "artifact_id": 11338346185,
+      "sha256": "d1ab21b9b4772b90147dfa5741c84819b142734a14727fda0d8a67cf9b1d6f91",
+      "bytes": 3289516
+    },
+    {
+      "case": "preservation",
+      "artifact_id": 11337787855,
+      "sha256": "68bb675a73024a2323bf545736dffe460eee636110b6122b03e39cc6748da1b4",
+      "bytes": 3490845
+    },
+    {
+      "case": "late-machine",
+      "artifact_id": 11338960577,
+      "sha256": "4a69eddec48d30d0316f4858291211977a209f79bedc5f6e99a43df9de9a8af7",
+      "bytes": 1471425
+    },
+    {
+      "case": "late-controller",
+      "artifact_id": 11337659868,
+      "sha256": "8a70cb846797c9f14170417355ee80be9c579e48ad9d192433d46f703ee9d8eb",
+      "bytes": 390398
+    }
+  ],
+  "retained_failed_attempts": [],
+  "qualification_limit": "Native/process x64 Windows NT build 20348, SDK 10.0.26100.0, v143/MSVC 19.44. Immutable-context refusal only; no actual changed-state revision refusal, installation-mutex contention, live takeover, all-prefix, arbitrary uncertain native outcome, whole-WorkUnit, specification or release acceptance.",
+  "remaining": [
+    "actual_changed_state_revision_before_effect_refusal",
+    "all_anchor_and_snapshot_prefixes",
+    "uncertain_native_outcomes",
+    "remaining_product_workunits"
+  ],
+  "model_profile_qualified": false,
+  "publication_authority_granted": false,
+  "accepted_predecessor_receipt": false
+}

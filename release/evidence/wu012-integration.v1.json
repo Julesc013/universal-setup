@@ -1,0 +1,21 @@
+{
+  "schema": "universal.workunit_evidence.v1",
+  "status": "accepted",
+  "campaign": "USK-SPEC-TO-RELEASE-01",
+  "workunit": "USK-WU-012",
+  "kind": "integration",
+  "claim": "workunit:USK-WU-012:integration",
+  "source_commit": "fcfd257bb64af4cd8ed55c0cc4baae6c35229632",
+  "source_tree": "1afa4e83bd035b67c0fab1c91129ff98c0b94275",
+  "details": {
+    "pull_request": 88,
+    "merge_commit": "105478191014a297138b5cd3a7d4636c2d05ea9f",
+    "successful_ci_runs": [
+      36036371362,
+      36036377739
+    ],
+    "agent_review_comment_id": 5819177747,
+    "implemented_scope": "Bounded deterministic component resolver, minimal declarative target authoring contracts, exact finalized-file ZIP inventory, canonical unsigned bundle sidecar, reopen verification, and external one-file product authoring command probe",
+    "qualification": "Source-level selected-target bundle and local small ASCII stored-ZIP native-inspection canary only; no machine plan, setup application, full payload/target matrix, signed carrier, hostile concurrent source-swap qualification or 1.1 product acceptance"
+  }
+}

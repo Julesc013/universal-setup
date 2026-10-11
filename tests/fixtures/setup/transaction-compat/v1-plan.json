@@ -1,0 +1,10 @@
+{
+  "schema": "usk.transaction_plan.v1",
+  "transaction_id": "legacy-t1",
+  "plan_id": "legacy-p1",
+  "operation": "repair",
+  "dry_run": true,
+  "steps": [{"legacy_step": "inspect-owned-file"}],
+  "rollback_required": false,
+  "legacy_extension": {"keep": [1, 2]}
+}

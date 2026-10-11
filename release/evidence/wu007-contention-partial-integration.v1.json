@@ -1,0 +1,98 @@
+{
+  "schema": "universal.workunit_partial_integration.v1",
+  "status": "partial",
+  "campaign": "USK-SPEC-TO-RELEASE-01",
+  "workunit": "USK-WU-007",
+  "source_commit": "a47ab40c7cdccfc7a7f009f406a745ebb4c242d7",
+  "source_tree": "5991447fcc6c2dd14398e574cbd104d8fc79890e",
+  "pull_request": 233,
+  "merge_commit": "7ba2ac197c93aa90b3934e730571dcb138807a28",
+  "successful_ci_run": 37263265499,
+  "successful_ci_attempt": 1,
+  "agent_review_comment_id": 5988321915,
+  "reviewer_context": "/root/review_pr216",
+  "qualified_scope": "Registered endpoint fail-fast, deadline, ready and active-call cancellation before effect-request bytes, following public installation and preceding source-free recovery/replay/verify.",
+  "endpoint_scope": "registered_endpoint_before_effect_request_bytes",
+  "endpoint_outcomes_checked": 12,
+  "reconciliation_sha256": "390aec63eede1d9d519777080b5e8c5f878d7a4bd71f435b8e036752bfd489d4",
+  "runtime_evidence": [
+    {
+      "case": "ordinary",
+      "artifact_id": 11325955216,
+      "sha256": "bbf687266012be9e926fcb84c7b88b7e4700986eaa45704562b38eb2b1a19513",
+      "bytes": 1655091
+    },
+    {
+      "case": "prepublish",
+      "artifact_id": 11324789065,
+      "sha256": "44aa4d341400fb55671ad3a20abc8368cff18c494953d9c51b2c7b99ada65c10",
+      "bytes": 1953890
+    },
+    {
+      "case": "postrename",
+      "artifact_id": 11324789065,
+      "sha256": "560b7154285b78709ad19f4193185fc8d990226384284fffa8345356534e1538",
+      "bytes": 1849776
+    },
+    {
+      "case": "payload_changed",
+      "artifact_id": 11325896669,
+      "sha256": "39e2224b58cf3b6e2f22115e367906f52eafa73ddd88593ee93f036c449c5281",
+      "bytes": 1582205
+    },
+    {
+      "case": "metadata_collision",
+      "artifact_id": 11325896669,
+      "sha256": "bfddca6003d60fef6cd928bb9f55431f08cf1715f1c7e7e91568cb9d19d77974",
+      "bytes": 1758789
+    },
+    {
+      "case": "standard",
+      "artifact_id": 11325581737,
+      "sha256": "aaa82068640143a7af013eb6dbe7adbbe9a93fc405e513ec440b0c2bf621d288",
+      "bytes": 2987281
+    },
+    {
+      "case": "bootstrap",
+      "artifact_id": 11325324851,
+      "sha256": "617ed570ef93f2bdb13e7b7b103f9aafcf6eb18bd6bdc426a83a84ac5ac87622",
+      "bytes": 3289351
+    },
+    {
+      "case": "preservation",
+      "artifact_id": 11325369980,
+      "sha256": "f3a0d1154d6fbf9dc90a9697ac6a85d1f944565ec03cf6b24e87892644f690d4",
+      "bytes": 3490361
+    },
+    {
+      "case": "late-machine",
+      "artifact_id": 11325483852,
+      "sha256": "921cad31f85cfeba1d5c2f40371516d5a434b58f4d75c20865a6e75f766cd0c5",
+      "bytes": 1428492
+    },
+    {
+      "case": "late-controller",
+      "artifact_id": 11326066192,
+      "sha256": "a7074c76cc40b828f5ac593e8c23f7272dcddf19d3b1d8b9bc9b26790058eb13",
+      "bytes": 391090
+    }
+  ],
+  "retained_failed_attempts": [
+    {
+      "source_commit": "09ddadf90e6200eb37b09e0bbbb7a1ee2f02970f",
+      "ci_run": 37261228458,
+      "reason": "Win32 endpoint smoke reason/scope mismatch; cause not established by the original generic message"
+    }
+  ],
+  "qualification_limit": "Native/process x64 Windows NT build 20348, SDK 10.0.26100.0, v143/MSVC 19.44. Endpoint before request bytes only; no active installer mutex contention, all-prefix, arbitrary uncertain native outcome, whole-WorkUnit, specification or release acceptance.",
+  "remaining": [
+    "active_install_holder_contention",
+    "stale_context_and_before_effect_fencing",
+    "all_anchor_and_snapshot_prefixes",
+    "uncertain_native_outcomes",
+    "remaining_product_workunits"
+  ],
+  "model_profile_qualified": false,
+  "publication_authority_granted": false,
+  "accepted_predecessor_receipt": false
+}

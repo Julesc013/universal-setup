@@ -1,0 +1,90 @@
+{
+  "schema": "usk.prefab_external_source_probe.v1",
+  "source_commit": "9e79bebbf1f1cf1ef1d3c70653ead94786d7c122",
+  "source_tree": "cd79a6d9b75366e567e2df3bc0d53545904d2b72",
+  "platform": "Windows-10-10.0.19045-SP0",
+  "compiler_version": "gcc.EXE (MinGW-W64 x86_64-ucrt-posix-seh, built by Brecht Sanders, r6) 15.2.0",
+  "runtime_build": {
+    "declared_source_commit": "30c024e5f86c6052bd54a79388db3d6a3a81bb06",
+    "declared_source_tree": "cf58453bbbfa86ba72362fab48da6ad2d31996ee",
+    "cmake_cache_sha256": "1ae8f035ce59b82c79e2cac3e807793886c530c7e743276cb4e6f5eb2e6ec893",
+    "binary_sha256": "feb7a913b620f65e64d1645211cf7a4c56ddd9a55692cac076d41ed812769330",
+    "configuration": "Debug"
+  },
+  "product": "external single-file C program, compiled outside the USK source tree",
+  "qualification": "inspect-only envelope and machine-host startup; no installation or release acceptance",
+  "observations": [
+    {
+      "profile": "sidecar",
+      "manifest": {
+        "schema": "usk.prefab_envelope.v1",
+        "profile": "sidecar",
+        "product_id": "org.example.hello",
+        "product_version": "1.0.0",
+        "target": "windows-x64",
+        "entries": {
+          "usk_machine.exe": {
+            "sha256": "feb7a913b620f65e64d1645211cf7a4c56ddd9a55692cac076d41ed812769330",
+            "size_bytes": 3527168
+          },
+          "payload.zip": {
+            "sha256": "dd5df44b71b9470aba83512f0dbfe7e5d2800a5ffd24a66b3dab3b64cd8fdc37",
+            "size_bytes": 58071
+          },
+          "product.bundle.json": {
+            "sha256": "a8977bf74cb67092afdcf762f946176b332b9d9b309972573014e47d5f97db87",
+            "size_bytes": 532
+          }
+        },
+        "properties": {
+          "entrypoint_count": 1,
+          "physical_file_count": 4,
+          "extraction_required": false,
+          "installation_mode": "inspect_only",
+          "runtime_dependency_closure": "unqualified"
+        }
+      },
+      "carrier_sha256": null,
+      "host_binary_sha256": "feb7a913b620f65e64d1645211cf7a4c56ddd9a55692cac076d41ed812769330",
+      "host_response_sha256": "6ff749864a1c578c73230526e105f89cdd90bb4110184b09bf04c8d66635d3a7",
+      "host_exit_code": 0,
+      "extracted_product_reinspection": false
+    },
+    {
+      "profile": "one_file_carrier",
+      "manifest": {
+        "schema": "usk.prefab_envelope.v1",
+        "profile": "one_file_carrier",
+        "product_id": "org.example.hello",
+        "product_version": "1.0.0",
+        "target": "windows-x64",
+        "entries": {
+          "usk_machine.exe": {
+            "sha256": "feb7a913b620f65e64d1645211cf7a4c56ddd9a55692cac076d41ed812769330",
+            "size_bytes": 3527168
+          },
+          "payload.zip": {
+            "sha256": "dd5df44b71b9470aba83512f0dbfe7e5d2800a5ffd24a66b3dab3b64cd8fdc37",
+            "size_bytes": 58071
+          },
+          "product.bundle.json": {
+            "sha256": "a8977bf74cb67092afdcf762f946176b332b9d9b309972573014e47d5f97db87",
+            "size_bytes": 532
+          }
+        },
+        "properties": {
+          "entrypoint_count": 0,
+          "physical_file_count": 1,
+          "extraction_required": true,
+          "installation_mode": "inspect_only",
+          "runtime_dependency_closure": "unqualified"
+        }
+      },
+      "carrier_sha256": "69d11a34b712164317ad3c0054f9238c45c6451ec03f4d6e5c65a90268014f77",
+      "host_binary_sha256": "feb7a913b620f65e64d1645211cf7a4c56ddd9a55692cac076d41ed812769330",
+      "host_response_sha256": "6ff749864a1c578c73230526e105f89cdd90bb4110184b09bf04c8d66635d3a7",
+      "host_exit_code": 0,
+      "extracted_product_reinspection": true
+    }
+  ]
+}

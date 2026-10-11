@@ -1,0 +1,137 @@
+{
+  "schema": "usk.wu005_isolated_4096_matrix.v1",
+  "status": "passed",
+  "source": {
+    "commit": "5171b0f8ba4a2ec0dc139706bc9c99a462f272c5",
+    "tree": "b017601aa6aa8ad2a054f020ea57fc0b6ce66724",
+    "working_tree_dirty": false
+  },
+  "binary_sha256": "0d70c1631d937bff5ea9b3b7a3a7ca782368343052d0a4638123c3bf1d6e93d0",
+  "binding_sha256": "171a80277432251115a4ec758267f7f0ad734fad33972238531cd84869149e79",
+  "payload_bytes": 1048576,
+  "entries": 4096,
+  "rows": [
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "install",
+      "requested_payload_bytes": 1048576,
+      "entries": 4096,
+      "source_kind": "isolated_streaming",
+      "binary_sha256": "0d70c1631d937bff5ea9b3b7a3a7ca782368343052d0a4638123c3bf1d6e93d0",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "D:\\Development\\FacMan\\repositories\\universal-setup-db9c210f4a17\\tasks\\task-usk-wu-006-production-publisher\\runs\\20260928T125615-032383\\tmp",
+      "filesystem_profile": "D:\\ NTFS serial=1b6df063",
+      "source": {
+        "commit": "5171b0f8ba4a2ec0dc139706bc9c99a462f272c5",
+        "tree": "b017601aa6aa8ad2a054f020ea57fc0b6ce66724",
+        "working_tree_dirty": false
+      },
+      "fixture": "source prepared outside measured child; install includes plan and apply",
+      "fixture_prepared_outside_measured_process": true,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 44732416,
+      "samples": 241824,
+      "elapsed_ms": 1334253,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass install isolated_streaming 1048576 4096"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "verify",
+      "requested_payload_bytes": 1048576,
+      "entries": 4096,
+      "source_kind": "isolated_streaming",
+      "binary_sha256": "0d70c1631d937bff5ea9b3b7a3a7ca782368343052d0a4638123c3bf1d6e93d0",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "D:\\Development\\FacMan\\repositories\\universal-setup-db9c210f4a17\\tasks\\task-usk-wu-006-production-publisher\\runs\\20260928T125615-032383\\tmp",
+      "filesystem_profile": "D:\\ NTFS serial=1b6df063",
+      "source": {
+        "commit": "5171b0f8ba4a2ec0dc139706bc9c99a462f272c5",
+        "tree": "b017601aa6aa8ad2a054f020ea57fc0b6ce66724",
+        "working_tree_dirty": false
+      },
+      "fixture": "installed state prepared outside measured child; operation only",
+      "fixture_prepared_outside_measured_process": true,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 19779584,
+      "samples": 86,
+      "elapsed_ms": 477,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass verify isolated_streaming 1048576 4096"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "update",
+      "requested_payload_bytes": 1048576,
+      "entries": 4096,
+      "source_kind": "isolated_streaming",
+      "binary_sha256": "0d70c1631d937bff5ea9b3b7a3a7ca782368343052d0a4638123c3bf1d6e93d0",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "D:\\Development\\FacMan\\repositories\\universal-setup-db9c210f4a17\\tasks\\task-usk-wu-006-production-publisher\\runs\\20260928T125615-032383\\tmp",
+      "filesystem_profile": "D:\\ NTFS serial=1b6df063",
+      "source": {
+        "commit": "5171b0f8ba4a2ec0dc139706bc9c99a462f272c5",
+        "tree": "b017601aa6aa8ad2a054f020ea57fc0b6ce66724",
+        "working_tree_dirty": false
+      },
+      "fixture": "installed state prepared outside measured child; operation only",
+      "fixture_prepared_outside_measured_process": true,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 50528256,
+      "samples": 176,
+      "elapsed_ms": 973,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass update isolated_streaming 1048576 4096"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "repair",
+      "requested_payload_bytes": 1048576,
+      "entries": 4096,
+      "source_kind": "isolated_streaming",
+      "binary_sha256": "0d70c1631d937bff5ea9b3b7a3a7ca782368343052d0a4638123c3bf1d6e93d0",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "D:\\Development\\FacMan\\repositories\\universal-setup-db9c210f4a17\\tasks\\task-usk-wu-006-production-publisher\\runs\\20260928T125615-032383\\tmp",
+      "filesystem_profile": "D:\\ NTFS serial=1b6df063",
+      "source": {
+        "commit": "5171b0f8ba4a2ec0dc139706bc9c99a462f272c5",
+        "tree": "b017601aa6aa8ad2a054f020ea57fc0b6ce66724",
+        "working_tree_dirty": false
+      },
+      "fixture": "installed state prepared outside measured child; operation only",
+      "fixture_prepared_outside_measured_process": true,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 26103808,
+      "samples": 376,
+      "elapsed_ms": 2075,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass repair isolated_streaming 1048576 4096"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "move",
+      "requested_payload_bytes": 1048576,
+      "entries": 4096,
+      "source_kind": "isolated_streaming",
+      "binary_sha256": "0d70c1631d937bff5ea9b3b7a3a7ca782368343052d0a4638123c3bf1d6e93d0",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "D:\\Development\\FacMan\\repositories\\universal-setup-db9c210f4a17\\tasks\\task-usk-wu-006-production-publisher\\runs\\20260928T125615-032383\\tmp",
+      "filesystem_profile": "D:\\ NTFS serial=1b6df063",
+      "source": {
+        "commit": "5171b0f8ba4a2ec0dc139706bc9c99a462f272c5",
+        "tree": "b017601aa6aa8ad2a054f020ea57fc0b6ce66724",
+        "working_tree_dirty": false
+      },
+      "fixture": "installed state prepared outside measured child; operation only",
+      "fixture_prepared_outside_measured_process": true,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 47112192,
+      "samples": 237443,
+      "elapsed_ms": 1310311,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass move isolated_streaming 1048576 4096"
+    }
+  ],
+  "fixture_prepared_at": "2026-09-28T12:56:15.674465+00:00",
+  "completed_at": "2026-09-28T13:40:25.829627+00:00"
+}

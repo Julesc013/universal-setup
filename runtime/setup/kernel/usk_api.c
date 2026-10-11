@@ -107,6 +107,7 @@ static usk_static_response usk_handle_static(
 
 static const usk_command_descriptor USK_COMMANDS[] = {
     USK_DESCRIPTOR("command_graph.inspect", "usk.command_request.v1", "usk.command_response.v1", "[\"none\"]", "read_only", "available", 1, 0, usk_handle_command_graph, USK_STATUS_OK, 0, 0),
+    USK_DESCRIPTOR("command_graph.inspect_v2", "usk.command_request.v1", "usk.command_response.v1", "[\"none\"]", "read_only", "available", 1, 0, usk_handle_command_graph, USK_STATUS_OK, 0, 0),
     USK_DESCRIPTOR("policy.inspect", "usk.command_request.v1", "usk.policy.v1", "[\"none\"]", "read_only", "available", 1, 0, usk_handle_static, USK_STATUS_OK, USK_POLICY_PAYLOAD, 0),
     USK_DESCRIPTOR("package.verify", "usk.package_verify_request.v1", "usk.package_verify_report.v1", "[\"source_read\"]", "read_only", "available", 1, 0, usk_handle_package_verify, USK_STATUS_OK, 0, 0),
     USK_DESCRIPTOR("package.audit", "usk.package_verify_request.v1", "usk.package_verify_report.v1", "[\"source_read\"]", "read_only", "available", 1, 0, usk_handle_package_verify, USK_STATUS_OK, 0, 0),
@@ -272,14 +273,39 @@ static int usk_json_append_field(
 
 static int usk_descriptor_is_executable(const usk_command_descriptor* descriptor)
 {
-    return strcmp(descriptor->availability, "planned") != 0;
+    return strcmp(descriptor->availability, "planned") != 0 &&
+        !(descriptor->handler == usk_handle_static && descriptor->response_status != USK_STATUS_OK);
+}
+
+static const char* usk_canonical_operation(const char* command)
+{
+    if (strcmp(command, "install_local.inspect") == 0 ||
+        strcmp(command, "installed.inspect") == 0 ||
+        strcmp(command, "policy.inspect") == 0 ||
+        strcmp(command, "command_graph.inspect") == 0 ||
+        strcmp(command, "command_graph.inspect_v2") == 0 ||
+        strcmp(command, "diagnostics.report") == 0) return "inspect";
+    if (strcmp(command, "installed.verify") == 0 ||
+        strcmp(command, "package.verify") == 0 ||
+        strcmp(command, "verify.report") == 0) return "verify";
+    if (strcmp(command, "package.audit") == 0 ||
+        strncmp(command, "audit.", 6) == 0) return "audit";
+    if (strncmp(command, "install_local.", 14) == 0) return "install_local";
+    if (strncmp(command, "repair.", 7) == 0) return "repair";
+    if (strncmp(command, "update.", 7) == 0) return "update";
+    if (strncmp(command, "move.", 5) == 0) return "move";
+    if (strncmp(command, "uninstall.", 10) == 0) return "uninstall";
+    if (strncmp(command, "recovery.", 9) == 0) return "recovery";
+    return 0;
 }
 
 static int usk_json_append_descriptor(
     usk_json_buffer* buffer,
     const usk_command_descriptor* descriptor,
-    int prepend_comma)
+    int prepend_comma,
+    int version_two)
 {
+    const char* operation = version_two ? usk_canonical_operation(descriptor->command_name) : 0;
     return (!prepend_comma || usk_json_append_char(buffer, ',')) &&
         usk_json_append_char(buffer, '{') &&
         usk_json_append_field(buffer, "command", descriptor->command_name) &&
@@ -298,20 +324,23 @@ static int usk_json_append_descriptor(
         usk_json_append_raw(buffer, descriptor->mutating ? ",\"mutating\":true," : ",\"mutating\":false,") &&
         usk_json_append_raw(buffer, usk_descriptor_is_executable(descriptor) ? "\"executable\":true,\"effects\":" : "\"executable\":false,\"effects\":") &&
         usk_json_append_raw(buffer, descriptor->effects_json) &&
+        (!version_two || (usk_json_append_raw(buffer, ",\"operation\":") &&
+            (operation ? usk_json_append_string(buffer, operation) : usk_json_append_raw(buffer, "null")))) &&
         usk_json_append_char(buffer, '}');
 }
 
-static int usk_project_command_graph(usk_json_buffer* buffer)
+static int usk_project_command_graph(usk_json_buffer* buffer, int version_two)
 {
     usk_size index;
-    if (!usk_json_append_raw(
-            buffer,
-            "{\"schema\":\"usk.command_response.v1\",\"status\":\"ok\","
+    if (!usk_json_append_raw(buffer,
+            "{\"schema\":\"usk.command_response.v1\",\"status\":\"ok\",") ||
+        !usk_json_append_raw(buffer, version_two ?
+            "\"payload\":{\"schema\":\"usk.command_graph.v2\",\"legacy_v1_operations\":[\"install_local\",\"verify\",\"repair\",\"uninstall\",\"adopt\",\"audit\"],\"commands\":[" :
             "\"payload\":{\"schema\":\"usk.command_graph.v1\",\"commands\":[")) {
         return 0;
     }
     for (index = 0; index < USK_COMMAND_COUNT; ++index) {
-        if (!usk_json_append_descriptor(buffer, &USK_COMMANDS[index], index != 0)) {
+        if (!usk_json_append_descriptor(buffer, &USK_COMMANDS[index], index != 0, version_two)) {
             return 0;
         }
     }
@@ -338,14 +367,15 @@ static usk_static_response usk_handle_command_graph(
     usk_json_buffer output;
     usk_static_response result;
     char* graph;
+    int version_two;
     (void)request;
-    (void)descriptor;
+    version_two = strcmp(descriptor->command_name, "command_graph.inspect_v2") == 0;
 
     memset(&measure, 0, sizeof(measure));
     result.status = USK_STATUS_ERROR;
     result.payload = USK_GRAPH_ERROR_PAYLOAD;
     result.error_message = "authoritative command graph projection failed";
-    if (!usk_project_command_graph(&measure) ||
+    if (!usk_project_command_graph(&measure, version_two) ||
         measure.length >= (usk_size)USK_COMMAND_GRAPH_BUDGET_BYTES) {
         return result;
     }
@@ -357,7 +387,7 @@ static usk_static_response usk_handle_command_graph(
     output.data = graph;
     output.capacity = measure.length + 1;
     graph[0] = '\0';
-    if (!usk_project_command_graph(&output) || output.length != measure.length) {
+    if (!usk_project_command_graph(&output, version_two) || output.length != measure.length) {
         context->allocator.free(context->allocator.user, graph);
         return result;
     }

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/publisher_capability_request.v1.schema.json",
+  "title": "Publisher Capability Request, Version 1",
+  "description": "Read-only discovery through a selected retained publisher registration. No target, executable, SID, availability or activation claims are accepted.",
+  "type": "object",
+  "required": [
+    "schema",
+    "request_id"
+  ],
+  "properties": {
+    "schema": {
+      "const": "usk.publisher_capability_request.v1"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    }
+  },
+  "additionalProperties": false
+}

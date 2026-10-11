@@ -1,0 +1,12 @@
+{
+  "schema": "usk.transaction.v2",
+  "transaction_id": "update-t1",
+  "plan_id": "update-p1",
+  "operation": "update",
+  "status": "planned",
+  "dry_run": true,
+  "stage_root": "staging",
+  "steps": [],
+  "audit_log_ref": "audit-a2",
+  "rollback_ref": "rollback-r2"
+}

@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/publisher_capability.v2.schema.json",
+  "title": "Service-mediated Publisher Capability, Version 2",
+  "description": "The restricted service observes its held image and controller admission. Target root bindings are retained admission facts with current disk identity checked; fresh root security is not asserted. Service startup and controller guard acquisition are explicit possible effects. No publication authority, execution lease, qualification or support is granted.",
+  "type": "object",
+  "required": [
+    "schema",
+    "provider_id",
+    "implementation",
+    "realization",
+    "availability",
+    "required_privilege",
+    "permission",
+    "authority",
+    "qualification",
+    "qualification_scope",
+    "support",
+    "recovery_ceiling",
+    "power_loss_qualified",
+    "revalidation_required_before_effects",
+    "execution_lease_held",
+    "request_id",
+    "service_state",
+    "effects",
+    "binding",
+    "platform",
+    "binding_provenance"
+  ],
+  "properties": {
+    "schema": {
+      "const": "usk.publisher_capability.v2"
+    },
+    "provider_id": {
+      "const": "windows_nt_x64_local_ntfs_service_sid_noreplace_v1"
+    },
+    "implementation": {
+      "const": "partial"
+    },
+    "realization": {
+      "const": "restricted_service"
+    },
+    "availability": {
+      "const": false
+    },
+    "required_privilege": {
+      "const": "none_for_registered_caller"
+    },
+    "permission": {
+      "const": "registered_caller_observed"
+    },
+    "authority": {
+      "const": "not_granted_by_discovery"
+    },
+    "qualification": {
+      "const": "incomplete"
+    },
+    "qualification_scope": {
+      "const": "service_admitted_target_observation"
+    },
+    "support": {
+      "const": "unsupported"
+    },
+    "recovery_ceiling": {
+      "const": "candidate_source_free_restart"
+    },
+    "power_loss_qualified": {
+      "const": false
+    },
+    "revalidation_required_before_effects": {
+      "const": true
+    },
+    "execution_lease_held": {
+      "const": false
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    },
+    "service_state": {
+      "const": 4
+    },
+    "effects": {
+      "const": [
+        "service_start_may_occur",
+        "controller_guard_held_during_observation"
+      ]
+    },
+    "binding": {
+      "type": "object",
+      "required": [
+        "service_name",
+        "service_sid",
+        "caller_sid",
+        "binary_sha256",
+        "registration_sha256",
+        "volume_guid_root",
+        "target_admitted_sha256",
+        "process_id",
+        "root_file_id",
+        "volume_serial"
+      ],
+      "properties": {
+        "service_name": {
+          "type": "string",
+          "pattern": "^USK_PUB_[0-9a-f]{32}$"
+        },
+        "service_sid": {
+          "type": "string",
+          "maxLength": 184,
+          "pattern": "^S-1-5-80-(?:0|[1-9][0-9]{0,9})(?:-(?:0|[1-9][0-9]{0,9})){4}$"
+        },
+        "caller_sid": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 184,
+          "pattern": "^S-1-5-21-(?:0|[1-9][0-9]{0,9})(?:-(?:0|[1-9][0-9]{0,9})){3}$"
+        },
+        "binary_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "registration_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "volume_guid_root": {
+          "type": "string",
+          "pattern": "^\\\\\\\\\\?\\\\Volume\\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\}\\\\$"
+        },
+        "target_admitted_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "process_id": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "root_file_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{16}:[0-9a-f]{32}$"
+        },
+        "volume_serial": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]{0,19})$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "platform": {
+      "type": "object",
+      "required": [
+        "os_family",
+        "native_arch",
+        "process_arch",
+        "minimum_windows_build",
+        "windows_build"
+      ],
+      "properties": {
+        "os_family": {
+          "const": "Windows NT"
+        },
+        "native_arch": {
+          "const": "x64"
+        },
+        "process_arch": {
+          "const": "x64"
+        },
+        "minimum_windows_build": {
+          "const": 17763
+        },
+        "windows_build": {
+          "type": "integer",
+          "minimum": 17763,
+          "maximum": 4294967295
+        }
+      },
+      "additionalProperties": false
+    },
+    "binding_provenance": {
+      "const": "retained_controller_admission_and_current_disk_identity"
+    }
+  },
+  "additionalProperties": false
+}

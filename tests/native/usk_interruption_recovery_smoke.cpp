@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <iostream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -34,7 +35,7 @@ struct Fixture {
         } else {
             const auto nonce = std::chrono::steady_clock::now().time_since_epoch().count();
             root = fs::temp_directory_path() /
-                ("usk-interruption-" + name + "-" + std::to_string(nonce));
+                ("i-" + std::to_string(nonce));
         }
         roots = {root / "staging", root / "state", root / "audit"};
         fs::create_directories(roots.staging_parent);
@@ -270,7 +271,7 @@ int operation_recovery_required()
 
 } // namespace
 
-int main(int argc, char** argv)
+int main(int argc, char** argv) try
 {
     if (argc != 1) {
         if (argc != 5 || std::string(argv[1]) != "--acceptance-root" ||
@@ -311,4 +312,8 @@ int main(int argc, char** argv)
         if (!digest_output) return 106;
     }
     return 0;
+}
+catch (const std::exception& error) {
+    std::cerr << "interruption fixture failed: " << error.what() << '\n';
+    return 1;
 }

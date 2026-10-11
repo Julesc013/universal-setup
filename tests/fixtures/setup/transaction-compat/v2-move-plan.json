@@ -1,0 +1,9 @@
+{
+  "schema": "usk.transaction_plan.v2",
+  "transaction_id": "move-t1",
+  "plan_id": "move-p1",
+  "operation": "move",
+  "dry_run": true,
+  "steps": [],
+  "rollback_required": true
+}

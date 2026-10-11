@@ -1,0 +1,12 @@
+{
+  "schema": "usk.transaction.v1",
+  "transaction_id": "legacy-t1",
+  "plan_id": "legacy-p1",
+  "operation": "repair",
+  "status": "planned",
+  "dry_run": true,
+  "stage_root": "staging",
+  "steps": [{"step_id": "s1", "status": "planned"}],
+  "audit_log_ref": "audit-a1",
+  "rollback_ref": "rollback-r1"
+}

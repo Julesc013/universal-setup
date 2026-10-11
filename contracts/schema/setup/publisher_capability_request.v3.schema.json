@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/publisher_capability_request.v3.schema.json",
+  "title": "Scoped Registered Publisher Capability Request, Version 3",
+  "description": "publisher.observe with dry_run=false observes the registered path profile for its bounded qualified build and SDK tuple. Service startup and controller guard acquisition remain possible effects. No caller-selected target, source qualification, publication authority or lease is accepted.",
+  "type": "object",
+  "required": [
+    "schema",
+    "request_id"
+  ],
+  "properties": {
+    "schema": {
+      "const": "usk.publisher_capability_request.v3"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    }
+  },
+  "additionalProperties": false
+}

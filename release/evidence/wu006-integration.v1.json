@@ -1,0 +1,96 @@
+{
+  "schema": "universal.workunit_evidence.v1",
+  "status": "accepted",
+  "campaign": "USK-SPEC-TO-RELEASE-01",
+  "workunit": "USK-WU-006",
+  "kind": "integration",
+  "claim": "workunit:USK-WU-006:integration",
+  "source_commit": "d84c34f08b346cbbb4487a34a5adf5d4d3e33a79",
+  "source_tree": "873813044c187ddb3c670476cc68eb6207f0f82e",
+  "details": {
+    "pull_request": 230,
+    "merge_commit": "98e2920c8403731a91506cba11f7bb688ee69905",
+    "successful_ci_runs": [
+      37226762466
+    ],
+    "ci_run_attempt": 1,
+    "agent_review_comment_id": 5983605886,
+    "reviewer_context": "/root/review_pr216",
+    "implemented_scope": "Registered native public apply, source-free process restart, replay and verify; authenticated held-role and complete descendant admission; separate unrelated-login evidence; retained refusal behavior",
+    "qualification": "Selected native/process x64 Windows NT build 20348, compiled SDK 10.0.26100.0, native phase v9 and execution v6 only. Does not accept broader PLAT maintenance designs, model authority, leases, power loss, generic strict/v1 plans, or full release acceptance. V1/v2 discovery and historical recovery ceilings remain conservative.",
+    "producer_build_profile": {
+      "source_commit": "cc627e7d0ba1df6f41f8ae0510cdcdb4ad66779b",
+      "source_tree": "873813044c187ddb3c670476cc68eb6207f0f82e",
+      "pull_request_head": "d84c34f08b346cbbb4487a34a5adf5d4d3e33a79",
+      "ci_run_id": "37226762466",
+      "ci_run_attempt": "1",
+      "windows_sdk": "10.0.26100.0",
+      "platform_toolset": "v143",
+      "compiler_id": "MSVC",
+      "compiler_version": "19.44.35229.0",
+      "compiler_definition_sha256": "0d3430047398ee357bbf65db10906b7cf793a22dd8b02c6db6f6372d2a4db77f",
+      "project_sha256": "626466a89a2c648e472d7f2666b5973d309dfc8a46c9b0f584c1d48d404125a0",
+      "probe_powershell": "7.6.6",
+      "probe_clr": "10.0.12"
+    },
+    "storage_profile": {
+      "bus_type": "File Backed Virtual",
+      "partition_style": "GPT",
+      "logical_sector_bytes": 512,
+      "physical_sector_bytes": 4096,
+      "size_bytes": 536870912
+    },
+    "service_image_sha256": "10f45fbe95ec106216406a800299b5e8fb6d141aa9098997c8405b843a282bef",
+    "runtime_evidence": [
+      {
+        "case": "ordinary",
+        "artifact_id": 11312238482,
+        "sha256": "9fc680be31ff237593401e3d11a0246daea6b715235c8651e93804823f26a2fb",
+        "bytes": 1655113
+      },
+      {
+        "case": "prepublish",
+        "artifact_id": 11312376334,
+        "sha256": "1306615aad9d789c9ba83b0200345cc004568b3456a8fe2283734afeb9fb4782",
+        "bytes": 1956822
+      },
+      {
+        "case": "postrename",
+        "artifact_id": 11312376334,
+        "sha256": "0a57e4d5cfb54d4439a7bd7cc7cb13bd8a93cb198fbd89fc0a5f1f8bed02a341",
+        "bytes": 1848837
+      },
+      {
+        "case": "payload_changed",
+        "artifact_id": 11312401355,
+        "sha256": "7a71333e559b2abe72f43dc36e0068c416926b86d99d87583670c0983dcf6aef",
+        "bytes": 1583644
+      },
+      {
+        "case": "metadata_collision",
+        "artifact_id": 11312401355,
+        "sha256": "67594a9c9f1f34c84189e296ce13cdab120a9d3fee37c5de086cb462ac620a92",
+        "bytes": 1759555
+      },
+      {
+        "case": "standard",
+        "artifact_id": 11312681188,
+        "sha256": "3a0c2f874192c8af29ecc9f2d44c45b7f5fea3e279f4f88615441bb3d60e9336",
+        "bytes": 1759767
+      }
+    ],
+    "reconciled_counts": {
+      "snapshots": 28,
+      "cumulative_phase_bindings": 115,
+      "cumulative_authenticated_role_bindings": 805,
+      "descendant_bindings": 261,
+      "unrelated_login_snapshots": 24,
+      "unrelated_row_and_root_checks": 622,
+      "standard_clients": 7,
+      "standard_native_responses": 6,
+      "actual_capability_v3_queries": 2,
+      "standard_native_readbacks": 4
+    },
+    "acceptance_limit": "Scoped WorkUnit integration prerequisite; source inventory acceptance classifications and the wider 144 acceptance designs remain separate predicates."
+  }
+}

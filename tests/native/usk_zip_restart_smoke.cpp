@@ -913,6 +913,12 @@ int ancestor_commit_uncertainty() {
     return 0;
 }
 } // namespace
+int smoke_result(const char* phase, int result) {
+    if (result != 0)
+        std::cerr << "usk_zip_restart_smoke: phase=" << phase << " exit_code=" << result << '\n';
+    return result;
+}
+
 int main(int argc, char** argv) {
     try {
         if (argc == 2 && std::string(argv[1]) == "ancestor") return ancestor_commit_uncertainty();
@@ -920,19 +926,19 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::string(argv[1]) == "audit-bound") return public_audit_observation_bound();
         if (argc == 2 && std::string(argv[1]) == "retired-reinstall") return retired_reinstall_replay();
         if (argc == 4 && std::string(argv[1]) == "child") return child(fs::u8path(argv[2]), argv[3]);
-        if (const int result = commit_authority_refusals()) return result;
-        if (const int result = pending_source_binding()) return result;
-        if (const int result = legacy_policy_cross_format_replay()) return result;
-        if (const int result = public_audit_observation_bound()) return result;
+        if (const int result = smoke_result("commit_authority_refusals", commit_authority_refusals())) return result;
+        if (const int result = smoke_result("pending_source_binding", pending_source_binding())) return result;
+        if (const int result = smoke_result("legacy_policy_cross_format_replay", legacy_policy_cross_format_replay())) return result;
+        if (const int result = smoke_result("public_audit_observation_bound", public_audit_observation_bound())) return result;
         const auto executable = fs::absolute(fs::u8path(argv[0]));
-        if (const int result = public_process_boundaries(executable)) return result;
-        if (const int result = admission_and_custody(executable)) return result;
-        if (const int result = replay_creation_boundaries(executable)) return result;
-        if (const int result = absent_target_commit_uncertainty(executable)) return result;
-        if (const int result = native_replay_finalization()) return result;
-        if (const int result = retired_reinstall_replay()) return result;
-        if (const int result = concurrent_original_and_replay()) return result;
-        if (const int result = ancestor_commit_uncertainty()) return result;
+        if (const int result = smoke_result("public_process_boundaries", public_process_boundaries(executable))) return result;
+        if (const int result = smoke_result("admission_and_custody", admission_and_custody(executable))) return result;
+        if (const int result = smoke_result("replay_creation_boundaries", replay_creation_boundaries(executable))) return result;
+        if (const int result = smoke_result("absent_target_commit_uncertainty", absent_target_commit_uncertainty(executable))) return result;
+        if (const int result = smoke_result("native_replay_finalization", native_replay_finalization())) return result;
+        if (const int result = smoke_result("retired_reinstall_replay", retired_reinstall_replay())) return result;
+        if (const int result = smoke_result("concurrent_original_and_replay", concurrent_original_and_replay())) return result;
+        if (const int result = smoke_result("ancestor_commit_uncertainty", ancestor_commit_uncertainty())) return result;
         std::cout << "ZIP replay: stored/Deflate, 50 process exits, admission/retention, finalization and competing commits PASS\n";
         return 0;
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 250; }

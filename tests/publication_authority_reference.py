@@ -173,6 +173,85 @@ class EffectiveAccess:
 
 
 EXPECTED_EFFECTIVE_ACCESS = (EffectiveAccess("initiating_user", ()), EffectiveAccess("untrusted_users", ()))
+@dataclass(frozen=True)
+class PublicationModelContext:
+    """Pinned model inputs, never Windows evidence or publisher authority.
+
+    The default preserves the original fixture exactly. A separate observer
+    may bind its actual service SID, compilation SDK and namespace geometry
+    without replacing those facts with fixture constants. Passing this value
+    establishes no target observation, qualification, support or availability.
+    """
+
+    service_sid: str = SERVICE_SID
+    sdk_version: str = "10.0.17763.0"
+    minimum_additional_ancestors: int = 1
+    namespace_layout: str = "published_staging_root"
+    security_observation_api: str = "GetSecurityInfo"
+    provenance_profile: str = "fixture_service_birth"
+    actor_profile: str = "fixture_initiating_and_untrusted"
+
+    def __post_init__(self) -> None:
+        if (not isinstance(self.service_sid, str) or len(self.service_sid) > 184 or
+                not isinstance(self.sdk_version, str) or len(self.sdk_version) > 64 or
+                not isinstance(self.namespace_layout, str) or len(self.namespace_layout) > 64 or
+                not isinstance(self.security_observation_api, str) or
+                not isinstance(self.provenance_profile, str) or not isinstance(self.actor_profile, str)):
+            raise EvidenceError("model context inputs must be bounded strings")
+        sid = re.fullmatch(r"S-1-5-80-((?:0|[1-9][0-9]*)(?:-(?:0|[1-9][0-9]*)){4})", self.service_sid)
+        sdk = re.fullmatch(r"10\.0\.([0-9]+)\.0", self.sdk_version)
+        if (sid is None or any(int(part) > 0xFFFFFFFF for part in sid.group(1).split("-")) or
+                sdk is None or not 17763 <= int(sdk.group(1)) <= 0xFFFFFFFF or
+                self.sdk_version != f"10.0.{int(sdk.group(1))}.0" or
+                type(self.minimum_additional_ancestors) is not int or
+                self.minimum_additional_ancestors not in (0, 1) or
+                self.namespace_layout not in ("published_staging_root", "staging_anchor_with_payload_child") or
+                self.security_observation_api not in ("GetSecurityInfo", "GetKernelObjectSecurity") or
+                self.provenance_profile not in ("fixture_service_birth", "native_registered_controller_boundary") or
+                self.actor_profile not in ("fixture_initiating_and_untrusted", "standard_and_filtered_same_account",
+                                           "initiating_and_unrelated_login") or
+                ((self.provenance_profile == "fixture_service_birth") !=
+                 (self.actor_profile == "fixture_initiating_and_untrusted")) or
+                (self.provenance_profile == "native_registered_controller_boundary" and
+                 (self.security_observation_api != "GetKernelObjectSecurity" or
+                  self.namespace_layout != "staging_anchor_with_payload_child" or
+                  self.minimum_additional_ancestors != 0))):
+            raise EvidenceError("model context is not a canonical pinned service/SDK/namespace binding")
+
+    @property
+    def provenance(self) -> tuple[str, str, str]:
+        # These are distinct retrospective consistency inputs. In particular,
+        # a controller-owned volume root is never a service-created object and
+        # reconciliation of records is never platform qualification.
+        if self.provenance_profile == "native_registered_controller_boundary":
+            return ("independently_reconciled_same_handle_native_records",
+                    "creation_graph_and_reviewed_service_route",
+                    "controller_admitted_independently_checked_volume_boundary")
+        return ("independent_observer_same_handle", "service_created_from_inception",
+                "qualified_dedicated_volume_root_boundary")
+
+    @property
+    def effective_access_principals(self) -> tuple[str, str]:
+        if self.actor_profile == "standard_and_filtered_same_account":
+            return ("captured_standard_client", "filtered_same_account")
+        if self.actor_profile == "initiating_and_unrelated_login":
+            return ("captured_initiating_client", "unrelated_login")
+        return ("initiating_user", "untrusted_users")
+
+    @property
+    def observation_apis(self) -> tuple[str, ...]:
+        # The reviewed native provider observes stored file security through
+        # GetKernelObjectSecurity, not normalized GetSecurityInfo. Retain that
+        # identity and its actual held-rights/flags APIs in a separately pinned
+        # context; evidence text cannot select or relabel the provider.
+        native = self.security_observation_api == "GetKernelObjectSecurity"
+        return (self.security_observation_api,) + EXPECTED_APIS[1:] + (
+            ("NtQueryObject:ObjectBasicInformation", "GetHandleInformation") if native else ())
+
+
+FIXTURE_MODEL_CONTEXT = PublicationModelContext()
+
+
 SECURITY_KEYS = frozenset({"owner_sid", "dacl_protected", "inherited_aces", "dacl_aces",
                            "other_aces", "effective_access", "canonical_descriptor_sha256"})
 
@@ -193,7 +272,8 @@ class SecurityEvidence:
     canonical_descriptor_sha256: str
 
     @classmethod
-    def parse(cls, value: Any) -> "SecurityEvidence":
+    def parse(cls, value: Any, service_sid: str = SERVICE_SID,
+              effective_access_principals: tuple[str, str] = ("initiating_user", "untrusted_users")) -> "SecurityEvidence":
         if not isinstance(value, Mapping):
             raise EvidenceError("security evidence must be an object")
         _exact_keys(value, SECURITY_KEYS, "security evidence")
@@ -208,8 +288,8 @@ class SecurityEvidence:
                      _strings(value["other_aces"], "security.other_aces"),
                      tuple(EffectiveAccess.parse(item) for item in value["effective_access"]), digest)
         if (result.owner_sid != "S-1-5-18" or not result.dacl_protected or result.inherited_aces or
-                result.dacl_aces != EXPECTED_ACES or result.other_aces or
-                result.effective_access != EXPECTED_EFFECTIVE_ACCESS or
+                result.dacl_aces != (EXPECTED_ACES[0], Ace(service_sid, "allow", FULL_CONTROL)) or result.other_aces or
+                result.effective_access != tuple(EffectiveAccess(principal, ()) for principal in effective_access_principals) or
                 not SHA256_RE.fullmatch(digest) or digest != expected_digest):
             raise EvidenceError("security evidence does not match the exact protected descriptor")
         return result
@@ -225,7 +305,8 @@ class ProtectedObjectEvidence:
     security: SecurityEvidence
 
     @classmethod
-    def parse(cls, value: Any) -> "ProtectedObjectEvidence":
+    def parse(cls, value: Any, service_sid: str = SERVICE_SID,
+              effective_access_principals: tuple[str, str] = ("initiating_user", "untrusted_users")) -> "ProtectedObjectEvidence":
         if not isinstance(value, Mapping):
             raise EvidenceError("protected object must be an object")
         _exact_keys(value, frozenset({"role", "observed_path", "file_id", "reparse", "case_sensitive", "security"}),
@@ -235,7 +316,7 @@ class ProtectedObjectEvidence:
                      _string(value["file_id"], "protected_object.file_id"),
                      _boolean(value["reparse"], "protected_object.reparse"),
                      _boolean(value["case_sensitive"], "protected_object.case_sensitive"),
-                     SecurityEvidence.parse(value["security"]))
+                     SecurityEvidence.parse(value["security"], service_sid, effective_access_principals))
         _file_id_parts(result.file_id, "protected_object.file_id")
         if result.reparse or result.case_sensitive:
             raise EvidenceError("protected object identity/reparse/case evidence is invalid")
@@ -297,9 +378,17 @@ class ProfileEvidence:
     max_component_utf16_units: int
     serialized_evidence_bytes: int
     total_content_bytes: int
+    namespace_layout: str = "published_staging_root"
+    effective_access_principals: tuple[str, str] = ("initiating_user", "untrusted_users")
+
+    @property
+    def published_root(self) -> ProtectedObjectEvidence:
+        # The layout is frozen at admission by the external model context.
+        # A later phase or evidence claim cannot change which object moves.
+        return self.protected_objects[6 if self.namespace_layout == "staging_anchor_with_payload_child" else 0]
 
     @classmethod
-    def parse(cls, value: Any) -> "ProfileEvidence":
+    def parse(cls, value: Any, context: PublicationModelContext = FIXTURE_MODEL_CONTEXT) -> "ProfileEvidence":
         if not isinstance(value, Mapping):
             raise EvidenceError("profile evidence must be an object")
         _exact_keys(value, PROFILE_KEYS, "profile evidence")
@@ -331,7 +420,8 @@ class ProfileEvidence:
             _optional_integer(value["remote_protocol_minor"], "remote_protocol_minor"),
             _optional_integer(value["remote_protocol_revision"], "remote_protocol_revision"),
             _optional_integer(value["remote_protocol_flags"], "remote_protocol_flags"),
-            tuple(ProtectedObjectEvidence.parse(x) for x in value["protected_objects"]),
+            tuple(ProtectedObjectEvidence.parse(x, context.service_sid, context.effective_access_principals)
+                  for x in value["protected_objects"]),
             _string(value["destination_name"], "destination_name"),
             _string(value["destination_open_result"], "destination_open_result"),
             _boolean(value["replace_if_exists"], "replace_if_exists"),
@@ -340,13 +430,15 @@ class ProfileEvidence:
             _integer(value["closure_max_depth"], "closure_max_depth"),
             _integer(value["max_component_utf16_units"], "max_component_utf16_units", 1),
             _integer(value["serialized_evidence_bytes"], "serialized_evidence_bytes"),
-            _integer(value["total_content_bytes"], "total_content_bytes"))
-        result.validate()
+            _integer(value["total_content_bytes"], "total_content_bytes"), context.namespace_layout,
+            context.effective_access_principals)
+        result.validate(context)
         return result
 
-    def validate(self) -> None:
+    def validate(self, context: PublicationModelContext = FIXTURE_MODEL_CONTEXT) -> None:
         anchor_roles = ("staging_root", "destination_parent", "state_anchor", "journal_anchor")
-        fixed_roles = anchor_roles + ("volume_root", "publication_root")
+        native_child_layout = context.namespace_layout == "staging_anchor_with_payload_child"
+        fixed_roles = anchor_roles + ("volume_root", "publication_root") + (("payload_root",) if native_child_layout else ())
         roles = tuple(item.role for item in self.protected_objects)
         expected_ancestor_roles = tuple(f"ancestor:{index}" for index in range(max(0, len(roles) - len(fixed_roles))))
         object_ids = tuple(item.file_id for item in self.protected_objects)
@@ -359,25 +451,29 @@ class ProfileEvidence:
             volume_root = self.protected_objects[len(anchor_roles)].observed_path
             publication_root = parsed_paths[len(anchor_roles) + 1]
             ancestors = parsed_paths[len(fixed_roles):]
-            if (volume_root != "." or len(publication_root) != 1 or not ancestors or
-                    ancestors[0][:-1] != publication_root):
+            if (volume_root != "." or len(publication_root) != 1 or
+                    len(ancestors) < context.minimum_additional_ancestors or
+                    (ancestors and ancestors[0][:-1] != publication_root)):
                 raise EvidenceError("protected chain must start at its single-component publication root")
             if any(ancestors[index][:-1] != ancestors[index - 1] for index in range(1, len(ancestors))):
                 raise EvidenceError("protected ancestor paths must form an immediate parent chain")
-            if any(path[:-1] != ancestors[-1] for path in parsed_paths[:len(anchor_roles)]):
+            bound_parent = ancestors[-1] if ancestors else publication_root
+            if any(path[:-1] != bound_parent for path in parsed_paths[:len(anchor_roles)]):
                 raise EvidenceError("protected anchors must be distinct direct children of the bound ancestor")
+            if native_child_layout and parsed_paths[6][:-1] != parsed_paths[0]:
+                raise EvidenceError("published payload root must be a direct child of the retained staging anchor")
             chain_rejected = False
         except (EvidenceError, IndexError):
             chain_rejected = True
         rejected = (self.profile_id != PROFILE_ID or self.os_family != "Windows NT" or self.os_arch != "x64" or
-            self.windows_build < 17763 or self.sdk_version != "10.0.17763.0" or
-            self.publisher_service_sid != SERVICE_SID or self.service_sid_type != "SERVICE_SID_TYPE_RESTRICTED" or
+            self.windows_build < 17763 or self.sdk_version != context.sdk_version or
+            self.publisher_service_sid != context.service_sid or self.service_sid_type != "SERVICE_SID_TYPE_RESTRICTED" or
             self.anchor_creation != "atomic_protected_from_inception" or
             bool(self.consumer_grants) or bool(self.untrusted_mutating_rights) or
-            self.covered_objects != EXPECTED_COVERED_OBJECTS or
-            self.observer_provenance != "independent_observer_same_handle" or
-            self.handle_provenance != "service_created_from_inception" or self.anchor_preexisting or
-            self.volume_root_provenance != "qualified_dedicated_volume_root_boundary" or
+            self.namespace_layout != context.namespace_layout or
+            self.covered_objects != EXPECTED_COVERED_OBJECTS + (("payload_root",) if native_child_layout else ()) or
+            (self.observer_provenance, self.handle_provenance, self.volume_root_provenance) != context.provenance or
+            self.anchor_preexisting or
             self.handles_inheritable or self.handles_duplicated_outside_service or
             not VOLUME_SERIAL_RE.fullmatch(self.volume_serial) or
             not re.fullmatch(r"[0-9a-f]{8}", self.volume_information_serial) or
@@ -388,14 +484,14 @@ class ProfileEvidence:
             self.remote_protocol_query_status != "error" or self.remote_protocol_error != 87 or
             any(value is not None for value in (self.remote_protocol, self.remote_protocol_major,
                 self.remote_protocol_minor, self.remote_protocol_revision, self.remote_protocol_flags)) or
-            len(roles) <= len(fixed_roles) or roles[:len(fixed_roles)] != fixed_roles or
+            len(roles) < len(fixed_roles) + context.minimum_additional_ancestors or roles[:len(fixed_roles)] != fixed_roles or
             roles[len(fixed_roles):] != expected_ancestor_roles or
             len(set(object_ids)) != len(object_ids) or len(set(object_paths)) != len(object_paths) or
             chain_rejected or
             any(_file_id_parts(file_id, "protected object file_id")[0] != self.volume_serial
                                                  for file_id in object_ids) or
             self.destination_open_result != "ERROR_FILE_NOT_FOUND" or
-            self.replace_if_exists or self.observation_apis != EXPECTED_APIS or
+            self.replace_if_exists or self.observation_apis != context.observation_apis or
             self.closure_entry_count > MAX_CLOSURE_ENTRIES or self.closure_max_depth > MAX_CLOSURE_DEPTH or
             self.max_component_utf16_units != self.maximum_component_length or
             self.serialized_evidence_bytes > MAX_EVIDENCE_BYTES or self.total_content_bytes > MAX_CONTENT_BYTES)
@@ -451,13 +547,15 @@ class PhaseObservation:
             _optional_integer(value["remote_protocol_minor"], "phase.remote_protocol_minor"),
             _optional_integer(value["remote_protocol_revision"], "phase.remote_protocol_revision"),
             _optional_integer(value["remote_protocol_flags"], "phase.remote_protocol_flags"),
-            tuple(ProtectedObjectEvidence.parse(item) for item in value["protected_objects"]))
+            tuple(ProtectedObjectEvidence.parse(item, profile.publisher_service_sid, profile.effective_access_principals)
+                  for item in value["protected_objects"]))
         expected_objects = profile.protected_objects
         if after_rename:
             destination_parent = expected_objects[1].observed_path
-            expected_objects = (replace(expected_objects[0],
-                                        observed_path=f"{destination_parent}/{profile.destination_name}"),
-                                ) + expected_objects[1:]
+            moving_index = 6 if profile.namespace_layout == "staging_anchor_with_payload_child" else 0
+            expected_objects = tuple(replace(item,
+                observed_path=f"{destination_parent}/{profile.destination_name}") if index == moving_index else item
+                for index, item in enumerate(expected_objects))
         expected_locality = (profile.volume_name, profile.volume_serial, profile.volume_information_serial,
             profile.filesystem_name, profile.maximum_component_length, profile.filesystem_flags,
             profile.remote_protocol_query_status, profile.remote_protocol_error, profile.remote_protocol,
@@ -521,7 +619,8 @@ class ClosureEntry:
     reparse_tag: int | None
 
     @classmethod
-    def parse(cls, value: Any) -> "ClosureEntry":
+    def parse(cls, value: Any, service_sid: str = SERVICE_SID,
+              effective_access_principals: tuple[str, str] = ("initiating_user", "untrusted_users")) -> "ClosureEntry":
         if not isinstance(value, Mapping):
             raise EvidenceError("closure entry must be an object")
         _exact_keys(value, ENTRY_KEYS, "closure entry")
@@ -538,7 +637,7 @@ class ClosureEntry:
         result = cls(_string(value["relative_path"], "relative_path"), entry_type,
                      _string(value["file_id"], "file_id"), digest, _integer(value["size"], "size"),
                      _strings(value["attributes"], "attributes"),
-                     SecurityEvidence.parse(value["security"]),
+                     SecurityEvidence.parse(value["security"], service_sid, effective_access_principals),
                      _integer(value["link_count"], "link_count", 1), _strings(value["streams"], "streams"),
                      _boolean(value["reparse"], "reparse"), tag)
         result.validate()
@@ -575,11 +674,12 @@ class ClosureEntry:
 
 
 def _parse_closure(root_value: Any, entries_value: Any,
-                   volume_serial: str) -> tuple[ClosureEntry, tuple[ClosureEntry, ...]]:
-    root = ClosureEntry.parse(root_value)
+                   volume_serial: str, service_sid: str = SERVICE_SID,
+                   effective_access_principals: tuple[str, str] = ("initiating_user", "untrusted_users")) -> tuple[ClosureEntry, tuple[ClosureEntry, ...]]:
+    root = ClosureEntry.parse(root_value, service_sid, effective_access_principals)
     if root.relative_path != "." or not isinstance(entries_value, list):
         raise EvidenceError("root/closure shape invalid")
-    entries = tuple(ClosureEntry.parse(item) for item in entries_value)
+    entries = tuple(ClosureEntry.parse(item, service_sid, effective_access_principals) for item in entries_value)
     if len(entries) > MAX_CLOSURE_ENTRIES:
         raise EvidenceError("closure count exceeds profile limit")
     paths = tuple(item.relative_path for item in entries)
@@ -667,7 +767,8 @@ EVENT_KEYS = {
 }
 
 
-def transition(state: ModelState, event: Mapping[str, Any]) -> StepResult:
+def transition(state: ModelState, event: Mapping[str, Any], *,
+               context: PublicationModelContext = FIXTURE_MODEL_CONTEXT) -> StepResult:
     """Apply one closed-schema event without host or filesystem observation."""
     if not isinstance(event, Mapping) or not isinstance(event.get("action"), str):
         return _result(state, "invalid_trace", "invalid_event_shape")
@@ -689,7 +790,7 @@ def transition(state: ModelState, event: Mapping[str, Any]) -> StepResult:
         if state.phase != Phase.UNAVAILABLE:
             return _result(state, "invalid_trace", "preflight_wrong_phase")
         try:
-            profile = ProfileEvidence.parse(event["evidence"])
+            profile = ProfileEvidence.parse(event["evidence"], context)
         except EvidenceError:
             return _result(state, "no_effect_refusal", "profile_evidence_refused")
         return _result(replace(state, phase=Phase.PROTECTED_EMPTY, profile=profile), "advanced", "profile_admitted")
@@ -703,10 +804,11 @@ def transition(state: ModelState, event: Mapping[str, Any]) -> StepResult:
         assert state.profile is not None
         try:
             observation = PhaseObservation.parse(event["observation"], state.profile)
-            root, closure = _parse_closure(event["root"], event["closure"], state.profile.volume_serial)
+            root, closure = _parse_closure(event["root"], event["closure"], state.profile.volume_serial,
+                                           state.profile.publisher_service_sid, state.profile.effective_access_principals)
         except EvidenceError:
             return _retained(state, "sealed_evidence_refused")
-        staging_root = state.profile.protected_objects[0]
+        staging_root = state.profile.published_root
         protected_ids = {item.file_id for item in state.profile.protected_objects}
         if (root.file_id != staging_root.file_id or root.security != staging_root.security or
                 any(item.file_id in protected_ids for item in closure)):
@@ -771,7 +873,8 @@ def transition(state: ModelState, event: Mapping[str, Any]) -> StepResult:
             _validate_component(destination_name)
             if destination_name != state.profile.destination_name:
                 raise EvidenceError("visible destination component differs from prepared component")
-            root, closure = _parse_closure(event["root"], event["closure"], state.profile.volume_serial)
+            root, closure = _parse_closure(event["root"], event["closure"], state.profile.volume_serial,
+                                           state.profile.publisher_service_sid, state.profile.effective_access_principals)
         except EvidenceError:
             return _recovery(state, "visible_evidence_missing_or_invalid")
         observed = replace(state, post_rename_observation=observation,
@@ -812,10 +915,11 @@ def transition(state: ModelState, event: Mapping[str, Any]) -> StepResult:
     return _result(state, "no_effect_refusal", "excluded_actor_outside_claim")
 
 
-def replay(state: ModelState, events: Iterable[Mapping[str, Any]]) -> StepResult:
+def replay(state: ModelState, events: Iterable[Mapping[str, Any]], *,
+           context: PublicationModelContext = FIXTURE_MODEL_CONTEXT) -> StepResult:
     result = _result(state, "advanced", "empty_trace")
     for event in events:
-        result = transition(result.state, event)
+        result = transition(result.state, event, context=context)
         if result.disposition in TERMINAL_DISPOSITIONS:
             break
     return result

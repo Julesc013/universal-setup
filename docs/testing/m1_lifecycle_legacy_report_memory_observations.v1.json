@@ -1,0 +1,202 @@
+{
+  "schema": "usk.lifecycle_legacy_report_memory_matrix.v1",
+  "recorded_at_utc": "2026-09-24T16:24:49.031011+00:00",
+  "source": {
+    "commit": "dd898021eb7bd6ba3acddd742d7dc5b4ff51abf7",
+    "tree": "550ae76ad664f7089df13dc6aeb26caf8b6ddee8",
+    "working_tree_dirty": false
+  },
+  "build": {
+    "configuration": "Debug",
+    "binary_sha256": "b74d33091348f6892709722efc907ac65887e35ac75d7300afc111b805a244e5",
+    "cmake_cache_sha256": "2be0d9745af537f07c162d671be131ef3238dbedbb260809435ab41706cd54ed"
+  },
+  "method": "A separate setup process creates each disposable prior-format one-byte-file ownership record, then exits. A fresh child runs only verify, uninstall planning, or their sequence. Windows GetProcessMemoryInfo peak working set is sampled for that fresh child; fixture preparation and parent cleanup are outside the measured process.",
+  "commands": [
+    "python tests/lifecycle_memory_probe.py <Debug/usk_lifecycle_smoke.exe> legacy_verify 128 128",
+    "python tests/lifecycle_memory_probe.py <Debug/usk_lifecycle_smoke.exe> legacy_uninstall_plan 128 128",
+    "python tests/lifecycle_memory_probe.py <Debug/usk_lifecycle_smoke.exe> legacy_verify 4097 4097",
+    "python tests/lifecycle_memory_probe.py <Debug/usk_lifecycle_smoke.exe> legacy_uninstall_plan 4097 4097",
+    "python tests/lifecycle_memory_probe.py <Debug/usk_lifecycle_smoke.exe> legacy_verify 8192 8192",
+    "python tests/lifecycle_memory_probe.py <Debug/usk_lifecycle_smoke.exe> legacy_uninstall_plan 8192 8192",
+    "python tests/lifecycle_memory_probe.py <Debug/usk_lifecycle_smoke.exe> legacy_report 4097 4097"
+  ],
+  "cases": [
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "legacy_verify",
+      "requested_payload_bytes": 128,
+      "entries": 128,
+      "source_kind": "legacy_record",
+      "binary_sha256": "b74d33091348f6892709722efc907ac65887e35ac75d7300afc111b805a244e5",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+      "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+      "source": {
+        "commit": "dd898021eb7bd6ba3acddd742d7dc5b4ff51abf7",
+        "tree": "550ae76ad664f7089df13dc6aeb26caf8b6ddee8",
+        "working_tree_dirty": false
+      },
+      "fixture": "prior-format ownership record with one-byte files, prepared in a separate process",
+      "fixture_prepared_outside_measured_process": true,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 11440128,
+      "samples": 12,
+      "elapsed_ms": 74,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass legacy_verify legacy_record 128 128"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "legacy_uninstall_plan",
+      "requested_payload_bytes": 128,
+      "entries": 128,
+      "source_kind": "legacy_record",
+      "binary_sha256": "b74d33091348f6892709722efc907ac65887e35ac75d7300afc111b805a244e5",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+      "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+      "source": {
+        "commit": "dd898021eb7bd6ba3acddd742d7dc5b4ff51abf7",
+        "tree": "550ae76ad664f7089df13dc6aeb26caf8b6ddee8",
+        "working_tree_dirty": false
+      },
+      "fixture": "prior-format ownership record with one-byte files, prepared in a separate process",
+      "fixture_prepared_outside_measured_process": true,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 11489280,
+      "samples": 14,
+      "elapsed_ms": 85,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass legacy_uninstall_plan legacy_record 128 128"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "legacy_verify",
+      "requested_payload_bytes": 4097,
+      "entries": 4097,
+      "source_kind": "legacy_record",
+      "binary_sha256": "b74d33091348f6892709722efc907ac65887e35ac75d7300afc111b805a244e5",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+      "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+      "source": {
+        "commit": "dd898021eb7bd6ba3acddd742d7dc5b4ff51abf7",
+        "tree": "550ae76ad664f7089df13dc6aeb26caf8b6ddee8",
+        "working_tree_dirty": false
+      },
+      "fixture": "prior-format ownership record with one-byte files, prepared in a separate process",
+      "fixture_prepared_outside_measured_process": true,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 53506048,
+      "samples": 321,
+      "elapsed_ms": 1777,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass legacy_verify legacy_record 4097 4097"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "legacy_uninstall_plan",
+      "requested_payload_bytes": 4097,
+      "entries": 4097,
+      "source_kind": "legacy_record",
+      "binary_sha256": "b74d33091348f6892709722efc907ac65887e35ac75d7300afc111b805a244e5",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+      "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+      "source": {
+        "commit": "dd898021eb7bd6ba3acddd742d7dc5b4ff51abf7",
+        "tree": "550ae76ad664f7089df13dc6aeb26caf8b6ddee8",
+        "working_tree_dirty": false
+      },
+      "fixture": "prior-format ownership record with one-byte files, prepared in a separate process",
+      "fixture_prepared_outside_measured_process": true,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 53542912,
+      "samples": 379,
+      "elapsed_ms": 2099,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass legacy_uninstall_plan legacy_record 4097 4097"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "legacy_verify",
+      "requested_payload_bytes": 8192,
+      "entries": 8192,
+      "source_kind": "legacy_record",
+      "binary_sha256": "b74d33091348f6892709722efc907ac65887e35ac75d7300afc111b805a244e5",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+      "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+      "source": {
+        "commit": "dd898021eb7bd6ba3acddd742d7dc5b4ff51abf7",
+        "tree": "550ae76ad664f7089df13dc6aeb26caf8b6ddee8",
+        "working_tree_dirty": false
+      },
+      "fixture": "prior-format ownership record with one-byte files, prepared in a separate process",
+      "fixture_prepared_outside_measured_process": true,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 97431552,
+      "samples": 673,
+      "elapsed_ms": 3714,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass legacy_verify legacy_record 8192 8192"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "legacy_uninstall_plan",
+      "requested_payload_bytes": 8192,
+      "entries": 8192,
+      "source_kind": "legacy_record",
+      "binary_sha256": "b74d33091348f6892709722efc907ac65887e35ac75d7300afc111b805a244e5",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+      "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+      "source": {
+        "commit": "dd898021eb7bd6ba3acddd742d7dc5b4ff51abf7",
+        "tree": "550ae76ad664f7089df13dc6aeb26caf8b6ddee8",
+        "working_tree_dirty": false
+      },
+      "fixture": "prior-format ownership record with one-byte files, prepared in a separate process",
+      "fixture_prepared_outside_measured_process": true,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 97804288,
+      "samples": 774,
+      "elapsed_ms": 4273,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass legacy_uninstall_plan legacy_record 8192 8192"
+    },
+    {
+      "schema": "usk.lifecycle_memory_observation.v1",
+      "operation": "legacy_report",
+      "requested_payload_bytes": 4097,
+      "entries": 4097,
+      "source_kind": "legacy_record",
+      "binary_sha256": "b74d33091348f6892709722efc907ac65887e35ac75d7300afc111b805a244e5",
+      "platform": "Windows-10-10.0.19045-SP0",
+      "temporary_root": "C:\\Users\\Jules\\AppData\\Local\\Temp",
+      "filesystem_profile": "C:\\ NTFS serial=3369fdda",
+      "source": {
+        "commit": "dd898021eb7bd6ba3acddd742d7dc5b4ff51abf7",
+        "tree": "550ae76ad664f7089df13dc6aeb26caf8b6ddee8",
+        "working_tree_dirty": false
+      },
+      "fixture": "prior-format ownership record with one-byte files, prepared in a separate process",
+      "fixture_prepared_outside_measured_process": true,
+      "metric": "windows_peak_working_set_bytes",
+      "peak_bytes": 53776384,
+      "samples": 697,
+      "elapsed_ms": 3852,
+      "exit_code": 0,
+      "stdout": "memory-scenario-pass legacy_report legacy_record 4097 4097"
+    }
+  ],
+  "comparison": {
+    "legacy_verify_4097_minus_128_bytes": 42065920,
+    "legacy_verify_8192_minus_4097_bytes": 43925504,
+    "legacy_uninstall_plan_8192_minus_4097_bytes": 44261376,
+    "legacy_verify_8192_exceeds_64mib": true
+  },
+  "status": "OBSERVED_PARTIAL",
+  "claim_limit": "Selected prior-format one-byte-file verify and uninstall-plan shapes in fresh Windows child processes only. The 8,192-file verify exceeds 64 MiB; no aggregate report budget, large-path or unknown-path stress, full lifecycle ceiling, protected publisher, or release acceptance is established."
+}

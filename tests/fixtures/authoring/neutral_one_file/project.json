@@ -1,0 +1,22 @@
+{
+  "schema": "usk.authoring_project.v1",
+  "product_id": "org.example.hello",
+  "publisher_id": "org.example",
+  "product_version": "1.0.0",
+  "allowed_scopes": ["portable"],
+  "components": [
+    {
+      "id": "core",
+      "required": true,
+      "default_selected": true,
+      "requires": [],
+      "conflicts": [],
+      "variants": [
+        {
+          "target": "neutral-local",
+          "files": [{"source": "final/hello", "path": "bin/hello"}]
+        }
+      ]
+    }
+  ]
+}

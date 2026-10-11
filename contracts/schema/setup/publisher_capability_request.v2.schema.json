@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/publisher_capability_request.v2.schema.json",
+  "title": "Service-mediated Publisher Capability Request, Version 2",
+  "description": "The publisher.observe operation requires dry_run=false: it may start the registered service and acquire its controller guard. It observes admitted registration facts without installation or target mutation. No caller-selected target, executable, SID or qualification claim is accepted.",
+  "type": "object",
+  "required": [
+    "schema",
+    "request_id"
+  ],
+  "properties": {
+    "schema": {
+      "const": "usk.publisher_capability_request.v2"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._-]+$"
+    }
+  },
+  "additionalProperties": false
+}
