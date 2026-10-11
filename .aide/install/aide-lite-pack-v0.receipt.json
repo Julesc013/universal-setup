@@ -6202,12 +6202,12 @@
       "source_digest": "c4797c496859e63fae83a4a29a20401aeaf2e02f26513a1daa07019dd1b8ae11"
     },
     "docs/reference/aide-lite-test-runner.md": {
-      "installed_digest": "2626d82572e894b0ccbb55fed54a1474e6b7d9506f80185e59f90445442c9f19",
+      "installed_digest": "6e069802a5c0f5d2869044f684df0222713698a62862c8db9838058cb55c8ba1",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": "docs/reference/aide-lite-test-runner.md",
-      "source_digest": "2626d82572e894b0ccbb55fed54a1474e6b7d9506f80185e59f90445442c9f19"
+      "source_digest": "6e069802a5c0f5d2869044f684df0222713698a62862c8db9838058cb55c8ba1"
     },
     "docs/reference/aide-lite.md": {
       "installed_digest": "f88e5c4344054f91f7eb88c9107dfc5562a8af084565ebbf02cff116addca7b5",
@@ -6557,21 +6557,21 @@
   "mode": "safe",
   "network_calls": false,
   "pack": {
+    "checksums_digest": "97898ece41a00f7d1b3c7182ee4fc1b81ad203f3aa55ebb91dfa5ad11905fa9f",
+    "manifest_digest": "71d1720abdacc4c37f4522b49ed590d52ad9dba8b8860b82087f5b48760bdcd8",
+    "pack_id": "aide-lite-pack-v0",
+    "source_commit": "a17cf4b3dbec5caa236c62ee2fa23b31aa09c8fc"
+  },
+  "pack_id": "aide-lite-pack-v0",
+  "plan_digest": "87189e5c2a7f51c37329bbe87b433ae9fd3989e3da69b8d3fdf08adc5bab181f",
+  "predecessor_pack": {
     "checksums_digest": "7354fa79e8c83e5813fbb699f8284bd03c12b6c2a3c5b2e9935d10c3c7ebd90f",
     "manifest_digest": "71f7a6fe8c598aae09e0e89014707132b890650d1f2cdfd58f0d0362c6d957e3",
     "pack_id": "aide-lite-pack-v0",
     "source_commit": "6c37af95393dade9092dbfc788f466be34ff2c7c"
   },
-  "pack_id": "aide-lite-pack-v0",
-  "plan_digest": "0319815994876d5094971e785f625f7518b46a97b9bfae05b2e7642e040220bf",
-  "predecessor_pack": {
-    "checksums_digest": "dd564384415f06165d53f4de492840131dfd74f230485c2326fba8e44df10a2d",
-    "manifest_digest": "81c215bdf9f21ccda65f06a848cca0c1d1101d8f54e1b5b06aff8544b1398ec9",
-    "pack_id": "aide-lite-pack-v0",
-    "source_commit": "27338811d14b3314a98434a68be4a7d7d56b6667"
-  },
   "project_controls_digest": "missing",
   "provider_or_model_calls": false,
-  "receipt_digest": "a92903de50cadaadeb0eac85b0122f9677bf7473621254ed482ebe4ef8921758",
+  "receipt_digest": "be52aca443f67a2ce38f845c2362c8f3b4ddc72b15caf2505ac1aa7402afaacf",
   "schema_version": "aide.portable-import-receipt.v2"
 }

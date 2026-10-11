@@ -350,3 +350,51 @@ unchanged blocker neither submits work nor needs another model recheck.
 These rules preserve approved storage, cleanup, reserves and the separately
 qualified execution scope; they do not constrain this unrestricted outer
 client or imply a hard disk quota.
+
+## Task workspace candidate (qualification pending)
+
+The opt-in `codex_exec.task_workspace` permission declares exact `read_roots`,
+`max_files` (1-32) and `max_input_bytes` (1-1,048,576). A matching job
+`task_workspace` contains those same read roots and a `files` mapping from
+hash-bound source inputs to relative candidate paths. Unknown fields, unsafe
+Windows names, links, collisions, unbound inputs and inadequate retention
+budgets refuse before launch. Legacy jobs remain read-only and retain their
+original request digests; adding this permission does not reset consumed turns.
+Private source mappings are refused. Toolchain read roots cannot overlap source,
+account or any shared execution pool, in either direction. Original bound inputs
+are not granted model reads: the copied candidate, stdin and copied schema provide
+the task data without opening controller-local records.
+
+Only the sparse candidate in owned `output/workspace` is editable. It is the
+assigned source for the task, not a second checkout. Canonical source and the
+supervising runtime remain read-only or denied. The installed client's named
+profile also denies private control/retained/account state and command network
+access. No legacy sandbox flag overrides this profile. Optional plugin,
+browser and integration routes are disabled for the candidate session.
+
+Supported `log_dir` and `sqlite_home` destinations use disposable private job
+cache; session/history persistence is disabled. Existing signed-in account
+authentication is preserved without copying credentials. Other account-home
+metadata remains outside managed pools until measured and qualified.
+
+Collected candidate bytes are evidence, not automatic source acceptance. Check
+the actual diff and required tests before using the existing guarded integration
+path. Actual model edits and excluded-path tool results still need qualification;
+unit tests and configuration echoes cannot certify enforcement or constrain an
+already-running unrestricted client. See the
+[SESSION plan](../../.aide/queue/AIDE-SESSION-CONTAINMENT-01/ExecPlan.md).
+
+
+The actual0.160.0 Windows CLI attempt refused this root-deny profile during
+thread/start: the elevated sandbox requires effective root read access. No
+model edit or excluded-path tool result occurred. This candidate mode is not
+a qualified operating path on that backend; do not widen root reads to obtain
+a pass or replay the attempt. Preserve the failed result and retired resources.
+
+The private `task_workspace` permission may record up to eight unique lowercase
+SHA-256 values in `blocked_executable_sha256s`. A matching executable refuses
+before scratch allocation, model admission or launch, including when the prompt
+changes. This records an observed unavailable capability; an absent entry does
+not prove that another backend is qualified. Legacy read-only jobs retain their
+behavior and request identities. A changed supported host/profile still needs
+its relevant qualification. See the [actual failure](../../.aide/queue/AIDE-SESSION-CONTAINMENT-01/evidence/ordinary-workflow-actual-host-failure.json).

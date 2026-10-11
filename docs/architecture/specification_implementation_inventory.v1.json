@@ -2951,7 +2951,7 @@
         },
         {
           "path": ".gitattributes",
-          "sha256": "1b718870fa58c2cb786abffc04f2478f016f876a5e5e65ae5aa412279064a6a0"
+          "sha256": "d296f1987dc28530b5787e65430bacf65c883d46dd3afd9e9cb425d1052f1083"
         }
       ],
       "acceptance_ids": [
@@ -3414,7 +3414,7 @@
         },
         {
           "path": ".gitattributes",
-          "sha256": "1b718870fa58c2cb786abffc04f2478f016f876a5e5e65ae5aa412279064a6a0"
+          "sha256": "d296f1987dc28530b5787e65430bacf65c883d46dd3afd9e9cb425d1052f1083"
         }
       ],
       "acceptance_ids": [
@@ -3877,7 +3877,7 @@
         },
         {
           "path": ".gitattributes",
-          "sha256": "1b718870fa58c2cb786abffc04f2478f016f876a5e5e65ae5aa412279064a6a0"
+          "sha256": "d296f1987dc28530b5787e65430bacf65c883d46dd3afd9e9cb425d1052f1083"
         }
       ],
       "acceptance_ids": [
@@ -5683,7 +5683,7 @@
         },
         {
           "path": ".gitattributes",
-          "sha256": "1b718870fa58c2cb786abffc04f2478f016f876a5e5e65ae5aa412279064a6a0"
+          "sha256": "d296f1987dc28530b5787e65430bacf65c883d46dd3afd9e9cb425d1052f1083"
         }
       ],
       "acceptance_ids": [
@@ -5735,7 +5735,7 @@
         },
         {
           "path": ".gitattributes",
-          "sha256": "1b718870fa58c2cb786abffc04f2478f016f876a5e5e65ae5aa412279064a6a0"
+          "sha256": "d296f1987dc28530b5787e65430bacf65c883d46dd3afd9e9cb425d1052f1083"
         }
       ],
       "acceptance_ids": [
@@ -6207,7 +6207,7 @@
         },
         {
           "path": ".gitattributes",
-          "sha256": "1b718870fa58c2cb786abffc04f2478f016f876a5e5e65ae5aa412279064a6a0"
+          "sha256": "d296f1987dc28530b5787e65430bacf65c883d46dd3afd9e9cb425d1052f1083"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_worker_custody_internal.h",

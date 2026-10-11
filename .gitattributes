@@ -23,3 +23,6 @@ LICENSE text eol=lf
 /docs/reference/** -text
 /external/aide/LICENSE -text
 /external/aide/NOTICE -text
+
+# Recognize the upstream guide's CRLF endings without changing receipt-bound bytes.
+/docs/reference/aide-lite-test-runner.md whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
