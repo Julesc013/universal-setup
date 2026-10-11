@@ -274,25 +274,29 @@ void PublisherEffectExecutionOwner::verify_original_maintenance_record_bytes(
             auto combined = state_->readback.authority_maintenance_record_bytes_bracket(reader,
                 effect_proof_remaining(proof_started), *this, native_before, after_queries_closed);
             selected.emplace(std::move(combined.selected));
-            observed = {selected->before, selected->after, std::move(combined.access)};
+            observed.access = std::move(combined.access);
         } else observed = state_->readback.original_maintenance_record_bytes_bracket(reader,
             effect_proof_remaining(proof_started), after_queries_closed);
+        // Selected endpoints stay owned through final validation and retention.
+        // Borrow those exact values rather than copying both proof subtrees.
+        const auto& before = selected ? selected->before : observed.before;
+        const auto& after = selected ? selected->after : observed.after;
         require(native_after.has_value(), "publisher record scope lacks its complete native AFTER");
-        state_->require_native_binding(observed.before, native_before);
-        state_->require_native_binding(observed.after, *native_after);
+        state_->require_native_binding(before, native_before);
+        state_->require_native_binding(after, *native_after);
         require_publisher_worker_security_continuity(native_before.at("worker_security"), native_after->at("worker_security"));
-        require(same(publisher_effect_broker_immutable_record(observed.before),
-            publisher_effect_broker_immutable_record(observed.after)), "publisher record scope changed its original owner");
+        require(same(publisher_effect_broker_immutable_record(before),
+            publisher_effect_broker_immutable_record(after)), "publisher record scope changed its original owner");
         state_->require_owner();
         if (selected) {
             require(reader.authority_selection_kind() == selected_kind,
                 "publisher authority record selected kind changed at completion");
-            require_authority_record_selection(reader, observed.after, selected->selection, *native_after);
+            require_authority_record_selection(reader, after, selected->selection, *native_after);
         }
         reader.finalize(observed.access); // All raw denials and actual final whole-chain joins.
         (void)effect_proof_remaining(proof_started);
         if (selected) state_->readback.retain_selection_bracket(*selected, *selected_kind);
-        else state_->readback.retain_readback_bracket(observed.before, observed.after);
+        else state_->readback.retain_readback_bracket(before, after);
         (void)effect_proof_remaining(proof_started);
     } catch (...) {
         state_->failed = true;

@@ -150,7 +150,7 @@ void require_publisher_effect_record_byte_phase(const usk::json::Value&,
 void require_publisher_effect_authority_record_readback(const usk::json::Value& ready,
     const usk::json::Value& final, const usk::json::Value& scope,
     const usk::json::Value& actual_request);
-void require_publisher_maintenance_read_only_access(usk::json::Value,
+void require_publisher_maintenance_read_only_access(const usk::json::Value&,
     const usk::json::Value& client, const usk::json::Value& native_object);
 class PublisherEffectRecordByteRound final {
 private:

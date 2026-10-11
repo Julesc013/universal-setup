@@ -1190,8 +1190,8 @@ struct NativeMaintenanceContext::Impl {
     void require_client_read_only(HANDLE handle, const PublisherHandleObservation& facts) const {
         require_client_read_only_access(authenticated_native_access(handle), facts);
     }
-    void require_client_read_only_access(Value access, const PublisherHandleObservation& facts) const {
-        require_publisher_maintenance_read_only_access(std::move(access), client,
+    void require_client_read_only_access(const Value& access, const PublisherHandleObservation& facts) const {
+        require_publisher_maintenance_read_only_access(access, client,
             publisher_handle_observation_json(facts));
     }
 
@@ -1280,7 +1280,7 @@ struct NativeMaintenanceContext::Impl {
                 throw std::runtime_error("native maintenance read-only batch result count changed");
             for (std::size_t index = 0; index < pending.size(); ++index) {
                 const auto& item = pending[index];
-                if (!record_read) require_client_read_only_access(std::move(results.as_array()[index]), item.observed);
+                if (!record_read) require_client_read_only_access(results.as_array()[index], item.observed);
                 const auto after = item.entry ? native_facts(item.handle, item.entry->directory) :
                     (item.installed_creator ? native_facts(item.handle, false) : observe_publisher_directory_handle(item.handle));
                 if (!same(after, item.observed))

@@ -1610,10 +1610,16 @@ void require_publisher_effect_authority_record_readback(const Value& ready, cons
     require_selected_endpoints(final.at("selection"), actual_request,
         final.at("profile_before"), final.at("profile"), kind);
 }
-void require_publisher_maintenance_read_only_access(Value access, const Value& client, const Value& native_object) {
-    require(same(access.at("client"), client) && same(access.at("native_object"), native_object),
+void require_publisher_maintenance_read_only_access(const Value& result, const Value& client, const Value& native_object) {
+    require(same(result.at("client"), client) && same(result.at("native_object"), native_object),
         "native maintenance authenticated object binding changed");
-    access.as_object().erase("client"); access.as_object().erase("native_object");
+    Value::Object fields;
+    for (const auto& [name, value] : result.as_object())
+        if (name != "client" && name != "native_object") fields.emplace(name, value);
+    Value access(std::move(fields));
+    // Keep all supplied retained fields and the existing emplace precedence.
+    // The independently owned projection omits only discarded proof subtrees;
+    // every hash, validator and actual raw denial below remains mandatory.
     access.as_object().emplace("client_sha256", Value(usk::json::sha256_canonical(client)));
     access.as_object().emplace("native_object_sha256", Value(usk::json::sha256_canonical(native_object)));
     require_publisher_authenticated_object_access(access, client, native_object);
