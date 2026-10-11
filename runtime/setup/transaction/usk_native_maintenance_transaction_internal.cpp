@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "usk_native_maintenance_transaction_internal.h"
 #if defined(_WIN32)
+#include "usk_maintenance_effect_journal.h"
 #include "usk_maintenance_inspection_internal.h"
 #include "usk_json.h"
 #include "usk_sha256.h"
@@ -30,7 +31,7 @@ ScopedNativeMaintenanceTransaction::ScopedNativeMaintenanceTransaction(
     if (active_operations || !operations.require_authority || !operations.persist_journal || !operations.create_staging_root ||
         !operations.ensure_stream_parent || !operations.open_stream || !operations.require_stream ||
         !operations.finish_stream || !operations.observe_commit_closure || !operations.observe_file ||
-        !operations.inspect_continuation || !operations.reconcile_effect ||
+        !operations.inspect_prefix || !operations.inspect_continuation || !operations.reconcile_effect ||
         !operations.commit || !operations.apply_effect || !operations.confirm_effect_completion)
         throw std::runtime_error("native maintenance transaction owner is absent, incomplete or nested");
     // A distinct control block identifies this lifetime even if an operations
@@ -53,6 +54,24 @@ std::optional<NativeMaintenanceFileObservation> observe_current_native_maintenan
     if (active_binding.expired() || !active_operations->observe_file)
         throw std::runtime_error("native maintenance file observer lost its original owner; no pathname fallback");
     return active_operations->observe_file(path);
+}
+bool inspect_current_native_maintenance_prefix(const TransactionSpec& spec,
+    RecoveryInspection& output_transaction, MaintenanceEffectInspection& output_history) {
+    if (!active_operations) return false;
+    const auto* operations = active_operations;
+    const auto original = active_binding;
+    require_native_maintenance_origin_binding(true, original, active_binding);
+    if (!operations->inspect_prefix)
+        throw std::runtime_error("native maintenance prefix lost its original reader; no fallback");
+    RecoveryInspection transaction;
+    MaintenanceEffectInspection history;
+    operations->inspect_prefix(spec, transaction, history);
+    require_native_maintenance_origin_binding(true, original, active_binding);
+    if (active_operations != operations)
+        throw std::runtime_error("native maintenance prefix changed its original operations");
+    output_transaction = std::move(transaction);
+    output_history = std::move(history);
+    return true;
 }
 bool inspect_current_native_maintenance_continuation(const TransactionSpec& spec,
     lifecycle::detail::MaintenanceContinuationInspection& output) {

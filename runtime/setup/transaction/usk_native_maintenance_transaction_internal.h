@@ -23,9 +23,11 @@ struct NativeMaintenanceFileObservation {
 // These values confer no custody, completion or mutation authority.
 std::optional<NativeMaintenanceFileObservation> observe_current_native_maintenance_file(
     const std::filesystem::path& path);
-// Two fixed pure inspections supplied only by the original private owner.
+// Fixed pure inspections supplied only by the original private owner.
 // False means no native scope. An active scope must complete its bound reader
 // before exposing output; failure never becomes an ordinary-path fallback.
+bool inspect_current_native_maintenance_prefix(const TransactionSpec& spec,
+    RecoveryInspection& transaction, MaintenanceEffectInspection& history);
 bool inspect_current_native_maintenance_continuation(const TransactionSpec& spec,
     lifecycle::detail::MaintenanceContinuationInspection& result);
 bool reconcile_current_native_maintenance_effect(const TransactionSpec& spec,
@@ -60,6 +62,8 @@ struct NativeMaintenanceTransactionOperations {
     std::function<CommitClosureObservation(const TransactionSpec&, const std::filesystem::path&,
         const std::vector<CommitClosureFile>&)> observe_commit_closure;
     std::function<NativeMaintenanceFileObservation(const std::filesystem::path&)> observe_file;
+    std::function<void(const TransactionSpec&, RecoveryInspection&,
+        MaintenanceEffectInspection&)> inspect_prefix;
     std::function<void(const TransactionSpec&,
         lifecycle::detail::MaintenanceContinuationInspection&)> inspect_continuation;
     std::function<void(const TransactionSpec&,

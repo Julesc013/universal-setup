@@ -1103,6 +1103,9 @@ struct NativeMaintenanceContext::Impl {
             return observe_created_closure(s, p, files);
         };
         operations.observe_file = [this](const auto& p) { return observe_owned_file(p); };
+        operations.inspect_prefix = [this](const auto& s, auto& current, auto& history) {
+            inspect_prefix(s, current, history);
+        };
         operations.inspect_continuation = [this](const auto& s, auto& result) {
             result = inspect_continuation(s);
         };
@@ -1480,6 +1483,35 @@ struct NativeMaintenanceContext::Impl {
             record_io::ScopedNativeRecordReadOperations::current() != &record_reads)
             throw std::runtime_error("native maintenance inspection lost its original TLS owner");
         if (active_read_recipe) active_read_recipe->require_active();
+    }
+    void inspect_prefix(const transaction::TransactionSpec& supplied,
+        transaction::RecoveryInspection& output_transaction,
+        transaction::MaintenanceEffectInspection& output_history) const {
+        require_inspection_owner(supplied);
+        const auto inspect = [&] {
+            auto current = transaction::TransactionSession::inspect_recovery(spec);
+            auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+            return std::make_pair(std::move(current), std::move(history));
+        };
+        auto result = [&] {
+            if (active_read_recipe) {
+                auto selected = inspect();
+                require_inspection_owner(supplied);
+                return selected; // Enclosing fixed body must finish before output.
+            }
+            if (!original_child || !publication_confirmed || original_source_context.empty() ||
+                restoration_record_observers.empty())
+                return inspect();
+            // Only the adjacent actual TX/history reads are composed. No
+            // supplied recovery callback, injector or effect enters this body.
+            PrefixReadRecipe recipe(*this);
+            auto selected = inspect();
+            recipe.finish(selected.first, selected.second);
+            return selected;
+        }();
+        require_inspection_owner(supplied);
+        output_transaction = std::move(result.first);
+        output_history = std::move(result.second);
     }
     MaintenanceContinuationInspection inspect_continuation(const transaction::TransactionSpec& supplied) const {
         require_inspection_owner(supplied);

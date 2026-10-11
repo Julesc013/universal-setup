@@ -3582,22 +3582,39 @@ audit::AuditInput maintenance_audit_postimage(const transaction::TransactionSpec
         input.at("message").as_string()};
 }
 
+static std::pair<transaction::RecoveryInspection, transaction::MaintenanceEffectInspection>
+inspect_recovery_prefix(const transaction::TransactionSpec& spec)
+{
+    std::pair<transaction::RecoveryInspection, transaction::MaintenanceEffectInspection> result;
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+    if (transaction::detail::inspect_current_native_maintenance_prefix(spec, result.first, result.second))
+        return result;
+#endif
+    // Exact ordinary pair and order. Metadata outputs confer no authority;
+    // each supplied owner callback still runs separately at its original point.
+    result.first = transaction::TransactionSession::inspect_recovery(spec);
+    result.second = transaction::MaintenanceEffectJournal::inspect(spec, result.first.stream_source_digest);
+    return result;
+}
+
 MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transaction::TransactionSpec& spec,
     const std::string& expected_transaction_snapshot_sha256, const std::string& expected_history_digest,
     const MaintenanceRecoveryOperations& operations, transaction::FaultInjector injector)
 {
     if (!operations.require_authority || !operations.apply_effect || !sha256(expected_transaction_snapshot_sha256) ||
         !sha256(expected_history_digest)) throw std::runtime_error("maintenance recovery has no operation-owned backend or exact snapshot");
-    const auto transaction = transaction::TransactionSession::inspect_recovery(spec);
-    const auto history = transaction::MaintenanceEffectJournal::inspect(spec, transaction.stream_source_digest);
+    const auto initial_prefix = inspect_recovery_prefix(spec);
+    const auto& transaction = initial_prefix.first;
+    const auto& history = initial_prefix.second;
     if (transaction.snapshot_sha256 != expected_transaction_snapshot_sha256 || history.journal_digest != expected_history_digest ||
         history.sealed || history.pending_kind.empty() || !transaction.commit_started ||
         (transaction.current_state != "committing" && transaction.current_state != "committed" &&
          transaction.current_state != "recovery_required"))
         throw std::runtime_error("maintenance recovery snapshot changed or transaction is not resumable");
     const auto pin = [&] {
-        const auto current = transaction::TransactionSession::inspect_recovery(spec);
-        const auto effects = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+        const auto current_prefix = inspect_recovery_prefix(spec);
+        const auto& current = current_prefix.first;
+        const auto& effects = current_prefix.second;
         if (current.snapshot_sha256 != transaction.snapshot_sha256 || effects.journal_digest != history.journal_digest)
             throw std::runtime_error("maintenance recovery changed during its pending effect");
         operations.require_authority(spec, current, effects);
@@ -3631,8 +3648,9 @@ MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transac
     pin();
     auto records = transaction::MaintenanceEffectJournal::resume(spec, history.source_digest, history.journal_digest);
     records->complete_effect(outcome, observation.result_digest);
-    const auto current = transaction::TransactionSession::inspect_recovery(spec);
-    const auto completed = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+    const auto completed_prefix = inspect_recovery_prefix(spec);
+    const auto& current = completed_prefix.first;
+    const auto& completed = completed_prefix.second;
     if (current.snapshot_sha256 != transaction.snapshot_sha256 || completed.source_context != history.source_context ||
         completed.sealed || !completed.pending_kind.empty() || completed.completed_effects != history.completed_effects + 1u ||
         completed.next_sequence != history.next_sequence + 1u)
@@ -3648,15 +3666,17 @@ transaction::RecoveryInspection recover_maintenance_transaction(const transactio
 {
     if (!operations.require_authority || !operations.apply_effect || !sha256(expected_transaction_snapshot_sha256) ||
         !sha256(expected_history_digest)) throw std::runtime_error("maintenance continuation has no operation owner or exact snapshot");
-    const auto initial = transaction::TransactionSession::inspect_recovery(spec);
-    const auto initial_history = transaction::MaintenanceEffectJournal::inspect(spec, initial.stream_source_digest);
+    const auto initial_prefix = inspect_recovery_prefix(spec);
+    const auto& initial = initial_prefix.first;
+    const auto& initial_history = initial_prefix.second;
     if (initial.snapshot_sha256 != expected_transaction_snapshot_sha256 || initial_history.journal_digest != expected_history_digest ||
         !initial.commit_started || (initial.current_state != "committing" && initial.current_state != "committed" &&
             initial.current_state != "recovery_required" && initial.current_state != "completed"))
         throw std::runtime_error("maintenance continuation snapshot changed or has not begun committing");
     const auto require_owner = [&] {
-        const auto current = transaction::TransactionSession::inspect_recovery(spec);
-        const auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+        const auto current_prefix = inspect_recovery_prefix(spec);
+        const auto& current = current_prefix.first;
+        const auto& history = current_prefix.second;
         if (current.stream_source_context != initial.stream_source_context || history.source_context != initial_history.source_context)
             throw std::runtime_error("maintenance continuation changed its original context");
         operations.require_authority(spec, current, history);
@@ -3679,8 +3699,9 @@ transaction::RecoveryInspection recover_maintenance_transaction(const transactio
     for (std::size_t pass = 0; pass < 200004u; ++pass) {
         auto selected = inspect_maintenance_continuation(spec);
         require_owner();
-        auto current = transaction::TransactionSession::inspect_recovery(spec);
-        auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+        auto current_prefix = inspect_recovery_prefix(spec);
+        auto& current = current_prefix.first;
+        auto& history = current_prefix.second;
         if (current.snapshot_sha256 != selected.transaction_snapshot_sha256 || history.journal_digest != selected.history_digest)
             throw std::runtime_error("maintenance selected continuation changed before its effect");
         const bool cleanup = (selected.next_kind == "remove_file" || selected.next_kind == "remove_directory") &&
