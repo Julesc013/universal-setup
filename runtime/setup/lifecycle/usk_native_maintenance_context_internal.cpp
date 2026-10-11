@@ -2320,6 +2320,29 @@ struct NativeMaintenanceContext::Impl {
         native_custody_digest.swap(next_digest);
         native_custody_bytes += text.size(); ++native_custody_sequence;
     }
+    transaction::MaintenanceEffectInspection inspect_pending_read_only(const std::string& kind) const {
+        // Fixed metadata/grammar selection only. This private result is not an
+        // authority grant; its caller must finish the complete fresh fence.
+        // Native file/record observations keep their own completed proofs.
+        const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+        const auto current = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest, true);
+        const auto artifact = read_maintenance_reviewed_plan(spec);
+        const auto next = inspect_maintenance_continuation(spec);
+        const auto source = json::parse(current.source_context);
+        const auto& snapshot = original_context.record().at("reviewed_snapshot");
+        if (current.pending_kind != kind || !next.pending || next.next_kind != kind ||
+            next.history_digest != current.journal_digest || !equal(next.next_details, current.pending_details) ||
+            tx.stream_source_context != current.source_context ||
+            !equal(artifact.at("reviewed_plan"), snapshot.at("reviewed_plan")) ||
+            source.at("install_id").as_string() != snapshot.at("install_id").as_string() ||
+            source.at("original_installed_transaction_id").as_string() != snapshot.at("installed_state").at("transaction_id").as_string() ||
+            source.at("applied_at").as_string() != snapshot.at("apply_request").at("applied_at").as_string() ||
+            normalized(fs::u8path(source.at("installed_root").at("root").as_string())) !=
+                normalized(fs::u8path(snapshot.at("installed_state").at("target_root").as_string())) ||
+            source.at("installed_root").at("native_identity").as_string() != original_root_identity)
+            throw std::runtime_error("native maintenance payload lost its original reviewed next intent");
+        return current;
+    }
     transaction::MaintenanceEffectInspection require_pending(const std::string& kind,
         const Entry* leading_entry = nullptr) const {
         // A caller's adjacent parent check is a descriptor-only part of the
@@ -2337,24 +2360,7 @@ struct NativeMaintenanceContext::Impl {
         // cold query failure. Former separate sampling instants are unclaimed.
         const auto history = [&] {
             try {
-                const auto tx = transaction::TransactionSession::inspect_recovery(spec);
-                const auto current = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest, true);
-                const auto artifact = read_maintenance_reviewed_plan(spec);
-                const auto next = inspect_maintenance_continuation(spec);
-                const auto source = json::parse(current.source_context);
-                const auto& snapshot = original_context.record().at("reviewed_snapshot");
-                if (current.pending_kind != kind || !next.pending || next.next_kind != kind ||
-                    next.history_digest != current.journal_digest || !equal(next.next_details, current.pending_details) ||
-                    tx.stream_source_context != current.source_context ||
-                    !equal(artifact.at("reviewed_plan"), snapshot.at("reviewed_plan")) ||
-                    source.at("install_id").as_string() != snapshot.at("install_id").as_string() ||
-                    source.at("original_installed_transaction_id").as_string() != snapshot.at("installed_state").at("transaction_id").as_string() ||
-                    source.at("applied_at").as_string() != snapshot.at("apply_request").at("applied_at").as_string() ||
-                    normalized(fs::u8path(source.at("installed_root").at("root").as_string())) !=
-                        normalized(fs::u8path(snapshot.at("installed_state").at("target_root").as_string())) ||
-                    source.at("installed_root").at("native_identity").as_string() != original_root_identity)
-                    throw std::runtime_error("native maintenance payload lost its original reviewed next intent");
-                return current;
+                return inspect_pending_read_only(kind);
             } catch (...) {
                 // Native file observation already latches any begun failed
                 // entry/record scope. Propagate it without another scope.
@@ -2572,12 +2578,15 @@ struct NativeMaintenanceContext::Impl {
                 {"native_identity", Value(journal_identity(entry.handle.value))}, {"consumer_sid", Value(original_consumer_sid)}}));
         } catch (...) { custody_failed = true; throw; }
     }
+    bool consumer_completion_required(const transaction::MaintenanceEffectInspection& history) const {
+        return !original_consumer_sid.empty() &&
+            ((spec.operation == "repair" && history.pending_kind == "replace_file") ||
+             (spec.operation == "move" && history.pending_kind == "publish_target"));
+    }
     void complete_consumer_access(const transaction::MaintenanceEffectInspection& history) {
-        if (!((spec.operation == "repair" && history.pending_kind == "replace_file") ||
-              (spec.operation == "move" && history.pending_kind == "publish_target"))) return;
         // A validated legacy completion has no reader policy to extend.
         // Namespace/creator confirmation remains mandatory in its caller.
-        if (original_consumer_sid.empty()) return;
+        if (!consumer_completion_required(history)) return;
         (void)require_pending(history.pending_kind);
         const auto tx = transaction::TransactionSession::inspect_recovery(spec);
         try {
@@ -2717,28 +2726,57 @@ struct NativeMaintenanceContext::Impl {
     void confirm_effect_completion(const transaction::TransactionSpec& supplied,
         const transaction::MaintenanceEffectInspection& inspected, const std::string& outcome,
         const std::string& result_digest, bool complete_grants = true) {
-        require_same_transaction(supplied); // The following require_pending encloses the full fresh checks.
-        const auto current = require_pending(inspected.pending_kind);
-        const auto tx = transaction::TransactionSession::inspect_recovery(spec);
-        if (current.pending_kind == "publish_target") {
+        require_same_transaction(supplied);
+        // Only a fixed original-child confirmation with no possible reader
+        // grant can compose its metadata/grammar checks before the full final
+        // authority fence. No effect, arbitrary callback, saved observation or
+        // authority result spans this group. SCM and grant-producing completion
+        // retain their original leading require_pending and trailing fences.
+        // Former separate read-only sampling instants are unclaimed.
+        const bool read_only = original_child &&
+            (!complete_grants || !consumer_completion_required(inspected));
+        const auto current = [&] {
+            if (!read_only) return require_pending(inspected.pending_kind);
+            try {
+                if (GetCurrentProcessId() != worker_context.process_id ||
+                    (cancel_event && WaitForSingleObject(cancel_event, 0) != WAIT_TIMEOUT))
+                    throw std::runtime_error("native maintenance worker stopped or changed");
+                return inspect_pending_read_only(inspected.pending_kind);
+            } catch (...) {
+                if (!entry_readback_failed) require_authority(supplied);
+                throw;
+            }
+        }();
+        const auto validate = [&] {
+            const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+            if (current.pending_kind == "publish_target") {
+                if (current.journal_digest != inspected.journal_digest || !equal(current.pending_details, inspected.pending_details) ||
+                    !publication_confirmed || !staging || outcome != "applied" || !result_digest.empty())
+                    throw std::runtime_error("native maintenance publication completion lacks its original confirmed custody");
+                transaction::TransactionSession::require_recovery_transition_extension(spec,
+                    *publication_transaction_text, publication_transaction_sha256, tx.snapshot_sha256);
+                require_entry(*staging);
+                for (const auto& file : files) require_bytes(*file.second);
+                return;
+            }
+            const auto found = payload_outcomes.find(current.journal_digest);
             if (current.journal_digest != inspected.journal_digest || !equal(current.pending_details, inspected.pending_details) ||
-                !publication_confirmed || !staging || outcome != "applied" || !result_digest.empty())
-                throw std::runtime_error("native maintenance publication completion lacks its original confirmed custody");
+                found == payload_outcomes.end() || !found->second->confirmed || found->second->outcome != outcome ||
+                (!found->second->result_digest.empty() && found->second->result_digest != result_digest))
+                throw std::runtime_error("native maintenance completion has no actual owned confirmed outcome");
             transaction::TransactionSession::require_recovery_transition_extension(spec,
-                *publication_transaction_text, publication_transaction_sha256, tx.snapshot_sha256);
-            require_entry(*staging);
-            for (const auto& file : files) require_bytes(*file.second);
-            if (complete_grants) complete_consumer_access(current);
-            require_authority(supplied);
-            return;
+                *found->second->transaction_text, found->second->transaction_sha256, tx.snapshot_sha256);
+        };
+        try {
+            validate();
+            if (read_only && complete_grants && consumer_completion_required(current))
+                throw std::runtime_error("native maintenance read-only completion cannot issue a reader grant");
+        } catch (...) {
+            // Complete refusal precedence on a cold read-only failure. A begun
+            // failed record/entry proof is sticky and can never be retried.
+            if (read_only && !entry_readback_failed) require_authority(supplied);
+            throw;
         }
-        const auto found = payload_outcomes.find(current.journal_digest);
-        if (current.journal_digest != inspected.journal_digest || !equal(current.pending_details, inspected.pending_details) ||
-            found == payload_outcomes.end() || !found->second->confirmed || found->second->outcome != outcome ||
-            (!found->second->result_digest.empty() && found->second->result_digest != result_digest))
-            throw std::runtime_error("native maintenance completion has no actual owned confirmed outcome");
-        transaction::TransactionSession::require_recovery_transition_extension(spec,
-            *found->second->transaction_text, found->second->transaction_sha256, tx.snapshot_sha256);
         if (complete_grants) complete_consumer_access(current);
         // No observed-postcondition or newly resumed journal can fabricate an
         // outcome. Restored native creator/ended-holder proof remains absent
@@ -2791,6 +2829,11 @@ struct NativeMaintenanceContext::Impl {
                         if (actual == payload_outcomes.end() || !actual->second->confirmed)
                             throw std::runtime_error("native maintenance postcondition lacks its actual confirmed outcome");
                         confirm_effect_completion(supplied, history, actual->second->outcome, observation.result_digest, false);
+                        // This fixed no-grant confirmation ends with the full
+                        // fresh authority fence. It is the final action in the
+                        // original-child query-only callback; return directly
+                        // without another adjacent proof or retained grant.
+                        if (original_child) return;
                     }
                 }
             }
