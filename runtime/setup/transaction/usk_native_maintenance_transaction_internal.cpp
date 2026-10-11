@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "usk_native_maintenance_transaction_internal.h"
 #if defined(_WIN32)
+#include "usk_maintenance_inspection_internal.h"
 #include "usk_json.h"
 #include "usk_sha256.h"
 #include <algorithm>
@@ -9,6 +10,7 @@
 #include <stdexcept>
 #include <exception>
 #include <sstream>
+#include <utility>
 namespace usk::transaction::detail {
 namespace {
 thread_local const NativeMaintenanceTransactionOperations* active_operations = nullptr;
@@ -28,6 +30,7 @@ ScopedNativeMaintenanceTransaction::ScopedNativeMaintenanceTransaction(
     if (active_operations || !operations.require_authority || !operations.persist_journal || !operations.create_staging_root ||
         !operations.ensure_stream_parent || !operations.open_stream || !operations.require_stream ||
         !operations.finish_stream || !operations.observe_commit_closure || !operations.observe_file ||
+        !operations.inspect_continuation || !operations.reconcile_effect ||
         !operations.commit || !operations.apply_effect || !operations.confirm_effect_completion)
         throw std::runtime_error("native maintenance transaction owner is absent, incomplete or nested");
     // A distinct control block identifies this lifetime even if an operations
@@ -50,6 +53,38 @@ std::optional<NativeMaintenanceFileObservation> observe_current_native_maintenan
     if (active_binding.expired() || !active_operations->observe_file)
         throw std::runtime_error("native maintenance file observer lost its original owner; no pathname fallback");
     return active_operations->observe_file(path);
+}
+bool inspect_current_native_maintenance_continuation(const TransactionSpec& spec,
+    lifecycle::detail::MaintenanceContinuationInspection& output) {
+    if (!active_operations) return false;
+    const auto* operations = active_operations;
+    const auto original = active_binding;
+    require_native_maintenance_origin_binding(true, original, active_binding);
+    if (!operations->inspect_continuation)
+        throw std::runtime_error("native maintenance continuation lost its original reader; no fallback");
+    lifecycle::detail::MaintenanceContinuationInspection result;
+    operations->inspect_continuation(spec, result);
+    require_native_maintenance_origin_binding(true, original, active_binding);
+    if (active_operations != operations)
+        throw std::runtime_error("native maintenance continuation changed its original operations");
+    output = std::move(result);
+    return true;
+}
+bool reconcile_current_native_maintenance_effect(const TransactionSpec& spec,
+    lifecycle::detail::MaintenanceEffectReconciliation& output) {
+    if (!active_operations) return false;
+    const auto* operations = active_operations;
+    const auto original = active_binding;
+    require_native_maintenance_origin_binding(true, original, active_binding);
+    if (!operations->reconcile_effect)
+        throw std::runtime_error("native maintenance reconciliation lost its original reader; no fallback");
+    lifecycle::detail::MaintenanceEffectReconciliation result;
+    operations->reconcile_effect(spec, result);
+    require_native_maintenance_origin_binding(true, original, active_binding);
+    if (active_operations != operations)
+        throw std::runtime_error("native maintenance reconciliation changed its original operations");
+    output = std::move(result);
+    return true;
 }
 void require_native_maintenance_journal_binding(const TransactionSpec& spec,
     const std::filesystem::path& path, const std::string& content,

@@ -3486,6 +3486,15 @@ static MaintenanceContinuationInspection inspect_maintenance_prefix(const transa
 
 MaintenanceContinuationInspection inspect_maintenance_continuation(const transaction::TransactionSpec& spec)
 {
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+    MaintenanceContinuationInspection result;
+    if (transaction::detail::inspect_current_native_maintenance_continuation(spec, result)) return result;
+#endif
+    return inspect_maintenance_continuation_unscoped(spec);
+}
+
+MaintenanceContinuationInspection inspect_maintenance_continuation_unscoped(const transaction::TransactionSpec& spec)
+{
     return inspect_maintenance_prefix(spec, false);
 }
 
@@ -3727,6 +3736,15 @@ transaction::RecoveryInspection recover_maintenance_transaction(const transactio
 }
 
 MaintenanceEffectReconciliation reconcile_maintenance_effect(const transaction::TransactionSpec& spec)
+{
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+    MaintenanceEffectReconciliation result;
+    if (transaction::detail::reconcile_current_native_maintenance_effect(spec, result)) return result;
+#endif
+    return reconcile_maintenance_effect_unscoped(spec);
+}
+
+MaintenanceEffectReconciliation reconcile_maintenance_effect_unscoped(const transaction::TransactionSpec& spec)
 {
     const auto transaction = transaction::TransactionSession::inspect_recovery(spec);
     const auto history = transaction::MaintenanceEffectJournal::inspect(spec, transaction.stream_source_digest);

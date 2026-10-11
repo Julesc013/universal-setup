@@ -4,6 +4,7 @@
 #define USK_MAINTENANCE_RECOVERY_INTERNAL_H
 
 #include "usk_transaction_session.h"
+#include "usk_maintenance_inspection_internal.h"
 #include "usk_maintenance_effect_journal.h"
 #include "usk_state_repository.h"
 #include "usk_audit_repository.h"
@@ -11,14 +12,6 @@
 #include <string>
 
 namespace usk::lifecycle::detail {
-
-struct MaintenanceEffectReconciliation {
-    std::string state = "indeterminate";
-    std::string pending_kind;
-    std::string source_digest;
-    std::string history_digest;
-    std::string result_digest;
-};
 
 // Read-only comparison with the original immutable context and actual retained
 // objects. compatible_before_effect / compatible_after_effect describe current
@@ -33,16 +26,6 @@ MaintenanceEffectReconciliation reconcile_maintenance_effect(
 // record confers no native custody, replay or current-revision authority.
 json::Value read_maintenance_reviewed_plan(const transaction::TransactionSpec& spec);
 
-struct MaintenanceContinuationInspection {
-    std::string transaction_snapshot_sha256;
-    std::string history_digest;
-    std::string next_kind;
-    json::Value next_details;
-    bool pending = false;
-    bool effects_complete = false;
-    bool sealed = false;
-};
-
 // Selects the next original reviewed effect from the exact completed prefix,
 // original owned observations and creation-handle stream identities. Missing
 // sources, skipped effects and conflicting observations refuse. Read-only;
@@ -56,6 +39,13 @@ MaintenanceContinuationInspection inspect_maintenance_continuation(
 // lease membership or mutation authority; the native reader supplies those
 // separate protected-record observations before reporting an old completion.
 MaintenanceContinuationInspection inspect_completed_maintenance_history(
+    const transaction::TransactionSpec& spec);
+
+// Exact old pure bodies for the private native inspection adapter. They never
+// dispatch another scope; their ordinary protected reads retain all fences.
+MaintenanceContinuationInspection inspect_maintenance_continuation_unscoped(
+    const transaction::TransactionSpec& spec);
+MaintenanceEffectReconciliation reconcile_maintenance_effect_unscoped(
     const transaction::TransactionSpec& spec);
 
 // Internal operation-local backend, supplied by the owner of the native

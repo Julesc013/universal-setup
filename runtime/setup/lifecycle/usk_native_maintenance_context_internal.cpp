@@ -192,8 +192,8 @@ struct NativeMaintenanceContext::Impl {
     // composition. Descriptor-only roles stay outside the original byte-read
     // record vector; the fixed owned-file query remains a distinct role.
     class RecipeQueryRead;
-    // Activation is private to the fixed recovery and published pending
-    // selections below. No generic bypass or scope spans an effect/callback.
+    // Activation is private to fixed recovery, pending and pure inspection
+    // bodies below. No generic bypass or scope spans an effect/callback.
     class PrefixReadRecipe final {
     private:
         friend struct Impl;
@@ -1103,6 +1103,12 @@ struct NativeMaintenanceContext::Impl {
             return observe_created_closure(s, p, files);
         };
         operations.observe_file = [this](const auto& p) { return observe_owned_file(p); };
+        operations.inspect_continuation = [this](const auto& s, auto& result) {
+            result = inspect_continuation(s);
+        };
+        operations.reconcile_effect = [this](const auto& s, auto& result) {
+            result = reconcile_effect(s);
+        };
         operations.commit = [this](const auto& s, const auto& p, const auto& id, const auto& closure) { commit(s, p, id, closure); };
         operations.apply_effect = [this](const auto& s, const auto& history) { return apply_effect(s, history); };
         operations.confirm_effect_completion = [this](const auto& s, const auto& history,
@@ -1464,6 +1470,59 @@ struct NativeMaintenanceContext::Impl {
             normalized(supplied.target_root) != normalized(spec.target_root) || normalized(supplied.state_root) != normalized(spec.state_root) ||
             normalized(supplied.audit_root) != normalized(spec.audit_root) || supplied.required_commit_authority != spec.required_commit_authority)
             throw std::runtime_error("native maintenance callback received a different transaction");
+    }
+    void require_inspection_owner(const transaction::TransactionSpec& supplied) const {
+        require_same_transaction(supplied);
+        using Scope = transaction::detail::ScopedNativeMaintenanceTransaction;
+        const auto binding = Scope::current_binding();
+        transaction::detail::require_native_maintenance_origin_binding(true, binding, Scope::current_binding());
+        if (Scope::current() != &operations ||
+            record_io::ScopedNativeRecordReadOperations::current() != &record_reads)
+            throw std::runtime_error("native maintenance inspection lost its original TLS owner");
+        if (active_read_recipe) active_read_recipe->require_active();
+    }
+    MaintenanceContinuationInspection inspect_continuation(const transaction::TransactionSpec& supplied) const {
+        require_inspection_owner(supplied);
+        if (active_read_recipe) {
+            // A fixed nested body stays inside the enclosing recipe. Its owner
+            // finishes the full proof before any external output or effect.
+            auto result = inspect_maintenance_continuation_unscoped(spec);
+            require_inspection_owner(supplied);
+            return result;
+        }
+        if (!original_child || !publication_confirmed || original_source_context.empty() ||
+            restoration_record_observers.empty())
+            return inspect_maintenance_continuation_unscoped(spec);
+        PrefixReadRecipe recipe(*this);
+        const auto current = transaction::TransactionSession::inspect_recovery(spec);
+        const auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+        auto result = inspect_maintenance_continuation_unscoped(spec);
+        if (result.transaction_snapshot_sha256 != current.snapshot_sha256 || result.history_digest != history.journal_digest)
+            throw std::runtime_error("native maintenance continuation changed its exact inspected prefix");
+        recipe.finish(current, history);
+        return result;
+    }
+    MaintenanceEffectReconciliation reconcile_effect(const transaction::TransactionSpec& supplied) const {
+        require_inspection_owner(supplied);
+        if (active_read_recipe) {
+            auto result = reconcile_maintenance_effect_unscoped(spec);
+            require_inspection_owner(supplied);
+            return result;
+        }
+        if (!original_child || !publication_confirmed || original_source_context.empty() ||
+            restoration_record_observers.empty())
+            return reconcile_maintenance_effect_unscoped(spec);
+        PrefixReadRecipe recipe(*this);
+        const auto current = transaction::TransactionSession::inspect_recovery(spec);
+        const auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+        auto result = reconcile_maintenance_effect_unscoped(spec);
+        if (result.source_digest != history.source_digest || result.history_digest != history.journal_digest ||
+            result.pending_kind != history.pending_kind)
+            throw std::runtime_error("native maintenance reconciliation changed its exact inspected prefix");
+        // Includes indeterminate and no-pending returns. A swallowed native
+        // read failure is sticky and cannot escape the mandatory exit proof.
+        recipe.finish(current, history);
+        return result;
     }
     std::string require_authority_state(const transaction::TransactionSpec& supplied) const {
         // These current state predicates cannot grant native access or an
