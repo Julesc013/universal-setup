@@ -2731,6 +2731,20 @@ struct NativeMaintenanceContext::Impl {
             return {outcome, result_digest};
         } catch (...) { payload_failed = true; throw; }
     }
+    void require_confirmed_payload_completion(const transaction::RecoveryInspection& tx,
+        const transaction::MaintenanceEffectInspection& current,
+        const transaction::MaintenanceEffectInspection& inspected, const std::string& outcome,
+        const std::string& result_digest) const {
+        // Fixed metadata/outcome predicates only. This private helper neither
+        // selects a native object nor supplies authority, grants or effects.
+        const auto found = payload_outcomes.find(current.journal_digest);
+        if (current.journal_digest != inspected.journal_digest || !equal(current.pending_details, inspected.pending_details) ||
+            found == payload_outcomes.end() || !found->second->confirmed || found->second->outcome != outcome ||
+            (!found->second->result_digest.empty() && found->second->result_digest != result_digest))
+            throw std::runtime_error("native maintenance completion has no actual owned confirmed outcome");
+        transaction::TransactionSession::require_recovery_transition_extension(spec,
+            *found->second->transaction_text, found->second->transaction_sha256, tx.snapshot_sha256);
+    }
     void confirm_effect_completion(const transaction::TransactionSpec& supplied,
         const transaction::MaintenanceEffectInspection& inspected, const std::string& outcome,
         const std::string& result_digest, bool complete_grants = true) {
@@ -2767,13 +2781,7 @@ struct NativeMaintenanceContext::Impl {
                 for (const auto& file : files) require_bytes(*file.second);
                 return;
             }
-            const auto found = payload_outcomes.find(current.journal_digest);
-            if (current.journal_digest != inspected.journal_digest || !equal(current.pending_details, inspected.pending_details) ||
-                found == payload_outcomes.end() || !found->second->confirmed || found->second->outcome != outcome ||
-                (!found->second->result_digest.empty() && found->second->result_digest != result_digest))
-                throw std::runtime_error("native maintenance completion has no actual owned confirmed outcome");
-            transaction::TransactionSession::require_recovery_transition_extension(spec,
-                *found->second->transaction_text, found->second->transaction_sha256, tx.snapshot_sha256);
+            require_confirmed_payload_completion(tx, current, inspected, outcome, result_digest);
         };
         try {
             validate();
@@ -2847,12 +2855,31 @@ struct NativeMaintenanceContext::Impl {
                         const auto actual = payload_outcomes.find(history.journal_digest);
                         if (actual == payload_outcomes.end() || !actual->second->confirmed)
                             throw std::runtime_error("native maintenance postcondition lacks its actual confirmed outcome");
+                        if (original_child) {
+                            // The same fixed query-only callback already selected
+                            // and validated the entire prefix above. Reconcile
+                            // performs no effect or grant. Recheck its metadata
+                            // freshness and identical completion predicates here;
+                            // finish the complete fresh authority proof before
+                            // returning. No saved selection spans an effect.
+                            // Former second-prefix sampling instants/repeated
+                            // native queries are unclaimed; every actual native
+                            // file/record query retains its full completed proof.
+                            const auto after = transaction::TransactionSession::inspect_recovery(spec);
+                            const auto after_history = transaction::MaintenanceEffectJournal::inspect(spec, after.stream_source_digest);
+                            if (after.snapshot_sha256 != current.snapshot_sha256 ||
+                                after_history.journal_digest != history.journal_digest ||
+                                observation.source_digest != history.source_digest ||
+                                observation.history_digest != history.journal_digest ||
+                                observation.pending_kind != history.pending_kind)
+                                throw std::runtime_error("native maintenance completion changed its selected recovery prefix");
+                            require_pending_selection(history.pending_kind, after, after_history, artifact, selected);
+                            require_confirmed_payload_completion(after, after_history, history,
+                                actual->second->outcome, observation.result_digest);
+                            require_authority(supplied);
+                            return; // Full fresh proof completed; no grant was issued.
+                        }
                         confirm_effect_completion(supplied, history, actual->second->outcome, observation.result_digest, false);
-                        // This fixed no-grant confirmation ends with the full
-                        // fresh authority fence. It is the final action in the
-                        // original-child query-only callback; return directly
-                        // without another adjacent proof or retained grant.
-                        if (original_child) return;
                     }
                 }
             }
