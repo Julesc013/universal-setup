@@ -192,8 +192,8 @@ struct NativeMaintenanceContext::Impl {
     // composition. Descriptor-only roles stay outside the original byte-read
     // record vector; the fixed owned-file query remains a distinct role.
     class RecipeQueryRead;
-    // Activation is private to the fixed recovery selection below. This is
-    // neither a generic authority bypass nor a scope around effects/callbacks.
+    // Activation is private to the fixed recovery and published pending
+    // selections below. No generic bypass or scope spans an effect/callback.
     class PrefixReadRecipe final {
     private:
         friend struct Impl;
@@ -2447,6 +2447,18 @@ struct NativeMaintenanceContext::Impl {
         // no pending result escapes before the mandatory full fence below.
         // Keep SCM/adjacent-entry prechecks, and full authority precedence on a
         // cold query failure. Former separate sampling instants are unclaimed.
+        // This fixed published-original selection performs only actual
+        // metadata/file observations. Complete every query proof and the
+        // actual original-record entry/exit ledger before returning a result.
+        // Leading-entry checks above stay complete; other routes stay full.
+        if (original_child && publication_confirmed && !original_source_context.empty() &&
+            !restoration_record_observers.empty() && !active_read_recipe) {
+            PrefixReadRecipe recipe(*this);
+            const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+            const auto current = inspect_pending_read_only(kind);
+            recipe.finish(tx, current);
+            return current; // No native effect or grant crossed this recipe.
+        }
         const auto history = [&] {
             try {
                 return inspect_pending_read_only(kind);
@@ -3254,14 +3266,11 @@ void NativeMaintenanceContext::Impl::PrefixReadRecipe::require_active() const {
 void NativeMaintenanceContext::Impl::PrefixReadRecipe::finish(const transaction::RecoveryInspection& current,
     const transaction::MaintenanceEffectInspection& history) {
     if (active_) {
-        try { require_active(); }
-        catch (...) { owner_.entry_readback_failed = true; throw; }
-        // Tear down before the full global exit proof; it cannot use a query
-        // marker or saved observation as authority, including its text reads.
-        owner_.active_read_recipe = nullptr;
-        active_ = false;
         try {
-            owner_.require_authority(owner_.spec);
+            require_active();
+            // Keep the final actual TX/history reads inside the same sealed
+            // effect-free query composition. Each read retains its full native
+            // and selected-security proof; no result has escaped this recipe.
             const auto after = transaction::TransactionSession::inspect_recovery(owner_.spec);
             const auto effects = transaction::MaintenanceEffectJournal::inspect(owner_.spec, after.stream_source_digest);
             if (after.snapshot_sha256 != current.snapshot_sha256 ||
@@ -3271,6 +3280,13 @@ void NativeMaintenanceContext::Impl::PrefixReadRecipe::finish(const transaction:
                 after.stream_source_context != owner_.original_source_context ||
                 effects.source_context != owner_.original_source_context)
                 throw std::runtime_error("native maintenance read-only recipe changed its exact recovery prefix");
+            require_active();
+            // Dismantle before the complete actual original-record/global exit
+            // proof. It cannot consume a recipe marker or saved authority.
+            // Earlier separate late sampling instants/error order are unclaimed.
+            owner_.active_read_recipe = nullptr;
+            active_ = false;
+            owner_.require_authority(owner_.spec);
         } catch (...) { owner_.entry_readback_failed = true; throw; }
     } else owner_.require_authority(owner_.spec); // SCM/ordinary routes stay full.
 }
