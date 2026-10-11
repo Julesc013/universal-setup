@@ -2320,14 +2320,12 @@ struct NativeMaintenanceContext::Impl {
         native_custody_digest.swap(next_digest);
         native_custody_bytes += text.size(); ++native_custody_sequence;
     }
-    transaction::MaintenanceEffectInspection inspect_pending_read_only(const std::string& kind) const {
-        // Fixed metadata/grammar selection only. This private result is not an
-        // authority grant; its caller must finish the complete fresh fence.
-        // Native file/record observations keep their own completed proofs.
-        const auto tx = transaction::TransactionSession::inspect_recovery(spec);
-        const auto current = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest, true);
-        const auto artifact = read_maintenance_reviewed_plan(spec);
-        const auto next = inspect_maintenance_continuation(spec);
+    void require_pending_selection(const std::string& kind,
+        const transaction::RecoveryInspection& tx,
+        const transaction::MaintenanceEffectInspection& current,
+        const Value& artifact, const MaintenanceContinuationInspection& next) const {
+        // Fixed metadata/grammar predicates only. Inputs come from this owner's
+        // adjacent read-only queries; no authority or result escapes this helper.
         const auto source = json::parse(current.source_context);
         const auto& snapshot = original_context.record().at("reviewed_snapshot");
         if (current.pending_kind != kind || !next.pending || next.next_kind != kind ||
@@ -2341,6 +2339,16 @@ struct NativeMaintenanceContext::Impl {
                 normalized(fs::u8path(snapshot.at("installed_state").at("target_root").as_string())) ||
             source.at("installed_root").at("native_identity").as_string() != original_root_identity)
             throw std::runtime_error("native maintenance payload lost its original reviewed next intent");
+    }
+    transaction::MaintenanceEffectInspection inspect_pending_read_only(const std::string& kind) const {
+        // Fixed metadata/grammar selection only. This private result is not an
+        // authority grant; its caller must finish the complete fresh fence.
+        // Native file/record observations keep their own completed proofs.
+        const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+        const auto current = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest, true);
+        const auto artifact = read_maintenance_reviewed_plan(spec);
+        const auto next = inspect_maintenance_continuation(spec);
+        require_pending_selection(kind, tx, current, artifact, next);
         return current;
     }
     transaction::MaintenanceEffectInspection require_pending(const std::string& kind,
@@ -2807,9 +2815,11 @@ struct NativeMaintenanceContext::Impl {
                 history.pending_sequence != inspected_history.pending_sequence ||
                 history.pending_kind != inspected_history.pending_kind ||
                 !equal(history.pending_details, inspected_history.pending_details) ||
-                current.stream_source_context != original_source_context || history.source_context != original_source_context ||
-                !equal(read_maintenance_reviewed_plan(spec).at("reviewed_plan"),
-                    original_context.record().at("reviewed_snapshot").at("reviewed_plan")))
+                current.stream_source_context != original_source_context || history.source_context != original_source_context)
+                throw std::runtime_error("native maintenance recovery changed its original transaction or context");
+            const auto artifact = read_maintenance_reviewed_plan(spec);
+            if (!equal(artifact.at("reviewed_plan"),
+                original_context.record().at("reviewed_snapshot").at("reviewed_plan")))
                 throw std::runtime_error("native maintenance recovery changed its original transaction or context");
             transaction::TransactionSession::require_recovery_transition_extension(spec,
                 *publication_transaction_text, publication_transaction_sha256, current.snapshot_sha256);
@@ -2818,7 +2828,16 @@ struct NativeMaintenanceContext::Impl {
                 selected.history_digest != history.journal_digest)
                 throw std::runtime_error("native maintenance recovery changed its original complete prefix");
             if (!history.pending_kind.empty()) {
-                (void)require_pending(history.pending_kind);
+                // This callback's actual current/history/artifact/selection
+                // already precede reconciliation without an effect or arbitrary
+                // callback. Check the identical pending grammar against them;
+                // retain native observation proofs and the full final authority
+                // fence below. No saved result authorizes an effect. Former
+                // separate read-only sampling instants are unclaimed. SCM keeps
+                // its original independently fenced pending selection.
+                if (original_child)
+                    require_pending_selection(history.pending_kind, current, history, artifact, selected);
+                else (void)require_pending(history.pending_kind);
                 const auto observation = reconcile_maintenance_effect(spec);
                 if (observation.state == "compatible_after_effect") {
                     if (history.pending_kind == "publish_target") {
