@@ -1846,25 +1846,46 @@ struct NativeMaintenanceContext::Impl {
         require_authority(spec);
         if (normalized(path) != installed_record_path || installed_prepared || !publication_confirmed)
             throw std::runtime_error("native maintenance refuses an unrelated or repeated installed publication");
-        const auto tx = transaction::TransactionSession::inspect_recovery(spec);
-        const auto history = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest, true);
-        const auto& snapshot = original_context.record().at("reviewed_snapshot");
-        const auto source = json::parse(history.source_context);
-        const auto artifact = read_maintenance_reviewed_plan(spec);
-        const auto next = inspect_maintenance_continuation(spec);
-        if (tx.stream_source_context != history.source_context || history.pending_kind != "write_installed" ||
-            !next.pending || next.next_kind != "write_installed" || next.history_digest != history.journal_digest ||
-            !equal(artifact.at("reviewed_plan"), snapshot.at("reviewed_plan")) ||
-            source.at("install_id").as_string() != snapshot.at("install_id").as_string() ||
-            source.at("original_installed_transaction_id").as_string() != snapshot.at("installed_state").at("transaction_id").as_string() ||
-            source.at("original_installed_state_digest").as_string() != snapshot.at("reviewed_plan").at("installed_state_digest").as_string() ||
-            source.at("ownership_manifest_digest").as_string() != snapshot.at("ownership_manifest").at("manifest_digest").as_string() ||
-            source.at("applied_at").as_string() != snapshot.at("apply_request").at("applied_at").as_string())
-            throw std::runtime_error("native maintenance installed publication lost its original pending effect");
-        const auto expected = maintenance_installed_postimage(spec, history);
-        if (state::serialize_installed_state(expected) != text)
-            throw std::runtime_error("native maintenance installed bytes differ from the original reviewed postimage");
-        auto bindings = derive_publisher_maintenance_postimage_bindings(snapshot, json::parse(text));
+        struct PreparedSelection {
+            transaction::RecoveryInspection transaction;
+            transaction::MaintenanceEffectInspection history;
+            Value bindings;
+        };
+        // Only the fixed metadata/postimage selection is query-only. Its
+        // result stays local until the complete recipe exit; allocation of
+        // native custody, directory selection and state adoption remain below.
+        const auto inspect = [&] {
+            const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+            const auto history = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest, true);
+            const auto& snapshot = original_context.record().at("reviewed_snapshot");
+            const auto source = json::parse(history.source_context);
+            const auto artifact = read_maintenance_reviewed_plan(spec);
+            const auto next = inspect_maintenance_continuation(spec);
+            if (tx.stream_source_context != history.source_context || history.pending_kind != "write_installed" ||
+                !next.pending || next.next_kind != "write_installed" || next.history_digest != history.journal_digest ||
+                !equal(artifact.at("reviewed_plan"), snapshot.at("reviewed_plan")) ||
+                source.at("install_id").as_string() != snapshot.at("install_id").as_string() ||
+                source.at("original_installed_transaction_id").as_string() != snapshot.at("installed_state").at("transaction_id").as_string() ||
+                source.at("original_installed_state_digest").as_string() != snapshot.at("reviewed_plan").at("installed_state_digest").as_string() ||
+                source.at("ownership_manifest_digest").as_string() != snapshot.at("ownership_manifest").at("manifest_digest").as_string() ||
+                source.at("applied_at").as_string() != snapshot.at("apply_request").at("applied_at").as_string())
+                throw std::runtime_error("native maintenance installed publication lost its original pending effect");
+            const auto expected = maintenance_installed_postimage(spec, history);
+            if (state::serialize_installed_state(expected) != text)
+                throw std::runtime_error("native maintenance installed bytes differ from the original reviewed postimage");
+            return PreparedSelection{tx, history,
+                derive_publisher_maintenance_postimage_bindings(snapshot, json::parse(text))};
+        };
+        auto selected = [&] {
+            if (original_child && !original_source_context.empty() &&
+                !restoration_record_observers.empty() && !active_read_recipe) {
+                PrefixReadRecipe recipe(*this);
+                auto result = inspect();
+                recipe.finish(result.transaction, result.history);
+                return result;
+            }
+            return inspect();
+        }();
         auto owner = std::make_unique<Entry>(); // Allocate custody before the writer's native create.
         owner->directory = false; owner->created = true;
         installed_parent = &open_directory(installed_record_path.parent_path());
@@ -1872,8 +1893,8 @@ struct NativeMaintenanceContext::Impl {
         installed_record_text = text;
         base::Sha256 hash; hash.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
         installed_record_sha256 = hash.finish();
-        prepared_transaction_sha256 = tx.snapshot_sha256; prepared_history_sha256 = history.journal_digest;
-        installed_postimage_bindings = std::move(bindings);
+        prepared_transaction_sha256 = selected.transaction.snapshot_sha256; prepared_history_sha256 = selected.history.journal_digest;
+        installed_postimage_bindings = std::move(selected.bindings);
         installed_postimage_file = std::move(owner);
         installed_prepared = true;
         require_authority(spec);
@@ -2909,6 +2930,21 @@ struct NativeMaintenanceContext::Impl {
         // Former separate read-only sampling instants are unclaimed.
         const bool read_only = original_child &&
             (!complete_grants || !consumer_completion_required(inspected));
+        if (read_only && publication_confirmed && inspected.pending_kind != "publish_target" &&
+            !original_source_context.empty() && !restoration_record_observers.empty() && !active_read_recipe) {
+            // This fixed published-payload completion supplies no grant or
+            // effect. Keep the actual pending selection and owned-outcome
+            // transition checks in one scope; finish before returning to the
+            // journal writer. Recheck the actual current grant predicate.
+            PrefixReadRecipe recipe(*this);
+            const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+            const auto current = inspect_pending_read_only(inspected.pending_kind);
+            require_confirmed_payload_completion(tx, current, inspected, outcome, result_digest);
+            if (complete_grants && consumer_completion_required(current))
+                throw std::runtime_error("native maintenance read-only completion cannot issue a reader grant");
+            recipe.finish(tx, current);
+            return;
+        }
         const auto current = [&] {
             if (!read_only) return require_pending(inspected.pending_kind);
             try {
