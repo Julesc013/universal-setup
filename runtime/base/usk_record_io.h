@@ -56,6 +56,7 @@ private:
     friend class usk::lifecycle::detail::NativeMaintenanceContext;
     explicit ScopedNativeRecordReadOperations(const NativeRecordReadOperations& operations);
     ScopedNativeRecordReadOperations(NativeRecordReadOperations&&) = delete;
+    static const NativeRecordReadOperations* current();
 };
 #endif
 

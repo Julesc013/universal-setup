@@ -65,6 +65,7 @@ ScopedNativeRecordReadOperations::ScopedNativeRecordReadOperations(const NativeR
     native_record_read_operations = &operations;
 }
 ScopedNativeRecordReadOperations::~ScopedNativeRecordReadOperations() { native_record_read_operations = nullptr; }
+const NativeRecordReadOperations* ScopedNativeRecordReadOperations::current() { return native_record_read_operations; }
 #endif
 
 bool valid_identifier(const std::string& value)
