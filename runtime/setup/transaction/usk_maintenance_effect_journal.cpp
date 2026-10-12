@@ -379,11 +379,13 @@ std::optional<std::pair<std::string, std::string>> MaintenanceEffectJournal::app
         throw std::runtime_error("maintenance owned intent is absent, failed or already attempted");
 #if defined(_WIN32)
     if (native_origin_) {
-        const auto history = inspect(spec_, source_digest_, true);
-        if (history.journal_digest != last_digest_ || history.next_sequence != sequence_ ||
-            history.pending_sequence != pending_sequence_ || history.pending_kind != pending_kind_)
-            throw std::runtime_error("maintenance payload dispatch lost its exact original intent");
         const auto* native = detail::ScopedNativeMaintenanceTransaction::current();
+        const auto history = native->inspect_effect_history(spec_, {
+            detail::NativeMaintenanceEffectSelectionRole::apply,
+            source_digest_, last_digest_, pending_kind_, sequence_, pending_sequence_});
+        // The fixed original-owner reader has finished its complete authority
+        // proof. Recheck this journal's weak lifetime before any attempt state.
+        require_effect_owner_binding();
         payload_attempted_ = true;
         try {
             const auto result = native->apply_effect(spec_, history);
@@ -408,11 +410,12 @@ void MaintenanceEffectJournal::complete_effect(const std::string& outcome, const
         if (!resumed_ && pending_kind_ != "publish_target" &&
             (!payload_attempted_ || payload_outcome_.empty() || outcome != payload_outcome_))
             throw std::runtime_error("native maintenance payload completion lacks its actual owner outcome");
-        const auto history = inspect(spec_, source_digest_, true);
-        if (history.journal_digest != last_digest_ || history.next_sequence != sequence_ ||
-            history.pending_sequence != pending_sequence_ || history.pending_kind != pending_kind_)
-            throw std::runtime_error("native maintenance completion lost its original pending intent");
-        detail::ScopedNativeMaintenanceTransaction::current()->confirm_effect_completion(spec_, history, outcome, result_digest);
+        const auto* native = detail::ScopedNativeMaintenanceTransaction::current();
+        const auto history = native->inspect_effect_history(spec_, {
+            detail::NativeMaintenanceEffectSelectionRole::complete,
+            source_digest_, last_digest_, pending_kind_, sequence_, pending_sequence_});
+        require_effect_owner_binding();
+        native->confirm_effect_completion(spec_, history, outcome, result_digest);
         // Only the original private concrete owner supplies this callback. Its
         // completion ends with the full fresh authority check, after any grants.
         // Recheck the bound lifetime here without repeating that native query;

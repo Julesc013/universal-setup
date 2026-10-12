@@ -1142,6 +1142,9 @@ struct NativeMaintenanceContext::Impl {
         operations.inspect_prefix = [this](const auto& s, auto& current, auto& history) {
             inspect_prefix(s, current, history);
         };
+        operations.inspect_effect_history = [this](const auto& s, const auto& selection) {
+            return inspect_effect_history(s, selection);
+        };
         operations.inspect_continuation = [this](const auto& s, auto& result) {
             result = inspect_continuation(s);
         };
@@ -1519,6 +1522,51 @@ struct NativeMaintenanceContext::Impl {
             record_io::ScopedNativeRecordReadOperations::current() != &record_reads)
             throw std::runtime_error("native maintenance inspection lost its original TLS owner");
         if (active_read_recipe) active_read_recipe->require_active();
+    }
+    transaction::MaintenanceEffectInspection inspect_effect_history(
+        const transaction::TransactionSpec& supplied,
+        const transaction::detail::NativeMaintenanceEffectSelection& selection) const {
+        const auto inspect = [&] {
+            using Role = transaction::detail::NativeMaintenanceEffectSelectionRole;
+            const char* refusal = nullptr;
+            switch (selection.role) {
+            case Role::apply:
+                refusal = "maintenance payload dispatch lost its exact original intent";
+                break;
+            case Role::complete:
+                refusal = "native maintenance completion lost its original pending intent";
+                break;
+            default:
+                throw std::runtime_error("native maintenance history selection has no fixed role");
+            }
+            // Preserve the original supplied spec/source arguments and the
+            // complete owned completion vector, including SCM/ineligible reads.
+            auto history = transaction::MaintenanceEffectJournal::inspect(supplied, selection.source_digest, true);
+            if (history.journal_digest != selection.journal_digest ||
+                history.next_sequence != selection.next_sequence ||
+                history.pending_sequence != selection.pending_sequence ||
+                history.pending_kind != selection.pending_kind)
+                throw std::runtime_error(refusal);
+            return history;
+        };
+        // Neither caller may mutate or invoke its concrete effect while an
+        // enclosing read-only recipe is live. Never turn that failure into
+        // an ordinary inspection or expose unfinished recipe output.
+        if (active_read_recipe) {
+            entry_readback_failed = true;
+            throw std::runtime_error("native maintenance effect history entered an active read recipe");
+        }
+        if (!original_child || !publication_confirmed || original_source_context.empty() ||
+            restoration_record_observers.empty())
+            return inspect(); // Original direct query/predicate order.
+        require_inspection_owner(supplied);
+        try {
+            PrefixReadRecipe recipe(*this);
+            auto history = inspect();
+            recipe.finish_authority(); // Full actual original-record/global exit.
+            require_inspection_owner(supplied);
+            return history; // Owned facts only; no callback, grant or mutation.
+        } catch (...) { entry_readback_failed = true; throw; }
     }
     void inspect_prefix(const transaction::TransactionSpec& supplied,
         transaction::RecoveryInspection& output_transaction,

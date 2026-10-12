@@ -31,7 +31,7 @@ ScopedNativeMaintenanceTransaction::ScopedNativeMaintenanceTransaction(
     if (active_operations || !operations.require_authority || !operations.persist_journal || !operations.create_staging_root ||
         !operations.ensure_stream_parent || !operations.open_stream || !operations.require_stream ||
         !operations.finish_stream || !operations.observe_commit_closure || !operations.observe_file ||
-        !operations.inspect_prefix || !operations.inspect_continuation || !operations.reconcile_effect ||
+        !operations.inspect_prefix || !operations.inspect_effect_history || !operations.inspect_continuation || !operations.reconcile_effect ||
         !operations.commit || !operations.apply_effect || !operations.confirm_effect_completion)
         throw std::runtime_error("native maintenance transaction owner is absent, incomplete or nested");
     // A distinct control block identifies this lifetime even if an operations

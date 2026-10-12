@@ -18,6 +18,14 @@ struct NativeMaintenanceFileObservation {
     std::string native_identity, sha256;
     std::uint64_t size_bytes = 0;
 };
+// The two fixed journal call sites supply only owned comparison metadata.
+// This private selection conveys neither authority nor an executable callback.
+enum class NativeMaintenanceEffectSelectionRole { apply, complete };
+struct NativeMaintenanceEffectSelection {
+    NativeMaintenanceEffectSelectionRole role;
+    std::string source_digest, journal_digest, pending_kind;
+    std::uint64_t next_sequence, pending_sequence;
+};
 // Read-only facts from the current concrete owner's retained file. Absence of
 // a native scope returns null; an active scope never falls back by pathname.
 // These values confer no custody, completion or mutation authority.
@@ -64,6 +72,10 @@ struct NativeMaintenanceTransactionOperations {
     std::function<NativeMaintenanceFileObservation(const std::filesystem::path&)> observe_file;
     std::function<void(const TransactionSpec&, RecoveryInspection&,
         MaintenanceEffectInspection&)> inspect_prefix;
+    // Complete the fixed actual history read and original pending predicates
+    // before returning metadata; all apply/confirmation effects stay outside.
+    std::function<MaintenanceEffectInspection(const TransactionSpec&,
+        const NativeMaintenanceEffectSelection&)> inspect_effect_history;
     std::function<void(const TransactionSpec&,
         lifecycle::detail::MaintenanceContinuationInspection&)> inspect_continuation;
     std::function<void(const TransactionSpec&,
