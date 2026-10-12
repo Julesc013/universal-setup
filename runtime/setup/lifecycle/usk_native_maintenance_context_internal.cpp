@@ -2891,10 +2891,31 @@ struct NativeMaintenanceContext::Impl {
             !attempted_payload_histories.insert(history.journal_digest).second)
             throw std::runtime_error("native maintenance payload lacks its single original publication/intent");
         try {
-            const auto tx = transaction::TransactionSession::inspect_recovery(spec);
-            const auto pinned = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest);
-            if (pinned.journal_digest != history.journal_digest)
-                throw std::runtime_error("native maintenance payload intent changed before native entry");
+            const auto prefix = [&] {
+                const auto read = [&] {
+                    auto tx = transaction::TransactionSession::inspect_recovery(spec);
+                    auto pinned = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest);
+                    if (pinned.journal_digest != history.journal_digest)
+                        throw std::runtime_error("native maintenance payload intent changed before native entry");
+                    return std::make_pair(std::move(tx), std::move(pinned));
+                };
+                if (original_child && publication_confirmed && !original_source_context.empty() &&
+                    !restoration_record_observers.empty() && !active_read_recipe) {
+                    // Only the original actual pair and digest predicate are
+                    // composed. The complete original-record/global proof
+                    // brackets every still-complete native query. Snapshot
+                    // retention, confirmation allocation, outcome mutation and
+                    // effects remain outside it.
+                    require_inspection_owner(supplied);
+                    PrefixReadRecipe recipe(*this);
+                    auto result = read();
+                    recipe.finish_authority();
+                    require_inspection_owner(supplied);
+                    return result;
+                }
+                return read(); // SCM/ineligible paths keep the original pair.
+            }();
+            const auto& tx = prefix.first;
             auto confirmation = std::make_unique<ConfirmedPayload>();
             confirmation->transaction_sha256 = tx.snapshot_sha256;
             confirmation->transaction_text = retained_transaction_text(tx.snapshot_sha256);
@@ -2955,10 +2976,26 @@ struct NativeMaintenanceContext::Impl {
                 result_digest = audit::AuditRepository(spec.audit_root).append(
                     details.at("chain_id").as_string(), postimage).event_digest;
             } else throw std::runtime_error("native maintenance owned effect kind is unsupported");
-            require_authority(supplied);
-            const auto after = transaction::MaintenanceEffectJournal::inspect(spec, history.source_digest);
-            if (after.journal_digest != history.journal_digest)
-                throw std::runtime_error("native maintenance intent changed during its effect");
+            const auto require_unchanged_history = [&] {
+                const auto after = transaction::MaintenanceEffectJournal::inspect(spec, history.source_digest);
+                if (after.journal_digest != history.journal_digest)
+                    throw std::runtime_error("native maintenance intent changed during its effect");
+            };
+            if (original_child && publication_confirmed && !original_source_context.empty() &&
+                !restoration_record_observers.empty() && !active_read_recipe) {
+                // The effect is already outside this query-only scope. Preserve
+                // its leading full authority read, actual history query and
+                // digest predicate, then finish the full fresh exit before
+                // changing outcomes or persisting native custody.
+                require_inspection_owner(supplied);
+                PrefixReadRecipe recipe(*this);
+                require_unchanged_history();
+                recipe.finish_authority();
+                require_inspection_owner(supplied);
+            } else {
+                require_authority(supplied);
+                require_unchanged_history();
+            }
             inserted.first->second->outcome = outcome;
             inserted.first->second->result_digest = result_digest;
             persist_native_custody("confirmed_effect", Value(Value::Object{
