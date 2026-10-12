@@ -2508,15 +2508,35 @@ struct NativeMaintenanceContext::Impl {
         require_authority(spec);
     }
     void persist_native_custody(const std::string& kind, Value details) {
-        require_authority(spec);
-        const auto tx = transaction::TransactionSession::inspect_recovery(spec);
-        Value pending_sequence;
-        if (!active_payload_history.empty()) {
-            const auto history = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest);
-            if (history.journal_digest != active_payload_history || history.pending_kind.empty())
-                throw std::runtime_error("native maintenance custody lost its exact active intent");
-            pending_sequence = Value(history.pending_sequence);
-        }
+        const auto prefix = [&] {
+            const auto read = [&] {
+                auto tx = transaction::TransactionSession::inspect_recovery(spec);
+                Value pending_sequence;
+                if (!active_payload_history.empty()) {
+                    const auto history = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest);
+                    if (history.journal_digest != active_payload_history || history.pending_kind.empty())
+                        throw std::runtime_error("native maintenance custody lost its exact active intent");
+                    pending_sequence = Value(history.pending_sequence);
+                }
+                return std::make_pair(std::move(tx), std::move(pending_sequence));
+            };
+            if (original_child && publication_confirmed && !original_source_context.empty() &&
+                !restoration_record_observers.empty() && !active_read_recipe) {
+                // Compose only the leading full authority and actual TX/history
+                // queries. Finish the complete fresh original-record/global
+                // exit before constructing, serializing or writing custody.
+                require_inspection_owner(spec);
+                PrefixReadRecipe recipe(*this);
+                auto result = read();
+                recipe.finish_authority();
+                require_inspection_owner(spec);
+                return result;
+            }
+            require_authority(spec);
+            return read(); // SCM/ineligible paths keep the original read order.
+        }();
+        const auto& tx = prefix.first;
+        Value pending_sequence = std::move(prefix.second);
         Value record(Value::Object{{"schema", Value("usk.publisher.maintenance_native_custody.v2")},
             {"transaction_id", Value(spec.transaction_id)}, {"plan_digest", Value(spec.plan_digest)},
             {"original_context_sha256", Value(original_context.lease_binding_sha256())},
@@ -2965,14 +2985,56 @@ struct NativeMaintenanceContext::Impl {
                 if (outcome == "retained" && role != "installed")
                     throw std::runtime_error("native maintenance created cleanup directory is not empty");
             } else if (history.pending_kind == "write_ownership") {
-                auto postimage = maintenance_ownership_postimage(spec, history);
+                auto postimage = [&] {
+                    if (original_child && publication_confirmed && !original_source_context.empty() &&
+                        !restoration_record_observers.empty() && !active_read_recipe) {
+                        // This fixed postimage preparation only reads and validates.
+                        // Complete every query and fresh full exit before the
+                        // repository effect below; no grant or write spans it.
+                        require_inspection_owner(supplied);
+                        PrefixReadRecipe recipe(*this);
+                        auto result = maintenance_ownership_postimage(spec, history);
+                        recipe.finish_authority();
+                        require_inspection_owner(supplied);
+                        return result;
+                    }
+                    return maintenance_ownership_postimage(spec, history);
+                }();
                 result_digest = state::StateRepository(spec.state_root).write_ownership(std::move(postimage)).manifest_digest;
             } else if (history.pending_kind == "write_installed") {
-                const auto postimage = maintenance_installed_postimage(spec, history);
+                const auto postimage = [&] {
+                    if (original_child && publication_confirmed && !original_source_context.empty() &&
+                        !restoration_record_observers.empty() && !active_read_recipe) {
+                        // This fixed postimage preparation only reads and validates.
+                        // Complete every query and fresh full exit before the
+                        // repository effect below; no grant or write spans it.
+                        require_inspection_owner(supplied);
+                        PrefixReadRecipe recipe(*this);
+                        auto result = maintenance_installed_postimage(spec, history);
+                        recipe.finish_authority();
+                        require_inspection_owner(supplied);
+                        return result;
+                    }
+                    return maintenance_installed_postimage(spec, history);
+                }();
                 state::StateRepository(spec.state_root).write_installed(postimage);
                 result_digest = details.at("state_digest").as_string();
             } else if (history.pending_kind == "append_audit") {
-                const auto postimage = maintenance_audit_postimage(spec, history);
+                const auto postimage = [&] {
+                    if (original_child && publication_confirmed && !original_source_context.empty() &&
+                        !restoration_record_observers.empty() && !active_read_recipe) {
+                        // This fixed postimage preparation only reads and validates.
+                        // Complete every query and fresh full exit before the
+                        // repository effect below; no grant or write spans it.
+                        require_inspection_owner(supplied);
+                        PrefixReadRecipe recipe(*this);
+                        auto result = maintenance_audit_postimage(spec, history);
+                        recipe.finish_authority();
+                        require_inspection_owner(supplied);
+                        return result;
+                    }
+                    return maintenance_audit_postimage(spec, history);
+                }();
                 result_digest = audit::AuditRepository(spec.audit_root).append(
                     details.at("chain_id").as_string(), postimage).event_digest;
             } else throw std::runtime_error("native maintenance owned effect kind is unsupported");
