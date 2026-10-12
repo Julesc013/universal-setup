@@ -1116,6 +1116,33 @@ int maintenance_effect_interruption_proof()
                 }
                 return std::string("applied");
             };
+#if defined(_WIN32)
+            // Supplied ordinary callbacks cannot activate the private native
+            // prefix reader, even when copied, replaced or wrapped. A decline
+            // performs no callback/effect and leaves the actual recovery below
+            // to invoke its unchanged separately fenced ordinary backend.
+            auto replaced_authority = operations;
+            replaced_authority.require_authority = [](const auto&, const auto&, const auto&) {
+                throw std::runtime_error("ordinary replacement authority unexpectedly called");
+            };
+            auto replaced_effect = operations;
+            replaced_effect.apply_effect = [](const auto&, const auto&) -> std::string {
+                throw std::runtime_error("ordinary replacement effect unexpectedly called");
+            };
+            auto wrapped = operations;
+            wrapped.require_authority = [callback = operations.require_authority](const auto& a, const auto& b, const auto& c) {
+                callback(a, b, c);
+            };
+            wrapped.apply_effect = [callback = operations.apply_effect](const auto& a, const auto& b) { return callback(a, b); };
+            for (const auto* supplied : {&operations, &replaced_authority, &replaced_effect, &wrapped}) {
+                for (const auto mode : {usk::lifecycle::detail::NativeMaintenanceRecoveryPrefixPin::exact_snapshot,
+                        usk::lifecycle::detail::NativeMaintenanceRecoveryPrefixPin::original_context}) {
+                    if (usk::lifecycle::detail::require_current_native_maintenance_recovery_prefix(
+                            spec, transaction, history, *supplied, mode) || gates != 0u || applied_effects != 0u)
+                        throw std::runtime_error("ordinary callback activated the private native recovery reader");
+                }
+            }
+#endif
             const auto recover = [&](const auto& backend, const std::string& transaction_hash, const std::string& history_hash,
                     usk::transaction::FaultInjector inject = {}) {
                 return usk::lifecycle::detail::recover_pending_maintenance_effect(spec, transaction_hash,

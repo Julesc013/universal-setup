@@ -62,6 +62,20 @@ struct MaintenanceRecoveryOperations {
         const transaction::MaintenanceEffectInspection&)> apply_effect;
 };
 
+#if defined(_WIN32)
+// Fixed read-only pins for the original private native backend. Only its two
+// concrete, unchanged callback targets and current weak engine binding can
+// select this reader. Ordinary, replaced and wrapped callbacks return false
+// and retain their original separate reads/calls. No callback runs in a recipe.
+enum class NativeMaintenanceRecoveryPrefixPin { exact_snapshot, original_context };
+bool require_current_native_maintenance_recovery_prefix(
+    const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& expected_transaction,
+    const transaction::MaintenanceEffectInspection& expected_history,
+    const MaintenanceRecoveryOperations& operations,
+    NativeMaintenanceRecoveryPrefixPin pin);
+#endif
+
 // Resolves exactly one pending intent, never the entire transaction. Pins the
 // inspected transaction and history before/after effects and record writes.
 // An uncertain backend effect leaves the intent unresolved; it is not retried.

@@ -11,6 +11,7 @@
 #include <memory>
 namespace usk::lifecycle::detail {
 struct MaintenanceRecoveryOperations;
+enum class NativeMaintenanceRecoveryPrefixPin;
 // Native staging custody for the private service engine. Construction is
 // inaccessible to the public lifecycle, JSON and supplied callback backends.
 // The caller retains original state/intent, admission, channel and lease for
@@ -26,6 +27,11 @@ public:
     NativeMaintenanceContext(const NativeMaintenanceContext&) = delete;
     NativeMaintenanceContext& operator=(const NativeMaintenanceContext&) = delete;
 private:
+    friend bool require_current_native_maintenance_recovery_prefix(
+        const usk::transaction::TransactionSpec&,
+        const usk::transaction::RecoveryInspection&,
+        const usk::transaction::MaintenanceEffectInspection&,
+        const MaintenanceRecoveryOperations&, NativeMaintenanceRecoveryPrefixPin);
     friend std::string usk::platform::windows::execute_candidate_restricted_publisher(
         const usk::platform::windows::CandidatePublisherConfiguration&, bool&);
     NativeMaintenanceContext(HANDLE volume, const std::wstring& volume_root,

@@ -3612,6 +3612,10 @@ MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transac
          transaction.current_state != "recovery_required"))
         throw std::runtime_error("maintenance recovery snapshot changed or transaction is not resumable");
     const auto pin = [&] {
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+        if (require_current_native_maintenance_recovery_prefix(spec, transaction, history, operations,
+            NativeMaintenanceRecoveryPrefixPin::exact_snapshot)) return;
+#endif
         const auto current_prefix = inspect_recovery_prefix(spec);
         const auto& current = current_prefix.first;
         const auto& effects = current_prefix.second;
@@ -3674,6 +3678,10 @@ transaction::RecoveryInspection recover_maintenance_transaction(const transactio
             initial.current_state != "recovery_required" && initial.current_state != "completed"))
         throw std::runtime_error("maintenance continuation snapshot changed or has not begun committing");
     const auto require_owner = [&] {
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+        if (require_current_native_maintenance_recovery_prefix(spec, initial, initial_history, operations,
+            NativeMaintenanceRecoveryPrefixPin::original_context)) return;
+#endif
         const auto current_prefix = inspect_recovery_prefix(spec);
         const auto& current = current_prefix.first;
         const auto& history = current_prefix.second;

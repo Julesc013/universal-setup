@@ -203,6 +203,8 @@ struct NativeMaintenanceContext::Impl {
         PrefixReadRecipe(const PrefixReadRecipe&) = delete;
         PrefixReadRecipe& operator=(const PrefixReadRecipe&) = delete;
         void require_active() const;
+        void recheck(const transaction::RecoveryInspection&, const transaction::MaintenanceEffectInspection&);
+        void finish_authority();
         void finish(const transaction::RecoveryInspection&, const transaction::MaintenanceEffectInspection&);
         const Impl& owner_;
         const DWORD process_ = GetCurrentProcessId(), thread_ = GetCurrentThreadId();
@@ -257,6 +259,40 @@ struct NativeMaintenanceContext::Impl {
         void query_chunk(PublisherEffectRecordByteRound&, const std::vector<HANDLE>&) override;
         struct State;
         std::unique_ptr<State> state_;
+    };
+    // These exact private targets distinguish the original backend from any
+    // ordinary/replaced/wrapped supplied callback. Weak binding is checked
+    // before dereferencing owner; callbacks cannot extend the engine lifetime.
+    struct RecoveryBackendBinding {
+        Impl* owner;
+        std::weak_ptr<const void> origin;
+        const transaction::detail::NativeMaintenanceTransactionOperations* expected;
+        void require_current() const {
+            using Scope = transaction::detail::ScopedNativeMaintenanceTransaction;
+            transaction::detail::require_native_maintenance_origin_binding(true, origin, Scope::current_binding());
+            if (Scope::current() != expected)
+                throw std::runtime_error("native maintenance recovery lost its original engine scope");
+        }
+        bool same(const RecoveryBackendBinding& other) const {
+            return owner == other.owner && expected == other.expected &&
+                !origin.owner_before(other.origin) && !other.origin.owner_before(origin);
+        }
+    };
+    struct RecoveryRequireAuthority {
+        RecoveryBackendBinding binding;
+        void operator()(const transaction::TransactionSpec& spec, const transaction::RecoveryInspection& tx,
+            const transaction::MaintenanceEffectInspection& history) const {
+            binding.require_current(); binding.owner->require_recovery_authority(spec, tx, history);
+            binding.require_current();
+        }
+    };
+    struct RecoveryApplyEffect {
+        RecoveryBackendBinding binding;
+        std::string operator()(const transaction::TransactionSpec& spec,
+            const transaction::MaintenanceEffectInspection& history) const {
+            binding.require_current(); auto result = binding.owner->apply_recovery_effect(spec, history);
+            binding.require_current(); return result;
+        }
     };
     HANDLE volume;
     const std::wstring volume_root, service_name;
@@ -3038,82 +3074,126 @@ struct NativeMaintenanceContext::Impl {
                 throw std::runtime_error("native live maintenance recovery has no original confirmed publication");
             // All outputs remain internal until finish completes the full
             // exit proof and rechecks the exact transaction/history/context.
-            PrefixReadRecipe recipe(*this);
-            const auto current = transaction::TransactionSession::inspect_recovery(spec);
-            const auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
-            if (current.snapshot_sha256 != inspected_transaction.snapshot_sha256 ||
-                history.journal_digest != inspected_history.journal_digest ||
-                history.pending_sequence != inspected_history.pending_sequence ||
-                history.pending_kind != inspected_history.pending_kind ||
-                !equal(history.pending_details, inspected_history.pending_details) ||
-                current.stream_source_context != original_source_context || history.source_context != original_source_context)
-                throw std::runtime_error("native maintenance recovery changed its original transaction or context");
-            const auto artifact = read_maintenance_reviewed_plan(spec);
-            if (!equal(artifact.at("reviewed_plan"),
-                original_context.record().at("reviewed_snapshot").at("reviewed_plan")))
-                throw std::runtime_error("native maintenance recovery changed its original transaction or context");
-            transaction::TransactionSession::require_recovery_transition_extension(spec,
-                *publication_transaction_text, publication_transaction_sha256, current.snapshot_sha256);
-            const auto selected = inspect_maintenance_continuation(spec);
-            if (selected.transaction_snapshot_sha256 != current.snapshot_sha256 ||
-                selected.history_digest != history.journal_digest)
-                throw std::runtime_error("native maintenance recovery changed its original complete prefix");
-            if (!history.pending_kind.empty()) {
-                // This callback's actual current/history/artifact/selection
-                // already precede reconciliation without an effect or arbitrary
-                // callback. Check the identical pending grammar against them;
-                // retain native observation proofs and the full final authority
-                // fence below. No saved result authorizes an effect. Former
-                // separate read-only sampling instants are unclaimed. SCM keeps
-                // its original independently fenced pending selection.
-                if (original_child)
-                    require_pending_selection(history.pending_kind, current, history, artifact, selected);
-                else (void)require_pending(history.pending_kind);
-                const auto observation = reconcile_maintenance_effect(spec);
-                if (observation.state == "compatible_after_effect") {
-                    if (history.pending_kind == "publish_target") {
-                        require_entry(*staging);
-                        for (const auto& file : files) require_bytes(*file.second);
-                    } else {
-                        const auto actual = payload_outcomes.find(history.journal_digest);
-                        if (actual == payload_outcomes.end() || !actual->second->confirmed)
-                            throw std::runtime_error("native maintenance postcondition lacks its actual confirmed outcome");
-                        if (original_child) {
-                            // The same fixed query-only callback already selected
-                            // and validated the entire prefix above. Reconcile
-                            // performs no effect or grant. Recheck its metadata
-                            // freshness and identical completion predicates here;
-                            // finish the complete fresh authority proof before
-                            // returning. No saved selection spans an effect.
-                            // Former second-prefix sampling instants/repeated
-                            // native queries are unclaimed; every actual native
-                            // file/record query retains its full completed proof.
-                            const auto after = transaction::TransactionSession::inspect_recovery(spec);
-                            const auto after_history = transaction::MaintenanceEffectJournal::inspect(spec, after.stream_source_digest);
-                            if (after.snapshot_sha256 != current.snapshot_sha256 ||
-                                after_history.journal_digest != history.journal_digest ||
-                                observation.source_digest != history.source_digest ||
-                                observation.history_digest != history.journal_digest ||
-                                observation.pending_kind != history.pending_kind)
-                                throw std::runtime_error("native maintenance completion changed its selected recovery prefix");
-                            require_pending_selection(history.pending_kind, after, after_history, artifact, selected);
-                            require_confirmed_payload_completion(after, after_history, history,
-                                actual->second->outcome, observation.result_digest);
-                            recipe.finish(current, history);
-                            return; // Full fresh proof completed; no grant was issued.
+            const auto inspect = [&] {
+                auto current = transaction::TransactionSession::inspect_recovery(spec);
+                auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+                if (current.snapshot_sha256 != inspected_transaction.snapshot_sha256 ||
+                    history.journal_digest != inspected_history.journal_digest ||
+                    history.pending_sequence != inspected_history.pending_sequence ||
+                    history.pending_kind != inspected_history.pending_kind ||
+                    !equal(history.pending_details, inspected_history.pending_details) ||
+                    current.stream_source_context != original_source_context || history.source_context != original_source_context)
+                    throw std::runtime_error("native maintenance recovery changed its original transaction or context");
+                const auto artifact = read_maintenance_reviewed_plan(spec);
+                if (!equal(artifact.at("reviewed_plan"),
+                    original_context.record().at("reviewed_snapshot").at("reviewed_plan")))
+                    throw std::runtime_error("native maintenance recovery changed its original transaction or context");
+                transaction::TransactionSession::require_recovery_transition_extension(spec,
+                    *publication_transaction_text, publication_transaction_sha256, current.snapshot_sha256);
+                const auto selected = inspect_maintenance_continuation(spec);
+                if (selected.transaction_snapshot_sha256 != current.snapshot_sha256 ||
+                    selected.history_digest != history.journal_digest)
+                    throw std::runtime_error("native maintenance recovery changed its original complete prefix");
+                if (!history.pending_kind.empty()) {
+                    // This callback's actual current/history/artifact/selection
+                    // already precede reconciliation without an effect or arbitrary
+                    // callback. Check the identical pending grammar against them;
+                    // retain native observation proofs and the full final authority
+                    // fence below. No saved result authorizes an effect. Former
+                    // separate read-only sampling instants are unclaimed. SCM keeps
+                    // its original independently fenced pending selection.
+                    if (original_child)
+                        require_pending_selection(history.pending_kind, current, history, artifact, selected);
+                    else (void)require_pending(history.pending_kind);
+                    const auto observation = reconcile_maintenance_effect(spec);
+                    if (observation.state == "compatible_after_effect") {
+                        if (history.pending_kind == "publish_target") {
+                            require_entry(*staging);
+                            for (const auto& file : files) require_bytes(*file.second);
+                        } else {
+                            const auto actual = payload_outcomes.find(history.journal_digest);
+                            if (actual == payload_outcomes.end() || !actual->second->confirmed)
+                                throw std::runtime_error("native maintenance postcondition lacks its actual confirmed outcome");
+                            if (original_child) {
+                                // The same fixed query-only callback already selected
+                                // and validated the entire prefix above. Reconcile
+                                // performs no effect or grant. Recheck its metadata
+                                // freshness and identical completion predicates here;
+                                // finish the complete fresh authority proof before
+                                // returning. No saved selection spans an effect.
+                                // Former second-prefix sampling instants/repeated
+                                // native queries are unclaimed; every actual native
+                                // file/record query retains its full completed proof.
+                                const auto after = transaction::TransactionSession::inspect_recovery(spec);
+                                const auto after_history = transaction::MaintenanceEffectJournal::inspect(spec, after.stream_source_digest);
+                                if (after.snapshot_sha256 != current.snapshot_sha256 ||
+                                    after_history.journal_digest != history.journal_digest ||
+                                    observation.source_digest != history.source_digest ||
+                                    observation.history_digest != history.journal_digest ||
+                                    observation.pending_kind != history.pending_kind)
+                                    throw std::runtime_error("native maintenance completion changed its selected recovery prefix");
+                                require_pending_selection(history.pending_kind, after, after_history, artifact, selected);
+                                require_confirmed_payload_completion(after, after_history, history,
+                                    actual->second->outcome, observation.result_digest);
+                                return std::make_pair(std::move(current), std::move(history)); // Enclosing reader finishes before return.
+                            }
+                            confirm_effect_completion(supplied, history, actual->second->outcome, observation.result_digest, false);
                         }
-                        confirm_effect_completion(supplied, history, actual->second->outcome, observation.result_digest, false);
                     }
                 }
+                return std::make_pair(std::move(current), std::move(history));
+            };
+            if (active_read_recipe) {
+                // Only the fixed original-backend prefix pin below enters this
+                // branch. Preserve the old authority reader's closing actual
+                // pair; its enclosing recipe performs the full exit proof.
+                require_inspection_owner(supplied);
+                const auto selected = inspect();
+                active_read_recipe->recheck(selected.first, selected.second);
+                require_inspection_owner(supplied);
+                return;
             }
-            recipe.finish(current, history);
+            PrefixReadRecipe recipe(*this);
+            const auto selected = inspect();
+            recipe.finish(selected.first, selected.second);
         } catch (...) {
             // The fixed recipe is dismantled before refusal precedence.
             // Preserve full authority precedence on a cold query failure;
             // never re-enter an already failed native entry/record scope.
+            if (active_read_recipe) entry_readback_failed = true;
             if (original_child && !entry_readback_failed) require_authority(supplied);
             throw;
         }
+    }
+    void require_recovery_prefix(const transaction::TransactionSpec& supplied,
+        const transaction::RecoveryInspection& expected_transaction,
+        const transaction::MaintenanceEffectInspection& expected_history,
+        NativeMaintenanceRecoveryPrefixPin pin) {
+        require_inspection_owner(supplied);
+        if (active_read_recipe || !original_child || !publication_confirmed || original_source_context.empty() ||
+            restoration_record_observers.empty())
+            throw std::runtime_error("native maintenance recovery prefix lacks its distinct original reader");
+        PrefixReadRecipe recipe(*this);
+        transaction::RecoveryInspection current;
+        transaction::MaintenanceEffectInspection history;
+        inspect_prefix(supplied, current, history);
+        // Retain the original paired reader's actual closing TX/history reads
+        // and equality checks before the original caller's exact comparison.
+        recipe.recheck(current, history);
+        if (pin == NativeMaintenanceRecoveryPrefixPin::exact_snapshot) {
+            if (current.snapshot_sha256 != expected_transaction.snapshot_sha256 ||
+                history.journal_digest != expected_history.journal_digest)
+                throw std::runtime_error("maintenance recovery changed during its pending effect");
+        } else if (pin == NativeMaintenanceRecoveryPrefixPin::original_context) {
+            if (current.stream_source_context != expected_transaction.stream_source_context ||
+                history.source_context != expected_history.source_context)
+                throw std::runtime_error("maintenance continuation changed its original context");
+        } else throw std::runtime_error("native maintenance recovery prefix pin is unknown");
+        // Direct fixed original body, never a supplied callback. It retains its
+        // own actual queries and closing pair inside this effect-free recipe.
+        require_recovery_authority(supplied, current, history);
+        recipe.finish_authority();
+        require_inspection_owner(supplied);
     }
     std::string apply_recovery_effect(const transaction::TransactionSpec& supplied,
         const transaction::MaintenanceEffectInspection& history) {
@@ -3390,23 +3470,28 @@ void NativeMaintenanceContext::Impl::PrefixReadRecipe::require_active() const {
         record_io::ScopedNativeRecordReadOperations::current() != &owner_.record_reads)
         throw std::runtime_error("native maintenance read-only recipe owner/lifetime changed");
 }
-void NativeMaintenanceContext::Impl::PrefixReadRecipe::finish(const transaction::RecoveryInspection& current,
+void NativeMaintenanceContext::Impl::PrefixReadRecipe::recheck(const transaction::RecoveryInspection& current,
     const transaction::MaintenanceEffectInspection& history) {
+    try {
+        require_active();
+        // Keep the final actual TX/history reads inside the same sealed
+        // effect-free query composition. Each read retains its full native
+        // and selected-security proof; no result has escaped this recipe.
+        const auto after = transaction::TransactionSession::inspect_recovery(owner_.spec);
+        const auto effects = transaction::MaintenanceEffectJournal::inspect(owner_.spec, after.stream_source_digest, false);
+        if (after.snapshot_sha256 != current.snapshot_sha256 ||
+            effects.journal_digest != history.journal_digest ||
+            effects.pending_sequence != history.pending_sequence || effects.pending_kind != history.pending_kind ||
+            !equal(effects.pending_details, history.pending_details) ||
+            after.stream_source_context != owner_.original_source_context ||
+            effects.source_context != owner_.original_source_context)
+            throw std::runtime_error("native maintenance read-only recipe changed its exact recovery prefix");
+        require_active();
+    } catch (...) { owner_.entry_readback_failed = true; throw; }
+}
+void NativeMaintenanceContext::Impl::PrefixReadRecipe::finish_authority() {
     if (active_) {
         try {
-            require_active();
-            // Keep the final actual TX/history reads inside the same sealed
-            // effect-free query composition. Each read retains its full native
-            // and selected-security proof; no result has escaped this recipe.
-            const auto after = transaction::TransactionSession::inspect_recovery(owner_.spec);
-            const auto effects = transaction::MaintenanceEffectJournal::inspect(owner_.spec, after.stream_source_digest, false);
-            if (after.snapshot_sha256 != current.snapshot_sha256 ||
-                effects.journal_digest != history.journal_digest ||
-                effects.pending_sequence != history.pending_sequence || effects.pending_kind != history.pending_kind ||
-                !equal(effects.pending_details, history.pending_details) ||
-                after.stream_source_context != owner_.original_source_context ||
-                effects.source_context != owner_.original_source_context)
-                throw std::runtime_error("native maintenance read-only recipe changed its exact recovery prefix");
             require_active();
             // Dismantle before the complete actual original-record/global exit
             // proof. It cannot consume a recipe marker or saved authority.
@@ -3416,6 +3501,13 @@ void NativeMaintenanceContext::Impl::PrefixReadRecipe::finish(const transaction:
             owner_.require_authority(owner_.spec);
         } catch (...) { owner_.entry_readback_failed = true; throw; }
     } else owner_.require_authority(owner_.spec); // SCM/ordinary routes stay full.
+}
+void NativeMaintenanceContext::Impl::PrefixReadRecipe::finish(const transaction::RecoveryInspection& current,
+    const transaction::MaintenanceEffectInspection& history) {
+    if (active_) {
+        try { recheck(current, history); finish_authority(); }
+        catch (...) { owner_.entry_readback_failed = true; throw; }
+    } else finish_authority();
 }
 
 struct NativeMaintenanceContext::Impl::AuthorityRecordRead::State {
@@ -4231,26 +4323,32 @@ NativeMaintenanceContext::~NativeMaintenanceContext() {
 }
 MaintenanceRecoveryOperations NativeMaintenanceContext::recovery_operations() const {
     using Scope = transaction::detail::ScopedNativeMaintenanceTransaction;
-    const auto original = Scope::current_binding();
-    const auto* expected = &impl_->operations;
-    const auto pin = [original, expected] {
-        transaction::detail::require_native_maintenance_origin_binding(true, original, Scope::current_binding());
-        if (Scope::current() != expected)
-            throw std::runtime_error("native maintenance recovery lost its original engine scope");
-    };
-    pin();
+    const Impl::RecoveryBackendBinding binding{impl_.get(), Scope::current_binding(), &impl_->operations};
+    binding.require_current();
     impl_->require_authority(impl_->spec);
     if (!impl_->publication_confirmed)
         throw std::runtime_error("native live maintenance recovery requires original confirmed publication");
-    auto* owner = impl_.get();
     MaintenanceRecoveryOperations backend;
-    backend.require_authority = [pin, owner](const auto& s, const auto& tx, const auto& history) {
-        pin(); owner->require_recovery_authority(s, tx, history); pin();
-    };
-    backend.apply_effect = [pin, owner](const auto& s, const auto& history) {
-        pin(); auto result = owner->apply_recovery_effect(s, history); pin(); return result;
-    };
+    backend.require_authority = Impl::RecoveryRequireAuthority{binding};
+    backend.apply_effect = Impl::RecoveryApplyEffect{binding};
     return backend;
+}
+bool require_current_native_maintenance_recovery_prefix(const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& expected_transaction,
+    const transaction::MaintenanceEffectInspection& expected_history,
+    const MaintenanceRecoveryOperations& operations, NativeMaintenanceRecoveryPrefixPin pin) {
+    using Impl = NativeMaintenanceContext::Impl;
+    const auto* authority = operations.require_authority.target<Impl::RecoveryRequireAuthority>();
+    const auto* effect = operations.apply_effect.target<Impl::RecoveryApplyEffect>();
+    if (!authority || !effect || !authority->binding.same(effect->binding)) return false;
+    authority->binding.require_current(); // Refuse expired/copied scopes before owner dereference.
+    effect->binding.require_current();
+    auto& owner = *authority->binding.owner;
+    if (!owner.original_child || !owner.publication_confirmed || owner.original_source_context.empty() ||
+        owner.restoration_record_observers.empty()) return false; // Original separate SCM/ineligible route.
+    owner.require_recovery_prefix(spec, expected_transaction, expected_history, pin);
+    authority->binding.require_current(); effect->binding.require_current();
+    return true; // Full fresh exit completed; no metadata/authority tuple is returned.
 }
 }
 #endif
