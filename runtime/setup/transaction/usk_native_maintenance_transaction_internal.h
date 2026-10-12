@@ -76,6 +76,10 @@ struct NativeMaintenanceTransactionOperations {
     // before returning metadata; all apply/confirmation effects stay outside.
     std::function<MaintenanceEffectInspection(const TransactionSpec&,
         const NativeMaintenanceEffectSelection&)> inspect_effect_history;
+    // Separate fixed resumption read: retain_completed=false, exact expected
+    // history and unsealed predicates. Construction/binding stays outside.
+    std::function<MaintenanceEffectInspection(const TransactionSpec&,
+        const std::string&, const std::string&)> resume_effect_history;
     std::function<void(const TransactionSpec&,
         lifecycle::detail::MaintenanceContinuationInspection&)> inspect_continuation;
     std::function<void(const TransactionSpec&,

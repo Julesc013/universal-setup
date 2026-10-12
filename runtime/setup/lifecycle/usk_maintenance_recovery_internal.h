@@ -92,6 +92,17 @@ bool inspect_current_native_maintenance_recovery_step(
     MaintenanceContinuationInspection& output_selection,
     transaction::RecoveryInspection& output_transaction,
     transaction::MaintenanceEffectInspection& output_history);
+// Fixed recovery-only readers. Exact original backend targets select them;
+// no supplied callback/effect enters either scope. Validation grants nothing.
+bool validate_current_native_maintenance_recovery_postimage(
+    const transaction::TransactionSpec& spec,
+    const transaction::MaintenanceEffectInspection& history,
+    const MaintenanceRecoveryOperations& operations);
+bool validate_current_native_maintenance_appended_intent(
+    const transaction::TransactionSpec& spec, const std::string& source_digest,
+    const MaintenanceContinuationInspection& selected,
+    const transaction::MaintenanceEffectInspection& previous_history,
+    const MaintenanceRecoveryOperations& operations);
 #endif
 
 // Resolves exactly one pending intent, never the entire transaction. Pins the

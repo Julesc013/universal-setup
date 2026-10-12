@@ -533,9 +533,27 @@ MaintenanceEffectJournal::MaintenanceEffectJournal(TransactionSpec spec,
 std::unique_ptr<MaintenanceEffectJournal> MaintenanceEffectJournal::resume(const TransactionSpec& spec,
     const std::string& expected_source_digest, const std::string& expected_history_digest, FaultInjector injector)
 {
-    auto inspected = inspect(spec, expected_source_digest);
-    if (!digest(expected_history_digest) || inspected.journal_digest != expected_history_digest || inspected.sealed)
-        throw std::runtime_error("maintenance continuation snapshot changed or is sealed");
+    MaintenanceEffectInspection inspected;
+#if defined(_WIN32)
+    const auto* native = detail::ScopedNativeMaintenanceTransaction::current();
+    if (native) {
+        const auto original = detail::ScopedNativeMaintenanceTransaction::current_binding();
+        detail::require_native_maintenance_origin_binding(true, original,
+            detail::ScopedNativeMaintenanceTransaction::current_binding());
+        inspected = native->resume_effect_history(spec, expected_source_digest, expected_history_digest);
+        detail::require_native_maintenance_origin_binding(true, original,
+            detail::ScopedNativeMaintenanceTransaction::current_binding());
+        if (detail::ScopedNativeMaintenanceTransaction::current() != native)
+            throw std::runtime_error("native maintenance resumption changed its original operations");
+    } else
+#endif
+    {
+        inspected = inspect(spec, expected_source_digest);
+        if (!digest(expected_history_digest) || inspected.journal_digest != expected_history_digest || inspected.sealed)
+            throw std::runtime_error("maintenance continuation snapshot changed or is sealed");
+    }
+    // The pure reader has ended. The original constructor and full binding
+    // remain distinct from its metadata and cannot consume saved authority.
     return std::unique_ptr<MaintenanceEffectJournal>(new MaintenanceEffectJournal(
         spec, std::move(inspected), std::move(injector)));
 }

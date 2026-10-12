@@ -3637,9 +3637,15 @@ MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transac
     if (observation.state == "compatible_before_effect") {
         // Old hash-only metadata intents remain inspectable, but cannot supply
         // a missing write. No reconstructed or newly chosen postimage is used.
-        if (history.pending_kind == "write_ownership") (void)maintenance_ownership_postimage(spec, history);
-        if (history.pending_kind == "write_installed") (void)maintenance_installed_postimage(spec, history);
-        if (history.pending_kind == "append_audit") (void)maintenance_audit_postimage(spec, history);
+        bool postimage_validated = false;
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+        postimage_validated = validate_current_native_maintenance_recovery_postimage(spec, history, operations);
+#endif
+        if (!postimage_validated) {
+            if (history.pending_kind == "write_ownership") (void)maintenance_ownership_postimage(spec, history);
+            if (history.pending_kind == "write_installed") (void)maintenance_installed_postimage(spec, history);
+            if (history.pending_kind == "append_audit") (void)maintenance_audit_postimage(spec, history);
+        }
         if (injector) injector("pending_effect", "before_effect");
         pin();
         outcome = operations.apply_effect(spec, history);
@@ -3754,12 +3760,19 @@ transaction::RecoveryInspection recover_maintenance_transaction(const transactio
                 selected.history_digest, fenced_injector);
             records->begin_effect(selected.next_kind, selected.next_details);
             require_owner();
-            const auto appended = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
-            if (transaction::TransactionSession::inspect_recovery(spec).snapshot_sha256 != selected.transaction_snapshot_sha256 ||
-                appended.next_sequence != history.next_sequence + 1u || appended.completed_effects != history.completed_effects ||
-                appended.pending_kind != selected.next_kind ||
-                json::canonical(appended.pending_details) != json::canonical(selected.next_details))
-                throw std::runtime_error("maintenance continuation intent did not retain its selected effect");
+            bool intent_validated = false;
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+            intent_validated = validate_current_native_maintenance_appended_intent(spec,
+                current.stream_source_digest, selected, history, operations);
+#endif
+            if (!intent_validated) {
+                const auto appended = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+                if (transaction::TransactionSession::inspect_recovery(spec).snapshot_sha256 != selected.transaction_snapshot_sha256 ||
+                    appended.next_sequence != history.next_sequence + 1u || appended.completed_effects != history.completed_effects ||
+                    appended.pending_kind != selected.next_kind ||
+                    json::canonical(appended.pending_details) != json::canonical(selected.next_details))
+                    throw std::runtime_error("maintenance continuation intent did not retain its selected effect");
+            }
             continue;
         }
         if (!selected.sealed) {

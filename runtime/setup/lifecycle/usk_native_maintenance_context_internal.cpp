@@ -1145,6 +1145,9 @@ struct NativeMaintenanceContext::Impl {
         operations.inspect_effect_history = [this](const auto& s, const auto& selection) {
             return inspect_effect_history(s, selection);
         };
+        operations.resume_effect_history = [this](const auto& s, const auto& source, const auto& history) {
+            return resume_effect_history(s, source, history);
+        };
         operations.inspect_continuation = [this](const auto& s, auto& result) {
             result = inspect_continuation(s);
         };
@@ -1566,6 +1569,33 @@ struct NativeMaintenanceContext::Impl {
             recipe.finish_authority(); // Full actual original-record/global exit.
             require_inspection_owner(supplied);
             return history; // Owned facts only; no callback, grant or mutation.
+        } catch (...) { entry_readback_failed = true; throw; }
+    }
+    transaction::MaintenanceEffectInspection resume_effect_history(
+        const transaction::TransactionSpec& supplied, const std::string& expected_source_digest,
+        const std::string& expected_history_digest) const {
+        const auto inspect = [&] {
+            // Keep the actual read first and the original false retention mode;
+            // an unresolved pending intent is admissible for resumption.
+            auto inspected = transaction::MaintenanceEffectJournal::inspect(supplied, expected_source_digest);
+            if (!digest(expected_history_digest) || inspected.journal_digest != expected_history_digest || inspected.sealed)
+                throw std::runtime_error("maintenance continuation snapshot changed or is sealed");
+            return inspected;
+        };
+        if (active_read_recipe) {
+            entry_readback_failed = true;
+            throw std::runtime_error("native maintenance resumption entered an active read recipe");
+        }
+        if (!original_child || !publication_confirmed || original_source_context.empty() ||
+            restoration_record_observers.empty())
+            return inspect();
+        require_inspection_owner(supplied);
+        try {
+            PrefixReadRecipe recipe(*this);
+            auto inspected = inspect();
+            recipe.finish_authority();
+            require_inspection_owner(supplied);
+            return inspected; // Finish before the journal's constructor/binding.
         } catch (...) { entry_readback_failed = true; throw; }
     }
     void inspect_prefix(const transaction::TransactionSpec& supplied,
@@ -3408,6 +3438,39 @@ struct NativeMaintenanceContext::Impl {
         output_transaction = std::move(current);
         output_history = std::move(history);
     }
+    void validate_recovery_postimage(const transaction::TransactionSpec& supplied,
+        const transaction::MaintenanceEffectInspection& history) {
+        require_recovery_reader(supplied);
+        try {
+            PrefixReadRecipe recipe(*this);
+            // This is the outer admissibility occurrence, not the later actual
+            // effect preparation. Discard each reconstructed value here.
+            if (history.pending_kind == "write_ownership") (void)maintenance_ownership_postimage(supplied, history);
+            if (history.pending_kind == "write_installed") (void)maintenance_installed_postimage(supplied, history);
+            if (history.pending_kind == "append_audit") (void)maintenance_audit_postimage(supplied, history);
+            recipe.finish_authority();
+            require_inspection_owner(supplied);
+        } catch (...) { entry_readback_failed = true; throw; }
+    }
+    void validate_appended_intent(const transaction::TransactionSpec& supplied,
+        const std::string& source_digest, const MaintenanceContinuationInspection& selected,
+        const transaction::MaintenanceEffectInspection& previous_history) {
+        require_recovery_reader(supplied);
+        try {
+            PrefixReadRecipe recipe(*this);
+            // Preserve the original reverse read order AFTER append and owner
+            // callback: actual history first, actual transaction second.
+            const auto appended = transaction::MaintenanceEffectJournal::inspect(supplied, source_digest);
+            if (transaction::TransactionSession::inspect_recovery(supplied).snapshot_sha256 != selected.transaction_snapshot_sha256 ||
+                appended.next_sequence != previous_history.next_sequence + 1u ||
+                appended.completed_effects != previous_history.completed_effects ||
+                appended.pending_kind != selected.next_kind ||
+                json::canonical(appended.pending_details) != json::canonical(selected.next_details))
+                throw std::runtime_error("maintenance continuation intent did not retain its selected effect");
+            recipe.finish_authority();
+            require_inspection_owner(supplied);
+        } catch (...) { entry_readback_failed = true; throw; }
+    }
     std::string apply_recovery_effect(const transaction::TransactionSpec& supplied,
         const transaction::MaintenanceEffectInspection& history) {
         if (original_child && publication_confirmed && !original_source_context.empty() &&
@@ -4609,6 +4672,28 @@ bool inspect_current_native_maintenance_recovery_step(const transaction::Transac
     if (NativeMaintenanceContext::original_recovery_reader(operations) != owner)
         throw std::runtime_error("native maintenance recovery reader changed its original owner");
     output_selection = std::move(selection); output_transaction = std::move(current); output_history = std::move(history);
+    return true;
+}
+
+bool validate_current_native_maintenance_recovery_postimage(const transaction::TransactionSpec& spec,
+    const transaction::MaintenanceEffectInspection& history, const MaintenanceRecoveryOperations& operations) {
+    auto* owner = NativeMaintenanceContext::original_recovery_reader(operations);
+    if (!owner) return false;
+    if (history.pending_kind != "write_ownership" && history.pending_kind != "write_installed" &&
+        history.pending_kind != "append_audit") return false; // Original empty prevalidation.
+    owner->validate_recovery_postimage(spec, history);
+    if (NativeMaintenanceContext::original_recovery_reader(operations) != owner)
+        throw std::runtime_error("native maintenance recovery reader changed its original owner");
+    return true;
+}
+bool validate_current_native_maintenance_appended_intent(const transaction::TransactionSpec& spec,
+    const std::string& source_digest, const MaintenanceContinuationInspection& selected,
+    const transaction::MaintenanceEffectInspection& previous_history, const MaintenanceRecoveryOperations& operations) {
+    auto* owner = NativeMaintenanceContext::original_recovery_reader(operations);
+    if (!owner) return false;
+    owner->validate_appended_intent(spec, source_digest, selected, previous_history);
+    if (NativeMaintenanceContext::original_recovery_reader(operations) != owner)
+        throw std::runtime_error("native maintenance recovery reader changed its original owner");
     return true;
 }
 
