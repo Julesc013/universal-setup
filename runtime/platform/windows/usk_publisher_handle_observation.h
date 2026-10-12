@@ -60,6 +60,14 @@ PublisherHandleObservation observe_publisher_file_handle(HANDLE handle);
 // verdict, API relabelling or fabricated effective-access/descriptor digest.
 usk::json::Value publisher_handle_observation_json(const PublisherHandleObservation& observation);
 
+namespace detail {
+// Exact equality of the closed native projection, without allocating JSON.
+// Both native names must satisfy the serializer's existing ASCII restriction.
+// This compares facts only; it performs no observation or authority check.
+bool equal_publisher_handle_observations(const PublisherHandleObservation& a,
+    const PublisherHandleObservation& b);
+}
+
 } // namespace usk::platform::windows
 #endif
 

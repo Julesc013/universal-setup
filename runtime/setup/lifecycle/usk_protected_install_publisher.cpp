@@ -4300,8 +4300,12 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                             ((operation == "repair" ? ".usk-repair-" : ".usk-uninstall-") + operation_id),
                     std::filesystem::u8path(bindings.at("state_root").as_string()),
                     std::filesystem::u8path(bindings.at("audit_root").as_string())};
-                const auto completed = usk::transaction::TransactionSession::inspect_recovery(spec);
-                const auto effects = usk::transaction::MaintenanceEffectJournal::inspect(spec, completed.stream_source_digest);
+                usk::transaction::RecoveryInspection completed;
+                usk::transaction::MaintenanceEffectInspection effects;
+                if (!usk::transaction::detail::inspect_current_native_maintenance_prefix(spec, completed, effects)) {
+                    completed = usk::transaction::TransactionSession::inspect_recovery(spec);
+                    effects = usk::transaction::MaintenanceEffectJournal::inspect(spec, completed.stream_source_digest);
+                }
                 if (completed.current_state != "completed" || !effects.sealed || !effects.pending_kind.empty())
                     throw std::runtime_error("native maintenance response lacks the original finalized sealed effect prefix");
                 maintenance_lease->finish(false);

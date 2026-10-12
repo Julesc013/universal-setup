@@ -1660,6 +1660,16 @@ struct PublisherEffectRecordByteRound::State {
             same(token(observe_current_publisher_token()), child), "child record byte chunk actual token changed");
         (void)remaining();
     }
+    bool matches_chunk(const Value& observed, std::size_t index) const {
+        const auto count = record_chunk_size(scope, index);
+        const auto& objects = observed.as_array();
+        if (objects.size() != count) return false;
+        const auto& expected = ledger.as_array();
+        for (std::size_t offset = 0; offset < count; ++offset)
+            if (!same(objects[offset], expected[index * publisher_object_access_batch_limit + offset])) return false;
+        return true;
+    }
+    // Final raw-result validation still needs the canonical array digest.
     Value chunk_objects(std::size_t index) const {
         Value::Array objects;
         const auto count = record_chunk_size(scope, index);
@@ -1684,7 +1694,7 @@ void PublisherEffectRecordByteRound::query_chunk(const std::vector<HANDLE>& hand
         objects.push_back(object(handle));
     }
     const Value observed(std::move(objects));
-    require(same(observed, s.chunk_objects(s.chunk_index)), "child record byte actual occurrence differs from its frozen ledger");
+    require(s.matches_chunk(observed, s.chunk_index), "child record byte actual occurrence differs from its frozen ledger");
     auto query = record_phase(s.scope, "query_chunk");
     query.as_object().emplace("round", Value(static_cast<std::uint64_t>(s.round)));
     query.as_object().emplace("chunk_index", Value(static_cast<std::uint64_t>(s.chunk_index)));

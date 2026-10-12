@@ -7,6 +7,7 @@
 #include <aclapi.h>
 #include <windows.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <iostream>
@@ -80,8 +81,53 @@ void check_stored_protection(HANDLE handle, bool directory) {
 }
 } // namespace
 
+void check_projection_equivalence() {
+    using namespace usk::platform::windows;
+    const PublisherHandleObservation original{"id", L"\\observed", 0x80000020u, 0u,
+        1u, false, "S-1-5-18", true,
+        {{0u, 0u, 0x80000001u, "S-1-5-18"}, {1u, 2u, 0x40000002u, "S-1-5-32-544"}}};
+    const auto compare = [&](const PublisherHandleObservation& changed, bool expected) {
+        const bool projected = usk::json::equal_values(publisher_handle_observation_json(original),
+            publisher_handle_observation_json(changed));
+        check(projected == expected && detail::equal_publisher_handle_observations(original, changed) == projected &&
+            detail::equal_publisher_handle_observations(changed, original) == projected,
+            "typed native facts differ from the closed JSON projection");
+    };
+    compare(original, true);
+    const auto mismatch = [&](const auto& change) { auto changed = original; change(changed); compare(changed, false); };
+    mismatch([](auto& value) { value.file_id += "other"; });
+    mismatch([](auto& value) { value.native_name += L"other"; });
+    mismatch([](auto& value) { value.attributes ^= 1u; });
+    mismatch([](auto& value) { value.reparse_tag = 1u; });
+    mismatch([](auto& value) { value.link_count = 2u; });
+    mismatch([](auto& value) { value.case_sensitive = true; });
+    mismatch([](auto& value) { value.owner_sid += "other"; });
+    mismatch([](auto& value) { value.dacl_protected = false; });
+    mismatch([](auto& value) { value.dacl_aces.pop_back(); });
+    mismatch([](auto& value) { value.dacl_aces[0].type ^= 1u; });
+    mismatch([](auto& value) { value.dacl_aces[0].flags ^= 1u; });
+    mismatch([](auto& value) { value.dacl_aces[0].access_mask ^= 1u; });
+    mismatch([](auto& value) { value.dacl_aces[0].sid += "other"; });
+    mismatch([](auto& value) { std::swap(value.dacl_aces[0], value.dacl_aces[1]); });
+    mismatch([](auto& value) { value.dacl_aces.push_back(value.dacl_aces[0]); });
+    auto invalid = original;
+    invalid.file_id += "mismatch"; // Refusal must precede a field inequality.
+    invalid.native_name.push_back(static_cast<wchar_t>(0x80));
+    for (const bool invalid_first : {false, true}) {
+        bool typed_refused = false, projection_refused = false;
+        try { (void)detail::equal_publisher_handle_observations(invalid_first ? invalid : original,
+            invalid_first ? original : invalid); }
+        catch (const std::runtime_error&) { typed_refused = true; }
+        try { (void)usk::json::equal_values(publisher_handle_observation_json(invalid_first ? invalid : original),
+            publisher_handle_observation_json(invalid_first ? original : invalid)); }
+        catch (const std::runtime_error&) { projection_refused = true; }
+        check(typed_refused && projection_refused, "field mismatch bypassed either native-name ASCII refusal");
+    }
+}
+
 int main() {
     try {
+        check_projection_equivalence();
         const auto root = fs::temp_directory_path() /
             ("usk-publisher-observe-" + std::to_string(
                 std::chrono::steady_clock::now().time_since_epoch().count()));

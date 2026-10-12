@@ -83,7 +83,7 @@ void require_custody_value_budget(const Value& value, std::size_t maximum) {
     visit(visit, value, 0u);
 }
 bool same(const PublisherHandleObservation& a, const PublisherHandleObservation& b) {
-    return equal(publisher_handle_observation_json(a), publisher_handle_observation_json(b));
+    return usk::platform::windows::detail::equal_publisher_handle_observations(a, b);
 }
 Value consumer_grant_postimage(Value before, const std::string& consumer_sid) {
     auto& aces = before.as_object().at("dacl_aces").as_array();
@@ -1618,7 +1618,7 @@ struct NativeMaintenanceContext::Impl {
             throw std::runtime_error("native maintenance effect is uncertain; no further effects");
         if (!active_payload_history.empty()) {
             const auto current = transaction::TransactionSession::inspect_recovery(spec);
-            const auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+            const auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest, false);
             if (current.snapshot_sha256 != active_payload_transaction || history.journal_digest != active_payload_history)
                 throw std::runtime_error("native maintenance original payload intent changed at its effect fence");
         }
@@ -3399,7 +3399,7 @@ void NativeMaintenanceContext::Impl::PrefixReadRecipe::finish(const transaction:
             // effect-free query composition. Each read retains its full native
             // and selected-security proof; no result has escaped this recipe.
             const auto after = transaction::TransactionSession::inspect_recovery(owner_.spec);
-            const auto effects = transaction::MaintenanceEffectJournal::inspect(owner_.spec, after.stream_source_digest);
+            const auto effects = transaction::MaintenanceEffectJournal::inspect(owner_.spec, after.stream_source_digest, false);
             if (after.snapshot_sha256 != current.snapshot_sha256 ||
                 effects.journal_digest != history.journal_digest ||
                 effects.pending_sequence != history.pending_sequence || effects.pending_kind != history.pending_kind ||

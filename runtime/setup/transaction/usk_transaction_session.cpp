@@ -1897,8 +1897,15 @@ RecoveryInspection TransactionSession::finalize_maintenance(const TransactionSpe
         throw std::runtime_error("maintenance finalization snapshot changed or has no committed effect");
     TransactionSession session(spec, std::move(injector), ResumeMode::maintenance_finalization);
     const auto pin = [&] {
-        const auto current = inspect_recovery(spec);
-        const auto history = MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+        RecoveryInspection current;
+        MaintenanceEffectInspection history;
+#if defined(_WIN32)
+        if (!detail::inspect_current_native_maintenance_prefix(spec, current, history))
+#endif
+        {
+            current = inspect_recovery(spec);
+            history = MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+        }
         const auto expected_text = session.render_journal();
         usk::base::Sha256 expected_hash;
         expected_hash.update(reinterpret_cast<const unsigned char*>(expected_text.data()), expected_text.size());

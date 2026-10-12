@@ -210,5 +210,26 @@ usk::json::Value publisher_handle_observation_json(const PublisherHandleObservat
     return Value(std::move(fields));
 }
 
+bool detail::equal_publisher_handle_observations(const PublisherHandleObservation& a,
+    const PublisherHandleObservation& b) {
+    // Preserve refusal for either invalid projection before any field mismatch.
+    for (const auto ch : a.native_name)
+        if (ch > 0x7f) throw std::runtime_error("publisher retained native name is outside the ASCII profile");
+    for (const auto ch : b.native_name)
+        if (ch > 0x7f) throw std::runtime_error("publisher retained native name is outside the ASCII profile");
+    if (a.file_id != b.file_id || a.native_name != b.native_name ||
+        a.attributes != b.attributes || a.reparse_tag != b.reparse_tag ||
+        a.link_count != b.link_count || a.case_sensitive != b.case_sensitive ||
+        a.owner_sid != b.owner_sid || a.dacl_protected != b.dacl_protected ||
+        a.dacl_aces.size() != b.dacl_aces.size()) return false;
+    for (std::size_t index = 0; index < a.dacl_aces.size(); ++index) {
+        const auto& first = a.dacl_aces[index];
+        const auto& second = b.dacl_aces[index];
+        if (first.type != second.type || first.flags != second.flags ||
+            first.access_mask != second.access_mask || first.sid != second.sid) return false;
+    }
+    return true;
+}
+
 } // namespace usk::platform::windows
 #endif
