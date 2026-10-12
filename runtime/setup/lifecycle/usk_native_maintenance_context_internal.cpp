@@ -3144,7 +3144,7 @@ struct NativeMaintenanceContext::Impl {
                 return std::make_pair(std::move(current), std::move(history));
             };
             if (active_read_recipe) {
-                // Only the fixed original-backend prefix pin below enters this
+                // Only the fixed original-backend recovery read bodies enter this
                 // branch. Preserve the old authority reader's closing actual
                 // pair; its enclosing recipe performs the full exit proof.
                 require_inspection_owner(supplied);
@@ -3165,21 +3165,24 @@ struct NativeMaintenanceContext::Impl {
             throw;
         }
     }
-    void require_recovery_prefix(const transaction::TransactionSpec& supplied,
-        const transaction::RecoveryInspection& expected_transaction,
-        const transaction::MaintenanceEffectInspection& expected_history,
-        NativeMaintenanceRecoveryPrefixPin pin) {
+    void require_recovery_reader(const transaction::TransactionSpec& supplied) const {
         require_inspection_owner(supplied);
         if (active_read_recipe || !original_child || !publication_confirmed || original_source_context.empty() ||
             restoration_record_observers.empty())
             throw std::runtime_error("native maintenance recovery prefix lacks its distinct original reader");
-        PrefixReadRecipe recipe(*this);
+    }
+    void read_recovery_prefix(const transaction::TransactionSpec& supplied,
+        const transaction::RecoveryInspection& expected_transaction,
+        const transaction::MaintenanceEffectInspection& expected_history,
+        NativeMaintenanceRecoveryPrefixPin pin) {
+        require_inspection_owner(supplied);
+        if (!active_read_recipe) throw std::runtime_error("native maintenance fixed recovery reader is inactive");
         transaction::RecoveryInspection current;
         transaction::MaintenanceEffectInspection history;
         inspect_prefix(supplied, current, history);
         // Retain the original paired reader's actual closing TX/history reads
         // and equality checks before the original caller's exact comparison.
-        recipe.recheck(current, history);
+        active_read_recipe->recheck(current, history);
         if (pin == NativeMaintenanceRecoveryPrefixPin::exact_snapshot) {
             if (current.snapshot_sha256 != expected_transaction.snapshot_sha256 ||
                 history.journal_digest != expected_history.journal_digest)
@@ -3192,13 +3195,89 @@ struct NativeMaintenanceContext::Impl {
         // Direct fixed original body, never a supplied callback. It retains its
         // own actual queries and closing pair inside this effect-free recipe.
         require_recovery_authority(supplied, current, history);
+        require_inspection_owner(supplied);
+    }
+    void require_recovery_prefix(const transaction::TransactionSpec& supplied,
+        const transaction::RecoveryInspection& expected_transaction,
+        const transaction::MaintenanceEffectInspection& expected_history,
+        NativeMaintenanceRecoveryPrefixPin pin) {
+        require_recovery_reader(supplied);
+        PrefixReadRecipe recipe(*this);
+        read_recovery_prefix(supplied, expected_transaction, expected_history, pin);
         recipe.finish_authority();
         require_inspection_owner(supplied);
     }
+    MaintenanceEffectReconciliation reconcile_recovery_prefix(const transaction::TransactionSpec& supplied,
+        const transaction::RecoveryInspection& expected_transaction,
+        const transaction::MaintenanceEffectInspection& expected_history) {
+        require_recovery_reader(supplied);
+        PrefixReadRecipe recipe(*this);
+        read_recovery_prefix(supplied, expected_transaction, expected_history,
+            NativeMaintenanceRecoveryPrefixPin::exact_snapshot);
+        // Retain the former independent reconciliation reader's actual initial
+        // pair, exact body, binding predicate and actual closing pair. No effect
+        // or supplied callback separates these fixed adjacent pure bodies.
+        const auto current = transaction::TransactionSession::inspect_recovery(spec);
+        const auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
+        auto result = reconcile_maintenance_effect_unscoped(spec);
+        if (result.source_digest != history.source_digest || result.history_digest != history.journal_digest ||
+            result.pending_kind != history.pending_kind)
+            throw std::runtime_error("native maintenance reconciliation changed its exact inspected prefix");
+        recipe.recheck(current, history);
+        recipe.finish_authority();
+        require_inspection_owner(supplied);
+        return result;
+    }
+    void inspect_recovery_step(const transaction::TransactionSpec& supplied,
+        const transaction::RecoveryInspection& expected_transaction,
+        const transaction::MaintenanceEffectInspection& expected_history,
+        MaintenanceContinuationInspection& output_selection,
+        transaction::RecoveryInspection& output_transaction,
+        transaction::MaintenanceEffectInspection& output_history) {
+        require_recovery_reader(supplied);
+        PrefixReadRecipe recipe(*this);
+        // Preserve the original standalone continuation reader's actual pair,
+        // unscoped body, exact comparison and closing pair before the owner pin.
+        const auto before = transaction::TransactionSession::inspect_recovery(spec);
+        const auto before_history = transaction::MaintenanceEffectJournal::inspect(spec, before.stream_source_digest);
+        auto selected = inspect_maintenance_continuation_unscoped(spec);
+        if (selected.transaction_snapshot_sha256 != before.snapshot_sha256 ||
+            selected.history_digest != before_history.journal_digest)
+            throw std::runtime_error("native maintenance continuation changed its exact inspected prefix");
+        recipe.recheck(before, before_history);
+        read_recovery_prefix(supplied, expected_transaction, expected_history,
+            NativeMaintenanceRecoveryPrefixPin::original_context);
+        transaction::RecoveryInspection current;
+        transaction::MaintenanceEffectInspection history;
+        inspect_prefix(supplied, current, history);
+        recipe.recheck(current, history); // Original final standalone pair closes.
+        if (current.snapshot_sha256 != selected.transaction_snapshot_sha256 ||
+            history.journal_digest != selected.history_digest)
+            throw std::runtime_error("maintenance selected continuation changed before its effect");
+        recipe.finish_authority();
+        require_inspection_owner(supplied);
+        // Metadata only; no result escapes before the complete actual exit.
+        output_selection = std::move(selected);
+        output_transaction = std::move(current);
+        output_history = std::move(history);
+    }
     std::string apply_recovery_effect(const transaction::TransactionSpec& supplied,
         const transaction::MaintenanceEffectInspection& history) {
-        const auto current = transaction::TransactionSession::inspect_recovery(spec);
-        require_recovery_authority(supplied, current, history);
+        if (original_child && publication_confirmed && !original_source_context.empty() &&
+            !restoration_record_observers.empty() && !active_read_recipe) {
+            // Only the initial actual transaction read and fixed authority body
+            // are query-only. Finish before examining outcomes or issuing grants
+            // or effects; the original concrete apply body remains unchanged.
+            require_recovery_reader(supplied);
+            PrefixReadRecipe recipe(*this);
+            const auto current = transaction::TransactionSession::inspect_recovery(spec);
+            require_recovery_authority(supplied, current, history);
+            recipe.finish_authority();
+            require_inspection_owner(supplied);
+        } else {
+            const auto current = transaction::TransactionSession::inspect_recovery(spec);
+            require_recovery_authority(supplied, current, history);
+        }
         const auto confirmed = payload_outcomes.find(history.journal_digest);
         if (confirmed != payload_outcomes.end() && confirmed->second->confirmed) {
             complete_consumer_access(history);
@@ -4333,22 +4412,58 @@ MaintenanceRecoveryOperations NativeMaintenanceContext::recovery_operations() co
     backend.apply_effect = Impl::RecoveryApplyEffect{binding};
     return backend;
 }
-bool require_current_native_maintenance_recovery_prefix(const transaction::TransactionSpec& spec,
-    const transaction::RecoveryInspection& expected_transaction,
-    const transaction::MaintenanceEffectInspection& expected_history,
-    const MaintenanceRecoveryOperations& operations, NativeMaintenanceRecoveryPrefixPin pin) {
-    using Impl = NativeMaintenanceContext::Impl;
+NativeMaintenanceContext::Impl* NativeMaintenanceContext::original_recovery_reader(
+    const MaintenanceRecoveryOperations& operations) {
     const auto* authority = operations.require_authority.target<Impl::RecoveryRequireAuthority>();
     const auto* effect = operations.apply_effect.target<Impl::RecoveryApplyEffect>();
-    if (!authority || !effect || !authority->binding.same(effect->binding)) return false;
+    if (!authority || !effect || !authority->binding.same(effect->binding)) return nullptr;
     authority->binding.require_current(); // Refuse expired/copied scopes before owner dereference.
     effect->binding.require_current();
     auto& owner = *authority->binding.owner;
     if (!owner.original_child || !owner.publication_confirmed || owner.original_source_context.empty() ||
-        owner.restoration_record_observers.empty()) return false; // Original separate SCM/ineligible route.
+        owner.restoration_record_observers.empty()) return nullptr; // Original separate SCM/ineligible route.
+    return &owner;
+}
+bool require_current_native_maintenance_recovery_prefix(const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& expected_transaction,
+    const transaction::MaintenanceEffectInspection& expected_history,
+    const MaintenanceRecoveryOperations& operations, NativeMaintenanceRecoveryPrefixPin pin) {
+    auto* selected = NativeMaintenanceContext::original_recovery_reader(operations);
+    if (!selected) return false;
+    auto& owner = *selected;
     owner.require_recovery_prefix(spec, expected_transaction, expected_history, pin);
-    authority->binding.require_current(); effect->binding.require_current();
+    if (NativeMaintenanceContext::original_recovery_reader(operations) != selected)
+        throw std::runtime_error("native maintenance recovery reader changed its original owner");
     return true; // Full fresh exit completed; no metadata/authority tuple is returned.
 }
+bool reconcile_current_native_maintenance_recovery_prefix(const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& expected_transaction,
+    const transaction::MaintenanceEffectInspection& expected_history,
+    const MaintenanceRecoveryOperations& operations, MaintenanceEffectReconciliation& output) {
+    auto* owner = NativeMaintenanceContext::original_recovery_reader(operations);
+    if (!owner) return false;
+    auto result = owner->reconcile_recovery_prefix(spec, expected_transaction, expected_history);
+    if (NativeMaintenanceContext::original_recovery_reader(operations) != owner)
+        throw std::runtime_error("native maintenance recovery reader changed its original owner");
+    output = std::move(result);
+    return true;
+}
+bool inspect_current_native_maintenance_recovery_step(const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& expected_transaction,
+    const transaction::MaintenanceEffectInspection& expected_history,
+    const MaintenanceRecoveryOperations& operations, MaintenanceContinuationInspection& output_selection,
+    transaction::RecoveryInspection& output_transaction, transaction::MaintenanceEffectInspection& output_history) {
+    auto* owner = NativeMaintenanceContext::original_recovery_reader(operations);
+    if (!owner) return false;
+    MaintenanceContinuationInspection selection;
+    transaction::RecoveryInspection current;
+    transaction::MaintenanceEffectInspection history;
+    owner->inspect_recovery_step(spec, expected_transaction, expected_history, selection, current, history);
+    if (NativeMaintenanceContext::original_recovery_reader(operations) != owner)
+        throw std::runtime_error("native maintenance recovery reader changed its original owner");
+    output_selection = std::move(selection); output_transaction = std::move(current); output_history = std::move(history);
+    return true;
+}
+
 }
 #endif

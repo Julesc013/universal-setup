@@ -11,6 +11,8 @@
 #include <memory>
 namespace usk::lifecycle::detail {
 struct MaintenanceRecoveryOperations;
+struct MaintenanceContinuationInspection;
+struct MaintenanceEffectReconciliation;
 enum class NativeMaintenanceRecoveryPrefixPin;
 // Native staging custody for the private service engine. Construction is
 // inaccessible to the public lifecycle, JSON and supplied callback backends.
@@ -32,6 +34,17 @@ private:
         const usk::transaction::RecoveryInspection&,
         const usk::transaction::MaintenanceEffectInspection&,
         const MaintenanceRecoveryOperations&, NativeMaintenanceRecoveryPrefixPin);
+    friend bool reconcile_current_native_maintenance_recovery_prefix(
+        const usk::transaction::TransactionSpec&,
+        const usk::transaction::RecoveryInspection&,
+        const usk::transaction::MaintenanceEffectInspection&,
+        const MaintenanceRecoveryOperations&, MaintenanceEffectReconciliation&);
+    friend bool inspect_current_native_maintenance_recovery_step(
+        const usk::transaction::TransactionSpec&,
+        const usk::transaction::RecoveryInspection&,
+        const usk::transaction::MaintenanceEffectInspection&,
+        const MaintenanceRecoveryOperations&, MaintenanceContinuationInspection&,
+        usk::transaction::RecoveryInspection&, usk::transaction::MaintenanceEffectInspection&);
     friend std::string usk::platform::windows::execute_candidate_restricted_publisher(
         const usk::platform::windows::CandidatePublisherConfiguration&, bool&);
     NativeMaintenanceContext(HANDLE volume, const std::wstring& volume_root,
@@ -82,6 +95,7 @@ private:
     MaintenanceRecoveryOperations recovery_operations() const;
     class RecordByteRead;
     struct Impl;
+    static Impl* original_recovery_reader(const MaintenanceRecoveryOperations&);
     std::unique_ptr<Impl> impl_;
     std::unique_ptr<usk::platform::windows::ScopedPublisherEffectFence> fence_;
     std::unique_ptr<usk::record_io::ScopedNativeRecordReadOperations> record_read_scope_;

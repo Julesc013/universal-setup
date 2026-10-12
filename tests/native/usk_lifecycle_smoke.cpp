@@ -1135,6 +1135,20 @@ int maintenance_effect_interruption_proof()
             };
             wrapped.apply_effect = [callback = operations.apply_effect](const auto& a, const auto& b) { return callback(a, b); };
             for (const auto* supplied : {&operations, &replaced_authority, &replaced_effect, &wrapped}) {
+                usk::lifecycle::detail::MaintenanceEffectReconciliation observed;
+                observed.state = "unchanged ordinary output";
+                usk::lifecycle::detail::MaintenanceContinuationInspection selected;
+                selected.next_kind = "unchanged ordinary selection";
+                auto unchanged_transaction = transaction;
+                auto unchanged_history = history;
+                if (usk::lifecycle::detail::reconcile_current_native_maintenance_recovery_prefix(
+                        spec, transaction, history, *supplied, observed) ||
+                    usk::lifecycle::detail::inspect_current_native_maintenance_recovery_step(
+                        spec, transaction, history, *supplied, selected, unchanged_transaction, unchanged_history) ||
+                    observed.state != "unchanged ordinary output" || selected.next_kind != "unchanged ordinary selection" ||
+                    unchanged_transaction.snapshot_sha256 != transaction.snapshot_sha256 ||
+                    unchanged_history.journal_digest != history.journal_digest)
+                    throw std::runtime_error("ordinary maintenance backend activated a private recovery read group");
                 for (const auto mode : {usk::lifecycle::detail::NativeMaintenanceRecoveryPrefixPin::exact_snapshot,
                         usk::lifecycle::detail::NativeMaintenanceRecoveryPrefixPin::original_context}) {
                     if (usk::lifecycle::detail::require_current_native_maintenance_recovery_prefix(

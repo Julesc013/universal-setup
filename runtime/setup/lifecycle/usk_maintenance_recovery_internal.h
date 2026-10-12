@@ -74,6 +74,24 @@ bool require_current_native_maintenance_recovery_prefix(
     const transaction::MaintenanceEffectInspection& expected_history,
     const MaintenanceRecoveryOperations& operations,
     NativeMaintenanceRecoveryPrefixPin pin);
+// Two fixed adjacent pure lifecycle groups. Outputs remain metadata and appear
+// only after the full original-record/global exit proof. No callback, effect,
+// grant or journal transition enters either body. Both original targets and
+// weak engine binding are required; a decline leaves every output unchanged.
+bool reconcile_current_native_maintenance_recovery_prefix(
+    const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& expected_transaction,
+    const transaction::MaintenanceEffectInspection& expected_history,
+    const MaintenanceRecoveryOperations& operations,
+    MaintenanceEffectReconciliation& output);
+bool inspect_current_native_maintenance_recovery_step(
+    const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& expected_transaction,
+    const transaction::MaintenanceEffectInspection& expected_history,
+    const MaintenanceRecoveryOperations& operations,
+    MaintenanceContinuationInspection& output_selection,
+    transaction::RecoveryInspection& output_transaction,
+    transaction::MaintenanceEffectInspection& output_history);
 #endif
 
 // Resolves exactly one pending intent, never the entire transaction. Pins the

@@ -3623,8 +3623,16 @@ MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transac
             throw std::runtime_error("maintenance recovery changed during its pending effect");
         operations.require_authority(spec, current, effects);
     };
-    pin();
-    auto observation = reconcile_maintenance_effect(spec);
+    const auto pin_and_reconcile = [&] {
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+        MaintenanceEffectReconciliation result;
+        if (reconcile_current_native_maintenance_recovery_prefix(spec, transaction, history, operations, result))
+            return result;
+#endif
+        pin();
+        return reconcile_maintenance_effect(spec);
+    };
+    auto observation = pin_and_reconcile();
     std::string outcome = "applied";
     if (observation.state == "compatible_before_effect") {
         // Old hash-only metadata intents remain inspectable, but cannot supply
@@ -3636,8 +3644,7 @@ MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transac
         pin();
         outcome = operations.apply_effect(spec, history);
         if (injector) injector("pending_effect", "after_effect");
-        pin();
-        observation = reconcile_maintenance_effect(spec);
+        observation = pin_and_reconcile();
         const bool retained = outcome == "retained" && history.pending_kind == "remove_directory" &&
             observation.state == "compatible_before_effect";
         if (!retained && (outcome != "applied" || observation.state != "compatible_after_effect"))
@@ -3705,13 +3712,23 @@ transaction::RecoveryInspection recover_maintenance_transaction(const transactio
     // must append an intent/completion, commit metadata or finish; no new plan
     // can extend this operation and uncertain effects are never retried here.
     for (std::size_t pass = 0; pass < 200004u; ++pass) {
-        auto selected = inspect_maintenance_continuation(spec);
-        require_owner();
-        auto current_prefix = inspect_recovery_prefix(spec);
+        MaintenanceContinuationInspection selected;
+        std::pair<transaction::RecoveryInspection, transaction::MaintenanceEffectInspection> current_prefix;
+        bool native_step = false;
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+        native_step = inspect_current_native_maintenance_recovery_step(spec, initial, initial_history, operations,
+            selected, current_prefix.first, current_prefix.second);
+#endif
+        if (!native_step) {
+            selected = inspect_maintenance_continuation(spec);
+            require_owner();
+            current_prefix = inspect_recovery_prefix(spec);
+            if (current_prefix.first.snapshot_sha256 != selected.transaction_snapshot_sha256 ||
+                current_prefix.second.journal_digest != selected.history_digest)
+                throw std::runtime_error("maintenance selected continuation changed before its effect");
+        }
         auto& current = current_prefix.first;
         auto& history = current_prefix.second;
-        if (current.snapshot_sha256 != selected.transaction_snapshot_sha256 || history.journal_digest != selected.history_digest)
-            throw std::runtime_error("maintenance selected continuation changed before its effect");
         const bool cleanup = (selected.next_kind == "remove_file" || selected.next_kind == "remove_directory") &&
             selected.next_details.at("root_role").as_string() == "operation_target";
         if (selected.pending) {
