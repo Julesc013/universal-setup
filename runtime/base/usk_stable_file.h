@@ -10,6 +10,11 @@
 #include <string>
 #include <vector>
 
+#if defined(_WIN32)
+#include <memory>
+#include <mutex>
+#endif
+
 namespace usk::base {
 
 struct StableFileIdentity {
@@ -41,6 +46,11 @@ private:
     std::filesystem::path path_;
     std::intptr_t native_handle_ = -1;
     StableFileIdentity identity_;
+#if defined(_WIN32)
+    struct HashProvider;
+    mutable std::once_flag hash_provider_once_;
+    mutable std::unique_ptr<HashProvider> hash_provider_;
+#endif
 };
 
 } // namespace usk::base

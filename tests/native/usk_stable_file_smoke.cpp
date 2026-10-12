@@ -8,11 +8,14 @@
 
 #include <chrono>
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <iterator>
 #include <filesystem>
 #include <fstream>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 #if defined(_WIN32)
@@ -82,6 +85,58 @@ int fresh_hash_proof(const fs::path& root)
         portable.update(reinterpret_cast<const unsigned char*>(value.data()), value.size());
         usk::base::StableFile file(path);
         if (file.sha256_hex() != portable.finish()) return 48;
+    }
+    return 0;
+}
+
+int concurrent_fresh_hash_proof(const fs::path& root)
+{
+    const fs::path path = root / "concurrent-hash-input.bin";
+    for (const std::size_t size : {0u, 65u, 65537u, 3703296u}) {
+        std::vector<unsigned char> bytes(size);
+        for (std::size_t index = 0; index < size; ++index) {
+            bytes[index] = static_cast<unsigned char>((index * 73u + size) & 255u);
+        }
+        {
+            std::ofstream output(path, std::ios::binary | std::ios::trunc);
+            if (!bytes.empty()) output.write(reinterpret_cast<const char*>(bytes.data()),
+                static_cast<std::streamsize>(bytes.size()));
+            if (!output) return 52;
+        }
+        usk::base::Sha256 portable;
+        portable.update(bytes.data(), bytes.size());
+        const auto expected = portable.finish();
+        usk::base::StableFile file(path); // Provider has not been initialized.
+        std::atomic<bool> start{false};
+        std::atomic<unsigned> failures{0};
+        std::array<std::thread, 4> workers;
+        try {
+            for (std::size_t index = 0; index < workers.size(); ++index) {
+                workers[index] = std::thread([&, index] {
+                    while (!start.load(std::memory_order_acquire)) std::this_thread::yield();
+                    try {
+                        for (unsigned round = 0; round != 3; ++round) {
+                            if (file.sha256_hex() != expected) ++failures;
+                            const std::size_t offset = round == 1 ? 0u : index * (size / workers.size());
+                            std::array<unsigned char, 70> result{};
+                            const auto count = std::min(result.size(), size - offset);
+                            file.read_into(offset, result.data(), count);
+                            if (!std::equal(result.begin(), result.begin() + static_cast<std::ptrdiff_t>(count),
+                                    bytes.begin() + static_cast<std::ptrdiff_t>(offset))) ++failures;
+                        }
+                    } catch (...) { ++failures; }
+                });
+            }
+        } catch (...) {
+            start.store(true, std::memory_order_release);
+            for (auto& worker : workers) if (worker.joinable()) worker.join();
+            return 53;
+        }
+        start.store(true, std::memory_order_release);
+        for (auto& worker : workers) worker.join();
+        if (failures.load() != 0) return 54;
+        file.verify_unchanged();
+        if (file.sha256_hex() != expected) return 55;
     }
     return 0;
 }
@@ -218,6 +273,7 @@ int main()
         return 1;
     }
     if (const int hash = fresh_hash_proof(root)) return hash;
+    if (const int concurrent = concurrent_fresh_hash_proof(root)) return concurrent;
 
     const fs::path source = root / "source.zip";
     {

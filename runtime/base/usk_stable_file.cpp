@@ -50,21 +50,49 @@ fs::path require_absolute_path(const fs::path& path)
 
 #if defined(_WIN32)
 
-class WindowsFileSha256 {
+void require_file_hash_success(NTSTATUS status, const char* action)
+{
+    if (status != 0) {
+        throw std::runtime_error(std::string("native file SHA-256 ") + action +
+            " failed (status " + std::to_string(status) + ")");
+    }
+}
+
+class WindowsFileSha256Algorithm {
 public:
-    WindowsFileSha256()
+    WindowsFileSha256Algorithm()
     {
-        require_success(BCryptOpenAlgorithmProvider(&algorithm_.value,
+        require_file_hash_success(BCryptOpenAlgorithmProvider(&algorithm_.value,
             BCRYPT_SHA256_ALGORITHM, MS_PRIMITIVE_PROVIDER, 0), "open");
         ULONG length = 0, returned = 0;
-        require_success(BCryptGetProperty(algorithm_.value, BCRYPT_HASH_LENGTH,
+        require_file_hash_success(BCryptGetProperty(algorithm_.value, BCRYPT_HASH_LENGTH,
             reinterpret_cast<PUCHAR>(&length), static_cast<ULONG>(sizeof(length)), &returned, 0), "length");
         if (returned != sizeof(length) || length != 32u) {
             throw std::runtime_error("native file SHA-256 digest length differs");
         }
-        // CNG owns the object allocation until DestroyHash. No reusable hash,
-        // cached digest, provider fallback or file observation is introduced.
-        require_success(BCryptCreateHash(algorithm_.value, &hash_.value,
+    }
+
+    BCRYPT_ALG_HANDLE get() const noexcept { return algorithm_.value; }
+
+private:
+    struct Algorithm {
+        BCRYPT_ALG_HANDLE value = nullptr;
+        Algorithm() = default;
+        Algorithm(const Algorithm&) = delete;
+        Algorithm& operator=(const Algorithm&) = delete;
+        ~Algorithm() { if (value) BCryptCloseAlgorithmProvider(value, 0); }
+    };
+    Algorithm algorithm_;
+};
+
+class WindowsFileSha256 {
+public:
+    explicit WindowsFileSha256(const WindowsFileSha256Algorithm& algorithm)
+    {
+        // Only immutable provider setup belongs to the original held file.
+        // Every call creates a fresh hash; CNG owns its object allocation.
+        // No reusable hash, digest, file observation or fallback is introduced.
+        require_file_hash_success(BCryptCreateHash(algorithm.get(), &hash_.value,
             nullptr, 0, nullptr, 0, 0), "create");
     }
 
@@ -73,14 +101,14 @@ public:
         if ((data == nullptr && size != 0) || size > std::numeric_limits<ULONG>::max()) {
             throw std::logic_error("invalid native file SHA-256 update");
         }
-        require_success(BCryptHashData(hash_.value, const_cast<PUCHAR>(data),
+        require_file_hash_success(BCryptHashData(hash_.value, const_cast<PUCHAR>(data),
             static_cast<ULONG>(size), 0), "update");
     }
 
     std::string finish()
     {
         std::array<unsigned char, 32> digest{};
-        require_success(BCryptFinishHash(hash_.value, digest.data(),
+        require_file_hash_success(BCryptFinishHash(hash_.value, digest.data(),
             static_cast<ULONG>(digest.size()), 0), "finish");
         constexpr char digits[] = "0123456789abcdef";
         std::string result(digest.size() * 2, '0');
@@ -92,20 +120,6 @@ public:
     }
 
 private:
-    static void require_success(NTSTATUS status, const char* action)
-    {
-        if (status != 0) {
-            throw std::runtime_error(std::string("native file SHA-256 ") + action +
-                " failed (status " + std::to_string(status) + ")");
-        }
-    }
-    struct Algorithm {
-        BCRYPT_ALG_HANDLE value = nullptr;
-        Algorithm() = default;
-        Algorithm(const Algorithm&) = delete;
-        Algorithm& operator=(const Algorithm&) = delete;
-        ~Algorithm() { if (value) BCryptCloseAlgorithmProvider(value, 0); }
-    };
     struct Hash {
         BCRYPT_HASH_HANDLE value = nullptr;
         Hash() = default;
@@ -113,9 +127,7 @@ private:
         Hash& operator=(const Hash&) = delete;
         ~Hash() { if (value) BCryptDestroyHash(value); }
     };
-    // Reverse member destruction releases the hash before its provider, also
-    // when any constructor/update/finish operation throws.
-    Algorithm algorithm_;
+    // This call-local object ends before its original held-file provider.
     Hash hash_;
 };
 
@@ -223,6 +235,12 @@ bool same_identity(
 } // namespace
 
 namespace usk::base {
+
+#if defined(_WIN32)
+struct StableFile::HashProvider {
+    WindowsFileSha256Algorithm algorithm;
+};
+#endif
 
 StableFile::StableFile(const fs::path& path) : path_(require_absolute_path(path))
 {
@@ -382,7 +400,13 @@ void StableFile::read_exact(
 std::string StableFile::sha256_hex() const
 {
 #if defined(_WIN32)
-    WindowsFileSha256 hash;
+    // Publish only fully initialized immutable setup. A failed first attempt
+    // propagates without retaining a partial provider; call_once stays unset.
+    // Concurrent callers create separate hashes and read all original bytes.
+    std::call_once(hash_provider_once_, [this] {
+        hash_provider_ = std::make_unique<HashProvider>();
+    });
+    WindowsFileSha256 hash(hash_provider_->algorithm);
 #else
     Sha256 hash;
 #endif
