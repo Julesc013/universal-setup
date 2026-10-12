@@ -406,8 +406,7 @@ Value observe_execution_phase(const std::wstring& service_name, const std::strin
             require(usk::json::canonical(child_before.at(field)) == usk::json::canonical(child_after.at(field)),
                 "publisher execution original native child changed during observation");
         require(
-            usk::json::canonical(publisher_effect_broker_immutable_record(broker_before)) ==
-                usk::json::canonical(publisher_effect_broker_immutable_record(broker_after)),
+            publisher_effect_broker_immutable_records_equal(broker_before, broker_after),
             "publisher execution original native child/broker changed during observation");
         process_after = child_after.at("process_boundary");
         security_after = child_after.at("worker_security");
@@ -601,8 +600,7 @@ void require_publisher_execution_worker_match(const Value& earlier, const Value&
         earlier.at("schema").as_string() == "usk.publisher_execution_observation.v8") {
         require_publisher_effect_broker_readback_continuity(earlier.at("broker_readback"), later.at("broker_readback"));
         require(usk::json::canonical(earlier.at("effect_worker")) == usk::json::canonical(later.at("effect_worker")) &&
-            usk::json::canonical(publisher_effect_broker_immutable_record(earlier.at("broker_readback"))) ==
-                usk::json::canonical(publisher_effect_broker_immutable_record(later.at("broker_readback"))),
+            publisher_effect_broker_immutable_records_equal(earlier.at("broker_readback"), later.at("broker_readback")),
             "publisher execution original child or broker native binding changed between phases");
     }
     auto handles = later.at("handles");

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_json.h"
+#include "usk_sha256.h"
 
 #include <functional>
 #include <cstdlib>
@@ -16,6 +17,7 @@ namespace {
 
 bool fail_allocations = false;
 std::size_t allocations_remaining = 0;
+std::size_t maximum_allocation = std::numeric_limits<std::size_t>::max();
 
 } // namespace
 
@@ -24,7 +26,7 @@ std::size_t allocations_remaining = 0;
 void* operator new(std::size_t size)
 {
     if (fail_allocations) {
-        if (allocations_remaining == 0) throw std::bad_alloc();
+        if (allocations_remaining == 0 || size > maximum_allocation) throw std::bad_alloc();
         --allocations_remaining;
     }
     if (void* memory = std::malloc(size == 0 ? 1 : size)) return memory;
@@ -127,6 +129,43 @@ int main()
         if (usk::json::canonical(object) != expected_object ||
             usk::json::canonical_object(view) != expected_object) return 25;
     }
+    const std::string lookup_key = "required_long_json_member_literal";
+    const char nul_literal[] = "member\0with_embedded_nul_and_long_tail";
+    const std::string nul_key(nul_literal, sizeof(nul_literal) - 1);
+    const std::string storage = "[" + nul_key + "]";
+    const Value lookup(Value::Object{{lookup_key, Value(std::uint64_t{42})}, {nul_key, Value(true)}});
+    allocations_remaining = 0; fail_allocations = true;
+    bool lookup_ok = false;
+    try {
+        lookup_ok = lookup.at("required_long_json_member_literal").as_unsigned() == 42 &&
+            lookup.at(lookup_key).as_unsigned() == 42 && lookup.contains(lookup_key) &&
+            lookup.at(std::string_view(storage.data() + 1, nul_key.size())).as_boolean() &&
+            lookup.contains(std::string_view(storage.data() + 1, nul_key.size())) &&
+            !lookup.contains("absent_long_json_member_literal");
+    } catch (...) { lookup_ok = false; }
+    fail_allocations = false;
+    if (!lookup_ok) return 26;
+    if (!refuses([&] { (void)lookup.at(std::string_view("missing")); })) return 27;
+    const auto digest_oracle = [](const Value& value) {
+        const auto bytes = usk::json::canonical(value);
+        usk::base::Sha256 digest;
+        digest.update(reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size());
+        return digest.finish();
+    };
+    // Cross digest-buffer boundaries with escapes and plain runs. The oracle
+    // hashes the independent complete canonical byte string.
+    for (const std::size_t length : {0u, 1u, 4093u, 4094u, 4095u, 4096u, 4097u, 8191u, 65536u}) {
+        const Value text(std::string(length, 'x') + controls + "\xf0\x9f\x9a\x80");
+        if (usk::json::sha256_canonical(text) != digest_oracle(text)) return 28;
+    }
+    const Value large_digest_input(Value::Object{{lookup_key, Value(std::string(1024u * 1024u, 'x'))}});
+    const auto large_digest_expected = digest_oracle(large_digest_input);
+    allocations_remaining = 32; maximum_allocation = 4096; fail_allocations = true;
+    bool bounded_digest_ok = false;
+    try { bounded_digest_ok = usk::json::sha256_canonical(large_digest_input) == large_digest_expected; }
+    catch (...) { bounded_digest_ok = false; }
+    fail_allocations = false; maximum_allocation = std::numeric_limits<std::size_t>::max();
+    if (!bounded_digest_ok) return 29;
     const std::vector<Value> values{
         Value(), Value(false), Value(true), Value(std::uint64_t{0}), Value(std::uint64_t{1}),
         Value(std::uint64_t{9007199254740992ull}), Value(std::uint64_t{9007199254740993ull}),
@@ -140,7 +179,10 @@ int main()
         usk::json::parse("{\"a\":[null,true],\"z\":2}"),
         usk::json::parse("{\"a\":[null,true],\"zz\":1}")};
     std::vector<std::string> encodings;
-    for (const auto& value : values) encodings.push_back(usk::json::canonical(value));
+    for (const auto& value : values) {
+        encodings.push_back(usk::json::canonical(value));
+        if (usk::json::sha256_canonical(value) != digest_oracle(value)) return 30;
+    }
     for (std::size_t i = 0; i < values.size(); ++i) {
         for (std::size_t j = 0; j < values.size(); ++j) {
             if (usk::json::equal_values(values[i], values[j]) != (encodings[i] == encodings[j])) return 5;

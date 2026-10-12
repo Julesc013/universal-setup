@@ -372,6 +372,37 @@ Value immutable_profile(const Value& profile) {
     }
     return Value(std::move(profile_fields));
 }
+enum class ImmutableProfileLevel { profile, broker, worker };
+bool immutable_profile_fields_equal(const Value& left, const Value& right,
+    ImmutableProfileLevel level, bool with_retirement) {
+    const auto& a = left.as_object(); const auto& b = right.as_object();
+    const auto excluded = [=](const std::string& key) {
+        return level == ImmutableProfileLevel::worker && (key == "threads" ||
+            (with_retirement && (key == "admitted_baseline" || key == "retired_threads")));
+    };
+    auto first = a.begin(), second = b.begin();
+    for (;;) {
+        while (first != a.end() && excluded(first->first)) ++first;
+        while (second != b.end() && excluded(second->first)) ++second;
+        if (first == a.end() || second == b.end()) return first == a.end() && second == b.end();
+        if (first->first != second->first) return false;
+        const auto& key = first->first;
+        const bool equal = level == ImmutableProfileLevel::profile && key == "broker_security" ?
+            immutable_profile_fields_equal(first->second, second->second, ImmutableProfileLevel::broker, with_retirement) :
+            level == ImmutableProfileLevel::broker && key == "worker_security" ?
+            immutable_profile_fields_equal(first->second, second->second, ImmutableProfileLevel::worker, with_retirement) :
+            same(first->second, second->second);
+        if (!equal) return false;
+        ++first; ++second;
+    }
+}
+bool immutable_profiles_equal(const Value& left, const Value& right) {
+    // Schema itself remains an immutable field. Never apply v3 exclusions to
+    // two different grammars; every other field/key/value is compared exactly.
+    if (left.at("schema").as_string() != right.at("schema").as_string()) return false;
+    return immutable_profile_fields_equal(left, right, ImmutableProfileLevel::profile,
+        left.at("schema").as_string() == "usk.publisher_effect_broker_native_readback.v3");
+}
 bool paired_selection_kind(const std::string& kind) {
     return kind == "selected_operation_bracket" || kind == "original_maintenance_recovery_bracket" ||
         kind == "original_installation_recovery_bracket";
@@ -425,10 +456,15 @@ Value publisher_effect_broker_immutable_record(const Value& profile) {
     require_publisher_effect_broker_readback_record(profile);
     return immutable_profile(profile);
 }
+bool publisher_effect_broker_immutable_records_equal(const Value& earlier, const Value& later) {
+    require_publisher_effect_broker_readback_record(earlier);
+    require_publisher_effect_broker_readback_record(later);
+    return immutable_profiles_equal(earlier, later);
+}
 void require_publisher_effect_broker_readback_continuity(const Value& earlier, const Value& later) {
     require_publisher_effect_broker_readback_record(earlier);
     require_publisher_effect_broker_readback_record(later);
-    require(same(immutable_profile(earlier), immutable_profile(later)), "broker immutable native profile changed");
+    require(immutable_profiles_equal(earlier, later), "broker immutable native profile changed");
     if (earlier.at("schema").as_string() == "usk.publisher_effect_broker_native_readback.v3")
         require_publisher_broker_worker_security_continuity(earlier.at("broker_security").at("worker_security"),
             later.at("broker_security").at("worker_security"));
@@ -1142,7 +1178,7 @@ namespace {
 void require_selected_endpoints(const Value& selected, const Value& actual_request,
     const Value& before, const Value& after, PublisherEffectSelectionKind kind) {
     require_publisher_effect_broker_readback_continuity(before, after);
-    require(same(immutable_profile(before), immutable_profile(after)) &&
+    require(immutable_profiles_equal(before, after) &&
         before.at("request_sha256").as_string() == usk::json::sha256_canonical(actual_request) &&
         after.at("request_sha256").as_string() == usk::json::sha256_canonical(actual_request),
         "effect selected readback original request or native binding changed");
@@ -1214,7 +1250,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
         auto pending_before = state.collect();
         auto& before = pending_before.profile;
         require_publisher_effect_broker_readback_continuity(state.baseline, before);
-        require(same(immutable_profile(before), immutable_profile(state.baseline)), "broker original service/target/caller/worker binding changed");
+        require(immutable_profiles_equal(before, state.baseline), "broker original service/target/caller/worker binding changed");
         require(same(pending_before.selection, state.selected_baseline),
             "broker original held selection changed before readback");
         const auto request = state.custody.receive(timeout);
@@ -1228,7 +1264,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
         if (request.at("schema").as_string() == "usk.publisher_effect_worker_terminal.v1") {
             const auto completed = state.complete(pending_before, state.collect());
             const auto& after = completed.profile();
-            require(same(immutable_profile(before), immutable_profile(after)) &&
+            require(immutable_profiles_equal(before, after) &&
                 same(completed.selection(), state.selected_baseline) &&
                 (!(state.maintenance_recovery || state.installation_recovery) || same(state.recovery_current(), state.recovery_baseline)),
                 "broker original native scope changed across terminal selection");
@@ -1327,7 +1363,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             // precede these complete parent AFTER observations.
             auto completed = state.complete(pending_before, state.collect());
             const auto& after = completed.profile();
-            require(same(immutable_profile(before), immutable_profile(after)) &&
+            require(immutable_profiles_equal(before, after) &&
                 same(completed.selection(), state.selected_baseline),
                 "broker record byte scope changed original selection/native ownership");
             std::optional<Value> selected_after;
@@ -1456,7 +1492,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             result, usk::json::parse(state.request), after);
         if (kind == "original_installation_recovery") require_publisher_effect_original_installation_selection(
             result, usk::json::parse(state.request), after);
-        require(same(immutable_profile(before), immutable_profile(after)) &&
+        require(immutable_profiles_equal(before, after) &&
             same(completed.selection(), state.selected_baseline) &&
             (!(state.maintenance_recovery || state.installation_recovery) || same(state.recovery_current(), state.recovery_baseline)),
             "broker native scope or original selected operation changed across readback");

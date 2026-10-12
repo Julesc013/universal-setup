@@ -1850,8 +1850,7 @@ struct NativeMaintenanceContext::Impl {
             !equal(current_broker.at("registered_admission"), registration) ||
             !equal(selected.at("observation"), selection))
             throw std::runtime_error("native maintenance held registration or selected operation changed");
-        if (!equal(publisher_effect_broker_immutable_record(current_broker),
-            publisher_effect_broker_immutable_record(original_broker)))
+        if (!publisher_effect_broker_immutable_records_equal(current_broker, original_broker))
             throw std::runtime_error("native maintenance original child broker changed");
         require_publisher_worker_security(security.at("worker_security"), worker_context);
         require_publisher_process_boundary(security.at("process_boundary"), worker_context.process_id,

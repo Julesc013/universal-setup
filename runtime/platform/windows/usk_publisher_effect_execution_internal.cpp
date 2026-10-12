@@ -48,8 +48,7 @@ struct PublisherEffectExecutionOwner::State {
             peer.canonical_request() == request, "publisher child original observation owner/thread/request changed");
     }
     void require_native_binding(const Value& profile, const Value& native) const {
-        require(same(publisher_effect_broker_immutable_record(profile),
-            publisher_effect_broker_immutable_record(original)), "publisher child original broker binding changed");
+        require(publisher_effect_broker_immutable_records_equal(profile, original), "publisher child original broker binding changed");
         const auto broker = publisher_effect_broker_service_record(profile);
         const auto worker = publisher_effect_worker_record_context(profile);
         require(broker.service_name == name && broker.process_id != process_id && worker.process_id == process_id &&
@@ -72,8 +71,7 @@ struct PublisherEffectExecutionOwner::State {
             require_native_binding(observed.before, native_before);
             require_native_binding(observed.after, native_after);
             require_publisher_worker_security_continuity(native_before.at("worker_security"), native_after.at("worker_security"));
-            require(same(publisher_effect_broker_immutable_record(observed.after),
-                publisher_effect_broker_immutable_record(observed.before)), "publisher child native owner changed across selection");
+            require(publisher_effect_broker_immutable_records_equal(observed.after, observed.before), "publisher child native owner changed across selection");
             require_owner();
             readback.retain_selection_bracket(observed, kind);
             return PublisherEffectSelectedSecurityObservation(
@@ -95,8 +93,7 @@ struct PublisherEffectExecutionOwner::State {
             require_native_binding(observed.before, native_before);
             require_native_binding(observed.after, native_after);
             require_publisher_worker_security_continuity(native_before.at("worker_security"), native_after.at("worker_security"));
-            require(same(publisher_effect_broker_immutable_record(observed.after),
-                publisher_effect_broker_immutable_record(observed.before)), "publisher child native owner changed across readback");
+            require(publisher_effect_broker_immutable_records_equal(observed.after, observed.before), "publisher child native owner changed across readback");
             require_owner();
             readback.retain_readback_bracket(observed.before, observed.after);
             return PublisherEffectSecurityObservation(std::move(observed.after), std::move(native_after));
@@ -200,8 +197,7 @@ Value PublisherEffectExecutionOwner::authenticated_object_access(HANDLE handle) 
         state_->require_native_binding(observed.before, native_before);
         state_->require_native_binding(observed.after, native_after);
         require_publisher_worker_security_continuity(native_before.at("worker_security"), native_after.at("worker_security"));
-        require(same(publisher_effect_broker_immutable_record(observed.before),
-            publisher_effect_broker_immutable_record(observed.after)), "publisher child native owner changed across object access");
+        require(publisher_effect_broker_immutable_records_equal(observed.before, observed.after), "publisher child native owner changed across object access");
         state_->require_owner();
         state_->readback.retain_readback_bracket(observed.before, observed.after);
         return std::move(observed.access);
@@ -226,8 +222,7 @@ Value PublisherEffectExecutionOwner::authenticated_object_access_batch(const std
         state_->require_native_binding(observed.before, native_before);
         state_->require_native_binding(observed.after, native_after);
         require_publisher_worker_security_continuity(native_before.at("worker_security"), native_after.at("worker_security"));
-        require(same(publisher_effect_broker_immutable_record(observed.before),
-            publisher_effect_broker_immutable_record(observed.after)), "publisher child native owner changed across object access batch");
+        require(publisher_effect_broker_immutable_records_equal(observed.before, observed.after), "publisher child native owner changed across object access batch");
         state_->require_owner();
         require(GetTickCount64() - proof_started < 120000,
             "publisher child full parallel object proof exceeded its original deadline");
@@ -285,8 +280,7 @@ void PublisherEffectExecutionOwner::verify_original_maintenance_record_bytes(
         state_->require_native_binding(before, native_before);
         state_->require_native_binding(after, *native_after);
         require_publisher_worker_security_continuity(native_before.at("worker_security"), native_after->at("worker_security"));
-        require(same(publisher_effect_broker_immutable_record(before),
-            publisher_effect_broker_immutable_record(after)), "publisher record scope changed its original owner");
+        require(publisher_effect_broker_immutable_records_equal(before, after), "publisher record scope changed its original owner");
         state_->require_owner();
         if (selected) {
             require(reader.authority_selection_kind() == selected_kind,
@@ -327,8 +321,7 @@ PublisherEffectSelectedAccessObservation PublisherEffectExecutionOwner::observe_
         state_->require_native_binding(observed.selected.before, native_before);
         state_->require_native_binding(observed.selected.after, native_after);
         require_publisher_worker_security_continuity(native_before.at("worker_security"), native_after.at("worker_security"));
-        require(same(publisher_effect_broker_immutable_record(observed.selected.before),
-            publisher_effect_broker_immutable_record(observed.selected.after)),
+        require(publisher_effect_broker_immutable_records_equal(observed.selected.before, observed.selected.after),
             "publisher child native owner changed across selected access batch");
         state_->require_owner();
         require(GetTickCount64() - proof_started < 120000,

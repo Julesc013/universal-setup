@@ -6,7 +6,11 @@
 #include "usk_sha256.h"
 #include "usk_utf8_path.h"
 
+#include <algorithm>
+#include <array>
+#include <charconv>
 #include <cctype>
+#include <cstring>
 #include <limits>
 #include <sstream>
 #include <stdexcept>
@@ -111,15 +115,18 @@ Value::Object& Value::as_object()
     return *std::get<OwnedObject>(storage_);
 }
 
-const Value& Value::at(const std::string& key) const
+const Value& Value::at(const std::string& key) const { return at(std::string_view(key)); }
+bool Value::contains(const std::string& key) const { return contains(std::string_view(key)); }
+
+const Value& Value::at(std::string_view key) const
 {
     const Object& object = as_object();
     const auto found = object.find(key);
-    if (found == object.end()) throw std::runtime_error("required JSON member is missing: " + key);
+    if (found == object.end()) throw std::runtime_error("required JSON member is missing: " + std::string(key));
     return found->second;
 }
 
-bool Value::contains(const std::string& key) const
+bool Value::contains(std::string_view key) const
 {
     return type() == Type::object && as_object().find(key) != as_object().end();
 }
@@ -340,7 +347,38 @@ private:
     std::size_t values_ = 0;
 };
 
-void append_escaped(std::string& output, const std::string& value)
+// The canonical wire encoder and digest encoder share the exact traversal.
+// This sink retains only bounded bytes until the synchronous digest update.
+class CanonicalDigest {
+public:
+    void append(const char* data, std::size_t count) {
+        while (count) {
+            const auto copied = std::min(count, buffer_.size() - used_);
+            std::memcpy(buffer_.data() + used_, data, copied);
+            used_ += copied; data += copied; count -= copied;
+            if (used_ == buffer_.size()) flush();
+        }
+    }
+    void append(const std::string& text, std::size_t offset, std::size_t count) {
+        append(text.data() + offset, count);
+    }
+    void push_back(char byte) { append(&byte, 1); }
+    CanonicalDigest& operator+=(const char* text) {
+        append(text, std::char_traits<char>::length(text)); return *this;
+    }
+    std::string finish() { flush(); return digest_.finish(); }
+private:
+    void flush() {
+        digest_.update(reinterpret_cast<const unsigned char*>(buffer_.data()), used_);
+        used_ = 0;
+    }
+    usk::base::Sha256 digest_;
+    std::array<char, 4096> buffer_{};
+    std::size_t used_ = 0;
+};
+
+template<class Output>
+void append_escaped(Output& output, const std::string& value)
 {
     static const char hex[] = "0123456789abcdef";
     output.push_back('"');
@@ -372,12 +410,19 @@ void append_escaped(std::string& output, const std::string& value)
     output.push_back('"');
 }
 
-void append_canonical(std::string& output, const Value& value)
+template<class Output>
+void append_canonical(Output& output, const Value& value)
 {
     switch (value.type()) {
     case Value::Type::null_value: output += "null"; return;
     case Value::Type::boolean: output += value.as_boolean() ? "true" : "false"; return;
-    case Value::Type::unsigned_integer: output += std::to_string(value.as_unsigned()); return;
+    case Value::Type::unsigned_integer: {
+        char digits[20]; // UINT64_MAX has exactly twenty decimal digits.
+        const auto encoded = std::to_chars(digits, digits + sizeof(digits), value.as_unsigned());
+        if (encoded.ec != std::errc{}) throw std::logic_error("canonical unsigned integer encoding failed");
+        output.append(digits, static_cast<std::size_t>(encoded.ptr - digits));
+        return;
+    }
     case Value::Type::string: append_escaped(output, value.as_string()); return;
     case Value::Type::array: {
         output.push_back('[');
@@ -556,9 +601,8 @@ bool equal_values(const Value& left, const Value& right)
 
 std::string sha256_canonical(const Value& value)
 {
-    const std::string text = canonical(value);
-    usk::base::Sha256 digest;
-    digest.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+    CanonicalDigest digest;
+    append_canonical(digest, value);
     return digest.finish();
 }
 

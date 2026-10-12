@@ -9,6 +9,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -18,7 +19,7 @@ class Value {
 public:
     enum class Type { null_value, boolean, unsigned_integer, string, array, object };
     using Array = std::vector<Value>;
-    using Object = std::map<std::string, Value>;
+    using Object = std::map<std::string, Value, std::less<>>;
 
     Value() = default;
     explicit Value(bool value);
@@ -42,6 +43,12 @@ public:
     Object& as_object();
     const Value& at(const std::string& key) const;
     bool contains(const std::string& key) const;
+    // Borrowed lookup keeps the existing owned-string entry points. No key is
+    // retained; successful lookup and contains need no temporary allocation.
+    const Value& at(std::string_view key) const;
+    bool contains(std::string_view key) const;
+    const Value& at(const char* key) const { return at(std::string_view(key)); }
+    bool contains(const char* key) const { return contains(std::string_view(key)); }
 
 private:
     // Alternatives follow Type exactly. Only the active owned value is live;

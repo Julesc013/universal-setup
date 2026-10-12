@@ -203,8 +203,7 @@ struct PublisherCreationCapture::Implementation {
         Value security_current;
         if (effect_readback) {
             require(effect_security != nullptr &&
-                usk::json::canonical(publisher_effect_broker_immutable_record(effect_readback->service_admission())) ==
-                    usk::json::canonical(publisher_effect_broker_immutable_record(broker)),
+                publisher_effect_broker_immutable_records_equal(effect_readback->service_admission(), broker),
                 "publisher creation original native broker/child binding changed");
             const auto native = effect_security->observe_current();
             require(native.at("worker").at("process_id").as_unsigned() == worker.process_id &&
@@ -411,8 +410,7 @@ Value PublisherCreationCapture::certificate(const Value& anchors,
         {"created_graph_sha256", Value(usk::json::sha256_canonical(graph))}});
     if (effect) {
         const auto current = state.effect_readback->service_admission();
-        require(usk::json::canonical(publisher_effect_broker_immutable_record(current)) ==
-            usk::json::canonical(publisher_effect_broker_immutable_record(state.broker)),
+        require(publisher_effect_broker_immutable_records_equal(current, state.broker),
             "publisher creation native broker/child changed across certificate");
         Value effect_worker(Value::Object{{"process_id", Value(static_cast<std::uint64_t>(state.worker.process_id))},
             {"process_birth", state.broker.at("custody").at("peer_process_birth")},
@@ -472,8 +470,7 @@ void require_publisher_creation_certificate(const Value& certificate,
         "publisher retained creation certificate differs from its sealed graph or creator binding");
     if (effect_bound) {
         require_publisher_effect_broker_readback_continuity(execution.at("broker_readback"), certificate.at("broker_readback"));
-        require(usk::json::canonical(publisher_effect_broker_immutable_record(certificate.at("broker_readback"))) ==
-            usk::json::canonical(publisher_effect_broker_immutable_record(execution.at("broker_readback"))),
+        require(publisher_effect_broker_immutable_records_equal(certificate.at("broker_readback"), execution.at("broker_readback")),
             "publisher retained creation broker/child differs from its original native execution binding");
     }
     if (process_bound) {

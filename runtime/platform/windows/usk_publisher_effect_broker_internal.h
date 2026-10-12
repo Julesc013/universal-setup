@@ -29,6 +29,9 @@ class PublisherEffectExecutionOwner;
 // transport, corroborate live SCM, activate a scope or grant effect authority.
 void require_publisher_effect_broker_readback_record(const usk::json::Value&);
 usk::json::Value publisher_effect_broker_immutable_record(const usk::json::Value&);
+// Exact owned-projection equality without cloning either tree. Both complete
+// closed records are validated; this comparison grants no native authority.
+bool publisher_effect_broker_immutable_records_equal(const usk::json::Value&, const usk::json::Value&);
 // Both closed records are validated first. Prospective broker originals and
 // retirement facts must accumulate without loss, revival or security changes.
 void require_publisher_effect_broker_readback_continuity(const usk::json::Value& earlier,

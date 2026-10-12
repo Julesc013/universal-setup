@@ -1135,6 +1135,29 @@ void effect_execution_record_controls() {
         broker.as_object().at("schema") = Value("usk.publisher_effect_broker_native_readback.v3");
         broker.as_object().at("broker_security").as_object().at("worker_security") = security;
     };
+    // The retained owned projection stays an independent oracle. Exercise
+    // both closed grammars and changes in each excluded retirement family.
+    std::vector<Value> immutable_examples{broker};
+    for (const auto& security : {initial_broker, sealed_broker, certificate_broker,
+            prepared_broker, visible_broker, future_broker}) {
+        auto example = broker; set_broker(example, security);
+        immutable_examples.push_back(std::move(example));
+    }
+    for (const auto& first : immutable_examples) for (const auto& second : immutable_examples) {
+        const auto expected = usk::json::canonical(publisher_effect_broker_immutable_record(first)) ==
+            usk::json::canonical(publisher_effect_broker_immutable_record(second));
+        check(publisher_effect_broker_immutable_records_equal(first, second) == expected,
+            "borrowed immutable broker comparison differs from owned projection");
+    }
+    for (const auto& example : immutable_examples) for (const auto& member : example.as_object()) {
+        auto invalid = example; invalid.as_object().at(member.first) = Value();
+        bool old_refused = false, new_refused = false;
+        try { (void)publisher_effect_broker_immutable_record(invalid); }
+        catch (const std::exception&) { old_refused = true; }
+        try { (void)publisher_effect_broker_immutable_records_equal(example, invalid); }
+        catch (const std::exception&) { new_refused = true; }
+        check(old_refused && new_refused, "borrowed comparison omitted complete endpoint validation");
+    }
     auto& lifetime_phases = lifetime_prepared.as_object().at("execution_phases").as_array();
     for (std::size_t index = 0; index != 3; ++index)
         set_broker(lifetime_phases[index].as_object().at("execution").as_object().at("broker_readback"),
