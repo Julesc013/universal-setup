@@ -50,6 +50,13 @@ usk::json::Value observe_publisher_effect_execution_phase(
 void require_publisher_authenticated_object_access(const usk::json::Value& access,
     const usk::json::Value& client, const usk::json::Value& object);
 
+// Same closed retained decoder applied to the raw projection: omit only
+// client/native_object and synthesize missing hashes with emplace precedence.
+// Borrows fields only during this synchronous call; no native observation or
+// authority is created, retained or returned. Callers keep their binding checks.
+void require_publisher_authenticated_raw_object_access(const usk::json::Value& access,
+    const usk::json::Value& client, const usk::json::Value& object);
+
 void require_publisher_authenticated_descendant_access(const usk::json::Value& access,
     const usk::json::Value& client, const usk::json::Value& tree);
 

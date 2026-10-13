@@ -1651,19 +1651,10 @@ void require_publisher_effect_authority_record_readback(const Value& ready, cons
 void require_publisher_maintenance_read_only_access(const Value& result, const Value& client, const Value& native_object) {
     require(same(result.at("client"), client) && same(result.at("native_object"), native_object),
         "native maintenance authenticated object binding changed");
-    Value::Object fields;
-    for (const auto& [name, value] : result.as_object())
-        if (name != "client" && name != "native_object") fields.emplace(name, value);
-    Value access(std::move(fields));
-    // Keep all supplied retained fields and the existing emplace precedence.
-    // The independently owned projection omits only discarded proof subtrees;
-    // every hash, validator and actual raw denial below remains mandatory.
-    access.as_object().emplace("client_sha256", Value(usk::json::sha256_canonical(client)));
-    access.as_object().emplace("native_object_sha256", Value(usk::json::sha256_canonical(native_object)));
-    require_publisher_authenticated_object_access(access, client, native_object);
+    require_publisher_authenticated_raw_object_access(result, client, native_object);
     constexpr DWORD mutation = FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_DELETE_CHILD |
         FILE_WRITE_ATTRIBUTES | DELETE | WRITE_DAC | WRITE_OWNER;
-    for (const auto& [name, check] : access.at("checks").as_object())
+    for (const auto& [name, check] : result.at("checks").as_object())
         if (name == "maximum_allowed" ? (check.at("granted").as_unsigned() & mutation) != 0 :
             check.at("allowed").as_boolean() || check.at("granted").as_unsigned() != 0)
             throw std::runtime_error("native maintenance caller retains object mutation rights");
@@ -1930,17 +1921,7 @@ PublisherWorkerTokenContext actual_worker_context(const Value& profile) {
     return PublisherWorkerTokenContext{GetCurrentProcessId(), sid, actual};
 }
 void require_raw_object_access(const Value& result, const Value& native_object) {
-    Value::Object fields;
-    for (const auto& [name, value] : result.as_object())
-        if (name != "client" && name != "native_object") fields.emplace(name, value);
-    Value access(std::move(fields));
-    // Unchanged closed raw-descriptor/native-object/client validation, including
-    // all actual AccessCheck results. Preserve every other supplied field and
-    // emplace precedence, without copying the two discarded proof subtrees.
-    // The input remains independently owned; this projection is never authority.
-    access.as_object().emplace("client_sha256", Value(usk::json::sha256_canonical(result.at("client"))));
-    access.as_object().emplace("native_object_sha256", Value(usk::json::sha256_canonical(native_object)));
-    require_publisher_authenticated_object_access(access, result.at("client"), native_object);
+    require_publisher_authenticated_raw_object_access(result, result.at("client"), native_object);
 }
 }
 void require_publisher_effect_queries_closed_marker(const Value& marker,

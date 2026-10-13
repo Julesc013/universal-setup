@@ -827,6 +827,58 @@ void effect_execution_record_controls() {
         try { require_publisher_maintenance_read_only_access(unknown_access, client, object(2)); }
         catch (...) { unknown_refused = true; }
         check(unknown_refused, "record byte pre-read predicate discarded an unknown raw field");
+        const auto characterize_raw_projection = [&](const Value& raw, bool expected) {
+            const auto original_bytes = usk::json::canonical(raw);
+            // Independent owned copy/erase/emplace oracle retains the previous
+            // compact decoder and its supplied-hash precedence.
+            auto compact = raw;
+            compact.as_object().erase("client"); compact.as_object().erase("native_object");
+            compact.as_object().emplace("client_sha256", Value(usk::json::sha256_canonical(client)));
+            compact.as_object().emplace("native_object_sha256", Value(usk::json::sha256_canonical(object(2))));
+            bool owned_accepted = true, borrowed_accepted = true;
+            try { require_publisher_authenticated_object_access(compact, client, object(2)); }
+            catch (const std::exception&) { owned_accepted = false; }
+            try { require_publisher_authenticated_raw_object_access(raw, client, object(2)); }
+            catch (const std::exception&) { borrowed_accepted = false; }
+            check(owned_accepted == expected && borrowed_accepted == expected,
+                "raw borrowed access decoder differs from independently owned projection");
+            check(usk::json::canonical(raw) == original_bytes,
+                "raw borrowed access decoder changed the independently retained proof");
+        };
+        characterize_raw_projection(denied_access, true);
+        characterize_raw_projection(unknown_access, false);
+        for (const auto& member : denied_access.as_object()) {
+            if (member.first == "client" || member.first == "native_object") continue;
+            auto missing = denied_access; missing.as_object().erase(member.first);
+            characterize_raw_projection(missing, false);
+            auto mistyped = denied_access; mistyped.as_object().at(member.first) = Value();
+            characterize_raw_projection(mistyped, false);
+        }
+        for (const auto* key : {"client_sha256", "native_object_sha256"}) {
+            auto supplied = denied_access;
+            supplied.as_object().emplace(key, Value(usk::json::sha256_canonical(
+                std::string(key) == "client_sha256" ? client : object(2))));
+            characterize_raw_projection(supplied, true);
+            supplied.as_object().at(key) = Value(std::string(64u, 'f'));
+            characterize_raw_projection(supplied, false);
+            supplied.as_object().at(key) = Value(false);
+            characterize_raw_projection(supplied, false);
+        }
+        auto both_hashes = denied_access;
+        both_hashes.as_object().emplace("client_sha256", Value(usk::json::sha256_canonical(client)));
+        both_hashes.as_object().emplace("native_object_sha256", Value(usk::json::sha256_canonical(object(2))));
+        characterize_raw_projection(both_hashes, true);
+        both_hashes.as_object().emplace("unknown_retained_field", Value(true));
+        characterize_raw_projection(both_hashes, false);
+        for (const auto& right : denied_access.at("checks").as_object()) {
+            auto missing = denied_access; missing.as_object().at("checks").as_object().erase(right.first);
+            characterize_raw_projection(missing, false);
+            for (const auto* key : {"requested", "granted", "allowed"}) {
+                auto mistyped = denied_access;
+                mistyped.as_object().at("checks").as_object().at(right.first).as_object().at(key) = Value();
+                characterize_raw_projection(mistyped, false);
+            }
+        }
         const auto composed_reply = [&](const Value& selected_reply, bool recovery, const Value& objects) {
             auto result = selected_reply;
             result.as_object().at("schema") = Value("usk.publisher_effect_broker_readback_response.v6");

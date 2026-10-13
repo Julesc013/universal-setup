@@ -227,15 +227,31 @@ void require_access_descriptor(const Value& access, const Value& object) {
     }
     require(offset == acl + size, "publisher authenticated descriptor ACL has unaccounted bytes");
 }
-} // namespace
-
-void require_publisher_authenticated_object_access(const Value& access, const Value& client, const Value& object) {
+void require_authenticated_access_fields(const Value& access, const Value& client,
+    const Value& object, bool raw_projection) {
+    Value client_hash, object_hash;
+    std::size_t projected_size = 0;
+    if (raw_projection) {
+        const auto& fields = access.as_object();
+        projected_size = fields.size() - fields.count("client") - fields.count("native_object") +
+            (fields.count("client_sha256") == 0) + (fields.count("native_object_sha256") == 0);
+        // Retain the owned projection's unconditional hash construction and
+        // emplace precedence. Supplied hashes are checked, never overwritten.
+        client_hash = Value(usk::json::sha256_canonical(client));
+        object_hash = Value(usk::json::sha256_canonical(object));
+    }
+    const auto binding = [&](const char* name, const Value& generated) -> const Value& {
+        if (!raw_projection) return access.at(name);
+        const auto& fields = access.as_object();
+        const auto found = fields.find(name);
+        return found == fields.end() ? generated : found->second;
+    };
     require_authenticated_client(client);
-    require(access.as_object().size() == 8 &&
+    require((raw_projection ? projected_size : access.as_object().size()) == 8 &&
         access.at("schema").as_string() == "usk.publisher_authenticated_object_access.v1" &&
         access.at("scope").as_string() == "fresh_held_authenticated_token_and_file_descriptor" &&
-        access.at("client_sha256").as_string() == usk::json::sha256_canonical(client) &&
-        access.at("native_object_sha256").as_string() == usk::json::sha256_canonical(object) &&
+        binding("client_sha256", client_hash).as_string() == usk::json::sha256_canonical(client) &&
+        binding("native_object_sha256", object_hash).as_string() == usk::json::sha256_canonical(object) &&
         access.at("descriptor_api").as_string() == "GetSecurityInfo:SE_FILE_OBJECT:OWNER_GROUP_DACL" &&
         canonical_sid(access.at("observed_group_sid").as_string()),
         "publisher authenticated access binding or API scope differs");
@@ -251,6 +267,15 @@ void require_publisher_authenticated_object_access(const Value& access, const Va
             (requested == MAXIMUM_ALLOWED || granted == (allowed ? requested : 0u)),
             "publisher authenticated AccessCheck request or result is malformed");
     }
+}
+} // namespace
+
+void require_publisher_authenticated_object_access(const Value& access, const Value& client, const Value& object) {
+    require_authenticated_access_fields(access, client, object, false);
+}
+
+void require_publisher_authenticated_raw_object_access(const Value& access, const Value& client, const Value& object) {
+    require_authenticated_access_fields(access, client, object, true);
 }
 
 void require_publisher_execution_platform(const Value& value) { require_platform(value); }
