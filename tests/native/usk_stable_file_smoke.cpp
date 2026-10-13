@@ -55,7 +55,12 @@ int diagnostic_file_work_proof(const fs::path& root)
     if (enable(nullptr) || !enable(capture_diagnostic) || enable(refuse_diagnostic) ||
             disable(refuse_diagnostic)) return 61;
     const fs::path path = root / "diagnostic-input.bin";
+#if defined(_WIN32)
+    // Keep actual two-read coverage with the larger Windows hash window.
+    const std::string bytes(262145, 'd');
+#else
     const std::string bytes(65537, 'd');
+#endif
     { std::ofstream out(path, std::ios::binary); out << bytes; if (!out) return 62; }
     usk::base::Sha256 portable;
     portable.update(reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size());
@@ -146,7 +151,7 @@ int fresh_hash_proof(const fs::path& root)
     // binary contents. Each call must hash the newly held bytes from scratch.
     const fs::path path = root / "hash-input.bin";
     for (const std::size_t size : {0u, 1u, 55u, 56u, 63u, 64u, 65u,
-            65535u, 65536u, 65537u, 3703296u}) {
+            65535u, 65536u, 65537u, 262143u, 262144u, 262145u, 3703296u}) {
         std::vector<unsigned char> bytes(size);
         for (std::size_t index = 0; index < bytes.size(); ++index) {
             bytes[index] = static_cast<unsigned char>((index * 131u + size) & 255u);
@@ -205,7 +210,7 @@ int fresh_hash_proof(const fs::path& root)
 int concurrent_fresh_hash_proof(const fs::path& root)
 {
     const fs::path path = root / "concurrent-hash-input.bin";
-    for (const std::size_t size : {0u, 65u, 65537u, 3703296u}) {
+    for (const std::size_t size : {0u, 65u, 65537u, 262145u, 3703296u}) {
         std::vector<unsigned char> bytes(size);
         for (std::size_t index = 0; index < size; ++index) {
             bytes[index] = static_cast<unsigned char>((index * 73u + size) & 255u);

@@ -2349,7 +2349,7 @@
         },
         {
           "path": "runtime/base/usk_stable_file.cpp",
-          "sha256": "6a3afcf81e40aa9858f22f334e2e3f462793b4c458b5e757d471b731739792c7"
+          "sha256": "155cc7904c27c103980eb77b2899bde814f2d7baa3c08e0cc917dbc9c95764f7"
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",
@@ -2385,7 +2385,7 @@
         },
         {
           "path": "runtime/base/usk_stable_file.cpp",
-          "sha256": "6a3afcf81e40aa9858f22f334e2e3f462793b4c458b5e757d471b731739792c7"
+          "sha256": "155cc7904c27c103980eb77b2899bde814f2d7baa3c08e0cc917dbc9c95764f7"
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",
@@ -2421,7 +2421,7 @@
         },
         {
           "path": "runtime/base/usk_stable_file.cpp",
-          "sha256": "6a3afcf81e40aa9858f22f334e2e3f462793b4c458b5e757d471b731739792c7"
+          "sha256": "155cc7904c27c103980eb77b2899bde814f2d7baa3c08e0cc917dbc9c95764f7"
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",

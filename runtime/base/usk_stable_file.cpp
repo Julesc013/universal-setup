@@ -416,16 +416,27 @@ std::string StableFile::sha256_hex() const
         hash_provider_ = std::make_unique<HashProvider>();
     });
     WindowsFileSha256 hash(hash_provider_->algorithm);
+    // Fewer synchronous reads for each mandatory fresh image hash. Keep the
+    // bounded buffer call-local on the heap, without increasing caller stack
+    // requirements. read_exact fills each requested range before hash.update;
+    // no initial or retained buffer contents participate in the digest.
+    const std::size_t buffer_size = static_cast<std::size_t>(
+        std::min<std::uint64_t>(256u * 1024u, identity_.size_bytes));
+    const std::unique_ptr<unsigned char[]> buffer(
+        buffer_size == 0 ? nullptr : new unsigned char[buffer_size]);
+    auto* const buffer_data = buffer.get();
 #else
     Sha256 hash;
-#endif
     std::array<unsigned char, 64 * 1024> buffer{};
+    const auto buffer_size = buffer.size();
+    auto* const buffer_data = buffer.data();
+#endif
     std::uint64_t offset = 0;
     while (offset < identity_.size_bytes) {
         const std::size_t count = static_cast<std::size_t>(
-            std::min<std::uint64_t>(buffer.size(), identity_.size_bytes - offset));
-        read_exact(offset, buffer.data(), count);
-        hash.update(buffer.data(), count);
+            std::min<std::uint64_t>(buffer_size, identity_.size_bytes - offset));
+        read_exact(offset, buffer_data, count);
+        hash.update(buffer_data, count);
         usk::diagnostics::note(usk::diagnostics::Counter::hash_bytes, count);
         offset += count;
     }
