@@ -492,8 +492,7 @@ usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HA
         std::memcmp(descriptor.value, descriptor_after.value, length) != 0)
         throw std::runtime_error("held descriptor changed across authenticated access collection");
     const auto after = directory ? observe_publisher_directory_handle(object) : observe_publisher_file_handle(object);
-    if (!usk::json::equal_values(publisher_handle_observation_json(before),
-            publisher_handle_observation_json(after)) ||
+    if (!detail::equal_publisher_handle_observations(before, after) ||
         !usk::json::equal_values(before_client,
             client_token_facts(state.client_token.value, state.client_process_id)))
         throw std::runtime_error("authenticated token or held object changed across access collection");
