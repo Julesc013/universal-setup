@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
+#include "usk_diagnostic_metrics.h"
 #include "usk_publisher_effect_execution_internal.h"
 #if defined(_WIN32)
 #include "usk_publisher_process_boundary.h"
@@ -249,18 +250,23 @@ void PublisherEffectExecutionOwner::require_authority_record_selection(
 }
 void PublisherEffectExecutionOwner::verify_original_maintenance_record_bytes(
     usk::lifecycle::detail::NativeMaintenanceRecordByteRead& reader) {
+    const usk::diagnostics::Scope diagnostic(usk::diagnostics::Phase::record_proof);
     require_current();
     const auto proof_started = reader.started_;
     try {
         state_->require_owner();
         const auto selected_kind = reader.authority_selection_kind();
         const auto failure_context = reader.authority_failure_context();
-        const auto native_before = state_->security.observe_local_current(failure_context);
+        const auto native_before = [&] {
+            const usk::diagnostics::Scope native_diagnostic(usk::diagnostics::Phase::child_native_before);
+            return state_->security.observe_local_current(failure_context);
+        }();
         reader.prepare(); // Construction and the complete immutable ledger are charged too.
         std::optional<Value> native_after;
         const auto after_queries_closed = [&] {
             require(!native_after, "publisher record scope received duplicate second-round closure");
             state_->require_owner();
+            const usk::diagnostics::Scope native_diagnostic(usk::diagnostics::Phase::child_native_after);
             native_after.emplace(state_->security.observe_local_current(failure_context));
         };
         PublisherEffectWorkerReadback::ObjectAccessObservation observed;
@@ -287,7 +293,10 @@ void PublisherEffectExecutionOwner::verify_original_maintenance_record_bytes(
                 "publisher authority record selected kind changed at completion");
             require_authority_record_selection(reader, after, selected->selection, *native_after);
         }
-        reader.finalize(observed.access); // All raw denials and actual final whole-chain joins.
+        {
+            const usk::diagnostics::Scope final_diagnostic(usk::diagnostics::Phase::record_final_validation);
+            reader.finalize(observed.access); // All raw denials and actual final whole-chain joins.
+        }
         (void)effect_proof_remaining(proof_started);
         if (selected) state_->readback.retain_selection_bracket(*selected, *selected_kind);
         else state_->readback.retain_readback_bracket(before, after);

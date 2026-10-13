@@ -5,6 +5,8 @@
 #include "usk_utf8_path.h"
 #include "usk_record_io.h"
 #include "usk_sha256.h"
+#include "usk_diagnostic_metrics.h"
+#include <cerrno>
 
 #include <chrono>
 #include <algorithm>
@@ -26,6 +28,117 @@
 #endif
 
 namespace fs = std::filesystem;
+namespace {
+std::array<usk::diagnostics::Event, 8> diagnostic_events{};
+std::atomic<std::size_t> diagnostic_events_written{0};
+bool capture_diagnostic(const usk::diagnostics::Event& event) noexcept {
+    const auto index = diagnostic_events_written.fetch_add(1);
+    if (index >= diagnostic_events.size()) return false;
+    diagnostic_events[index] = event;
+    errno = EDOM;
+#if defined(_WIN32)
+    SetLastError(ERROR_INVALID_DATA);
+#endif
+    return true;
+}
+bool refuse_diagnostic(const usk::diagnostics::Event&) noexcept { return false; }
+}
+
+int diagnostic_file_work_proof(const fs::path& root)
+{
+    using namespace usk::diagnostics;
+    const auto value = [](const Snapshot& s, Counter c) { return s.totals[static_cast<std::size_t>(c)]; };
+    const auto inactive = snapshot();
+    note(Counter::hash_calls);
+    { const Scope ignored(Phase::record_proof); }
+    if (snapshot().totals != inactive.totals || diagnostic_events_written != 0) return 60;
+    if (enable(nullptr) || !enable(capture_diagnostic) || enable(refuse_diagnostic) ||
+            disable(refuse_diagnostic)) return 61;
+    const fs::path path = root / "diagnostic-input.bin";
+    const std::string bytes(65537, 'd');
+    { std::ofstream out(path, std::ios::binary); out << bytes; if (!out) return 62; }
+    usk::base::Sha256 portable;
+    portable.update(reinterpret_cast<const unsigned char*>(bytes.data()), bytes.size());
+    const auto expected = portable.finish();
+    const auto before = snapshot();
+    std::atomic<bool> hashes_match{true};
+    {
+        const Scope operation(Phase::engine_request);
+        usk::base::StableFile file(path);
+        std::array<std::thread, 4> callers;
+        std::atomic<bool> start{false};
+        try {
+            for (auto& caller : callers) caller = std::thread([&] {
+                while (!start.load(std::memory_order_acquire)) std::this_thread::yield();
+                try {
+                    for (int repetition = 0; repetition != 3; ++repetition)
+                        if (file.sha256_hex() != expected) hashes_match.store(false);
+                } catch (...) { hashes_match.store(false); }
+            });
+        } catch (...) {
+            start.store(true, std::memory_order_release);
+            for (auto& caller : callers) if (caller.joinable()) caller.join();
+            return 69;
+        }
+        start.store(true, std::memory_order_release);
+        for (auto& caller : callers) caller.join();
+        file.verify_unchanged();
+    }
+    const auto after = snapshot();
+    const auto delta = [&](Counter c) { return value(after,c) - value(before,c); };
+    if (!hashes_match || after.saturated || delta(Counter::held_file_instances) != 1 ||
+            delta(Counter::hash_calls) != 12 || delta(Counter::hash_successes) != 12 ||
+            delta(Counter::hash_bytes) != 12u * bytes.size() || delta(Counter::exact_read_calls) != 24 ||
+            delta(Counter::exact_read_bytes) != 12u * bytes.size()) return 63;
+#if defined(_WIN32)
+    if (delta(Counter::provider_open_calls) != 1 || delta(Counter::provider_open_successes) != 1) return 64;
+#else
+    if (delta(Counter::provider_open_calls) || delta(Counter::provider_open_successes)) return 64;
+#endif
+    errno = E2BIG;
+#if defined(_WIN32)
+    SetLastError(ERROR_ACCESS_DENIED);
+#endif
+    {
+        const Scope preserved(Phase::record_proof);
+#if defined(_WIN32)
+        const DWORD entry_error = GetLastError(); // Capture before CRT errno access.
+#endif
+        if (errno != E2BIG) return 65;
+#if defined(_WIN32)
+        if (entry_error != ERROR_ACCESS_DENIED) return 65;
+#endif
+        errno = E2BIG;
+#if defined(_WIN32)
+        SetLastError(ERROR_ACCESS_DENIED); // Isolate destructor from the check itself.
+#endif
+    }
+#if defined(_WIN32)
+    const DWORD exit_error = GetLastError(); // No throw/catch or CRT access intervenes.
+#endif
+    if (errno != E2BIG) return 65;
+#if defined(_WIN32)
+    if (exit_error != ERROR_ACCESS_DENIED) return 65;
+#endif
+    try {
+        const Scope unwinding(Phase::record_proof);
+        throw 7;
+    } catch (int) {}
+    if (diagnostic_events_written != 6 || diagnostic_events[0].exiting ||
+            !diagnostic_events[1].exiting || diagnostic_events[1].unwinding ||
+            diagnostic_events[0].scope_id != diagnostic_events[1].scope_id ||
+            diagnostic_events[2].exiting || !diagnostic_events[3].exiting ||
+            diagnostic_events[3].unwinding ||
+            diagnostic_events[2].scope_id != diagnostic_events[3].scope_id ||
+            diagnostic_events[4].exiting || !diagnostic_events[5].exiting ||
+            !diagnostic_events[5].unwinding ||
+            diagnostic_events[4].scope_id != diagnostic_events[5].scope_id) return 66;
+    if (!disable(capture_diagnostic) || disable(capture_diagnostic) || !enable(refuse_diagnostic)) return 67;
+    const auto dropped = value(snapshot(), Counter::not_submitted_events);
+    { const Scope rejected(Phase::response_write); }
+    if (value(snapshot(), Counter::not_submitted_events) != dropped + 2 || !disable(refuse_diagnostic)) return 68;
+    return 0;
+}
 
 int fresh_hash_proof(const fs::path& root)
 {
@@ -274,6 +387,7 @@ int main()
     }
     if (const int hash = fresh_hash_proof(root)) return hash;
     if (const int concurrent = concurrent_fresh_hash_proof(root)) return concurrent;
+    if (const int diagnostic = diagnostic_file_work_proof(root)) return diagnostic;
 
     const fs::path source = root / "source.zip";
     {

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_stable_file.h"
+#include "usk_diagnostic_metrics.h"
 
 #include "usk_sha256.h"
 #include "usk_utf8_path.h"
@@ -62,8 +63,11 @@ class WindowsFileSha256Algorithm {
 public:
     WindowsFileSha256Algorithm()
     {
-        require_file_hash_success(BCryptOpenAlgorithmProvider(&algorithm_.value,
-            BCRYPT_SHA256_ALGORITHM, MS_PRIMITIVE_PROVIDER, 0), "open");
+        usk::diagnostics::note(usk::diagnostics::Counter::provider_open_calls);
+        const auto status = BCryptOpenAlgorithmProvider(&algorithm_.value,
+            BCRYPT_SHA256_ALGORITHM, MS_PRIMITIVE_PROVIDER, 0);
+        if (status == 0) usk::diagnostics::note(usk::diagnostics::Counter::provider_open_successes);
+        require_file_hash_success(status, "open");
         ULONG length = 0, returned = 0;
         require_file_hash_success(BCryptGetProperty(algorithm_.value, BCRYPT_HASH_LENGTH,
             reinterpret_cast<PUCHAR>(&length), static_cast<ULONG>(sizeof(length)), &returned, 0), "length");
@@ -305,6 +309,7 @@ StableFile::StableFile(const fs::path& path) : path_(require_absolute_path(path)
         throw;
     }
 #endif
+    usk::diagnostics::note(usk::diagnostics::Counter::held_file_instances);
 }
 
 StableFile::~StableFile()
@@ -352,6 +357,7 @@ void StableFile::read_exact(
     unsigned char* output,
     std::size_t size) const
 {
+    usk::diagnostics::note(usk::diagnostics::Counter::exact_read_calls);
 #if defined(_WIN32)
     HANDLE handle = as_handle(native_handle_);
     if (offset > static_cast<std::uint64_t>(std::numeric_limits<LONGLONG>::max())) {
@@ -372,6 +378,7 @@ void StableFile::read_exact(
             throw windows_error("cannot read stable local archive");
         }
         output += read_count;
+        usk::diagnostics::note(usk::diagnostics::Counter::exact_read_bytes, read_count);
         offset += read_count;
         size -= read_count;
     }
@@ -391,6 +398,7 @@ void StableFile::read_exact(
                 std::error_code(errno, std::generic_category()).message());
         }
         output += count;
+        usk::diagnostics::note(usk::diagnostics::Counter::exact_read_bytes, static_cast<std::uint64_t>(count));
         size -= static_cast<std::size_t>(count);
         offset += static_cast<std::uint64_t>(count);
     }
@@ -399,6 +407,7 @@ void StableFile::read_exact(
 
 std::string StableFile::sha256_hex() const
 {
+    usk::diagnostics::note(usk::diagnostics::Counter::hash_calls);
 #if defined(_WIN32)
     // Publish only fully initialized immutable setup. A failed first attempt
     // propagates without retaining a partial provider; call_once stays unset.
@@ -417,9 +426,12 @@ std::string StableFile::sha256_hex() const
             std::min<std::uint64_t>(buffer.size(), identity_.size_bytes - offset));
         read_exact(offset, buffer.data(), count);
         hash.update(buffer.data(), count);
+        usk::diagnostics::note(usk::diagnostics::Counter::hash_bytes, count);
         offset += count;
     }
-    return hash.finish();
+    auto result = hash.finish();
+    usk::diagnostics::note(usk::diagnostics::Counter::hash_successes);
+    return result;
 }
 
 void StableFile::verify_unchanged() const

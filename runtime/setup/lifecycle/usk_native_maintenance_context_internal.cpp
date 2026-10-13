@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
+#include "usk_diagnostic_metrics.h"
 #include "usk_native_maintenance_context_internal.h"
 #if defined(_WIN32)
 #include "usk_publisher_anchor_create.h"
@@ -1748,6 +1749,7 @@ struct NativeMaintenanceContext::Impl {
     void require_authority(const transaction::TransactionSpec& supplied,
         const Entry* leading_entry = nullptr, const Entry* trailing_entry = nullptr,
         FileObservationQuery* file_query = nullptr, OwnedRecordQuery* record_query = nullptr) const {
+        const usk::diagnostics::Scope diagnostic(usk::diagnostics::Phase::authority_fence);
         if ((leading_entry || trailing_entry || file_query || record_query) && !original_child)
             throw std::runtime_error("native maintenance entry composition lacks its original child");
         const auto failure_context = require_authority_state(supplied);

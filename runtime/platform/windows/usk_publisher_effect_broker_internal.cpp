@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
+#include "usk_diagnostic_metrics.h"
 #include "usk_publisher_effect_broker_internal.h"
 #if defined(_WIN32)
 #include "usk_publisher_registration.h"
@@ -1098,6 +1099,7 @@ struct PublisherEffectBrokerReadback::State {
         return result;
     }
     PendingObservation collect() const {
+        const usk::diagnostics::Scope diagnostic(usk::diagnostics::Phase::broker_collect);
         require(!failed && process_id == GetCurrentProcessId() && thread_id == GetCurrentThreadId() &&
             request == channel.authenticated_canonical_request() && request == custody.canonical_request(),
             "broker original native owner/thread/authenticated request changed");
@@ -1828,16 +1830,25 @@ PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
             provisional.emplace(std::move(ready));
             (void)s.remaining();
         }
-        reader.run_round(round);
+        {
+            const usk::diagnostics::Scope diagnostic(usk::diagnostics::Phase::record_first_round);
+            reader.run_round(round);
+        }
         require(s.chunk_index == scope.at("chunk_count").as_unsigned(), "child complete record first round is missing occurrences");
         (void)s.remaining();
-        reader.read_original_bytes();
+        {
+            const usk::diagnostics::Scope diagnostic(usk::diagnostics::Phase::record_byte_read);
+            reader.read_original_bytes();
+        }
         (void)s.remaining();
         const auto finished = record_phase(scope, "read_finished");
         record_require_packet(finished, scope, "read_finished");
         s.peer.send(finished, s.remaining());
         s.round = 1u; s.chunk_index = 0;
-        reader.run_round(round);
+        {
+            const usk::diagnostics::Scope diagnostic(usk::diagnostics::Phase::record_second_round);
+            reader.run_round(round);
+        }
         require(s.chunk_index == scope.at("chunk_count").as_unsigned(), "child complete record second round is missing occurrences");
         const auto closed = s.peer.receive(s.remaining());
         record_require_packet(closed, scope, "all_second_queries_closed");

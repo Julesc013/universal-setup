@@ -60,7 +60,16 @@ $receipt=[ordered]@{
     original_request_identity_source='Original probe receipt; join native process birth and ancestry with raw ETL';
     capture_start_precedes_probe=$false;capture_end_follows_probe=$false;
     instance_name=$instance;identity=$identity.Name;windows_build=[Environment]::OSVersion.Version.ToString();
-    created_utc=[DateTime]::UtcNow.ToString('o');configured_buffer_bytes=67108864;
+    created_utc=[DateTime]::UtcNow.ToString('o');configured_buffer_bytes=$(if($cpuCapture){75497472}else{67108864});
+    qualification_diagnostics=[ordered]@{
+        requested=$cpuCapture;provider_guid='7e4a4d0e-4d53-4c2d-93a3-6ba61cf46711';
+        configured_user_buffer_bytes=$(if($cpuCapture){8388608}else{0});
+        maximum_submission_attempts_per_process=16384;actual_events_verified=$false;
+        activation='Opt-in frontend build; capture listening before process startup';
+        counters='Process totals; concurrent scopes overlap; successful bytes exclude incomplete reads/packets';
+        phase_elapsed='Inclusive duration including diagnostic emission overhead; scope exit is not operation acceptance';
+        native_write_result_available=$false;loss_and_circular_coverage_verified=$false
+    };
     logging_mode='Memory';profile_sha256=(Get-FileHash -LiteralPath $profile -Algorithm SHA256).Hash.ToLowerInvariant();
     wpr_path=$wpr;wpr_sha256=(Get-FileHash -LiteralPath $wpr -Algorithm SHA256).Hash.ToLowerInvariant();
     ci_run_id=$env:GITHUB_RUN_ID;ci_run_attempt=$env:GITHUB_RUN_ATTEMPT;

@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
+#include "usk_diagnostic_metrics.h"
 #include "usk_publisher_effect_worker_custody_internal.h"
 #if defined(_WIN32)
 #include "usk_publisher_token_observation.h"
@@ -279,6 +280,8 @@ struct Wire {
             bytes(true, reinterpret_cast<unsigned char*>(const_cast<char*>(packet.data())), size, until);
             require_peer();
             ++sent;
+            usk::diagnostics::note(usk::diagnostics::Counter::wire_send_packets);
+            usk::diagnostics::note(usk::diagnostics::Counter::wire_send_bytes, static_cast<std::uint64_t>(size) + 4u);
         } catch (...) { failed = true; throw; }
     }
     Value receive(DWORD timeout) {
@@ -301,6 +304,8 @@ struct Wire {
                 "effect transport exact request binding or sequence differs");
             require_peer();
             ++received;
+            usk::diagnostics::note(usk::diagnostics::Counter::wire_receive_packets);
+            usk::diagnostics::note(usk::diagnostics::Counter::wire_receive_bytes, static_cast<std::uint64_t>(size) + 4u);
             return std::move(parsed.as_object().at("body"));
         } catch (...) { failed = true; throw; }
     }

@@ -14,6 +14,7 @@ option(USK_BUILD_TESTS "Build Universal Setup native tests" "${PROJECT_IS_TOP_LE
 option(USK_BUILD_FUZZERS "Build bounded libFuzzer targets" OFF)
 option(USK_BUILD_STATIC "Build the Universal Setup static library" ON)
 option(USK_BUILD_SHARED "Build the Universal Setup shared library" ON)
+option(USK_QUALIFICATION_DIAGNOSTICS "Build private opt-in Windows qualification tracing in frontends" OFF)
 
 if(NOT USK_BUILD_STATIC AND NOT USK_BUILD_SHARED)
   message(FATAL_ERROR "At least one of USK_BUILD_STATIC or USK_BUILD_SHARED must be enabled")
@@ -58,6 +59,7 @@ set_target_properties(usk_zlib_inflate_objects PROPERTIES
 )
 
 add_library(usk_base_static STATIC
+  runtime/base/usk_diagnostic_metrics.cpp
   runtime/base/usk_json.cpp
   runtime/base/usk_record_io.cpp
   runtime/base/usk_sha256.cpp
@@ -229,6 +231,7 @@ if(NOT USK_BUILD_APPS AND NOT USK_BUILD_TESTS AND NOT USK_BUILD_FUZZERS)
 endif()
 
 set(USK_CORE_SOURCES
+  runtime/base/usk_diagnostic_metrics.cpp
   $<TARGET_OBJECTS:usk_zlib_inflate_objects>
   runtime/base/usk_json.cpp
   runtime/base/usk_record_io.cpp
@@ -466,6 +469,10 @@ if(USK_BUILD_APPS)
   target_link_libraries(usk_machine PRIVATE usk_static usk_base_static usk_archive_static)
   if(WIN32)
     target_link_libraries(usk_machine PRIVATE usk_publisher_windows_static shell32)
+    if(USK_QUALIFICATION_DIAGNOSTICS)
+      target_sources(usk_machine PRIVATE runtime/platform/windows/usk_qualification_trace_internal.cpp)
+      target_compile_definitions(usk_machine PRIVATE USK_QUALIFICATION_DIAGNOSTICS=1)
+    endif()
   endif()
   usk_enable_strict_warnings(usk_machine)
 
@@ -478,6 +485,10 @@ if(USK_BUILD_APPS)
     target_link_libraries(usk_publisher_service PRIVATE
       usk_publisher_windows_static usk_archive_static usk_lifecycle_static)
     usk_enable_strict_warnings(usk_publisher_service)
+    if(USK_QUALIFICATION_DIAGNOSTICS)
+      target_sources(usk_publisher_service PRIVATE runtime/platform/windows/usk_qualification_trace_internal.cpp)
+      target_compile_definitions(usk_publisher_service PRIVATE USK_QUALIFICATION_DIAGNOSTICS=1)
+    endif()
     if(MSVC)
       # Keep the optimized production image and its full matching symbols.
       # /Z7 embeds debug information in objects without a compiler PDB.

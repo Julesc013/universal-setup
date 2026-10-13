@@ -20,12 +20,26 @@
         <Stack Value="SampledProfile" />
       </Stacks>
     </SystemProvider>
+    <!-- Separate bounded circular user events. Actual loss/coverage must be checked. -->
+    <EventCollector Id="QualificationCollector" Name="UniversalSetupQualification">
+      <BufferSize Value="64" />
+      <Buffers Value="128" />
+    </EventCollector>
+    <EventProvider Id="QualificationProvider" Name="7e4a4d0e-4d53-4c2d-93a3-6ba61cf46711" Level="4">
+      <Keywords><Keyword Value="0x1" /></Keywords>
+    </EventProvider>
     <Profile Id="USKFreshCPU.Verbose.Memory" Name="USKFreshCPU" Description="Owned fresh maintenance CPU stacks and scheduler events diagnostic" DetailLevel="Verbose" LoggingMode="Memory">
-      <Collectors><SystemCollectorId Value="CreatorSystemCollector"><SystemProviderId Value="CreatorSystemProvider" /></SystemCollectorId></Collectors>
+      <Collectors>
+        <SystemCollectorId Value="CreatorSystemCollector"><SystemProviderId Value="CreatorSystemProvider" /></SystemCollectorId>
+        <EventCollectorId Value="QualificationCollector"><EventProviders><EventProviderId Value="QualificationProvider" /></EventProviders></EventCollectorId>
+      </Collectors>
     </Profile>
     <!-- WPR's schema requires the paired profile; the wrapper never selects file mode. -->
     <Profile Id="USKFreshCPU.Verbose.File" Name="USKFreshCPU" Description="Owned fresh maintenance CPU stacks and scheduler events diagnostic; file mode not admitted" DetailLevel="Verbose" LoggingMode="File">
-      <Collectors><SystemCollectorId Value="CreatorSystemCollector"><SystemProviderId Value="CreatorSystemProvider" /></SystemCollectorId></Collectors>
+      <Collectors>
+        <SystemCollectorId Value="CreatorSystemCollector"><SystemProviderId Value="CreatorSystemProvider" /></SystemCollectorId>
+        <EventCollectorId Value="QualificationCollector"><EventProviders><EventProviderId Value="QualificationProvider" /></EventProviders></EventCollectorId>
+      </Collectors>
     </Profile>
   </Profiles>
 </WindowsPerformanceRecorder>

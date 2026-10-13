@@ -1,5 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
+#include "usk_diagnostic_metrics.h"
 #include "usk_publisher_request_channel.h"
 #if defined(_WIN32)
 #include <sddl.h>
@@ -465,7 +466,9 @@ usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HA
         std::vector<unsigned char> privilege_storage(sizeof(PRIVILEGE_SET) + 16u * sizeof(LUID_AND_ATTRIBUTES));
         DWORD privilege_length = static_cast<DWORD>(privilege_storage.size()), granted = 0;
         BOOL allowed = FALSE;
-        const auto run = [&] { return AccessCheck(descriptor.value, state.client_token.value, requested, &mapping,
+        const auto run = [&] {
+            usk::diagnostics::note(usk::diagnostics::Counter::access_check_calls);
+            return AccessCheck(descriptor.value, state.client_token.value, requested, &mapping,
             reinterpret_cast<PRIVILEGE_SET*>(privilege_storage.data()), &privilege_length, &granted, &allowed); };
         if (!run()) {
             if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || privilege_length < sizeof(PRIVILEGE_SET) ||
@@ -508,6 +511,7 @@ usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HA
     return Value(std::move(fields));
 }
 void PublisherRequestChannel::reply(const std::string& response) {
+    const usk::diagnostics::Scope diagnostic(usk::diagnostics::Phase::response_write);
     auto& state = *state_;
     if (!state.received || state.replied) throw std::runtime_error("publisher endpoint response state invalid");
     write_message(state.pipe.value, response, response_limit, state.stop, state.until);

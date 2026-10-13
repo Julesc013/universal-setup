@@ -1,5 +1,9 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
+#include "usk_diagnostic_metrics.h"
+#if defined(USK_QUALIFICATION_DIAGNOSTICS)
+#include "usk_qualification_trace_internal.h"
+#endif
 
 #include "usk_publisher_anchor_create.h"
 #include "usk_publisher_staged_stream.h"
@@ -275,6 +279,7 @@ bool native_definite_preflight_refusal(const std::exception& error) {
         dynamic_cast<const InstallStateRevisionChangedBeforeEffects*>(&error);
 }
 int private_effect_worker_main(int argc, wchar_t** argv) {
+    const usk::diagnostics::Scope diagnostic(usk::diagnostics::Phase::engine_request);
     using namespace usk::platform::windows;
     using usk::json::Value;
     std::unique_ptr<PublisherEffectWorkerPeer> original_peer;
@@ -394,6 +399,7 @@ private:
 };
 usk::json::Value execute_registered_child(usk::platform::windows::RegisteredPublisherAdmission& admission,
     usk::platform::windows::PublisherRequestChannel& channel, bool& effects_may_exist) {
+    const usk::diagnostics::Scope diagnostic(usk::diagnostics::Phase::engine_request);
     using namespace usk::platform::windows;
     using usk::json::Value;
     BrokerVolumeObserver volume(volume_root);
@@ -637,6 +643,9 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
 } // namespace
 
 int wmain(int argc, wchar_t** argv) {
+#if defined(USK_QUALIFICATION_DIAGNOSTICS)
+    const usk::platform::windows::QualificationTrace qualification_trace;
+#endif
     if (argc > 1 && argv && argv[1] && std::wstring(argv[1]) ==
             usk::platform::windows::publisher_effect_worker_transport_switch)
         return private_effect_worker_main(argc, argv);
