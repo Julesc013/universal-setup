@@ -6,6 +6,7 @@
 #include <sddl.h>
 #include <aclapi.h>
 #include "usk_publisher_token_observation.h"
+#include "usk_publisher_authenticated_client_internal.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_handle_observation.h"
 #include "usk_effect_dispatch.h"
@@ -137,8 +138,7 @@ std::vector<unsigned char> token_bytes(HANDLE token, TOKEN_INFORMATION_CLASS kin
         throw std::runtime_error("authenticated client token changed during observation");
     return bytes;
 }
-usk::json::Value client_token_facts(HANDLE token, ULONG process_id) {
-    using usk::json::Value;
+detail::AuthenticatedClientObservation client_token_facts(HANDLE token, ULONG process_id) {
     const auto user = token_bytes(token, TokenUser);
     const auto statistics = token_bytes(token, TokenStatistics);
     const auto level = token_bytes(token, TokenImpersonationLevel);
@@ -154,17 +154,17 @@ usk::json::Value client_token_facts(HANDLE token, ULONG process_id) {
         if (bytes.size() < sizeof(DWORD))
             throw std::runtime_error("authenticated client group layout differs");
         const auto* values = reinterpret_cast<const TOKEN_GROUPS*>(bytes.data());
-        if (values->GroupCount == 0) return Value(Value::Array{});
+        if (values->GroupCount == 0) return detail::AuthenticatedClientObservation::Groups{};
         if (bytes.size() < offsetof(TOKEN_GROUPS, Groups))
             throw std::runtime_error("authenticated client group array is truncated");
         if (values->GroupCount > 1024 || values->GroupCount >
             (bytes.size() - offsetof(TOKEN_GROUPS, Groups)) / sizeof(SID_AND_ATTRIBUTES))
             throw std::runtime_error("authenticated client group count exceeds its bound");
-        Value::Array result;
+        detail::AuthenticatedClientObservation::Groups result;
         for (DWORD index = 0; index < values->GroupCount; ++index)
-            result.emplace_back(Value::Object{{"sid", Value(sid_text(values->Groups[index].Sid))},
-                {"attributes", Value(static_cast<std::uint64_t>(values->Groups[index].Attributes))}});
-        return Value(std::move(result));
+            result.emplace_back(sid_text(values->Groups[index].Sid),
+                static_cast<std::uint64_t>(values->Groups[index].Attributes));
+        return result;
     };
     const auto privileges = token_bytes(token, TokenPrivileges);
     if (privileges.size() < offsetof(TOKEN_PRIVILEGES, Privileges))
@@ -173,24 +173,20 @@ usk::json::Value client_token_facts(HANDLE token, ULONG process_id) {
     if (values->PrivilegeCount > 256 || values->PrivilegeCount >
         (privileges.size() - offsetof(TOKEN_PRIVILEGES, Privileges)) / sizeof(LUID_AND_ATTRIBUTES))
         throw std::runtime_error("authenticated client privilege count exceeds its bound");
-    Value::Array privilege_values;
+    detail::AuthenticatedClientObservation result;
     for (DWORD index = 0; index < values->PrivilegeCount; ++index)
-        privilege_values.emplace_back(Value::Object{{"luid", Value(luid_value(values->Privileges[index].Luid))},
-            {"attributes", Value(static_cast<std::uint64_t>(values->Privileges[index].Attributes))}});
-    Value::Object fields;
-    fields.emplace("schema", Value("usk.publisher_authenticated_client_observation.v1"));
-    fields.emplace("scope", Value("held_authenticated_identification_token"));
-    fields.emplace("captured_process_id", Value(static_cast<std::uint64_t>(process_id)));
-    fields.emplace("user_sid", Value(sid_text(reinterpret_cast<const TOKEN_USER*>(user.data())->User.Sid)));
-    fields.emplace("token_type", Value(static_cast<std::uint64_t>(stats.TokenType)));
-    fields.emplace("impersonation_level", Value(static_cast<std::uint64_t>(impersonation)));
-    fields.emplace("token_id", Value(luid_value(stats.TokenId)));
-    fields.emplace("authentication_id", Value(luid_value(stats.AuthenticationId)));
-    fields.emplace("modified_id", Value(luid_value(stats.ModifiedId)));
-    fields.emplace("groups", groups(TokenGroups));
-    fields.emplace("restricted_sids", groups(TokenRestrictedSids));
-    fields.emplace("privileges", Value(std::move(privilege_values)));
-    return Value(std::move(fields));
+        result.privileges.emplace_back(luid_value(values->Privileges[index].Luid),
+            static_cast<std::uint64_t>(values->Privileges[index].Attributes));
+    result.process_id = static_cast<std::uint64_t>(process_id);
+    result.user_sid = sid_text(reinterpret_cast<const TOKEN_USER*>(user.data())->User.Sid);
+    result.token_type = static_cast<std::uint64_t>(stats.TokenType);
+    result.impersonation_level = static_cast<std::uint64_t>(impersonation);
+    result.token_id = luid_value(stats.TokenId);
+    result.authentication_id = luid_value(stats.AuthenticationId);
+    result.modified_id = luid_value(stats.ModifiedId);
+    result.groups = groups(TokenGroups);
+    result.restricted_sids = groups(TokenRestrictedSids);
+    return result;
 }
 HANDLE require_caller(HANDLE pipe, const std::wstring& expected) {
     if (!ImpersonateNamedPipeClient(pipe)) throw std::runtime_error("publisher caller identification failed");
@@ -341,7 +337,7 @@ struct PublisherRequestChannel::State {
     Handle pipe;
     Handle client_token{nullptr};
     ULONG client_process_id = 0;
-    usk::json::Value client_facts;
+    detail::AuthenticatedClientObservation client_facts;
     std::string received_request;
     std::wstring caller_sid;
     HANDLE stop;
@@ -397,7 +393,7 @@ std::string PublisherRequestChannel::receive() {
 std::string PublisherRequestChannel::authenticated_canonical_request() const {
     const auto& state = *state_;
     if (!state.received || state.replied || !state.client_token.value || state.received_request.empty() ||
-        !usk::json::equal_values(client_token_facts(state.client_token.value, state.client_process_id),
+        !detail::equal_authenticated_client_observations(client_token_facts(state.client_token.value, state.client_process_id),
             state.client_facts))
         throw std::runtime_error("authenticated request binding is unavailable or changed");
     return usk::json::canonical(usk::json::parse(state.received_request));
@@ -408,7 +404,7 @@ usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HA
     if (!state.received || state.replied || !state.client_token.value || !object || object == INVALID_HANDLE_VALUE)
         throw std::runtime_error("authenticated access observation requires the active request and held object");
     auto before_client = client_token_facts(state.client_token.value, state.client_process_id);
-    if (!usk::json::equal_values(before_client, state.client_facts))
+    if (!detail::equal_authenticated_client_observations(before_client, state.client_facts))
         throw std::runtime_error("authenticated client token changed since admission");
     FILE_ATTRIBUTE_TAG_INFO attributes{};
     if (!GetFileInformationByHandleEx(object, FileAttributeTagInfo, &attributes, sizeof(attributes)))
@@ -493,7 +489,7 @@ usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HA
         throw std::runtime_error("held descriptor changed across authenticated access collection");
     const auto after = directory ? observe_publisher_directory_handle(object) : observe_publisher_file_handle(object);
     if (!detail::equal_publisher_handle_observations(before, after) ||
-        !usk::json::equal_values(before_client,
+        !detail::equal_authenticated_client_observations(before_client,
             client_token_facts(state.client_token.value, state.client_process_id)))
         throw std::runtime_error("authenticated token or held object changed across access collection");
     Value::Object fields;
@@ -501,7 +497,7 @@ usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HA
     fields.emplace("scope", Value("fresh_held_authenticated_token_and_file_descriptor"));
     // Transfer only this completed fresh proof after its unchanged afterchecks;
     // the admission baseline remains independently owned by the channel.
-    fields.emplace("client", std::move(before_client));
+    fields.emplace("client", detail::authenticated_client_observation_json(std::move(before_client)));
     fields.emplace("native_object", publisher_handle_observation_json(before));
     fields.emplace("descriptor_api", Value("GetSecurityInfo:SE_FILE_OBJECT:OWNER_GROUP_DACL"));
     fields.emplace("descriptor_hex", Value(std::move(descriptor_hex)));

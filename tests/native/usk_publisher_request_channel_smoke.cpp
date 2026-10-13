@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
 #include "usk_publisher_request_channel.h"
+#include "usk_publisher_authenticated_client_internal.h"
 #include "usk_publisher_registration.h"
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_tree_observation.h"
@@ -9,6 +10,7 @@
 #if defined(_WIN32)
 #include <sddl.h>
 #include <atomic>
+#include <array>
 #include <exception>
 #include <filesystem>
 #include <iostream>
@@ -22,6 +24,80 @@ template<class Action> void refuses(Action action) {
     bool refused=false;
     try { action(); } catch (const std::exception&) { refused=true; }
     require(refused,"required refusal absent");
+}
+// Independent old wire-shaped projection: do not call the production projector
+// to decide whether two typed values should compare equal.
+usk::json::Value legacy_client_json(
+    const usk::platform::windows::detail::AuthenticatedClientObservation& captured) {
+    using usk::json::Value;
+    Value::Array groups, restricted, privileges;
+    for (const auto& entry : captured.groups)
+        groups.emplace_back(Value::Object{{"sid", Value(entry.first)}, {"attributes", Value(entry.second)}});
+    for (const auto& entry : captured.restricted_sids)
+        restricted.emplace_back(Value::Object{{"sid", Value(entry.first)}, {"attributes", Value(entry.second)}});
+    for (const auto& entry : captured.privileges)
+        privileges.emplace_back(Value::Object{{"luid", Value(entry.first)}, {"attributes", Value(entry.second)}});
+    return Value(Value::Object{
+        {"schema", Value("usk.publisher_authenticated_client_observation.v1")},
+        {"scope", Value("held_authenticated_identification_token")},
+        {"captured_process_id", Value(captured.process_id)}, {"user_sid", Value(captured.user_sid)},
+        {"token_type", Value(captured.token_type)}, {"impersonation_level", Value(captured.impersonation_level)},
+        {"token_id", Value(captured.token_id)}, {"authentication_id", Value(captured.authentication_id)},
+        {"modified_id", Value(captured.modified_id)}, {"groups", Value(std::move(groups))},
+        {"restricted_sids", Value(std::move(restricted))}, {"privileges", Value(std::move(privileges))}});
+}
+void test_authenticated_client_fact_equality() {
+    using namespace usk::platform::windows::detail;
+    using usk::json::equal_values;
+    AuthenticatedClientObservation baseline;
+    baseline.process_id = 17; baseline.user_sid = "S-1-5-18";
+    baseline.token_type = 2; baseline.impersonation_level = 1;
+    baseline.token_id = 0x8000000000000001ull;
+    baseline.authentication_id = 0x4000000000000002ull; baseline.modified_id = 7;
+    baseline.groups = {{"S-1-5-18", 2}, {"S-1-5-32-545", 4}};
+    baseline.restricted_sids = {{"S-1-5-12", 8}, {"S-1-5-13", 16}};
+    baseline.privileges = {{0x8000000000000001ull, 3}, {2, 4}};
+    const auto check = [&](const auto& a, const auto& b, bool expected) {
+        const auto old_a = legacy_client_json(a), old_b = legacy_client_json(b);
+        require(equal_values(old_a, old_b) == expected, "legacy client oracle control differs");
+        require(equal_authenticated_client_observations(a, b) == expected &&
+            equal_authenticated_client_observations(b, a) == expected,
+            "typed authenticated client equality lost a legacy field or order");
+        require(equal_values(authenticated_client_observation_json(a), old_a) &&
+            equal_values(authenticated_client_observation_json(b), old_b),
+            "completed authenticated client projection differs from legacy wire fields");
+    };
+    check(baseline, baseline, true);
+    const std::array<std::uint64_t AuthenticatedClientObservation::*, 6> scalars{{
+        &AuthenticatedClientObservation::process_id, &AuthenticatedClientObservation::token_type,
+        &AuthenticatedClientObservation::impersonation_level, &AuthenticatedClientObservation::token_id,
+        &AuthenticatedClientObservation::authentication_id, &AuthenticatedClientObservation::modified_id}};
+    for (const auto member : scalars) {
+        auto changed = baseline; changed.*member ^= 1; check(baseline, changed, false);
+    }
+    auto changed = baseline; changed.user_sid = "S-1-5-19"; check(baseline, changed, false);
+    changed = baseline; changed.user_sid.push_back('\0'); check(baseline, changed, false);
+    const std::array<AuthenticatedClientObservation::Groups AuthenticatedClientObservation::*, 2> lists{{
+        &AuthenticatedClientObservation::groups, &AuthenticatedClientObservation::restricted_sids}};
+    for (const auto member : lists) {
+        for (std::size_t index = 0; index != 2; ++index) {
+            changed = baseline; (changed.*member)[index].first += "0"; check(baseline, changed, false);
+            changed = baseline; (changed.*member)[index].second ^= 1; check(baseline, changed, false);
+        }
+        changed = baseline; (changed.*member).pop_back(); check(baseline, changed, false);
+        changed = baseline; (changed.*member).push_back((changed.*member).front()); check(baseline, changed, false);
+        changed = baseline; std::swap((changed.*member)[0], (changed.*member)[1]); check(baseline, changed, false);
+        changed = baseline; (changed.*member).clear(); check(baseline, changed, false);
+    }
+    for (std::size_t index = 0; index != baseline.privileges.size(); ++index) {
+        changed = baseline; changed.privileges[index].first ^= 1; check(baseline, changed, false);
+        changed = baseline; changed.privileges[index].second ^= 1; check(baseline, changed, false);
+    }
+    changed = baseline; changed.privileges.pop_back(); check(baseline, changed, false);
+    changed = baseline; changed.privileges.push_back(changed.privileges.front()); check(baseline, changed, false);
+    changed = baseline; std::swap(changed.privileges[0], changed.privileges[1]); check(baseline, changed, false);
+    changed = baseline; changed.privileges.clear(); check(baseline, changed, false);
+    check(AuthenticatedClientObservation{}, AuthenticatedClientObservation{}, true);
 }
 std::string replaced(std::string source, const std::string& from, const std::string& to) {
     const auto position = source.find(from);
@@ -430,6 +506,7 @@ std::thread raw_client(const std::wstring& name, const std::string& message,
 }
 int main(int argc, char** argv) {
     try {
+        test_authenticated_client_fact_equality();
         test_terminal_response_binding();
         test_service_observation_transport_binding();
         test_maintenance_response_binding();
