@@ -7,6 +7,11 @@
       <BufferSize Value="512" />
       <Buffers Value="128" />
     </SystemCollector>
+    <!-- Collectors must precede providers in the hosted WPR profile schema. -->
+    <EventCollector Id="QualificationCollector" Name="UniversalSetupQualification">
+      <BufferSize Value="64" />
+      <Buffers Value="128" />
+    </EventCollector>
     <SystemProvider Id="CreatorSystemProvider">
       <Keywords>
         <Keyword Value="ProcessThread" Strict="true" />
@@ -20,11 +25,6 @@
         <Stack Value="SampledProfile" />
       </Stacks>
     </SystemProvider>
-    <!-- Separate bounded circular user events. Actual loss/coverage must be checked. -->
-    <EventCollector Id="QualificationCollector" Name="UniversalSetupQualification">
-      <BufferSize Value="64" />
-      <Buffers Value="128" />
-    </EventCollector>
     <EventProvider Id="QualificationProvider" Name="7e4a4d0e-4d53-4c2d-93a3-6ba61cf46711" Level="4">
       <Keywords><Keyword Value="0x1" /></Keywords>
     </EventProvider>
