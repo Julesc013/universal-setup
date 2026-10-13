@@ -2085,31 +2085,58 @@ struct NativeMaintenanceContext::Impl {
                 (normalized_path.parent_path() != normalized(spec.state_root / "ownership") &&
                  normalized_path.parent_path().parent_path() != normalized(spec.audit_root / "chains"))) return;
         }
-        require_authority(spec);
-        if (normalized(path).parent_path() != installed_record_path.parent_path()) {
-            if (active_payload_history.empty()) return;
-            const auto tx = transaction::TransactionSession::inspect_recovery(spec);
-            const auto history = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest);
-            const auto& details = history.pending_details;
-            bool selected = false;
-            if (history.pending_kind == "write_ownership") selected = normalized(path) ==
-                normalized(spec.state_root / "ownership" / (details.at("manifest_id").as_string() + ".json"));
-            else if (history.pending_kind == "append_audit" &&
-                normalized(path).parent_path() == normalized(spec.audit_root / "chains" /
-                    details.at("chain_id").as_string())) {
-                const auto document = json::parse(text);
-                std::ostringstream name;
-                name << std::setw(20) << std::setfill('0') << document.at("sequence").as_unsigned() << ".event.json";
-                if (path.filename().u8string() != name.str() ||
-                    document.at("audit_chain_id").as_string() != details.at("chain_id").as_string() ||
-                    document.at("transaction_id").as_string() != spec.transaction_id)
-                    throw std::runtime_error("native maintenance audit creation differs from its actual selected append");
-                selected = true;
-            }
-            if (selected) {
-                (void)require_pending(history.pending_kind);
-                persist_metadata_creation(path, text, file);
-            }
+        const bool compose_selection = normalized_path.parent_path() != installed_record_path.parent_path() &&
+            original_child && publication_confirmed && !original_source_context.empty() &&
+            !restoration_record_observers.empty() && !active_read_recipe;
+        if (!compose_selection) require_authority(spec);
+        if (normalized_path.parent_path() != installed_record_path.parent_path()) {
+            const auto selected_kind = [&] {
+                const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+                const auto history = transaction::MaintenanceEffectJournal::inspect(spec, tx.stream_source_digest);
+                const auto& details = history.pending_details;
+                bool selected = false;
+                if (history.pending_kind == "write_ownership") selected = normalized(path) ==
+                    normalized(spec.state_root / "ownership" / (details.at("manifest_id").as_string() + ".json"));
+                else if (history.pending_kind == "append_audit" &&
+                    normalized(path).parent_path() == normalized(spec.audit_root / "chains" /
+                        details.at("chain_id").as_string())) {
+                    const auto document = json::parse(text);
+                    std::ostringstream name;
+                    name << std::setw(20) << std::setfill('0') << document.at("sequence").as_unsigned() << ".event.json";
+                    if (path.filename().u8string() != name.str() ||
+                        document.at("audit_chain_id").as_string() != details.at("chain_id").as_string() ||
+                        document.at("transaction_id").as_string() != spec.transaction_id)
+                        throw std::runtime_error("native maintenance audit creation differs from its actual selected append");
+                    selected = true;
+                }
+                return selected ? history.pending_kind : std::string{};
+            };
+            const bool selected = [&] {
+                if (compose_selection) {
+                    // Only this fixed ownership/audit selection is read-only.
+                    // Keep every actual query and pending-prefix closing read;
+                    // finish before creator adoption or any custody write.
+                    require_inspection_owner(spec);
+                    PrefixReadRecipe recipe(*this);
+                    const auto kind = selected_kind();
+                    if (!kind.empty()) {
+                        if (GetCurrentProcessId() != worker_context.process_id ||
+                            (cancel_event && WaitForSingleObject(cancel_event, 0) != WAIT_TIMEOUT))
+                            throw std::runtime_error("native maintenance worker stopped or changed");
+                        const auto tx = transaction::TransactionSession::inspect_recovery(spec);
+                        const auto current = inspect_pending_read_only(kind);
+                        recipe.recheck(tx, current);
+                    }
+                    recipe.finish_authority();
+                    require_inspection_owner(spec);
+                    return !kind.empty();
+                }
+                if (active_payload_history.empty()) return false;
+                const auto kind = selected_kind();
+                if (!kind.empty()) (void)require_pending(kind);
+                return !kind.empty(); // SCM/ineligible routes keep their native reads.
+            }();
+            if (selected) persist_metadata_creation(path, text, file);
             return;
         }
         if (!installed_issue_active || installed_confirmed || path != prepared_record_path || text != installed_record_text ||
