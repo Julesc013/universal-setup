@@ -1715,6 +1715,19 @@ void PublisherEffectRecordByteRound::query_chunk(const std::vector<HANDLE>& hand
     s.require_chunk_binding();
     require(s.round < 2u && handles.size() == record_chunk_size(s.scope, s.chunk_index),
         "child record byte scope has another ordered pending chunk");
+    // The enclosing sealed reader already sampled each native occurrence
+    // before this call. Send only its owned, ordered frozen expectations;
+    // these values are not a new observation or an authorization decision.
+    const auto expected = s.chunk_objects(s.chunk_index);
+    auto query = record_phase(s.scope, "query_chunk");
+    query.as_object().emplace("round", Value(static_cast<std::uint64_t>(s.round)));
+    query.as_object().emplace("chunk_index", Value(static_cast<std::uint64_t>(s.chunk_index)));
+    query.as_object().emplace("native_objects", expected);
+    record_charge(s.proof_bytes, query);
+    s.peer.send(query, s.remaining());
+    // Overlap this additional local census with the broker's independent
+    // read-only queries. Every native check still precedes marker acceptance.
+    // Any failure poisons the enclosing begun exchange, without retry or bytes.
     Value::Array objects;
     objects.reserve(handles.size());
     for (const auto handle : handles) {
@@ -1723,12 +1736,6 @@ void PublisherEffectRecordByteRound::query_chunk(const std::vector<HANDLE>& hand
     }
     const Value observed(std::move(objects));
     require(s.matches_chunk(observed, s.chunk_index), "child record byte actual occurrence differs from its frozen ledger");
-    auto query = record_phase(s.scope, "query_chunk");
-    query.as_object().emplace("round", Value(static_cast<std::uint64_t>(s.round)));
-    query.as_object().emplace("chunk_index", Value(static_cast<std::uint64_t>(s.chunk_index)));
-    query.as_object().emplace("native_objects", observed);
-    record_charge(s.proof_bytes, query);
-    s.peer.send(query, s.remaining());
     const auto marker = s.peer.receive(s.remaining());
     record_require_packet(marker, s.scope, "chunk_closed", {"round", "chunk_index", "native_query_count", "native_objects_sha256"});
     require(marker.at("round").as_unsigned() == s.round && marker.at("chunk_index").as_unsigned() == s.chunk_index &&
