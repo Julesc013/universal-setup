@@ -50,7 +50,10 @@ int diagnostic_file_work_proof(const fs::path& root)
     const auto value = [](const Snapshot& s, Counter c) { return s.totals[static_cast<std::size_t>(c)]; };
     const auto inactive = snapshot();
     note(Counter::hash_calls);
-    { const Scope ignored(Phase::record_proof); }
+    {
+        const DurationCounter ignored_time(Counter::hash_elapsed_us);
+        const Scope ignored(Phase::record_proof);
+    }
     if (snapshot().totals != inactive.totals || diagnostic_events_written != 0) return 60;
     if (enable(nullptr) || !enable(capture_diagnostic) || enable(refuse_diagnostic) ||
             disable(refuse_diagnostic)) return 61;
@@ -94,7 +97,8 @@ int diagnostic_file_work_proof(const fs::path& root)
     if (!hashes_match || after.saturated || delta(Counter::held_file_instances) != 1 ||
             delta(Counter::hash_calls) != 12 || delta(Counter::hash_successes) != 12 ||
             delta(Counter::hash_bytes) != 12u * bytes.size() || delta(Counter::exact_read_calls) != 24 ||
-            delta(Counter::exact_read_bytes) != 12u * bytes.size()) return 63;
+            delta(Counter::exact_read_bytes) != 12u * bytes.size() ||
+            delta(Counter::hash_elapsed_us) == 0) return 63;
 #if defined(_WIN32)
     if (delta(Counter::provider_open_calls) != 1 || delta(Counter::provider_open_successes) != 1) return 64;
 #else
@@ -105,6 +109,7 @@ int diagnostic_file_work_proof(const fs::path& root)
     SetLastError(ERROR_ACCESS_DENIED);
 #endif
     {
+        const DurationCounter preserved_time(Counter::wire_receive_elapsed_us);
         const Scope preserved(Phase::record_proof);
 #if defined(_WIN32)
         const DWORD entry_error = GetLastError(); // Capture before CRT errno access.
@@ -126,6 +131,7 @@ int diagnostic_file_work_proof(const fs::path& root)
     if (exit_error != ERROR_ACCESS_DENIED) return 65;
 #endif
     try {
+        const DurationCounter unwinding_time(Counter::wire_receive_elapsed_us);
         const Scope unwinding(Phase::record_proof);
         throw 7;
     } catch (int) {}

@@ -285,6 +285,9 @@ struct Wire {
         } catch (...) { failed = true; throw; }
     }
     Value receive(DWORD timeout) {
+        // Includes native waiting, packet parsing, peer checks and retirement
+        // on failure; peer hash time can overlap this inclusive measurement.
+        const usk::diagnostics::DurationCounter elapsed(usk::diagnostics::Counter::wire_receive_elapsed_us);
         try {
             const auto until = deadline(timeout);
             require(received != std::numeric_limits<std::uint64_t>::max(), "effect transport sequence exhausted");

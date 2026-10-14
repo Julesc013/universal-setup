@@ -14,7 +14,7 @@ enum class Counter : std::size_t {
     held_file_instances, hash_calls, hash_successes, hash_bytes,
     exact_read_calls, exact_read_bytes, provider_open_calls, provider_open_successes,
     wire_send_packets, wire_send_bytes, wire_receive_packets, wire_receive_bytes,
-    access_check_calls, not_submitted_events, count
+    access_check_calls, not_submitted_events, hash_elapsed_us, wire_receive_elapsed_us, count
 };
 enum class Phase : std::uint32_t {
     machine_request = 1, engine_request, response_write, authority_fence,
@@ -41,6 +41,23 @@ bool enable(Sink sink) noexcept;
 bool disable(Sink sink) noexcept;
 void note(Counter counter, std::uint64_t amount = 1) noexcept;
 Snapshot snapshot() noexcept;
+
+// Inclusive wall time for a complete call, including failure cleanup. No events
+// are emitted. Overlapping calls/timers are not exclusive costs; in-flight calls
+// and calls whose original sink is no longer selected are not charged.
+class DurationCounter final {
+public:
+    explicit DurationCounter(Counter counter) noexcept;
+    ~DurationCounter() noexcept;
+    DurationCounter(const DurationCounter&) = delete;
+    DurationCounter& operator=(const DurationCounter&) = delete;
+    DurationCounter(DurationCounter&&) = delete;
+    DurationCounter& operator=(DurationCounter&&) = delete;
+private:
+    Counter counter_;
+    Sink sink_ = nullptr;
+    std::chrono::steady_clock::time_point started_{};
+};
 
 class Scope final {
 public:

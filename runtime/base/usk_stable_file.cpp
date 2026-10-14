@@ -407,6 +407,7 @@ void StableFile::read_exact(
 
 std::string StableFile::sha256_hex() const
 {
+    const usk::diagnostics::DurationCounter elapsed(usk::diagnostics::Counter::hash_elapsed_us);
     usk::diagnostics::note(usk::diagnostics::Counter::hash_calls);
 #if defined(_WIN32)
     // Publish only fully initialized immutable setup. A failed first attempt

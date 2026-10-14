@@ -2349,7 +2349,7 @@
         },
         {
           "path": "runtime/base/usk_stable_file.cpp",
-          "sha256": "155cc7904c27c103980eb77b2899bde814f2d7baa3c08e0cc917dbc9c95764f7"
+          "sha256": "678a2dfd8236ccd98fa1c3be53da04043856acc05e2f650024078c7f493d5aaa"
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",
@@ -2385,7 +2385,7 @@
         },
         {
           "path": "runtime/base/usk_stable_file.cpp",
-          "sha256": "155cc7904c27c103980eb77b2899bde814f2d7baa3c08e0cc917dbc9c95764f7"
+          "sha256": "678a2dfd8236ccd98fa1c3be53da04043856acc05e2f650024078c7f493d5aaa"
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",
@@ -2421,7 +2421,7 @@
         },
         {
           "path": "runtime/base/usk_stable_file.cpp",
-          "sha256": "155cc7904c27c103980eb77b2899bde814f2d7baa3c08e0cc917dbc9c95764f7"
+          "sha256": "678a2dfd8236ccd98fa1c3be53da04043856acc05e2f650024078c7f493d5aaa"
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",
@@ -6215,7 +6215,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_worker_custody_internal.cpp",
-          "sha256": "27c1039f45ee5808c43d9eedf31c8d5b018ffff5f7ac92548eb968eae7c503b4"
+          "sha256": "797bc6e6ed72cfa76f0fd05f4152e6436d13584ecd1e1e5e6bb5a2ad98237f8e"
         },
         {
           "path": "tests/native/usk_publisher_effect_worker_custody_smoke.cpp",

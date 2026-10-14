@@ -66,6 +66,23 @@ Snapshot snapshot() noexcept {
     result.saturated = saturated.load(std::memory_order_relaxed);
     return result; // Independent relaxed counters, not an atomic transaction snapshot.
 }
+DurationCounter::DurationCounter(Counter counter) noexcept
+    : counter_(counter), sink_(active.load()) {
+    if (!sink_ || static_cast<std::size_t>(counter_) >= totals.size()) {
+        sink_ = nullptr;
+        return;
+    }
+    ErrorPreserver preserve;
+    started_ = std::chrono::steady_clock::now();
+}
+DurationCounter::~DurationCounter() noexcept {
+    if (!sink_ || active.load() != sink_) return;
+    ErrorPreserver preserve;
+    const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::steady_clock::now() - started_).count();
+    add(totals[static_cast<std::size_t>(counter_)].value,
+        duration < 0 ? 0 : static_cast<std::uint64_t>(duration));
+}
 Scope::Scope(Phase phase) noexcept : sink_(active.load()), phase_(phase) {
     if (!sink_) return;
     ErrorPreserver preserve;
