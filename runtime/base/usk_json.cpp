@@ -454,12 +454,19 @@ void append_canonical(Output& output, const Value& value)
 class CanonicalBudget {
 public:
     explicit CanonicalBudget(const ParseLimits& limits) : limits_(limits) {}
-    void object(const CanonicalObjectView& fields)
+    void object(const CanonicalObjectView& fields) { (void)object_member(fields, nullptr); }
+    std::size_t object_member(const CanonicalObjectView& fields, const std::string* selected)
     {
         count_value(0);
         bytes(2); // braces
-        bool first = true;
-        for (const auto& field : fields) member(field.first, field.second.get(), 0, first);
+        bool first = true, found = false;
+        std::size_t selected_bytes = 0;
+        for (const auto& field : fields) {
+            const auto encoded = member(field.first, field.second.get(), 0, first);
+            if (selected && field.first == *selected) { found = true; selected_bytes = encoded; }
+        }
+        if (selected && !found) throw std::runtime_error("JSON selected object member is absent");
+        return selected_bytes;
     }
 private:
     void bytes(std::size_t count)
@@ -491,13 +498,15 @@ private:
         if (depth >= limits_.max_depth) throw std::runtime_error("JSON exceeds depth budget");
         value(item, depth + 1);
     }
-    void member(const std::string& key, const Value& item, std::size_t depth, bool& first)
+    std::size_t member(const std::string& key, const Value& item, std::size_t depth, bool& first)
     {
         if (!first) bytes(1);
         first = false;
         string(key);
         bytes(1); // colon; keys do not count toward the parser's value budget
+        const auto before = bytes_;
         child(item, depth);
+        return bytes_ - before;
     }
     void value(const Value& item, std::size_t depth)
     {
@@ -561,6 +570,12 @@ std::string canonical_object(const CanonicalObjectView& fields)
     }
     result.push_back('}');
     return result;
+}
+
+std::size_t require_canonical_object_member_parse_limits(const CanonicalObjectView& fields,
+    const ParseLimits& limits, const std::string& selected)
+{
+    return CanonicalBudget(limits).object_member(fields, &selected);
 }
 
 void require_canonical_object_parse_limits(const CanonicalObjectView& fields, const ParseLimits& limits)

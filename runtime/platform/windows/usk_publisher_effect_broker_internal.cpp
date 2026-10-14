@@ -40,16 +40,16 @@ DWORD readback_remaining(ULONGLONG started, DWORD timeout, const char* message) 
     require(timeout && timeout <= 120000 && elapsed < timeout, message);
     return static_cast<DWORD>(timeout - elapsed);
 }
-void require_batch_packet_budget(const Value& body) {
+std::size_t require_batch_packet_budget(const Value& body) {
     // Include the real transport wrapper's worst-case sequence and binding
     // lengths, both profiles and every descriptor. Use its unchanged closed
     // reader limits before sending any batch; an overflow is a failed route.
     usk::json::ParseLimits limits;
     limits.max_string_bytes = limits.max_bytes;
     const Value sequence(std::numeric_limits<std::uint64_t>::max()), binding(std::string(64u, 'a'));
-    usk::json::require_canonical_object_parse_limits({
+    return usk::json::require_canonical_object_member_parse_limits({
         {"sequence", std::cref(sequence)}, {"binding_sha256", std::cref(binding)},
-        {"body", std::cref(body)}}, limits);
+        {"body", std::cref(body)}}, limits, "body");
 }
 bool same(const Value& left, const Value& right) {
     return usk::json::equal_values(left, right);
@@ -106,8 +106,7 @@ Value record_scope_from_begin(const Value& begin, std::uint64_t sequence, bool a
     return scope;
 }
 void record_charge(std::size_t& cumulative, const Value& packet) {
-    require_batch_packet_budget(packet);
-    const auto bytes = usk::json::canonical(packet).size();
+    const auto bytes = require_batch_packet_budget(packet);
     require(bytes <= publisher_record_byte_proof_bytes_limit - cumulative,
         "record byte scope cumulative proof storage exceeds its bound");
     cumulative += bytes;

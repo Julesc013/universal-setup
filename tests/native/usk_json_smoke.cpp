@@ -238,8 +238,17 @@ int main()
         for (const auto& field : fields) owned.emplace(field.first, field.second.get());
         const auto encoding = usk::json::canonical(Value(std::move(owned)));
         if (usk::json::canonical_object(fields) != encoding) return false;
-        return refuses([&] { (void)usk::json::parse(encoding, budget); }) ==
-            refuses([&] { usk::json::require_canonical_object_parse_limits(fields, budget); });
+        const auto expected_refusal = refuses([&] { (void)usk::json::parse(encoding, budget); });
+        if (expected_refusal != refuses([&] { usk::json::require_canonical_object_parse_limits(fields, budget); })) return false;
+        if (!refuses([&] { (void)usk::json::require_canonical_object_member_parse_limits(fields, budget, "missing-selector"); })) return false;
+        // Check every member, including every varied body type, against the
+        // independent encoder while retaining full-envelope parser parity.
+        for (const auto& selected : fields) {
+            std::size_t count = 0;
+            const auto rejected = refuses([&] { count = usk::json::require_canonical_object_member_parse_limits(fields, budget, selected.first); });
+            if (rejected != expected_refusal || (!rejected && count != usk::json::canonical(selected.second.get()).size())) return false;
+        }
+        return true;
     };
     auto corpus = values;
     for (const auto& invalid : {std::string("\xc0\xaf"), std::string("\xed\xa0\x80"),

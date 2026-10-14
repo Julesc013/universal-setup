@@ -78,6 +78,11 @@ std::string canonical_object(const CanonicalObjectView& fields);
 // Exactly the acceptance of parse(canonical_object(fields), limits), without
 // materializing another encoding or decoded tree. Keys are unique by construction.
 void require_canonical_object_parse_limits(const CanonicalObjectView& fields, const ParseLimits& limits);
+// Validate the full borrowed object under the same parser limits and return
+// the selected root value's exact encoded bytes, excluding its key/colon.
+// The selected member must exist; no value or authorization result is cached.
+std::size_t require_canonical_object_member_parse_limits(const CanonicalObjectView& fields,
+    const ParseLimits& limits, const std::string& selected);
 // Exact value equality, equivalent to comparing the canonical encodings.
 bool equal_values(const Value& left, const Value& right);
 std::string sha256_canonical(const Value& value);
