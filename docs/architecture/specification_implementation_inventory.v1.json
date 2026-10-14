@@ -6215,11 +6215,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_worker_custody_internal.cpp",
-          "sha256": "352362b49f1cb7eea2208524e1a11782a5bf0c1a1c48f73d246d7dcd50935b2a"
+          "sha256": "eebc81ede96e62df6746f7fa0f20a5e6189d852ef9cefc5828891ecf7d64a1fb"
         },
         {
           "path": "tests/native/usk_publisher_effect_worker_custody_smoke.cpp",
-          "sha256": "5a47332e20e8468ee2b85ecc4548acf3afc1e49b95a61472466532f933586aa1"
+          "sha256": "23ce1014a984b78dc52d2fae82ce219ff471b3f5dc81824a49b7339189828453"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_broker_internal.h",

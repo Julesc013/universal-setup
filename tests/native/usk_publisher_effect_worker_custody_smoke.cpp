@@ -6,6 +6,7 @@
 #include "usk_publisher_token_observation.h"
 #include <chrono>
 #include <array>
+#include <future>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -221,6 +222,33 @@ int child(int argc, wchar_t** argv) {
         } else throw std::runtime_error("ordinary control action differs");
     }
 }
+void large_write_failure_control(const usk::base::StableFile& image,
+    const std::wstring& sid, HANDLE stop, bool cancel) {
+    require(ResetEvent(stop) != FALSE, "large-write stop reset failed");
+    PublisherEffectWorkerCustody custody(image, sid, request(), stop);
+    const auto original = custody.observation();
+    custody.send(Value(Value::Object{{"action", Value("terminal_wait")}}), 10000);
+    require(custody.receive(10000).as_string() == "terminal_waiting",
+        "large-write peer did not enter its nonreading terminal wait");
+    const Value payload(std::string(1024u * 1024u, 'x'));
+    std::future<void> signal;
+    if (cancel) signal = std::async(std::launch::async, [stop] {
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        require(SetEvent(stop) != FALSE, "large-write cancellation signal failed");
+    });
+    std::string failure;
+    try { custody.send(payload, cancel ? 5000 : 100); }
+    catch (const std::exception& error) { failure = error.what(); }
+    if (signal.valid()) signal.get();
+    const auto expected_wait = cancel ? WAIT_OBJECT_0 + 2 : WAIT_TIMEOUT;
+    require(failure.find("wait=" + std::to_string(expected_wait) + " io_retired=1") != std::string::npos,
+        "large write did not positively retire its pending native operation at the expected stop");
+    require(ResetEvent(stop) != FALSE, "large-write stop reset after retirement failed");
+    refuses([&] { custody.send(Value("after failed large write")); });
+    const auto closure = custody.close(10000);
+    require(closure.confirmed() && closure.child_process_id == original.at("peer_process_id").as_unsigned(),
+        "large-write retirement did not confirm the original child and pending I/O closure");
+}
 void controls(const usk::base::StableFile& image, const std::wstring& sid) {
     wchar_t directory[32768]{}, temporary[32768]{};
     const auto count = GetTempPathW(static_cast<DWORD>(std::size(directory)), directory);
@@ -263,6 +291,23 @@ void controls(const usk::base::StableFile& image, const std::wstring& sid) {
             reply.at("custody").at("current_process_id").as_unsigned() == observed.at("peer_process_id").as_unsigned() &&
             reply.at("custody").at("request_sha256").as_string() == observed.at("request_sha256").as_string(),
             "native connected child did not retain its exact peer/request binding");
+        // Real bidirectional frames beyond the 64KiB pipe buffer, including
+        // escaped bytes and repeated sequence/binding checks.
+        for (const auto size : std::array<std::size_t, 3>{{65537u, 256u * 1024u, 1024u * 1024u}}) {
+            for (unsigned round = 0; round != 2; ++round) {
+                std::string payload(size, 'x');
+                payload.front() = static_cast<char>('A' + round);
+                payload[size / 2] = '\n';
+                payload.back() = '\\';
+                custody.send(Value(Value::Object{{"action", Value("echo")}, {"value", Value(payload)}}), 10000);
+                const auto large_reply = custody.receive(10000);
+                require(large_reply.at("echo").as_string() == payload &&
+                    large_reply.at("custody").at("peer_process_id").as_unsigned() == GetCurrentProcessId() &&
+                    large_reply.at("custody").at("current_process_id").as_unsigned() == observed.at("peer_process_id").as_unsigned() &&
+                    large_reply.at("custody").at("request_sha256").as_string() == observed.at("request_sha256").as_string(),
+                    "large repeated native echo lost bytes, sequence or exact custody binding");
+            }
+        }
         custody.send(Value(Value::Object{{"action", Value("sentinel")},
             {"handle", Value(static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(sentinel.value)))},
             {"volume_serial", Value(static_cast<std::uint64_t>(file.dwVolumeSerialNumber))},
@@ -331,6 +376,8 @@ void controls(const usk::base::StableFile& image, const std::wstring& sid) {
         refuses([&] { custody.send(Value("after native deadline")); });
         require(custody.close(10000).confirmed(), "cancelled deadline I/O did not retire before native closure");
     }
+    large_write_failure_control(image, sid, stop.value, true);
+    large_write_failure_control(image, sid, stop.value, false);
     {
         PublisherEffectWorkerCustody custody(image, sid, request());
         refuses([&] { custody.send(Value(std::string(4u * 1024u * 1024u, 'x'))); });

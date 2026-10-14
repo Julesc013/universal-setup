@@ -273,7 +273,7 @@ struct Wire {
             const auto until = deadline(timeout);
             require(sent != std::numeric_limits<std::uint64_t>::max(), "effect transport sequence exhausted");
             const Value sequence(sent + 1), binding_value(binding);
-            const auto packet = usk::json::canonical_object({
+            auto packet = usk::json::canonical_object({
                 {"sequence", std::cref(sequence)}, {"binding_sha256", std::cref(binding_value)},
                 {"body", std::cref(body)}});
             require(!packet.empty() && packet.size() <= packet_limit, "effect transport packet exceeds its bound");
@@ -281,8 +281,11 @@ struct Wire {
             std::array<unsigned char, 4> header{{static_cast<unsigned char>(size),
                 static_cast<unsigned char>(size >> 8), static_cast<unsigned char>(size >> 16),
                 static_cast<unsigned char>(size >> 24)}};
-            bytes(true, header.data(), static_cast<DWORD>(header.size()), until);
-            bytes(true, reinterpret_cast<unsigned char*>(const_cast<char*>(packet.data())), size, until);
+            // Submit the identical header and payload together. The native
+            // partial-transfer loop still retains each pending I/O buffer.
+            packet.insert(0, reinterpret_cast<const char*>(header.data()), header.size());
+            bytes(true, reinterpret_cast<unsigned char*>(packet.data()),
+                static_cast<DWORD>(packet.size()), until);
             require_peer();
             ++sent;
             usk::diagnostics::note(usk::diagnostics::Counter::wire_send_packets);
