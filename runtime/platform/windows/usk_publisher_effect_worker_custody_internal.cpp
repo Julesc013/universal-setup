@@ -212,6 +212,7 @@ struct Wire {
         return true;
     }
     void require_peer() const {
+        const usk::diagnostics::DurationCounter elapsed(usk::diagnostics::Counter::wire_peer_elapsed_us);
         require(!failed && peer.value && WaitForSingleObject(peer.value, 0) == WAIT_TIMEOUT &&
             GetProcessId(peer.value) == peer_id && birth(peer.value) == peer_birth &&
             image_path(peer.value) == peer_image_path,
@@ -219,6 +220,10 @@ struct Wire {
         image->verify_unchanged();
     }
     void bytes(bool write, unsigned char* data, DWORD length, ULONGLONG until) {
+        // Complete calls include allocation, native waiting/completion, copies
+        // and local failure retirement. Read/write totals can overlap receive.
+        const usk::diagnostics::DurationCounter elapsed(write ?
+            usk::diagnostics::Counter::wire_write_elapsed_us : usk::diagnostics::Counter::wire_read_elapsed_us);
         while (length) {
             require(!pending, "effect transport has an unretired native request");
             pending = std::make_unique<PendingIo>(length);
@@ -301,7 +306,10 @@ struct Wire {
             usk::json::ParseLimits limits;
             limits.max_bytes = packet_limit;
             limits.max_string_bytes = packet_limit;
-            auto parsed = usk::json::parse(packet, limits);
+            auto parsed = [&packet, &limits] {
+                const usk::diagnostics::DurationCounter elapsed(usk::diagnostics::Counter::wire_parse_elapsed_us);
+                return usk::json::parse(packet, limits);
+            }();
             require(parsed.as_object().size() == 3 && parsed.at("sequence").as_unsigned() == received + 1 &&
                 parsed.at("binding_sha256").as_string() == binding,
                 "effect transport exact request binding or sequence differs");

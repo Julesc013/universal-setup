@@ -6215,7 +6215,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_worker_custody_internal.cpp",
-          "sha256": "797bc6e6ed72cfa76f0fd05f4152e6436d13584ecd1e1e5e6bb5a2ad98237f8e"
+          "sha256": "352362b49f1cb7eea2208524e1a11782a5bf0c1a1c48f73d246d7dcd50935b2a"
         },
         {
           "path": "tests/native/usk_publisher_effect_worker_custody_smoke.cpp",

@@ -14,7 +14,8 @@ enum class Counter : std::size_t {
     held_file_instances, hash_calls, hash_successes, hash_bytes,
     exact_read_calls, exact_read_bytes, provider_open_calls, provider_open_successes,
     wire_send_packets, wire_send_bytes, wire_receive_packets, wire_receive_bytes,
-    access_check_calls, not_submitted_events, hash_elapsed_us, wire_receive_elapsed_us, count
+    access_check_calls, not_submitted_events, hash_elapsed_us, wire_receive_elapsed_us,
+    wire_read_elapsed_us, wire_write_elapsed_us, wire_parse_elapsed_us, wire_peer_elapsed_us, count
 };
 enum class Phase : std::uint32_t {
     machine_request = 1, engine_request, response_write, authority_fence,

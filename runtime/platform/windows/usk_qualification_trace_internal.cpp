@@ -46,6 +46,8 @@ bool write_event(const usk::diagnostics::Event& event) noexcept {
         TraceLoggingUInt64(c[10], "WireReceivePackets"), TraceLoggingUInt64(c[11], "WireReceiveBytes"),
         TraceLoggingUInt64(c[12], "AccessCheckCalls"), TraceLoggingUInt64(c[13], "NotSubmittedEvents"),
         TraceLoggingUInt64(c[14], "HashElapsedUs"), TraceLoggingUInt64(c[15], "WireReceiveElapsedUs"),
+        TraceLoggingUInt64(c[16], "WireReadElapsedUs"), TraceLoggingUInt64(c[17], "WireWriteElapsedUs"),
+        TraceLoggingUInt64(c[18], "WireParseElapsedUs"), TraceLoggingUInt64(c[19], "WirePeerElapsedUs"),
         TraceLoggingBool(event.counters.saturated, "CountersSaturated"),
         TraceLoggingBool(false, "NativeWriteResultAvailable"));
     // TraceLoggingWrite returns void. Submission is not confirmation of ETW
