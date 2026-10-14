@@ -31,6 +31,11 @@ struct PublisherTokenObservation {
     PublisherTokenIdentity identity{};
 };
 
+// Exact ordered value equality only. Both arguments must still come from the
+// caller's required fresh observations; equality grants no admission or custody.
+bool equal_publisher_token_observations(
+    const PublisherTokenObservation& left, const PublisherTokenObservation& right) noexcept;
+
 struct PublisherServiceObservation {
     std::wstring service_name;
     std::string service_sid;

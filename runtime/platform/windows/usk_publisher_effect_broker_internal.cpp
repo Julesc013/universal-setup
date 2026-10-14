@@ -1666,26 +1666,27 @@ struct PublisherEffectRecordByteRound::State {
     DWORD timeout;
     DWORD process_id = GetCurrentProcessId(), thread_id = GetCurrentThreadId();
     std::string request;
-    Value custody, parent, child;
+    Value custody;
+    PublisherTokenObservation parent, child;
     std::size_t round = 0, chunk_index = 0, proof_bytes = 0;
     State(PublisherEffectWorkerPeer& p, const Value& l, Value s, ULONGLONG start, DWORD budget)
         : peer(p), ledger(l), scope(std::move(s)), started(start), timeout(budget), request(p.canonical_request()),
-        custody(p.observation()), parent(token(p.peer_primary_token())), child(token(observe_current_publisher_token())) {}
+        custody(p.observation()), parent(p.peer_primary_token()), child(observe_current_publisher_token()) {}
     DWORD remaining() const {
         return readback_remaining(started, timeout, "child complete record byte scope exceeded its original deadline");
     }
     void require_binding() const {
         require(process_id == GetCurrentProcessId() && thread_id == GetCurrentThreadId() && peer.canonical_request() == request &&
-            same(peer.observation(), custody) && same(token(peer.peer_primary_token()), parent) &&
-            same(token(observe_current_publisher_token()), child), "child record byte scope actual token/peer/thread changed");
+            same(peer.observation(), custody) && equal_publisher_token_observations(peer.peer_primary_token(), parent) &&
+            equal_publisher_token_observations(observe_current_publisher_token(), child), "child record byte scope actual token/peer/thread changed");
         (void)remaining();
     }
     void require_chunk_binding() const {
         require(process_id == GetCurrentProcessId() && thread_id == GetCurrentThreadId() && peer.canonical_request() == request,
             "child record byte chunk actual owner/thread/request changed");
         peer.require_record_chunk_custody(custody);
-        require(same(token(peer.peer_primary_token()), parent) &&
-            same(token(observe_current_publisher_token()), child), "child record byte chunk actual token changed");
+        require(equal_publisher_token_observations(peer.peer_primary_token(), parent) &&
+            equal_publisher_token_observations(observe_current_publisher_token(), child), "child record byte chunk actual token changed");
         (void)remaining();
     }
     bool matches_chunk(const Value& observed, std::size_t index) const {

@@ -354,6 +354,25 @@ PublisherTokenObservation observe_held_publisher_process_token(void* process_han
             luid_value(statistics.ModifiedId), static_cast<std::uint32_t>(statistics.TokenType)}};
 }
 
+bool equal_publisher_token_observations(
+    const PublisherTokenObservation& left, const PublisherTokenObservation& right) noexcept {
+    const auto same_groups = [](const std::vector<ObservedTokenGroup>& a,
+        const std::vector<ObservedTokenGroup>& b) {
+        return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin(),
+            [](const ObservedTokenGroup& x, const ObservedTokenGroup& y) {
+                return x.sid == y.sid && x.attributes == y.attributes;
+            });
+    };
+    return left.process_user_sid == right.process_user_sid &&
+        left.current_thread_impersonating == right.current_thread_impersonating &&
+        left.identity.token_id == right.identity.token_id &&
+        left.identity.authentication_id == right.identity.authentication_id &&
+        left.identity.modified_id == right.identity.modified_id &&
+        left.identity.token_type == right.identity.token_type &&
+        same_groups(left.process_groups, right.process_groups) &&
+        same_groups(left.process_restricted_sids, right.process_restricted_sids);
+}
+
 bool has_restricted_publisher_token_facts(
     const PublisherTokenObservation& observation, const std::string& service_sid) {
     if (observation.current_thread_impersonating ||
