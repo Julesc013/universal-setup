@@ -79,6 +79,11 @@ class PublisherBrokerObjectQuery final {
 public:
     PublisherBrokerObjectQuery(HANDLE original_volume_root,
         const usk::json::Value& expected_native_object);
+    // Comparison metadata only. The actual volume is checked freshly after
+    // the read-only reopen and after authenticated access, before any result.
+    PublisherBrokerObjectQuery(HANDLE original_volume_root,
+        const usk::json::Value& expected_native_object,
+        const usk::json::Value& expected_native_volume);
     ~PublisherBrokerObjectQuery();
     PublisherBrokerObjectQuery(const PublisherBrokerObjectQuery&) = delete;
     PublisherBrokerObjectQuery& operator=(const PublisherBrokerObjectQuery&) = delete;
@@ -87,6 +92,7 @@ public:
     bool close() noexcept;
 private:
     friend class PublisherEffectBrokerReadback;
+    void initialize(HANDLE, const usk::json::Value&, const usk::json::Value*);
     usk::json::Value authenticated_access(const PublisherRequestChannel&) const;
     struct State;
     std::unique_ptr<State> state_;

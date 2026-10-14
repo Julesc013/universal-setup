@@ -524,12 +524,25 @@ struct PublisherBrokerObjectQuery::State {
     }
 };
 PublisherBrokerObjectQuery::PublisherBrokerObjectQuery(HANDLE volume, const Value& expected) : state_(std::make_unique<State>()) {
+    initialize(volume, expected, nullptr);
+}
+PublisherBrokerObjectQuery::PublisherBrokerObjectQuery(HANDLE volume, const Value& expected,
+    const Value& expected_volume) : state_(std::make_unique<State>()) {
+    initialize(volume, expected, &expected_volume);
+}
+void PublisherBrokerObjectQuery::initialize(HANDLE volume, const Value& expected, const Value* expected_volume) {
     try {
         void* absent = nullptr;
         require(active_query.compare_exchange_strong(absent, state_.get()), "broker query owner is active or closure is unknown");
         state_->claimed = true;
         state_->volume = volume;
-        state_->volume_facts = object(volume);
+        // A broker BEFORE value is an expected comparison, never a native
+        // observation or authority. The read-only reopen's complete fresh
+        // fence below must match it before construction succeeds. Its final
+        // fresh volume fence still follows authenticated access. No result
+        // escapes either fence; the former extra pre-open sample is unclaimed.
+        // Standalone observers retain their original pre-open native sample.
+        state_->volume_facts = expected_volume ? *expected_volume : object(volume);
         require_ntfs_root(volume, state_->volume_facts);
         require(expected.as_object().size() == 9 && expected.at("attributes").as_unsigned() <= 0xffffffffu &&
             !(expected.at("attributes").as_unsigned() & FILE_ATTRIBUTE_REPARSE_POINT) &&
@@ -1323,7 +1336,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
                         if (round == 0u) ledger.push_back(expected);
                         else require(same(expected, ledger[index * publisher_object_access_batch_limit + offset]),
                             "broker record byte second round changed an ordered occurrence");
-                        PublisherBrokerObjectQuery query(state.volume, expected);
+                        PublisherBrokerObjectQuery query(state.volume, expected, before.at("volume_root"));
                         auto access = query.authenticated_access(state.channel);
                         require(query.close(), "broker record byte query handle closure is unknown");
                         // Literal shared raw9/client/object/mutation predicate MUST
@@ -1455,7 +1468,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
         if (batch_access) {
             Value::Array results;
             for (const auto& expected : request.at("native_objects").as_array()) {
-                PublisherBrokerObjectQuery query(state.volume, expected);
+                PublisherBrokerObjectQuery query(state.volume, expected, before.at("volume_root"));
                 auto access = query.authenticated_access(state.channel);
                 require(same(access.at("client"), before.at("authenticated_client")),
                     "broker original authenticated batch caller changed");
@@ -1467,7 +1480,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             result = Value(std::move(results));
         }
         else if (kind == "object_access" || paired_access) {
-            PublisherBrokerObjectQuery query(state.volume, request.at("native_object"));
+            PublisherBrokerObjectQuery query(state.volume, request.at("native_object"), before.at("volume_root"));
             result = query.authenticated_access(state.channel);
             require(same(result.at("client"), before.at("authenticated_client")), "broker original authenticated caller changed");
             // No parent descendant handle may cross this reply or obstruct a

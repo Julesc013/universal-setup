@@ -57,6 +57,7 @@ void controls() {
     const auto first_facts = publisher_handle_observation_json(observe_publisher_file_handle(first.value));
     const auto second_facts = publisher_handle_observation_json(observe_publisher_file_handle(second.value));
     const auto directory_facts = publisher_handle_observation_json(observe_publisher_directory_handle(directory.value));
+    const auto volume_facts = publisher_handle_observation_json(observe_publisher_directory_handle(root.value));
     {
         PublisherBrokerObjectQuery query(root.value, first_facts);
         require(usk::json::canonical(query.observation()) == usk::json::canonical(first_facts) &&
@@ -94,6 +95,42 @@ void controls() {
     unsupported_id.as_object().at("file_id") = Value(high_id);
     refuses([&] { PublisherBrokerObjectQuery query(root.value, unsupported_id); });
     refuses([&] { PublisherBrokerObjectQuery query(directory.value, first_facts); });
+    // Expected volume metadata grants no native observation or authority.
+    // Exercise the broker's composed route against independent native handles.
+    for (const auto* expected : {&first_facts, &directory_facts}) {
+        PublisherBrokerObjectQuery query(root.value, *expected, volume_facts);
+        require(usk::json::equal_values(query.observation(), *expected) &&
+            query.granted_access() == (FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE),
+            "composed by-ID query differs from its independent native binding");
+        refuses([&] { PublisherBrokerObjectQuery simultaneous(root.value, second_facts, volume_facts); });
+        require(query.close() && query.close(), "composed query closure did not latch its single result");
+        refuses([&] { (void)query.observation(); });
+    }
+    for (const auto& field : volume_facts.as_object()) {
+        auto changed = volume_facts;
+        auto& value = changed.as_object().at(field.first);
+        switch (value.type()) {
+        case Value::Type::boolean: value = Value(!value.as_boolean()); break;
+        case Value::Type::unsigned_integer: value = Value(value.as_unsigned() ^ 1u); break;
+        case Value::Type::string: value = Value(value.as_string() + "x"); break;
+        case Value::Type::array: value.as_array().push_back(Value{}); break;
+        default: throw std::runtime_error("unexpected native volume projection type");
+        }
+        refuses([&] { PublisherBrokerObjectQuery query(root.value, first_facts, changed); });
+        auto missing = volume_facts;
+        missing.as_object().erase(field.first);
+        refuses([&] { PublisherBrokerObjectQuery query(root.value, first_facts, missing); });
+    }
+    auto extra = volume_facts;
+    extra.as_object().emplace("unexpected", Value{});
+    refuses([&] { PublisherBrokerObjectQuery query(root.value, first_facts, extra); });
+    refuses([&] { PublisherBrokerObjectQuery query(directory.value, first_facts, volume_facts); });
+    refuses([&] { PublisherBrokerObjectQuery query(root.value, wrong_object, volume_facts); });
+    refuses([&] { PublisherBrokerObjectQuery query(root.value, first_facts, Value{}); });
+    {
+        PublisherBrokerObjectQuery query(root.value, first_facts, volume_facts);
+        require(query.close(), "failed composed constructors did not retire their query observers");
+    }
     // All failed constructors retired their observer. The exact original
     // query still succeeds and its confirmed close leaves no open descendant
     // from the broker when this genuine ordinary directory rename executes.

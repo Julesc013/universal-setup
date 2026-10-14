@@ -6223,15 +6223,15 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_broker_internal.h",
-          "sha256": "e7bfd4e66264ce2ac1b3a74b4b91136738717086cf08e94806f1dbee8cebd079"
+          "sha256": "275d3f41099a3326a238199da747b352a5343c1e9f007a959efbad6b534555af"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_broker_internal.cpp",
-          "sha256": "ac5e79e49367d29c480b58fc65d0801d2da17ba9e01e6f3fa53745ec6c1ab032"
+          "sha256": "778aef04c332c3ca02f3eb3872f05f605d35ba44e268a5797b0150eb5637e41d"
         },
         {
           "path": "tests/native/usk_publisher_broker_object_query_smoke.cpp",
-          "sha256": "04322ac7291a01ea387b837cedaeae5729584d2b789e4a57b01de9398b08ee66"
+          "sha256": "ed9ce60d89ad539dfa79f904468d3fdcdec16bab16f883813ff950e7e2a4262c"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_execution_internal.cpp",
