@@ -235,8 +235,9 @@ void require_authenticated_access_fields(const Value& access, const Value& clien
         const auto& fields = access.as_object();
         projected_size = fields.size() - fields.count("client") - fields.count("native_object") +
             (fields.count("client_sha256") == 0) + (fields.count("native_object_sha256") == 0);
-        // Retain the owned projection's unconditional hash construction and
-        // emplace precedence. Supplied hashes are checked, never overwritten.
+        // Compute both fresh hashes for this invocation. Missing projected
+        // hashes borrow these values; supplied hashes retain emplace precedence
+        // and are compared with the same freshly computed values.
         client_hash = Value(usk::json::sha256_canonical(client));
         object_hash = Value(usk::json::sha256_canonical(object));
     }
@@ -246,12 +247,16 @@ void require_authenticated_access_fields(const Value& access, const Value& clien
         const auto found = fields.find(name);
         return found == fields.end() ? generated : found->second;
     };
+    const auto hash_matches = [&](const char* name, const Value& value, const Value& generated) {
+        const auto& observed = binding(name, generated).as_string();
+        return raw_projection ? observed == generated.as_string() : observed == usk::json::sha256_canonical(value);
+    };
     require_authenticated_client(client);
     require((raw_projection ? projected_size : access.as_object().size()) == 8 &&
         access.at("schema").as_string() == "usk.publisher_authenticated_object_access.v1" &&
         access.at("scope").as_string() == "fresh_held_authenticated_token_and_file_descriptor" &&
-        binding("client_sha256", client_hash).as_string() == usk::json::sha256_canonical(client) &&
-        binding("native_object_sha256", object_hash).as_string() == usk::json::sha256_canonical(object) &&
+        hash_matches("client_sha256", client, client_hash) &&
+        hash_matches("native_object_sha256", object, object_hash) &&
         access.at("descriptor_api").as_string() == "GetSecurityInfo:SE_FILE_OBJECT:OWNER_GROUP_DACL" &&
         canonical_sid(access.at("observed_group_sid").as_string()),
         "publisher authenticated access binding or API scope differs");

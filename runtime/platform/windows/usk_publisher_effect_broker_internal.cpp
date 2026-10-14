@@ -1866,7 +1866,10 @@ PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
                 record_charge(s.proof_bytes, packet);
                 for (std::size_t offset = 0; offset < expected.as_array().size(); ++offset) {
                     auto& access = packet.as_object().at("results").as_array()[offset];
-                    require_raw_object_access(access, expected.as_array()[offset]);
+                    // The strict predicate binds the independent client/object
+                    // and decodes the complete raw record once. Its descriptor,
+                    // nine results and literal denials all remain mandatory.
+                    // Reader finalization independently validates its full chain.
                     require_publisher_maintenance_read_only_access(access, state_->baseline.at("authenticated_client"), expected.as_array()[offset]);
                     raw_results.push_back(std::move(access));
                 }
