@@ -112,6 +112,8 @@ public:
 private:
     friend class PublisherEffectBrokerReadback;
     // Only the original broker's fixed record round can admit these slots.
+    // Prepare owned query handles only; the sole caller immediately requires
+    // authenticated_access()'s complete fresh object proof before retention.
     PublisherBrokerObjectQuery(HANDLE, const usk::json::Value&, const usk::json::Value&,
         const PublisherRecordQueryRoundOwner&);
     void initialize(HANDLE, const usk::json::Value&, const usk::json::Value*,

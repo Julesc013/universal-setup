@@ -613,6 +613,18 @@ struct PublisherBrokerObjectQuery::State {
         require(claimed && (!round_owner || round_owner->matches()) && !attempted && handle != INVALID_HANDLE_VALUE,
             "broker query lost its original native object/volume/query-only handle");
     }
+    void prepare_record_access() const {
+        // Only the sealed original round uses deferred object validation. Its
+        // sole caller immediately performs the channel's complete fresh native
+        // BEFORE/AFTER and raw access checks, then joins that completed object
+        // to expected before checked closure and result retention.
+        require(round_owner != nullptr, "broker prepared access lacks its original record round");
+        require_live();
+        require(same(object(volume), volume_facts) &&
+            observe_publisher_noninheritable_handle_flags(handle) == 0 &&
+            observe_publisher_handle_granted_access(handle) == query_rights,
+            "broker query lost its original native object/volume/query-only handle");
+    }
     void fence_after_authenticated_access(const Value& observed) const {
         // The private channel just completed both native object/descriptor and
         // caller-token endpoints. Consume that fresh object observation here;
@@ -648,11 +660,12 @@ void PublisherBrokerObjectQuery::initialize(HANDLE volume, const Value& expected
         state_->claimed = true;
         state_->volume = volume;
         // A broker BEFORE value is an expected comparison, never a native
-        // observation or authority. The read-only reopen's complete fresh
-        // fence below must match it before construction succeeds. Its final
-        // fresh volume fence still follows authenticated access. No result
-        // escapes either fence; the former extra pre-open sample is unclaimed.
-        // Standalone observers retain their original pre-open native sample.
+        // observation or authority. Standalone construction still freshly
+        // matches the complete object. The private original-record constructor
+        // only prepares its owned query; its sole caller immediately obtains
+        // the channel's complete fresh object proof and joins it to expected
+        // before any result. Fresh volume and query-only handle checks enclose
+        // that proof; the extra initial object sampling instant is unclaimed.
         state_->volume_facts = expected_volume ? *expected_volume : object(volume);
         require_ntfs_root(volume, state_->volume_facts);
         require(expected.as_object().size() == 9 && expected.at("attributes").as_unsigned() <= 0xffffffffu &&
@@ -665,7 +678,8 @@ void PublisherBrokerObjectQuery::initialize(HANDLE volume, const Value& expected
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
             FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
         require(state_->handle != INVALID_HANDLE_VALUE, "broker actual query-only file-ID reopen failed");
-        state_->fence();
+        if (round) state_->prepare_record_access();
+        else state_->fence();
     } catch (...) {
         const auto original = std::current_exception();
         if (!state_->close()) {
@@ -686,9 +700,10 @@ DWORD PublisherBrokerObjectQuery::granted_access() const { state_->fence(); retu
 Value PublisherBrokerObjectQuery::authenticated_access(const PublisherRequestChannel& channel) const {
     state_->require_live();
     // This private read-only call has its own complete fresh object/descriptor
-    // and token checks. The constructor's initial fence and the final volume,
-    // handle and completed-object check still enclose the returned result;
-    // former separately sampled query instants are unclaimed.
+    // and token checks. Original-record preparation supplies no object proof:
+    // the channel's two fresh endpoints must match each other and the final
+    // completed-object join must match expected before any result escapes.
+    // Fresh volume and query-only handle checks still enclose this call.
     auto result = [&] {
         try { return channel.observe_authenticated_object_access(state_->handle); }
         catch (...) {

@@ -465,18 +465,29 @@ usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HA
         {"maximum_allowed", MAXIMUM_ALLOWED}}};
     for (const auto& [name, requested] : rights) {
         GENERIC_MAPPING mapping{FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_GENERIC_EXECUTE, FILE_ALL_ACCESS};
-        std::vector<unsigned char> privilege_storage(sizeof(PRIVILEGE_SET) + 16u * sizeof(LUID_AND_ATTRIBUTES));
-        DWORD privilege_length = static_cast<DWORD>(privilege_storage.size()), granted = 0;
+        // Each native check owns fresh zeroed scratch. Keep the ordinary
+        // bounded buffer inline; an actual larger API requirement still uses
+        // the same bounded allocation and single retry below.
+        alignas(PRIVILEGE_SET) std::array<unsigned char,
+            sizeof(PRIVILEGE_SET) + 16u * sizeof(LUID_AND_ATTRIBUTES)> privilege_inline{};
+        std::vector<unsigned char> privilege_storage;
+        auto* privilege_bytes = privilege_inline.data();
+        DWORD privilege_length = static_cast<DWORD>(privilege_inline.size()), granted = 0;
         BOOL allowed = FALSE;
         const auto run = [&] {
             usk::diagnostics::note(usk::diagnostics::Counter::access_check_calls);
             return AccessCheck(descriptor.value, state.client_token.value, requested, &mapping,
-            reinterpret_cast<PRIVILEGE_SET*>(privilege_storage.data()), &privilege_length, &granted, &allowed); };
+            reinterpret_cast<PRIVILEGE_SET*>(privilege_bytes), &privilege_length, &granted, &allowed); };
         if (!run()) {
             if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || privilege_length < sizeof(PRIVILEGE_SET) ||
                 privilege_length > 65536)
                 throw std::runtime_error("fresh authenticated AccessCheck failed");
             privilege_storage.resize(privilege_length);
+            // Preserve the failed call's written prefix exactly as vector
+            // resize did, including a permitted smaller returned size.
+            const auto copied = std::min(privilege_storage.size(), privilege_inline.size());
+            std::memcpy(privilege_storage.data(), privilege_inline.data(), copied);
+            privilege_bytes = privilege_storage.data();
             if (!run()) throw std::runtime_error("fresh authenticated AccessCheck retry failed");
         }
         checks.emplace(name, Value(Value::Object{{"requested", Value(static_cast<std::uint64_t>(requested))},
