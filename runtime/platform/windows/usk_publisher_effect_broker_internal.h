@@ -31,6 +31,7 @@ enum class PublisherEffectSelectionKind {
 class PublisherRecordQueryRoundOwner;
 class RegisteredPublisherAdmission;
 class PublisherRequestChannel;
+class PublisherAuthenticatedClientValidation;
 class PublisherEffectBrokerReadback;
 class PublisherEffectExecutionOwner;
 // Closed retained-record parsing only. These functions do not authenticate
@@ -205,6 +206,13 @@ usk::json::Value publisher_compact_record_access(usk::json::Value raw,
     const usk::json::Value& client, const usk::json::Value& object);
 usk::json::Value publisher_expand_record_access(usk::json::Value compact,
     const usk::json::Value& client, const usk::json::Value& object);
+// Local-context overloads preserve literal joins, denials and private v4 data.
+void require_publisher_maintenance_read_only_access(const usk::json::Value&,
+    const PublisherAuthenticatedClientValidation&, const usk::json::Value& native_object);
+usk::json::Value publisher_compact_record_access(usk::json::Value raw,
+    const PublisherAuthenticatedClientValidation&, const usk::json::Value& object);
+usk::json::Value publisher_expand_record_access(usk::json::Value compact,
+    const PublisherAuthenticatedClientValidation&, const usk::json::Value& object);
 // Check exact expanded bytes before cloning. Full expanded packet parser limits
 // and original cumulative charging remain mandatory at the original consumer.
 std::size_t publisher_preflight_expanded_record_results(const usk::json::Value& packet,

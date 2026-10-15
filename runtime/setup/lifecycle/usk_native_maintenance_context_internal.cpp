@@ -600,8 +600,8 @@ struct NativeMaintenanceContext::Impl {
                 } else if (kind == "consumer_read_grant") {
                     members(details, {"root_role", "relative_path", "before", "after", "parent", "native_identity", "consumer_sid"});
                     const auto role = details.at("root_role").as_string();
-                    const auto text = details.at("relative_path").as_string();
-                    const auto relative = text.empty() ? fs::path{} : owned_relative(text);
+                    const auto grant_relative_text = details.at("relative_path").as_string();
+                    const auto relative = grant_relative_text.empty() ? fs::path{} : owned_relative(grant_relative_text);
                     const auto effect = intent.at("details").at("kind").as_string();
                     if (original_consumer_sid.empty() || details.at("consumer_sid").as_string() != original_consumer_sid ||
                         !equal(details.at("after"), consumer_grant_postimage(details.at("before"), original_consumer_sid)) ||
@@ -1034,9 +1034,9 @@ struct NativeMaintenanceContext::Impl {
             normalized(spec.staging_parent) != normalized(fs::u8path(plan.at("staging_parent").as_string())) ||
             spec.required_commit_authority != transaction::CommitAuthorityRequirement::legacy_observed)
             throw std::runtime_error("native maintenance transaction differs from the original reviewed plan");
-        const auto installed_root = normalized(fs::u8path(snapshot.at("installed_state").at("target_root").as_string()));
+        const auto reviewed_installed_root = normalized(fs::u8path(snapshot.at("installed_state").at("target_root").as_string()));
         const fs::path expected_target = spec.operation == "move" ? fs::u8path(plan.at("new_root").as_string()) :
-            installed_root.parent_path() / ((spec.operation == "repair" ? ".usk-repair-" : ".usk-uninstall-") + spec.transaction_id);
+            reviewed_installed_root.parent_path() / ((spec.operation == "repair" ? ".usk-repair-" : ".usk-uninstall-") + spec.transaction_id);
         if ((spec.operation != "repair" && spec.operation != "move" && spec.operation != "uninstall") ||
             normalized(spec.target_root) != normalized(expected_target) ||
             normalized(spec.state_root.parent_path()).filename().u8string() != snapshot.at("setup_component").as_string())
@@ -1109,7 +1109,7 @@ struct NativeMaintenanceContext::Impl {
             normalized(fs::u8path(original_consumer_completion.at("setup_root").as_string())) != normalized(spec.state_root.parent_path()))
             throw std::runtime_error("native maintenance original consumer completion belongs to another install");
         original_consumer_sid = original_consumer_completion.at("consumer_read_sid").as_string();
-        for (const auto& path : {installed_root, normalized(spec.target_root)}) {
+        for (const auto& path : {reviewed_installed_root, normalized(spec.target_root)}) {
             auto native = volume_facts.native_name;
             if (native.empty()) throw std::runtime_error("native maintenance volume name is absent");
             for (const auto& part : relative_volume_path(path)) {
@@ -1545,11 +1545,11 @@ struct NativeMaintenanceContext::Impl {
     }
     transaction::MaintenanceEffectInspection inspect_effect_history(
         const transaction::TransactionSpec& supplied,
-        const transaction::detail::NativeMaintenanceEffectSelection& selection) const {
+        const transaction::detail::NativeMaintenanceEffectSelection& effect_selection) const {
         const auto inspect = [&] {
             using Role = transaction::detail::NativeMaintenanceEffectSelectionRole;
             const char* refusal = nullptr;
-            switch (selection.role) {
+            switch (effect_selection.role) {
             case Role::apply:
                 refusal = "maintenance payload dispatch lost its exact original intent";
                 break;
@@ -1561,11 +1561,11 @@ struct NativeMaintenanceContext::Impl {
             }
             // Preserve the original supplied spec/source arguments and the
             // complete owned completion vector, including SCM/ineligible reads.
-            auto history = transaction::MaintenanceEffectJournal::inspect(supplied, selection.source_digest, true);
-            if (history.journal_digest != selection.journal_digest ||
-                history.next_sequence != selection.next_sequence ||
-                history.pending_sequence != selection.pending_sequence ||
-                history.pending_kind != selection.pending_kind)
+            auto history = transaction::MaintenanceEffectJournal::inspect(supplied, effect_selection.source_digest, true);
+            if (history.journal_digest != effect_selection.journal_digest ||
+                history.next_sequence != effect_selection.next_sequence ||
+                history.pending_sequence != effect_selection.pending_sequence ||
+                history.pending_kind != effect_selection.pending_kind)
                 throw std::runtime_error(refusal);
             return history;
         };
@@ -4116,8 +4116,12 @@ void NativeMaintenanceContext::Impl::AuthorityRecordRead::finalize(const Value& 
         (s.byte_entry != nullptr) != s.file_result.has_value() ||
         s.installed_maximum.has_value() != s.installed_result.has_value())
         throw std::runtime_error("native maintenance authority record final proof is incomplete");
-    for (std::size_t index = 0; index < raw_results.as_array().size(); ++index)
-        s.owner.require_client_read_only_access(raw_results.as_array()[index], s.ordered[index % s.ordered.size()]);
+    if (!raw_results.as_array().empty()) {
+        const PublisherAuthenticatedClientValidation validation(s.owner.client);
+        for (std::size_t index = 0; index < raw_results.as_array().size(); ++index)
+            require_publisher_maintenance_read_only_access(raw_results.as_array()[index], validation,
+                publisher_handle_observation_json(s.ordered[index % s.ordered.size()]));
+    }
     // Entire native group is joined AFTER all global/wire/owner results. Every
     // entry gets actual fresh listing/reopens with positively checked closure.
     s.owner.recheck_entries(s.entries);
@@ -4415,8 +4419,12 @@ void NativeMaintenanceContext::Impl::RecipeQueryRead::finalize(const Value& raw_
         (s.byte_entry != nullptr) != s.file_result.has_value() ||
         s.installed_maximum.has_value() != s.installed_result.has_value())
         throw std::runtime_error("native maintenance recipe query record final proof is incomplete");
-    for (std::size_t index = 0; index < raw_results.as_array().size(); ++index)
-        s.owner.require_client_read_only_access(raw_results.as_array()[index], s.ordered[index % s.ordered.size()]);
+    if (!raw_results.as_array().empty()) {
+        const PublisherAuthenticatedClientValidation validation(s.owner.client);
+        for (std::size_t index = 0; index < raw_results.as_array().size(); ++index)
+            require_publisher_maintenance_read_only_access(raw_results.as_array()[index], validation,
+                publisher_handle_observation_json(s.ordered[index % s.ordered.size()]));
+    }
     // Entire native group is joined AFTER all global/wire/owner results. Every
     // entry gets actual fresh listing/reopens with positively checked closure.
     s.owner.recheck_entries(s.entries);
@@ -4553,8 +4561,12 @@ void NativeMaintenanceContext::RecordByteRead::finalize(const Value& raw_results
     if (s.active_round || s.completed_rounds != 2u || !s.bytes_checked || s.finalized ||
         raw_results.as_array().size() != 2u * s.ordered.size())
         throw std::runtime_error("native maintenance record byte final proof is incomplete");
-    for (std::size_t index = 0; index < raw_results.as_array().size(); ++index)
-        s.owner.require_client_read_only_access(raw_results.as_array()[index], s.ordered[index % s.ordered.size()].facts);
+    if (!raw_results.as_array().empty()) {
+        const PublisherAuthenticatedClientValidation validation(s.owner.client);
+        for (std::size_t index = 0; index < raw_results.as_array().size(); ++index)
+            require_publisher_maintenance_read_only_access(raw_results.as_array()[index], validation,
+                publisher_handle_observation_json(s.ordered[index % s.ordered.size()].facts));
+    }
     // Fresh native held facts, actual listings and new positively closed
     // independent reopens AFTER every final global/wire/owner join.
     s.owner.recheck_entries(s.entries);

@@ -8,6 +8,7 @@
 #include "usk_json.h"
 #include "usk_publisher_token_observation.h"
 #include <windows.h>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -44,6 +45,27 @@ usk::json::Value observe_publisher_effect_execution_phase(
     const std::vector<PublisherPhaseHandle>& handles,
     PublisherEffectWorkerReadback&, PublisherEffectWorkerNativeSecurity&);
 
+// Pure retained-data decoding input, never a native observation or authority.
+// Own one snapshot inside the caller's existing bounds. Successful stages are
+// lazy at the legacy check positions; use only on one synchronous thread and
+// never retain across operations or share with native query workers.
+// Snapshot allocation/failure chronology is not an equivalence claim.
+class PublisherAuthenticatedClientValidation final {
+public:
+    explicit PublisherAuthenticatedClientValidation(const usk::json::Value&);
+    PublisherAuthenticatedClientValidation(const PublisherAuthenticatedClientValidation&) = delete;
+    PublisherAuthenticatedClientValidation& operator=(const PublisherAuthenticatedClientValidation&) = delete;
+    PublisherAuthenticatedClientValidation(PublisherAuthenticatedClientValidation&&) = delete;
+    PublisherAuthenticatedClientValidation& operator=(PublisherAuthenticatedClientValidation&&) = delete;
+    const usk::json::Value& client() const noexcept { return client_; }
+    const usk::json::Value& canonical_hash() const;
+    void require_valid() const;
+private:
+    const usk::json::Value client_;
+    mutable std::optional<usk::json::Value> hash_;
+    mutable bool valid_ = false;
+};
+
 // Closed retained evidence, bound to the shared client and stored object facts.
 // Descriptor bytes are the GetSecurityInfo representation, not an assertion
 // that its control flags equal GetKernelObjectSecurity protection flags.
@@ -56,6 +78,12 @@ void require_publisher_authenticated_object_access(const usk::json::Value& acces
 // authority is created, retained or returned. Callers keep their binding checks.
 void require_publisher_authenticated_raw_object_access(const usk::json::Value& access,
     const usk::json::Value& client, const usk::json::Value& object);
+
+// Same predicates and supplied-hash precedence, with a local owned client.
+void require_publisher_authenticated_object_access(const usk::json::Value& access,
+    const PublisherAuthenticatedClientValidation&, const usk::json::Value& object);
+void require_publisher_authenticated_raw_object_access(const usk::json::Value& access,
+    const PublisherAuthenticatedClientValidation&, const usk::json::Value& object);
 
 void require_publisher_authenticated_descendant_access(const usk::json::Value& access,
     const usk::json::Value& client, const usk::json::Value& tree);

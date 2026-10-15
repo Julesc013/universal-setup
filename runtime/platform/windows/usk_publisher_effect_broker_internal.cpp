@@ -1683,6 +1683,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
             std::array<std::vector<Value>, 2u> results;
             const auto chunks = static_cast<std::size_t>(scope.at("chunk_count").as_unsigned());
             PublisherRecordByteRoundSequence round_sequence(ledger.size());
+            const PublisherAuthenticatedClientValidation client_validation(before.at("authenticated_client"));
             for (std::size_t round = 0; round < 2u; ++round) {
                 const auto ready = state.custody.receive(remaining());
                 require_publisher_effect_record_byte_round_marker(ready, scope, static_cast<unsigned>(round), false);
@@ -1706,7 +1707,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
                         auto& access = access_results[offset];
                         // Literal shared raw9/client/object/mutation predicate MUST
                         // precede every sequencing acknowledgement and the read.
-                        require_publisher_maintenance_read_only_access(access, before.at("authenticated_client"), expected);
+                        require_publisher_maintenance_read_only_access(access, client_validation, expected);
                         round_sequence.observe();
                         (void)remaining();
                     }
@@ -1722,7 +1723,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
                     auto& encoded_results = final_chunk.as_object().at("results").as_array();
                     for (std::size_t offset = 0; offset < encoded_results.size(); ++offset)
                         encoded_results[offset] = publisher_compact_record_access(std::move(encoded_results[offset]),
-                            before.at("authenticated_client"), ledger[index * publisher_object_access_batch_limit + offset]);
+                            client_validation, ledger[index * publisher_object_access_batch_limit + offset]);
                     results[round].push_back(std::move(final_chunk));
                 }
                 round_sequence.close(static_cast<unsigned>(round));
@@ -2104,8 +2105,12 @@ void require_publisher_effect_authority_record_readback(const Value& ready, cons
     require_selected_endpoints(final.at("selection"), actual_request,
         final.at("profile_before"), final.at("profile"), kind);
 }
-void require_publisher_maintenance_read_only_access(const Value& result, const Value& client, const Value& native_object) {
-    require(same(result.at("client"), client) && same(result.at("native_object"), native_object),
+namespace {
+const Value& maintenance_client_value(const Value& client) { return client; }
+const Value& maintenance_client_value(const PublisherAuthenticatedClientValidation& client) { return client.client(); }
+template<class Client>
+void require_maintenance_read_only_access(const Value& result, const Client& client, const Value& native_object) {
+    require(same(result.at("client"), maintenance_client_value(client)) && same(result.at("native_object"), native_object),
         "native maintenance authenticated object binding changed");
     require_publisher_authenticated_raw_object_access(result, client, native_object);
     constexpr DWORD mutation = FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_DELETE_CHILD |
@@ -2114,6 +2119,14 @@ void require_publisher_maintenance_read_only_access(const Value& result, const V
         if (name == "maximum_allowed" ? (check.at("granted").as_unsigned() & mutation) != 0 :
             check.at("allowed").as_boolean() || check.at("granted").as_unsigned() != 0)
             throw std::runtime_error("native maintenance caller retains object mutation rights");
+}
+}
+void require_publisher_maintenance_read_only_access(const Value& result, const Value& client, const Value& object) {
+    require_maintenance_read_only_access(result, client, object);
+}
+void require_publisher_maintenance_read_only_access(const Value& result,
+    const PublisherAuthenticatedClientValidation& client, const Value& object) {
+    require_maintenance_read_only_access(result, client, object);
 }
 namespace {
 void require_compact_record_shape(const Value& compact) {
@@ -2128,13 +2141,16 @@ usk::json::CanonicalObjectView borrowed_object_fields(const Value& value) {
     return fields;
 }
 }
-Value publisher_compact_record_access(Value raw, const Value& client, const Value& object) {
+namespace {
+Value compact_record_access(Value raw, const Value& client, const Value& object,
+    const PublisherAuthenticatedClientValidation* validation) {
     require(raw.as_object().size() == 8u && !raw.contains("client_sha256") && !raw.contains("native_object_sha256") &&
         same(raw.at("client"), client) && same(raw.at("native_object"), object),
         "record projection requires its exact validated producer bindings");
-    // Hash this actual row only after the caller's full raw9 validation. These
-    // commitments replace repeated wire trees; no native result is reused.
-    Value client_hash(usk::json::sha256_canonical(raw.at("client")));
+    // Full literal row equality precedes a shared commitment. Native results
+    // and object hashes remain per occurrence; this is only client decoding.
+    Value client_hash = validation ? validation->canonical_hash() :
+        Value(usk::json::sha256_canonical(raw.at("client")));
     Value object_hash(usk::json::sha256_canonical(raw.at("native_object")));
     auto& fields = raw.as_object();
     fields.erase("client"); fields.erase("native_object");
@@ -2142,16 +2158,31 @@ Value publisher_compact_record_access(Value raw, const Value& client, const Valu
     fields.emplace("native_object_sha256", std::move(object_hash));
     return raw;
 }
-Value publisher_expand_record_access(Value compact, const Value& client, const Value& object) {
+Value expand_record_access(Value compact, const Value& client, const Value& object,
+    const PublisherAuthenticatedClientValidation* validation) {
     require_compact_record_shape(compact);
     auto& fields = compact.as_object();
     fields.emplace("client", client); fields.emplace("native_object", object);
-    // The existing raw decoder preserves supplied-hash precedence. It checks
-    // both supplied hashes freshly, literal full bindings, descriptor and all
-    // nine access results in this same invocation; no extra compact decoder.
-    require_publisher_maintenance_read_only_access(compact, client, object);
+    // Supplied hashes retain precedence and exact canonical comparisons;
+    // the client can use this call's owned snapshot. Full literal bindings,
+    // descriptor and all nine results still use the same raw decoder.
+    if (validation) require_publisher_maintenance_read_only_access(compact, *validation, object);
+    else require_publisher_maintenance_read_only_access(compact, client, object);
     fields.erase("client_sha256"); fields.erase("native_object_sha256");
     return compact;
+}
+}
+Value publisher_compact_record_access(Value raw, const Value& client, const Value& object) {
+    return compact_record_access(std::move(raw), client, object, nullptr);
+}
+Value publisher_compact_record_access(Value raw, const PublisherAuthenticatedClientValidation& client, const Value& object) {
+    return compact_record_access(std::move(raw), client.client(), object, &client);
+}
+Value publisher_expand_record_access(Value compact, const Value& client, const Value& object) {
+    return expand_record_access(std::move(compact), client, object, nullptr);
+}
+Value publisher_expand_record_access(Value compact, const PublisherAuthenticatedClientValidation& client, const Value& object) {
+    return expand_record_access(std::move(compact), client.client(), object, &client);
 }
 std::size_t publisher_preflight_expanded_record_results(const Value& packet,
     const Value& client, const Value& objects, std::size_t remaining_proof_bytes) {
@@ -2419,6 +2450,7 @@ PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
         require(chunk_count > 0u && chunk_count <= publisher_record_byte_chunk_limit,
             "child record final stream chunk count exceeds its bound");
         const auto chunks = static_cast<std::size_t>(chunk_count);
+        const PublisherAuthenticatedClientValidation client_validation(state_->baseline.at("authenticated_client"));
         for (std::size_t round_index = 0; round_index < 2u; ++round_index)
             for (std::size_t index = 0; index < chunks; ++index) {
                 auto packet = std::move(frames[1u + round_index * chunks + index]);
@@ -2433,7 +2465,7 @@ PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
                 auto& decoded_results = packet.as_object().at("results").as_array();
                 for (std::size_t offset = 0; offset < expected.as_array().size(); ++offset)
                     decoded_results[offset] = publisher_expand_record_access(std::move(decoded_results[offset]),
-                        state_->baseline.at("authenticated_client"), expected.as_array()[offset]);
+                        client_validation, expected.as_array()[offset]);
                 // Full parser limits and cumulative charging apply to the
                 // restored ORIGINAL raw8 frame before any row is retained.
                 record_charge(s.proof_bytes, packet);
@@ -2518,12 +2550,13 @@ void require_publisher_effect_selected_object_access_batch_readback(const Value&
     const auto& results = reply.at("result").as_array();
     require(!objects.empty() && objects.size() <= publisher_object_access_batch_limit && results.size() == objects.size(),
         "effect selected access batch count differs or exceeds its bound");
+    const PublisherAuthenticatedClientValidation client_validation(before.at("authenticated_client"));
     for (std::size_t index = 0; index < objects.size(); ++index) {
         require(same(results[index].at("native_object"), objects[index]) &&
             same(results[index].at("client"), before.at("authenticated_client")) &&
             same(results[index].at("client"), after.at("authenticated_client")),
             "effect selected access belongs to another ordered occurrence/caller");
-        require_raw_object_access(results[index], objects[index]);
+        require_publisher_authenticated_raw_object_access(results[index], client_validation, objects[index]);
     }
     require_batch_packet_budget(reply);
 }
@@ -2617,11 +2650,12 @@ PublisherEffectWorkerReadback::authenticated_object_access_batch_bracket(const s
         const Value before(std::move(objects));
         auto reply = state_->read("object_access_batch_bracket", &before, after_queries_closed ? readback_remaining(bracket_started, timeout,
             "effect full parallel object bracket exceeded its original deadline") : timeout, after_queries_closed);
+        const PublisherAuthenticatedClientValidation client_validation(reply.at("profile_before").at("authenticated_client"));
         for (std::size_t index = 0; index < held.size(); ++index) {
             require(same(object(held[index]), before.as_array()[index]) &&
                 observe_publisher_noninheritable_handle_flags(held[index]) == 0,
                 "effect original held batch object changed across broker readback");
-            require_raw_object_access(reply.at("result").as_array()[index], before.as_array()[index]);
+            require_publisher_authenticated_raw_object_access(reply.at("result").as_array()[index], client_validation, before.as_array()[index]);
         }
         (void)actual_worker_context(reply.at("profile_before"));
         (void)actual_worker_context(reply.at("profile"));

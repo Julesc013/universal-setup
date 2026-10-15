@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
+#include <type_traits>
 #include <exception>
 #include <functional>
 #include <cstdlib>
@@ -1299,6 +1300,15 @@ void effect_execution_record_controls() {
         try { require_publisher_maintenance_read_only_access(unknown_access, client, object(2)); }
         catch (...) { unknown_refused = true; }
         check(unknown_refused, "record byte pre-read predicate discarded an unknown raw field");
+        static_assert(!std::is_default_constructible_v<PublisherAuthenticatedClientValidation> &&
+            !std::is_copy_constructible_v<PublisherAuthenticatedClientValidation> &&
+            !std::is_move_constructible_v<PublisherAuthenticatedClientValidation>,
+            "client validation stages cannot be defaulted, copied or moved to another snapshot");
+        const PublisherAuthenticatedClientValidation shared_client_validation(client);
+        const auto validation_outcome = [](const std::function<void()>& operation) {
+            try { operation(); return std::make_pair(true, std::string{}); }
+            catch (const std::exception& error) { return std::make_pair(false, std::string(error.what())); }
+        };
         const auto characterize_raw_projection = [&](const Value& raw, bool expected) {
             const auto original_bytes = usk::json::canonical(raw);
             // Independent owned copy/erase/emplace oracle retains the previous
@@ -1314,6 +1324,20 @@ void effect_execution_record_controls() {
             catch (const std::exception&) { borrowed_accepted = false; }
             check(owned_accepted == expected && borrowed_accepted == expected,
                 "raw borrowed access decoder differs from independently owned projection");
+            const auto legacy_raw = validation_outcome([&] {
+                require_publisher_authenticated_raw_object_access(raw, client, object(2));
+            });
+            const PublisherAuthenticatedClientValidation fresh_validation(client);
+            check(validation_outcome([&] { require_publisher_authenticated_raw_object_access(raw, fresh_validation, object(2)); }) == legacy_raw &&
+                validation_outcome([&] { require_publisher_authenticated_raw_object_access(raw, shared_client_validation, object(2)); }) == legacy_raw,
+                "owned lazy client raw acceptance/refusal order differs from single-row decoder");
+            const auto legacy_normalized = validation_outcome([&] {
+                require_publisher_authenticated_object_access(compact, client, object(2));
+            });
+            const PublisherAuthenticatedClientValidation fresh_normalized(client);
+            check(validation_outcome([&] { require_publisher_authenticated_object_access(compact, fresh_normalized, object(2)); }) == legacy_normalized &&
+                validation_outcome([&] { require_publisher_authenticated_object_access(compact, shared_client_validation, object(2)); }) == legacy_normalized,
+                "fresh or shared lazy client normalized acceptance/refusal order differs");
             check(usk::json::canonical(raw) == original_bytes,
                 "raw borrowed access decoder changed the independently retained proof");
         };
@@ -1349,6 +1373,79 @@ void effect_execution_record_controls() {
                 auto mistyped = denied_access;
                 mistyped.as_object().at("checks").as_object().at(right.first).as_object().at(key) = Value();
                 characterize_raw_projection(mistyped, false);
+            }
+        }
+        {
+            auto original_client = client;
+            const PublisherAuthenticatedClientValidation owned(original_client);
+            original_client = Value(); // Snapshot must own all nested input.
+            require_publisher_maintenance_read_only_access(denied_access, owned, object(2));
+            check(usk::json::equal_values(owned.client(), client) &&
+                owned.canonical_hash().as_string() == usk::json::sha256_canonical(client),
+                "client decoding context borrowed mutable original storage");
+            const auto compact = publisher_compact_record_access(denied_access, owned, object(2));
+            check(usk::json::equal_values(compact, publisher_compact_record_access(denied_access, client, object(2))) &&
+                usk::json::equal_values(publisher_expand_record_access(compact, owned, object(2)), denied_access),
+                "client context changed private compact/expanded owned bytes");
+            auto substituted = denied_access;
+            substituted.as_object().at("client").as_object().at("captured_process_id") = Value(std::uint64_t{999999});
+            sequence_refused([&] { require_publisher_maintenance_read_only_access(substituted, owned, object(2)); });
+            sequence_refused([&] { require_publisher_maintenance_read_only_access(denied_access, owned, object(3)); });
+            const auto make_owned = [&] {
+                const auto local_client = client;
+                return std::make_unique<PublisherAuthenticatedClientValidation>(local_client);
+            };
+            const auto detached = make_owned();
+            require_publisher_maintenance_read_only_access(denied_access, *detached, object(2));
+            const Value malformed_client(Value::Object{});
+            const PublisherAuthenticatedClientValidation malformed(malformed_client);
+            for (const auto& invalid_access : {Value(), unknown_access, denied_access}) {
+                check(validation_outcome([&] { require_publisher_authenticated_raw_object_access(invalid_access, malformed, object(2)); }) ==
+                    validation_outcome([&] { require_publisher_authenticated_raw_object_access(invalid_access, malformed_client, object(2)); }),
+                    "raw simultaneous-defect precedence or failed lazy stage differs");
+                check(validation_outcome([&] { require_publisher_authenticated_object_access(invalid_access, malformed, object(2)); }) ==
+                    validation_outcome([&] { require_publisher_authenticated_object_access(invalid_access, malformed_client, object(2)); }),
+                    "normalized simultaneous-defect precedence differs");
+            }
+            Value empty_descendants(Value::Object{
+                {"schema", Value("usk.publisher_authenticated_descendant_access.v1")},
+                {"scope", Value("fresh_held_descriptors_for_bound_tree_no_content_rehash")},
+                {"client_sha256", Value(usk::json::sha256_canonical(malformed_client))},
+                {"objects", Value(Value::Array{})}});
+            Value empty_tree(Value::Object{{"descendants", Value(Value::Array{})}});
+            require_publisher_authenticated_descendant_access(empty_descendants, malformed_client, empty_tree);
+            auto invalid_header = empty_descendants;
+            invalid_header.as_object().at("client_sha256") = Value(std::string(64u, 'f'));
+            sequence_refused([&] { require_publisher_authenticated_descendant_access(invalid_header, malformed_client, empty_tree); });
+            empty_descendants.as_object().at("objects") = Value(Value::Array{Value(Value::Object{
+                {"relative_path", Value("one")}, {"authenticated_access", Value()}})});
+            empty_tree.as_object().at("descendants") = Value(Value::Array{Value(Value::Object{
+                {"relative_path", Value("one")}, {"object", object(2)}})});
+            const auto failed_descendant = validation_outcome([&] {
+                require_publisher_authenticated_descendant_access(empty_descendants, malformed_client, empty_tree);
+            });
+            check(!failed_descendant.first && failed_descendant == validation_outcome([&] {
+                require_publisher_authenticated_object_access(Value(), malformed_client, object(2));
+            }), "first descendant changed malformed-client refusal precedence");
+            const auto normalized_access = publisher_compact_record_access(denied_access, client, object(2));
+            Value positive_descendants(Value::Object{
+                {"schema", Value("usk.publisher_authenticated_descendant_access.v1")},
+                {"scope", Value("fresh_held_descriptors_for_bound_tree_no_content_rehash")},
+                {"client_sha256", Value(usk::json::sha256_canonical(client))},
+                {"objects", Value(Value::Array{
+                    Value(Value::Object{{"relative_path", Value("one")}, {"authenticated_access", normalized_access}}),
+                    Value(Value::Object{{"relative_path", Value("two")}, {"authenticated_access", normalized_access}})})}});
+            const Value positive_tree(Value::Object{{"descendants", Value(Value::Array{
+                Value(Value::Object{{"relative_path", Value("one")}, {"object", object(2)}}),
+                Value(Value::Object{{"relative_path", Value("two")}, {"object", object(2)}})})}});
+            require_publisher_authenticated_descendant_access(positive_descendants, client, positive_tree);
+            for (const auto* hash : {"client_sha256", "native_object_sha256"}) {
+                auto later_tamper = positive_descendants;
+                auto& later_access = later_tamper.as_object().at("objects").as_array()[1].as_object().at("authenticated_access").as_object();
+                later_access.at(hash) = Value(std::string(64u, 'f'));
+                sequence_refused([&] {
+                    require_publisher_authenticated_descendant_access(later_tamper, client, positive_tree);
+                });
             }
         }
         const auto composed_reply = [&](const Value& selected_reply, bool recovery, const Value& objects) {

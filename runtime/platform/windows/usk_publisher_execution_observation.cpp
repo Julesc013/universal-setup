@@ -228,17 +228,20 @@ void require_access_descriptor(const Value& access, const Value& object) {
     require(offset == acl + size, "publisher authenticated descriptor ACL has unaccounted bytes");
 }
 void require_authenticated_access_fields(const Value& access, const Value& client,
-    const Value& object, bool raw_projection) {
+    const Value& object, bool raw_projection,
+    const PublisherAuthenticatedClientValidation* validation = nullptr) {
     Value client_hash, object_hash;
+    const Value* projected_client_hash = &client_hash;
     std::size_t projected_size = 0;
     if (raw_projection) {
         const auto& fields = access.as_object();
         projected_size = fields.size() - fields.count("client") - fields.count("native_object") +
             (fields.count("client_sha256") == 0) + (fields.count("native_object_sha256") == 0);
-        // Compute both fresh hashes for this invocation. Missing projected
-        // hashes borrow these values; supplied hashes retain emplace precedence
-        // and are compared with the same freshly computed values.
-        client_hash = Value(usk::json::sha256_canonical(client));
+        // Each object hash stays fresh. A local owned client can share its
+        // successful hash; missing projected hashes borrow these exact values.
+        // Supplied hashes keep emplace precedence and the same comparisons.
+        if (validation) projected_client_hash = &validation->canonical_hash();
+        else client_hash = Value(usk::json::sha256_canonical(client));
         object_hash = Value(usk::json::sha256_canonical(object));
     }
     const auto binding = [&](const char* name, const Value& generated) -> const Value& {
@@ -247,16 +250,19 @@ void require_authenticated_access_fields(const Value& access, const Value& clien
         const auto found = fields.find(name);
         return found == fields.end() ? generated : found->second;
     };
-    const auto hash_matches = [&](const char* name, const Value& value, const Value& generated) {
+    const auto hash_matches = [&](const char* name, const Value& value, const Value& generated, bool client_binding) {
         const auto& observed = binding(name, generated).as_string();
-        return raw_projection ? observed == generated.as_string() : observed == usk::json::sha256_canonical(value);
+        if (raw_projection) return observed == generated.as_string();
+        return observed == (client_binding && validation ?
+            validation->canonical_hash().as_string() : usk::json::sha256_canonical(value));
     };
-    require_authenticated_client(client);
+    if (validation) validation->require_valid();
+    else require_authenticated_client(client);
     require((raw_projection ? projected_size : access.as_object().size()) == 8 &&
         access.at("schema").as_string() == "usk.publisher_authenticated_object_access.v1" &&
         access.at("scope").as_string() == "fresh_held_authenticated_token_and_file_descriptor" &&
-        hash_matches("client_sha256", client, client_hash) &&
-        hash_matches("native_object_sha256", object, object_hash) &&
+        hash_matches("client_sha256", client, *projected_client_hash, true) &&
+        hash_matches("native_object_sha256", object, object_hash, false) &&
         access.at("descriptor_api").as_string() == "GetSecurityInfo:SE_FILE_OBJECT:OWNER_GROUP_DACL" &&
         canonical_sid(access.at("observed_group_sid").as_string()),
         "publisher authenticated access binding or API scope differs");
@@ -274,6 +280,26 @@ void require_authenticated_access_fields(const Value& access, const Value& clien
     }
 }
 } // namespace
+
+PublisherAuthenticatedClientValidation::PublisherAuthenticatedClientValidation(const Value& client) : client_(client) {}
+const Value& PublisherAuthenticatedClientValidation::canonical_hash() const {
+    if (!hash_) hash_.emplace(usk::json::sha256_canonical(client_));
+    return *hash_;
+}
+void PublisherAuthenticatedClientValidation::require_valid() const {
+    if (!valid_) {
+        require_authenticated_client(client_);
+        valid_ = true;
+    }
+}
+void require_publisher_authenticated_object_access(const Value& access,
+    const PublisherAuthenticatedClientValidation& validation, const Value& object) {
+    require_authenticated_access_fields(access, validation.client(), object, false, &validation);
+}
+void require_publisher_authenticated_raw_object_access(const Value& access,
+    const PublisherAuthenticatedClientValidation& validation, const Value& object) {
+    require_authenticated_access_fields(access, validation.client(), object, true, &validation);
+}
 
 void require_publisher_authenticated_object_access(const Value& access, const Value& client, const Value& object) {
     require_authenticated_access_fields(access, client, object, false);
@@ -296,6 +322,8 @@ void require_publisher_authenticated_descendant_access(const Value& value,
     const auto& descendants = tree.at("descendants").as_array();
     require(rows.size() == descendants.size() && rows.size() <= 200000,
         "publisher authenticated descendant closure coverage differs");
+    std::optional<PublisherAuthenticatedClientValidation> validation;
+    if (!rows.empty()) validation.emplace(client);
     for (std::size_t index = 0; index < rows.size(); ++index) {
         const auto& row = rows[index];
         const auto& descendant = descendants[index];
@@ -303,7 +331,7 @@ void require_publisher_authenticated_descendant_access(const Value& value,
             row.at("relative_path").as_string() == descendant.at("relative_path").as_string(),
             "publisher authenticated descendant path/order binding differs");
         const auto& access = row.at("authenticated_access");
-        require_publisher_authenticated_object_access(access, client, descendant.at("object"));
+        require_publisher_authenticated_object_access(access, *validation, descendant.at("object"));
         for (const auto& [name, requested] : access_rights) {
             const auto& check = access.at("checks").at(name);
             require(requested == MAXIMUM_ALLOWED ? (check.at("granted").as_unsigned() & mutation_rights) == 0 :
@@ -570,7 +598,11 @@ void require_publisher_execution_phase(const Value& value, const std::wstring& s
         "publisher execution retained handle-role closure is incomplete");
     std::set<std::string> identities;
     std::string volume;
-    if (authenticated_bound) require_authenticated_client(value.at("authenticated_client"));
+    std::optional<PublisherAuthenticatedClientValidation> validation;
+    if (authenticated_bound) {
+        validation.emplace(value.at("authenticated_client"));
+        validation->require_valid(); // Preserve the explicit seven-role stage.
+    }
     for (std::size_t index = 0; index < roles.size(); ++index) {
         const auto& object = handles[index];
         const auto& id = object.at("file_id").as_string();
@@ -608,7 +640,7 @@ void require_publisher_execution_phase(const Value& value, const std::wstring& s
         }
         if (authenticated_bound) {
             const auto& access = object.at("authenticated_access");
-            require_publisher_authenticated_object_access(access, value.at("authenticated_client"), object.at("object_observation"));
+            require_publisher_authenticated_object_access(access, *validation, object.at("object_observation"));
             for (const auto& [name, requested] : access_rights) {
                 const auto& check = access.at("checks").at(name);
                 require(requested == MAXIMUM_ALLOWED ? (check.at("granted").as_unsigned() & mutation_rights) == 0 :
