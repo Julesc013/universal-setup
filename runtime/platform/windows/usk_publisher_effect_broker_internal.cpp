@@ -1177,11 +1177,13 @@ struct PublisherEffectBrokerReadback::State {
     };
     struct RecordThreadStart { State* owner = nullptr; std::size_t index = 0; };
     std::array<RecordThreadStart, 2u> record_thread_starts;
-    std::array<HANDLE, 2u> record_threads{{nullptr, nullptr}}, record_wake{{nullptr, nullptr}};
+    std::array<HANDLE, 2u> record_threads{{nullptr, nullptr}}, record_wake{{nullptr, nullptr}},
+        record_done{{nullptr, nullptr}};
     std::array<DWORD, 2u> record_thread_ids{{0u, 0u}};
     std::array<bool, 2u> record_join_attempted{{false, false}}, record_join_closed{{false, false}},
         record_thread_ended{{false, false}}, record_wake_close_attempted{{false, false}},
-        record_wake_closed{{false, false}};
+        record_wake_closed{{false, false}}, record_done_close_attempted{{false, false}},
+        record_done_closed{{false, false}};
     std::atomic<RecordChunkWork*> record_work{nullptr};
     std::atomic<std::size_t> record_ready{0u}, record_completed{0u};
     std::atomic<bool> record_stopping{false};
@@ -1244,6 +1246,7 @@ struct PublisherEffectBrokerReadback::State {
         auto& owner = *start.owner;
         owner.record_thread_ids[start.index] = GetCurrentThreadId();
         owner.record_ready.fetch_add(1u);
+        if (!SetEvent(owner.record_done[start.index])) std::terminate();
         for (;;) {
             // This is an owned worker's idle park, never a caller join. Stop
             // signals it and bounds the native thread join independently.
@@ -1257,6 +1260,9 @@ struct PublisherEffectBrokerReadback::State {
             // The acquire/release atomic RMW chain joins both workers' complete
             // result writes before the original thread clears the borrow.
             owner.record_completed.fetch_add(1u);
+            // The original thread consumes BOTH auto-reset notifications before
+            // reusing the work slot. No timer tick or per-chunk reset is needed.
+            if (!SetEvent(owner.record_done[start.index])) std::terminate();
         }
     }
     void start_record_queries() {
@@ -1271,6 +1277,10 @@ struct PublisherEffectBrokerReadback::State {
             DWORD flags = 0;
             require(record_wake[index] && GetHandleInformation(record_wake[index], &flags) && flags == 0u,
                 "broker record wake event is unavailable or inheritable");
+            record_done[index] = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+            flags = 0;
+            require(record_done[index] && GetHandleInformation(record_done[index], &flags) && flags == 0u,
+                "broker record completion event is unavailable or inheritable");
         }
         for (std::size_t index = 0; index < record_threads.size(); ++index) {
             (void)readback_remaining(started, record_pool_transition_budget,
@@ -1284,11 +1294,12 @@ struct PublisherEffectBrokerReadback::State {
             require(GetHandleInformation(record_threads[index], &flags) && flags == 0u,
                 "broker record query thread handle is inheritable or unavailable");
         }
-        while (record_ready.load() != record_threads.size()) {
-            (void)readback_remaining(started, record_pool_transition_budget,
-                "broker record worker startup exceeded its shared budget");
-            Sleep(1u);
-        }
+        const auto ready = WaitForMultipleObjects(static_cast<DWORD>(record_done.size()), record_done.data(), TRUE,
+            readback_remaining(started, record_pool_transition_budget,
+                "broker record worker startup exceeded its shared budget"));
+        require(ready < WAIT_OBJECT_0 + static_cast<DWORD>(record_done.size()) &&
+            record_ready.load() == record_threads.size(),
+            "broker record worker startup notification is unavailable");
         (void)readback_remaining(started, record_pool_transition_budget,
             "broker record worker startup exceeded its shared budget");
         for (std::size_t index = 0; index < record_threads.size(); ++index)
@@ -1327,12 +1338,20 @@ struct PublisherEffectBrokerReadback::State {
         // Never close a wake event beneath an unconfirmed live waiter.
         if (all_ended) {
             for (std::size_t index = 0; index < record_wake.size(); ++index) {
-                if (!record_wake[index]) continue;
-                if (!record_wake_close_attempted[index]) {
-                    record_wake_close_attempted[index] = true;
-                    record_wake_closed[index] = CloseHandle(record_wake[index]) != FALSE;
+                if (record_wake[index]) {
+                    if (!record_wake_close_attempted[index]) {
+                        record_wake_close_attempted[index] = true;
+                        record_wake_closed[index] = CloseHandle(record_wake[index]) != FALSE;
+                    }
+                    closed = record_wake_closed[index] && closed;
                 }
-                closed = record_wake_closed[index] && closed;
+                if (record_done[index]) {
+                    if (!record_done_close_attempted[index]) {
+                        record_done_close_attempted[index] = true;
+                        record_done_closed[index] = CloseHandle(record_done[index]) != FALSE;
+                    }
+                    closed = record_done_closed[index] && closed;
+                }
             }
         }
         if (!closed) poison_record_pool();
@@ -1361,16 +1380,24 @@ struct PublisherEffectBrokerReadback::State {
         // Failed infrastructure signalling cannot unwind borrowed storage or
         // expose a result. It ends the broker without a terminal proof.
         for (const auto wake : record_wake) if (!SetEvent(wake)) std::terminate();
-        while (record_completed.load() != record_threads.size()) {
+        for (;;) {
+            DWORD wait_budget = record_pool_transition_budget;
             if (!deadline_failure) {
-                try { (void)readback_remaining(started, timeout,
+                try { wait_budget = readback_remaining(started, timeout,
                     "broker record query chunk exceeded its original deadline"); }
                 catch (...) { deadline_failure = std::current_exception(); work.cancelled.store(true); }
             }
-            // Already published synchronous native queries must drain; a
-            // deadline refuses proof, not their borrowed-state lifetime.
-            Sleep(1u);
+            // Deadline refusal still drains already-published synchronous
+            // native calls before freeing their borrow. These finite wait
+            // intervals do not bound an uncancellable call's total duration.
+            const auto completed = WaitForMultipleObjects(static_cast<DWORD>(record_done.size()),
+                record_done.data(), TRUE, wait_budget);
+            if (completed < WAIT_OBJECT_0 + static_cast<DWORD>(record_done.size())) break;
+            if (completed != WAIT_TIMEOUT) std::terminate();
         }
+        // Every worker, including an empty/cancelled plan, has dropped its
+        // borrowed pointer, published its writes and completed SetEvent.
+        if (record_completed.load() != record_threads.size()) std::terminate();
         record_work.store(nullptr);
         if (work.closure_unknown.load())
             throw std::runtime_error("broker original record query closure is unknown");
