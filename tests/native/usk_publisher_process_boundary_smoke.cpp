@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <cstring>
 #include <type_traits>
+#include <typeinfo>
 #include <exception>
 #include <functional>
 #include <cstdlib>
@@ -1769,6 +1770,61 @@ void effect_execution_record_controls() {
             usk::json::canonical(publisher_effect_broker_immutable_record(second));
         check(publisher_effect_broker_immutable_records_equal(first, second) == expected,
             "borrowed immutable broker comparison differs from owned projection");
+    }
+    // The actual previous three-decode sequence remains a differential oracle.
+    // These are retained input records only, never native admission/evidence.
+    const auto legacy_binding_records = [](const Value& profile, const Value& original_record)
+        -> std::optional<PublisherEffectBrokerRecordProjections> {
+        if (!publisher_effect_broker_immutable_records_equal(profile, original_record)) return std::nullopt;
+        auto service_projection = publisher_effect_broker_service_record(profile);
+        auto worker_projection = publisher_effect_worker_record_context(profile);
+        return PublisherEffectBrokerRecordProjections{std::move(service_projection), std::move(worker_projection)};
+    };
+    const auto same_binding_records = [](const PublisherEffectBrokerRecordProjections& first_records,
+        const PublisherEffectBrokerRecordProjections& second_records) {
+        const auto& first_service = first_records.service; const auto& second_service = second_records.service;
+        const auto& first_worker = first_records.worker; const auto& second_worker = second_records.worker;
+        return first_service.service_name == second_service.service_name && first_service.service_sid == second_service.service_sid &&
+            first_service.service_sid_type == second_service.service_sid_type && first_service.service_type == second_service.service_type &&
+            first_service.service_state == second_service.service_state && first_service.process_id == second_service.process_id &&
+            equal_publisher_token_observations(first_service.token, second_service.token) &&
+            first_worker.process_id == second_worker.process_id && first_worker.service_sid == second_worker.service_sid &&
+            equal_publisher_token_observations(first_worker.token, second_worker.token);
+    };
+    const auto compare_binding_records = [&](const Value& profile, const Value& original_record) {
+        std::optional<PublisherEffectBrokerRecordProjections> legacy_records, combined_records;
+        std::string legacy_error, combined_error;
+        try { legacy_records = legacy_binding_records(profile, original_record); }
+        catch (const std::exception& error) { legacy_error = std::string(typeid(error).name()) + ":" + error.what(); }
+        try { combined_records = publisher_effect_broker_matching_record_projections(profile, original_record); }
+        catch (const std::exception& error) { combined_error = std::string(typeid(error).name()) + ":" + error.what(); }
+        check(legacy_error == combined_error && legacy_records.has_value() == combined_records.has_value(),
+            "combined broker decoder changed pair validation or first-error behavior");
+        if (legacy_records) check(same_binding_records(*legacy_records, *combined_records),
+            "combined broker decoder changed owned service or worker facts");
+    };
+    for (const auto& first : immutable_examples) for (const auto& second : immutable_examples)
+        compare_binding_records(first, second);
+    for (const auto& example : immutable_examples) {
+        for (const auto& member : example.as_object()) {
+            auto invalid = example; invalid.as_object().at(member.first) = Value();
+            compare_binding_records(invalid, example); compare_binding_records(example, invalid);
+            compare_binding_records(invalid, invalid);
+            auto other_invalid = example; other_invalid.as_object().at("schema") = Value("unsupported");
+            compare_binding_records(invalid, other_invalid); compare_binding_records(other_invalid, invalid);
+        }
+        const auto& stored_security = example.at("broker_security").at("worker_security");
+        for (const auto& member : stored_security.as_object()) {
+            auto invalid = example;
+            invalid.as_object().at("broker_security").as_object().at("worker_security").as_object().at(member.first) = Value();
+            compare_binding_records(invalid, example); compare_binding_records(example, invalid);
+        }
+        auto supplied = example;
+        const auto expected_records = legacy_binding_records(supplied, supplied);
+        const auto owned_records = publisher_effect_broker_matching_record_projections(supplied, supplied);
+        supplied = Value();
+        check(expected_records && owned_records && same_binding_records(*expected_records, *owned_records),
+            "combined broker decoder borrowed caller record storage");
     }
     for (const auto& example : immutable_examples) for (const auto& member : example.as_object()) {
         auto invalid = example; invalid.as_object().at(member.first) = Value();

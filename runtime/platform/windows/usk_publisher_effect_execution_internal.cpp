@@ -49,9 +49,11 @@ struct PublisherEffectExecutionOwner::State {
             peer.canonical_request() == request, "publisher child original observation owner/thread/request changed");
     }
     void require_native_binding(const Value& profile, const Value& native) const {
-        require(publisher_effect_broker_immutable_records_equal(profile, original), "publisher child original broker binding changed");
-        const auto broker = publisher_effect_broker_service_record(profile);
-        const auto worker = publisher_effect_worker_record_context(profile);
+        // Decode this pair once, then keep all live native joins below.
+        const auto records = publisher_effect_broker_matching_record_projections(profile, original);
+        require(records.has_value(), "publisher child original broker binding changed");
+        const auto& broker = records->service;
+        const auto& worker = records->worker;
         require(broker.service_name == name && broker.process_id != process_id && worker.process_id == process_id &&
             broker.service_sid == worker.service_sid, "publisher child requires its actual worker and distinct original SCM owner");
         require(native.at("worker").at("process_id").as_unsigned() == worker.process_id &&

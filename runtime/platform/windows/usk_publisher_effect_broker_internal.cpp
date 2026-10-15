@@ -493,17 +493,33 @@ void require_publisher_effect_broker_readback_continuity(const Value& earlier, c
         require_publisher_broker_worker_security_continuity(earlier.at("broker_security").at("worker_security"),
             later.at("broker_security").at("worker_security"));
 }
-PublisherWorkerTokenContext publisher_effect_worker_record_context(const Value& profile) {
-    require_publisher_effect_broker_readback_record(profile);
+namespace {
+PublisherWorkerTokenContext decoded_worker_record_context(const Value& profile) {
     return {static_cast<std::uint32_t>(profile.at("custody").at("peer_process_id").as_unsigned()),
         profile.at("service").at("service_sid").as_string(), record_token(profile.at("effect_primary_token"))};
 }
-PublisherServiceObservation publisher_effect_broker_service_record(const Value& profile) {
-    require_publisher_effect_broker_readback_record(profile);
+PublisherServiceObservation decoded_broker_service_record(const Value& profile) {
     const auto& original = profile.at("service");
     return {std::filesystem::u8path(original.at("service_name").as_string()).wstring(), original.at("service_sid").as_string(),
         SERVICE_SID_TYPE_RESTRICTED, SERVICE_WIN32_OWN_PROCESS, SERVICE_RUNNING,
         static_cast<std::uint32_t>(original.at("process_id").as_unsigned()), record_token(original.at("primary_token"))};
+}
+} // namespace
+PublisherWorkerTokenContext publisher_effect_worker_record_context(const Value& profile) {
+    require_publisher_effect_broker_readback_record(profile);
+    return decoded_worker_record_context(profile);
+}
+PublisherServiceObservation publisher_effect_broker_service_record(const Value& profile) {
+    require_publisher_effect_broker_readback_record(profile);
+    return decoded_broker_service_record(profile);
+}
+std::optional<PublisherEffectBrokerRecordProjections> publisher_effect_broker_matching_record_projections(
+    const Value& profile, const Value& original) {
+    if (!publisher_effect_broker_immutable_records_equal(profile, original)) return std::nullopt;
+    // Preserve service-then-worker extraction after the original pair check.
+    auto service = decoded_broker_service_record(profile);
+    auto worker = decoded_worker_record_context(profile);
+    return PublisherEffectBrokerRecordProjections{std::move(service), std::move(worker)};
 }
 
 PublisherRecordQueryPlan publisher_record_query_plan(const Value& objects_value) {

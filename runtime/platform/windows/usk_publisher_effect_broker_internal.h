@@ -45,6 +45,16 @@ bool publisher_effect_broker_immutable_records_equal(const usk::json::Value&, co
 // retirement facts must accumulate without loss, revival or security changes.
 void require_publisher_effect_broker_readback_continuity(const usk::json::Value& earlier,
     const usk::json::Value& later);
+// Owned decoded data only: no handles, native observation or effect authority.
+struct PublisherEffectBrokerRecordProjections {
+    PublisherServiceObservation service;
+    PublisherWorkerTokenContext worker;
+};
+// Both complete records are validated in their original order before immutable
+// equality. A mismatch returns no projections; standalone decoders below keep
+// their independent validation. Every live native binding stays with callers.
+std::optional<PublisherEffectBrokerRecordProjections> publisher_effect_broker_matching_record_projections(
+    const usk::json::Value& profile, const usk::json::Value& original);
 PublisherWorkerTokenContext publisher_effect_worker_record_context(const usk::json::Value&);
 PublisherServiceObservation publisher_effect_broker_service_record(const usk::json::Value&);
 void require_publisher_effect_original_maintenance_selection(const usk::json::Value& selection,
