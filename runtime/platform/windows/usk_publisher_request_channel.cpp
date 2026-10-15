@@ -139,6 +139,9 @@ std::vector<unsigned char> token_bytes(HANDLE token, TOKEN_INFORMATION_CLASS kin
     return bytes;
 }
 detail::AuthenticatedClientObservation client_token_facts(HANDLE token, ULONG process_id) {
+    const usk::diagnostics::DurationCounter elapsed(
+        usk::diagnostics::Counter::client_token_facts_elapsed_us,
+        usk::diagnostics::Counter::client_token_facts_calls);
     const auto user = token_bytes(token, TokenUser);
     const auto statistics = token_bytes(token, TokenStatistics);
     const auto level = token_bytes(token, TokenImpersonationLevel);
@@ -399,6 +402,9 @@ std::string PublisherRequestChannel::authenticated_canonical_request() const {
     return usk::json::canonical(usk::json::parse(state.received_request));
 }
 usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HANDLE object) const {
+    const usk::diagnostics::DurationCounter elapsed(
+        usk::diagnostics::Counter::authenticated_access_elapsed_us,
+        usk::diagnostics::Counter::authenticated_access_calls);
     using usk::json::Value;
     const auto& state = *state_;
     if (!state.received || state.replied || !state.client_token.value || !object || object == INVALID_HANDLE_VALUE)

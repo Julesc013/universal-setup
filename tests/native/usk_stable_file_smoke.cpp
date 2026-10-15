@@ -47,11 +47,17 @@ bool refuse_diagnostic(const usk::diagnostics::Event&) noexcept { return false; 
 int diagnostic_file_work_proof(const fs::path& root)
 {
     using namespace usk::diagnostics;
+    static_assert(static_cast<std::size_t>(Counter::held_file_instances) == 0 &&
+        static_cast<std::size_t>(Counter::wire_peer_elapsed_us) == 19 &&
+        static_cast<std::size_t>(Counter::authenticated_access_calls) == 20 &&
+        static_cast<std::size_t>(Counter::count) == 28, "diagnostic ordinals are append-only");
     const auto value = [](const Snapshot& s, Counter c) { return s.totals[static_cast<std::size_t>(c)]; };
     const auto inactive = snapshot();
     note(Counter::hash_calls);
     {
         const DurationCounter ignored_time(Counter::hash_elapsed_us);
+        const DurationCounter ignored_pair(Counter::client_token_facts_elapsed_us,
+            Counter::client_token_facts_calls);
         const Scope ignored(Phase::record_proof);
     }
     if (snapshot().totals != inactive.totals || diagnostic_events_written != 0) return 60;
@@ -104,17 +110,19 @@ int diagnostic_file_work_proof(const fs::path& root)
 #else
     if (delta(Counter::provider_open_calls) || delta(Counter::provider_open_successes)) return 64;
 #endif
+    const auto completed_before = value(snapshot(), Counter::client_token_facts_calls);
     errno = E2BIG;
 #if defined(_WIN32)
     SetLastError(ERROR_ACCESS_DENIED);
 #endif
     {
-        const DurationCounter preserved_time(Counter::wire_receive_elapsed_us);
+        const DurationCounter preserved_time(Counter::client_token_facts_elapsed_us,
+            Counter::client_token_facts_calls);
         const Scope preserved(Phase::record_proof);
 #if defined(_WIN32)
         const DWORD entry_error = GetLastError(); // Capture before CRT errno access.
 #endif
-        if (errno != E2BIG) return 65;
+        if (errno != E2BIG || value(snapshot(), Counter::client_token_facts_calls) != completed_before) return 65;
 #if defined(_WIN32)
         if (entry_error != ERROR_ACCESS_DENIED) return 65;
 #endif
@@ -130,11 +138,14 @@ int diagnostic_file_work_proof(const fs::path& root)
 #if defined(_WIN32)
     if (exit_error != ERROR_ACCESS_DENIED) return 65;
 #endif
+    if (value(snapshot(), Counter::client_token_facts_calls) != completed_before + 1) return 65;
     try {
-        const DurationCounter unwinding_time(Counter::wire_receive_elapsed_us);
+        const DurationCounter unwinding_time(Counter::client_token_facts_elapsed_us,
+            Counter::client_token_facts_calls);
         const Scope unwinding(Phase::record_proof);
         throw 7;
     } catch (int) {}
+    if (value(snapshot(), Counter::client_token_facts_calls) != completed_before + 2) return 65;
     if (diagnostic_events_written != 6 || diagnostic_events[0].exiting ||
             !diagnostic_events[1].exiting || diagnostic_events[1].unwinding ||
             diagnostic_events[0].scope_id != diagnostic_events[1].scope_id ||
@@ -144,6 +155,15 @@ int diagnostic_file_work_proof(const fs::path& root)
             diagnostic_events[4].exiting || !diagnostic_events[5].exiting ||
             !diagnostic_events[5].unwinding ||
             diagnostic_events[4].scope_id != diagnostic_events[5].scope_id) return 66;
+    const auto switched = snapshot();
+    {
+        const DurationCounter pending(Counter::handle_observation_elapsed_us,
+            Counter::handle_observation_calls);
+        if (!disable(capture_diagnostic) || !enable(refuse_diagnostic)) return 67;
+    }
+    // An in-flight call cannot be charged to a different selected sink.
+    if (snapshot().totals != switched.totals || !disable(refuse_diagnostic) ||
+            !enable(capture_diagnostic)) return 67;
     if (!disable(capture_diagnostic) || disable(capture_diagnostic) || !enable(refuse_diagnostic)) return 67;
     const auto dropped = value(snapshot(), Counter::not_submitted_events);
     { const Scope rejected(Phase::response_write); }

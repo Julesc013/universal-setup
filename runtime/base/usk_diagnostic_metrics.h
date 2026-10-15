@@ -15,7 +15,11 @@ enum class Counter : std::size_t {
     exact_read_calls, exact_read_bytes, provider_open_calls, provider_open_successes,
     wire_send_packets, wire_send_bytes, wire_receive_packets, wire_receive_bytes,
     access_check_calls, not_submitted_events, hash_elapsed_us, wire_receive_elapsed_us,
-    wire_read_elapsed_us, wire_write_elapsed_us, wire_parse_elapsed_us, wire_peer_elapsed_us, count
+    wire_read_elapsed_us, wire_write_elapsed_us, wire_parse_elapsed_us, wire_peer_elapsed_us,
+    authenticated_access_calls, authenticated_access_elapsed_us,
+    client_token_facts_calls, client_token_facts_elapsed_us,
+    handle_observation_calls, handle_observation_elapsed_us,
+    handle_name_calls, handle_name_elapsed_us, count
 };
 enum class Phase : std::uint32_t {
     machine_request = 1, engine_request, response_write, authority_fence,
@@ -49,6 +53,9 @@ Snapshot snapshot() noexcept;
 class DurationCounter final {
 public:
     explicit DurationCounter(Counter counter) noexcept;
+    // Count completed calls alongside their inclusive duration, including unwind.
+    // The two relaxed totals are not an atomic pair in a concurrent snapshot.
+    DurationCounter(Counter counter, Counter completed_calls) noexcept;
     ~DurationCounter() noexcept;
     DurationCounter(const DurationCounter&) = delete;
     DurationCounter& operator=(const DurationCounter&) = delete;
@@ -56,6 +63,7 @@ public:
     DurationCounter& operator=(DurationCounter&&) = delete;
 private:
     Counter counter_;
+    Counter completed_calls_;
     Sink sink_ = nullptr;
     std::chrono::steady_clock::time_point started_{};
 };

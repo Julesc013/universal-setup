@@ -3,6 +3,7 @@
 
 #include "usk_publisher_handle_observation.h"
 #include "usk_publisher_security_descriptor.h"
+#include "usk_diagnostic_metrics.h"
 
 #if defined(_WIN32)
 #include <sddl.h>
@@ -55,6 +56,9 @@ std::string file_id_text(const FILE_ID_INFO& id) {
 }
 
 std::wstring handle_name(HANDLE handle) {
+    const usk::diagnostics::DurationCounter elapsed(
+        usk::diagnostics::Counter::handle_name_elapsed_us,
+        usk::diagnostics::Counter::handle_name_calls);
     std::vector<unsigned char> buffer(65536);
     if (!GetFileInformationByHandleEx(handle, FileNameInfo, buffer.data(),
             static_cast<DWORD>(buffer.size()))) {
@@ -133,6 +137,9 @@ std::uint32_t observe_publisher_handle_granted_access(HANDLE handle) {
 
 static PublisherHandleObservation observe_publisher_handle(HANDLE handle,
     bool require_directory) {
+    const usk::diagnostics::DurationCounter elapsed(
+        usk::diagnostics::Counter::handle_observation_elapsed_us,
+        usk::diagnostics::Counter::handle_observation_calls);
     (void)observe_publisher_noninheritable_handle_flags(handle);
     if (!handle || handle == INVALID_HANDLE_VALUE) {
         throw std::runtime_error("publisher observation requires an open handle");

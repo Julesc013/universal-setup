@@ -49,7 +49,12 @@ bool write_event(const usk::diagnostics::Event& event) noexcept {
         TraceLoggingUInt64(c[16], "WireReadElapsedUs"), TraceLoggingUInt64(c[17], "WireWriteElapsedUs"),
         TraceLoggingUInt64(c[18], "WireParseElapsedUs"), TraceLoggingUInt64(c[19], "WirePeerElapsedUs"),
         TraceLoggingBool(event.counters.saturated, "CountersSaturated"),
-        TraceLoggingBool(false, "NativeWriteResultAvailable"));
+        TraceLoggingBool(false, "NativeWriteResultAvailable"),
+        // Append fields: preserve all existing ordinals and the old payload prefix.
+        TraceLoggingUInt64(c[20], "AuthenticatedAccessCalls"), TraceLoggingUInt64(c[21], "AuthenticatedAccessElapsedUs"),
+        TraceLoggingUInt64(c[22], "ClientTokenFactsCalls"), TraceLoggingUInt64(c[23], "ClientTokenFactsElapsedUs"),
+        TraceLoggingUInt64(c[24], "HandleObservationCalls"), TraceLoggingUInt64(c[25], "HandleObservationElapsedUs"),
+        TraceLoggingUInt64(c[26], "HandleNameCalls"), TraceLoggingUInt64(c[27], "HandleNameElapsedUs"));
     // TraceLoggingWrite returns void. Submission is not confirmation of ETW
     // retention, coverage or native write success; analyse actual capture loss.
     SetLastError(error);

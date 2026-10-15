@@ -67,8 +67,12 @@ Snapshot snapshot() noexcept {
     return result; // Independent relaxed counters, not an atomic transaction snapshot.
 }
 DurationCounter::DurationCounter(Counter counter) noexcept
-    : counter_(counter), sink_(active.load()) {
-    if (!sink_ || static_cast<std::size_t>(counter_) >= totals.size()) {
+    : DurationCounter(counter, Counter::count) {}
+DurationCounter::DurationCounter(Counter counter, Counter completed_calls) noexcept
+    : counter_(counter), completed_calls_(completed_calls), sink_(active.load()) {
+    if (!sink_ || static_cast<std::size_t>(counter_) >= totals.size() ||
+            (completed_calls_ != Counter::count &&
+             static_cast<std::size_t>(completed_calls_) >= totals.size())) {
         sink_ = nullptr;
         return;
     }
@@ -82,6 +86,8 @@ DurationCounter::~DurationCounter() noexcept {
         std::chrono::steady_clock::now() - started_).count();
     add(totals[static_cast<std::size_t>(counter_)].value,
         duration < 0 ? 0 : static_cast<std::uint64_t>(duration));
+    if (completed_calls_ != Counter::count)
+        add(totals[static_cast<std::size_t>(completed_calls_)].value, 1);
 }
 Scope::Scope(Phase phase) noexcept : sink_(active.load()), phase_(phase) {
     if (!sink_) return;
