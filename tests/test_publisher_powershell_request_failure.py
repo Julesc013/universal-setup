@@ -26,6 +26,10 @@ $tries=@($functions[0].Body.FindAll({param($node)
     $node.CatchClauses.Count -eq 1 -and $node.CatchClauses[0].Body.Extent.Text.Contains('$requestFailure=$_')
 },$true))
 if($tries.Count -ne 1){throw 'Original request failure control flow is ambiguous'}
+$capture=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $n.Name -ceq 'Read-FailedStandardClientOutput'},$true))
+if($capture.Count -ne 1){throw 'Failure output reader is ambiguous'}
+. ([scriptblock]::Create($capture[0].Extent.Text))
 $node=$tries[0];$text=$node.Extent.Text
 $start=$node.Body.Extent.StartOffset-$node.Extent.StartOffset
 # Replace only the effectful body. Actual catch/finally code is unchanged.
@@ -67,7 +71,10 @@ foreach($primaryFails in @($false,$true)) {
             $script:observersClosed=$bootstrapCase -ceq 'absent_closed'
             $Command='repair.apply';$requestId='synthetic.request';$MaintenanceQualification=$true
             $launch=@{ProcessId=123;CreationFileTime=[long]456};$launchAttempted=$true
-            $process=[pscustomobject]@{HasExited=$false};$bootstrapObserver=$null
+            $process=[pscustomobject]@{HasExited=$false;ExitCode=23;Samples=0};$bootstrapObserver=$null
+            $process|Add-Member ScriptMethod Refresh {
+                $this.Samples++;if($this.Samples -gt 1){$this.HasExited=$true}
+            }
             if($bootstrapCase.StartsWith('removal_')){$bootstrapObserver=@{removed=$false}}
             $stdout=Join-Path $Root 'absent.synthetic.stdout';$stderr=Join-Path $Root 'absent.synthetic.stderr'
             $nativeOutput=Join-Path $Root 'absent.synthetic.native'
@@ -308,6 +315,75 @@ class PublisherPowerShellRequestFailureTests(unittest.TestCase):
         self.assertTrue(row['original'][0].endswith('install-'+install_hash+'\\g00000000000000000001-active.json'))
         self.assertTrue(row['original'][1].endswith('operation-'+transaction_hash+'.json'))
 
+    def test_original_output_capture_preserves_bytes_bounds_and_open_writer(self):
+        # Invoke the actual failure-only reader on owned files, including one
+        # held open for append. No publisher, worker or native reader runs.
+        import base64
+        import hashlib
+        code = r"""
+param([string]$Root,[string]$Scratch)
+$ErrorActionPreference='Stop';$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $Root 'tests/windows_publisher_standard_public_probe.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Actual output reader syntax differs'}
+$function=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $n.Name -ceq 'Read-FailedStandardClientOutput'},$true))
+if($function.Count -ne 1){throw 'Original output reader is ambiguous'}
+. ([scriptblock]::Create($function[0].Extent.Text))
+$rows=[ordered]@{}
+$rows.absent=Read-FailedStandardClientOutput (Join-Path $Scratch 'absent') 4194304 8192
+foreach($case in @(@{name='empty';bytes=[byte[]]::new(0);limit=65536;prefix=4096},
+    @{name='binary';bytes=[byte[]](0,255,128,13,10,0,65);limit=4194304;prefix=8192},
+    @{name='prefix';bytes=[Text.Encoding]::UTF8.GetBytes(('x'*20000));limit=4194304;prefix=16384},
+    @{name='oversize';bytes=[byte[]]::new(65537);limit=65536;prefix=4096})) {
+    $path=Join-Path $Scratch $case.name
+    [IO.File]::WriteAllBytes($path,$case.bytes)
+    $rows[$case.name]=Read-FailedStandardClientOutput $path $case.limit $case.prefix
+}
+$path=Join-Path $Scratch 'live'
+$writer=[IO.FileStream]::new($path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,
+    ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+try {
+    $writer.Write([byte[]](65,66,67),0,3);$writer.Flush()
+    $rows.live=Read-FailedStandardClientOutput $path 4194304 8192
+    $writer.Write([byte[]](68,69),0,2);$writer.Flush()
+    $rows['live_after_append']=Read-FailedStandardClientOutput $path 4194304 8192
+} finally {$writer.Dispose()}
+$path=Join-Path $Scratch 'locked'
+$writer=[IO.FileStream]::new($path,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+try {$rows.locked=Read-FailedStandardClientOutput $path 4194304 8192} finally {$writer.Dispose()}
+ConvertTo-Json -InputObject $rows -Depth 8 -Compress
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            scratch = Path(directory)
+            script = scratch / 'capture.ps1'
+            script.write_text(code, encoding='utf-8')
+            result = subprocess.run([POWERSHELL, '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                '-File', str(script), '-Root', str(ROOT), '-Scratch', str(scratch)],
+                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        rows = json.loads(result.stdout)
+        self.assertEqual(rows['absent']['capture_status'], 'absent')
+        self.assertEqual(rows['oversize']['capture_status'], 'exceeds_existing_output_bound')
+        self.assertEqual(rows['oversize']['observed_bytes'], 65537)
+        self.assertEqual(rows['locked']['capture_status'], 'capture_failed')
+        for case, expected in dict(empty=b'', binary=bytes([0,255,128,13,10,0,65]),
+                                   prefix=b'x'*16384, live=b'ABC', live_after_append=b'ABCDE').items():
+            with self.subTest(case=case):
+                row = rows[case]
+                self.assertEqual(row['capture_status'], 'captured_prefix')
+                self.assertEqual(row['captured_bytes'], len(expected))
+                self.assertEqual(base64.b64decode(row['captured_bytes_base64']), expected)
+                self.assertEqual(row['captured_bytes_sha256'], hashlib.sha256(expected).hexdigest())
+                self.assertLessEqual(row['captured_bytes'], row['capture_limit_bytes'])
+        self.assertEqual(rows['prefix']['observed_bytes'], 20000)
+        for row in rows.values():
+            self.assertTrue(row['potentially_partial'])
+            self.assertFalse(row['complete_file_claimed'])
+        for case in ('absent', 'oversize', 'locked'):
+            self.assertEqual(rows[case]['captured_bytes'], 0)
+            self.assertIsNone(rows[case]['captured_bytes_sha256'])
+
     def test_primary_failure_survives_diagnostic_and_cleanup_failures(self):
         # No client, native reader, process cancellation or target is invoked.
         with tempfile.TemporaryDirectory() as directory:
@@ -343,6 +419,11 @@ class PublisherPowerShellRequestFailureTests(unittest.TestCase):
                     self.assertEqual(failure['client_process_id'], 123)
                     self.assertEqual(failure['client_creation_file_time'], '456')
                     self.assertFalse(failure['original_client_has_exited'])
+                    for stage in ('before', 'after'):
+                        sample = failure['process_state_'+stage+'_output_capture']
+                        self.assertEqual(sample['has_exited'], stage == 'after')
+                        self.assertEqual(sample['exit_code'], 23 if stage == 'after' else None)
+                        self.assertTrue(sample['sampled_at_utc'])
                     self.assertEqual('readback_failure' in failure, row['readback'])
                     self.assertEqual('cleanup_failure' in failure, row['cleanup'] or bootstrap_failed)
                     self.assertEqual(set(failure['output_files']), {'stdout', 'stderr', 'native_response'})

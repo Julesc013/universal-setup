@@ -712,6 +712,44 @@ function Invoke-ActiveInstallContention([Diagnostics.Process]$Installer) {
       }
     }
 }
+function Read-FailedStandardClientOutput([string]$Path,[long]$Limit,[int]$PrefixLimit) {
+    # Snapshot only a bounded prefix. A live writer may append, truncate or exit
+    # during this read; the digest identifies captured bytes, never a full file.
+    $row=[ordered]@{exists=$false;observed_bytes=$null;limit_bytes=$Limit;
+        capture_limit_bytes=$PrefixLimit;capture_status='not_started';captured_bytes=0;
+        captured_bytes_base64=$null;captured_bytes_sha256=$null;length_after_capture=$null;
+        potentially_partial=$true;complete_file_claimed=$false}
+    $stream=$null;$hash=$null
+    try {
+        $row.exists=Test-Path -LiteralPath $Path
+        if(-not $row.exists){$row.capture_status='absent';return $row}
+        $stream=[IO.FileStream]::new($Path,[IO.FileMode]::Open,[IO.FileAccess]::Read,
+            ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete))
+        $row.observed_bytes=$stream.Length
+        if($row.observed_bytes -gt $Limit){$row.capture_status='exceeds_existing_output_bound';return $row}
+        $wanted=[int][Math]::Min($row.observed_bytes,$PrefixLimit)
+        $buffer=[byte[]]::new($wanted);$count=0
+        while($count -lt $wanted) {
+            $read=$stream.Read($buffer,$count,$wanted-$count)
+            if($read -eq 0){break}
+            $count+=$read
+        }
+        $row.captured_bytes=$count
+        $row.captured_bytes_base64=[Convert]::ToBase64String($buffer,0,$count)
+        $hash=[Security.Cryptography.SHA256]::Create()
+        $row.captured_bytes_sha256=[BitConverter]::ToString($hash.ComputeHash($buffer,0,$count)).Replace('-','').ToLowerInvariant()
+        $row.length_after_capture=$stream.Length
+        $row.capture_status='captured_prefix'
+    } catch {
+        $row.capture_status='capture_failed'
+        $message=$_.Exception.Message
+        $row['capture_failure']=$message.Substring(0,[Math]::Min(4096,$message.Length))
+    } finally {
+        if($hash){$hash.Dispose()}
+        if($stream){$stream.Dispose()}
+    }
+    return $row
+}
 function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[switch]$BootstrapLoss,[switch]$PreservationLoss,
     [switch]$StalePlanRefusal,[switch]$StateRevisionRefusal,[switch]$InstallGuardRefusal,[switch]$MaintenanceProcessLoss,[switch]$MaintenanceInitialProcessLoss,
     [switch]$MaintenanceInitialRecoveryRetention) {
@@ -968,15 +1006,30 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
         try {
             if($launch){$failed.client_process_id=$launch.ProcessId;
                 $failed.client_creation_file_time=$launch.CreationFileTime.ToString()}
-            if($process){$failed.original_client_has_exited=$process.HasExited;
-                if($process.HasExited){$process.WaitForExit();$failed.client_exit_code=$process.ExitCode}}
-            foreach($output in @(@{role='stdout';path=$stdout;limit=4MB},
-                @{role='stderr';path=$stderr;limit=64KB},@{role='native_response';path=$nativeOutput;limit=4MB})) {
-                $exists=Test-Path -LiteralPath $output.path
-                $length=if($exists){(Get-Item -LiteralPath $output.path).Length}else{$null}
-                $failed.output_files[$output.role]=[ordered]@{exists=$exists;observed_bytes=$length;limit_bytes=$output.limit}
+            $sampleClient={
+                $sample=[ordered]@{sampled_at_utc=[DateTime]::UtcNow.ToString('o');has_exited=$null;exit_code=$null}
+                try {
+                    if($process){$process.Refresh();$sample.has_exited=$process.HasExited;
+                        if($sample.has_exited){$sample.exit_code=$process.ExitCode}}
+                } catch {
+                    $message=$_.Exception.Message
+                    $sample['capture_failure']=$message.Substring(0,[Math]::Min(4096,$message.Length))
+                }
+                return $sample
             }
-        } catch {$failed['capture_failure']=$_.Exception.Message}
+            $failed['process_state_before_output_capture']=& $sampleClient
+            $failed.original_client_has_exited=$failed.process_state_before_output_capture.has_exited
+            $failed.client_exit_code=$failed.process_state_before_output_capture.exit_code
+            foreach($output in @(@{role='stdout';path=$stdout;limit=4MB;prefix=8192},
+                @{role='stderr';path=$stderr;limit=64KB;prefix=4096},
+                @{role='native_response';path=$nativeOutput;limit=4MB;prefix=16384})) {
+                $failed.output_files[$output.role]=Read-FailedStandardClientOutput $output.path $output.limit $output.prefix
+            }
+            $failed['process_state_after_output_capture']=& $sampleClient
+        } catch {
+            $message=$_.Exception.Message
+            $failed['capture_failure']=$message.Substring(0,[Math]::Min(4096,$message.Length))
+        }
         $priorObserverClosure=$script:observersClosed
         $script:observersClosed=$false
         try {$failed.readback=Read-NativeSnapshot -IncludeMovedMaintenanceRoot:$MaintenanceQualification `
