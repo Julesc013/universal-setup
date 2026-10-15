@@ -728,7 +728,7 @@ void effect_execution_record_controls() {
             {"chunk_count", Value(std::uint64_t{3})}, {"ledger_sha256", Value(std::string(64u, 'a'))}});
         const auto phase_packet = [&](const Value& scope, const std::string& phase) {
             auto value = scope;
-            value.as_object().emplace("schema", Value("usk.publisher_effect_record_byte_scope.v2"));
+            value.as_object().emplace("schema", Value("usk.publisher_effect_record_byte_scope.v3"));
             value.as_object().emplace("phase", Value(phase));
             return value;
         };
@@ -791,6 +791,110 @@ void effect_execution_record_controls() {
         sequence_refused([] { PublisherRecordByteRoundSequence s(1); s.begin(0); s.observe(); s.close(0); s.begin(1); });
         sequence_refused([] { PublisherRecordByteRoundSequence s(1); s.begin(0); s.observe(); s.close(0); s.read_finished(); s.read_finished(); });
         sequence_refused([] { PublisherRecordByteRoundSequence s(1); s.begin(0); s.observe(); s.close(0); s.read_finished(); s.begin(1); s.require_complete(); });
+        // The decoder below supplies data only, never a native peer/owner.
+        // Production uses this exact parser inside the private native bracket.
+        const std::string stream_binding(64u, 'b');
+        const auto stream_frames = [&](std::size_t occurrences) {
+            auto scope = record_scope;
+            const auto chunks = (occurrences + 7u) / 8u;
+            scope.as_object().at("occurrence_count") = Value(static_cast<std::uint64_t>(occurrences));
+            scope.as_object().at("chunk_count") = Value(static_cast<std::uint64_t>(chunks));
+            auto final = phase_packet(scope, "final");
+            final.as_object().emplace("profile_before", Value()); final.as_object().emplace("profile", Value());
+            std::vector<Value> frames; frames.push_back(std::move(final));
+            for (std::size_t round=0;round<2u;++round) for (std::size_t chunk=0;chunk<chunks;++chunk) {
+                auto result = phase_packet(scope, "results");
+                result.as_object().emplace("round", Value(static_cast<std::uint64_t>(round)));
+                result.as_object().emplace("chunk_index", Value(static_cast<std::uint64_t>(chunk)));
+                result.as_object().emplace("native_objects_sha256", Value(std::string(64u,'c')));
+                result.as_object().emplace("results", Value(Value::Array(std::min(std::size_t{8},occurrences-chunk*8u),Value())));
+                frames.push_back(std::move(result));
+            }
+            return std::make_pair(std::move(scope),std::move(frames));
+        };
+        const auto stream_bytes = [&](const std::vector<Value>& frames) {
+            std::vector<unsigned char> payload;
+            for (std::size_t index=0;index<frames.size();++index) {
+                const auto text=usk::json::canonical(Value(Value::Object{{"sequence",Value(static_cast<std::uint64_t>(index+7u))},
+                    {"binding_sha256",Value(stream_binding)},{"body",frames[index]}}));
+                const auto n=static_cast<std::uint32_t>(text.size());
+                for (unsigned i=0;i<4u;++i) payload.push_back(static_cast<unsigned char>(n>>(8u*i)));
+                payload.insert(payload.end(),text.begin(),text.end());
+            }
+            const auto header=publisher_record_result_stream_header(payload.size());
+            payload.insert(payload.begin(),header.begin(),header.end()); return payload;
+        };
+        for (const auto occurrences : {std::size_t{1},std::size_t{8},std::size_t{9},std::size_t{128}}) {
+            const auto fixture=stream_frames(occurrences); const auto raw=stream_bytes(fixture.second);
+            for (const auto stride : {std::size_t{1},std::size_t{3},std::size_t{65536}}) {
+                PublisherRecordResultStreamDecoder decoder(fixture.first,stream_binding,7u);
+                for (std::size_t first=0;first<raw.size();first+=std::min(stride,raw.size()-first))
+                    decoder.feed(raw.data()+first,std::min(stride,raw.size()-first));
+                const auto decoded=decoder.finish();
+                check(decoded.size()==fixture.second.size(),"record result stream lost a frame");
+                for (std::size_t i=0;i<decoded.size();++i)
+                    check(usk::json::equal_values(decoded[i],fixture.second[i]),"record result stream changed raw frame bytes/values");
+                sequence_refused([&] { decoder.feed(raw.data(),1u); });
+            }
+        }
+        // A complete strict synthetic raw9 row with a bounded large client
+        // produces an actual >64KiB logical frame. Its values are data only.
+        auto large_client=client;
+        for (unsigned i=0;i<512u;++i)
+            large_client.as_object().at("groups").as_array().push_back(Value(Value::Object{
+                {"sid",Value("S-1-5-21-7-8-9-"+std::to_string(1000u+i))},
+                {"attributes",Value(static_cast<std::uint64_t>(SE_GROUP_ENABLED))}}));
+        auto large_access=access_row(object(2));large_access.as_object().at("client")=large_client;
+        require_publisher_maintenance_read_only_access(large_access,large_client,object(2));
+        auto large_fixture=stream_frames(8u);
+        for (std::size_t i=1;i<large_fixture.second.size();++i)
+            for (auto& result : large_fixture.second[i].as_object().at("results").as_array()) result=large_access;
+        check(usk::json::canonical(large_fixture.second[1]).size()>65536u,"large stream fixture did not cross a transfer boundary");
+        const auto large_raw=stream_bytes(large_fixture.second);
+        std::size_t first_frame_bytes=0;
+        for (unsigned i=0;i<4u;++i) first_frame_bytes|=static_cast<std::size_t>(large_raw[12u+i])<<(8u*i);
+        // Independently split within a large packet at64KiB, and within the
+        // following frame's four-byte header. Neither split can publish a prefix.
+        for (const auto split : {std::size_t{65535},12u+4u+first_frame_bytes+2u}) {
+            PublisherRecordResultStreamDecoder decoder(large_fixture.first,stream_binding,7u);
+            decoder.feed(large_raw.data(),split);
+            for (std::size_t first=split;first<large_raw.size();first+=std::min(std::size_t{65536},large_raw.size()-first))
+                decoder.feed(large_raw.data()+first,std::min(std::size_t{65536},large_raw.size()-first));
+            const auto decoded=decoder.finish();check(decoded.size()==large_fixture.second.size(),"multi-block stream lost a frame");
+            for(std::size_t i=0;i<decoded.size();++i)
+                check(usk::json::equal_values(decoded[i],large_fixture.second[i]),"multi-block stream changed completed raw evidence");
+        }
+        sequence_refused([&] {
+            PublisherRecordResultStreamDecoder decoder(large_fixture.first,stream_binding,7u);
+            decoder.feed(large_raw.data(),large_raw.size()-1u);(void)decoder.finish();
+        });
+        const auto stream_fixture=stream_frames(9u); const auto stream_raw=stream_bytes(stream_fixture.second);
+        const auto stream_refused = [&](const std::vector<unsigned char>& raw,const std::string& binding=std::string(64u,'b'),std::uint64_t sequence=7u) {
+            sequence_refused([&] { PublisherRecordResultStreamDecoder d(stream_fixture.first,binding,sequence);d.feed(raw.data(),raw.size());(void)d.finish(); });
+        };
+        for (const auto length : {std::size_t{0},std::size_t{7},std::size_t{12},stream_raw.size()-1u})
+            stream_refused(std::vector<unsigned char>(stream_raw.begin(),stream_raw.begin()+length));
+        auto bad_stream=stream_raw;bad_stream[0]='X';stream_refused(bad_stream);
+        bad_stream=stream_raw;bad_stream[7]='2';stream_refused(bad_stream);
+        bad_stream=stream_raw;bad_stream.push_back(0);stream_refused(bad_stream);
+        bad_stream=stream_raw;for(unsigned i=8;i<12u;++i)bad_stream[i]=0xffu;stream_refused(bad_stream);
+        bad_stream=stream_raw;for(unsigned i=12;i<16u;++i)bad_stream[i]=0xffu;stream_refused(bad_stream);
+        stream_refused(stream_raw,std::string(64u,'a'));stream_refused(stream_raw,stream_binding,8u);
+        for (const auto index : {std::size_t{0},std::size_t{1},stream_fixture.second.size()-1u}) {
+            auto frames=stream_fixture.second;frames.erase(frames.begin()+index);stream_refused(stream_bytes(frames));
+        }
+        auto bad_frames=stream_fixture.second;bad_frames.push_back(bad_frames.back());stream_refused(stream_bytes(bad_frames));
+        bad_frames=stream_fixture.second;std::swap(bad_frames[1],bad_frames[2]);stream_refused(stream_bytes(bad_frames));
+        bad_frames=stream_fixture.second;bad_frames[1].as_object().at("round")=Value(std::uint64_t{1});stream_refused(stream_bytes(bad_frames));
+        bad_frames=stream_fixture.second;bad_frames[1].as_object().at("results").as_array().push_back(Value());stream_refused(stream_bytes(bad_frames));
+        bad_frames=stream_fixture.second;bad_frames[0].as_object().at("phase")=Value("read_finished");stream_refused(stream_bytes(bad_frames));
+        bad_frames=stream_fixture.second;bad_frames[1].as_object().at("schema")=Value("usk.publisher_effect_record_byte_scope.v2");stream_refused(stream_bytes(bad_frames));
+        PublisherRecordResultStreamDecoder poisoned(stream_fixture.first,stream_binding,7u);
+        sequence_refused([&] { poisoned.feed(bad_stream.data(),bad_stream.size()); });
+        sequence_refused([&] { poisoned.feed(stream_raw.data(),stream_raw.size()); });
+        sequence_refused([&] { (void)poisoned.finish(); });
+        sequence_refused([&] { (void)publisher_record_result_stream_header(0u); });
+        sequence_refused([&] { (void)publisher_record_result_stream_header(publisher_record_result_stream_bytes_limit); });
         auto whole_scope = record_scope;
         Value::Array whole_objects;
         for (std::size_t i = 0; i < 24u; ++i) whole_objects.push_back(object(i % 2u + 2u));
@@ -839,7 +943,7 @@ void effect_execution_record_controls() {
             scope.as_object().emplace("request_sha256", Value(usk::json::sha256_canonical(request)));
             const auto packet = [&](const std::string& phase) {
                 auto value = scope;
-                value.as_object().emplace("schema", Value("usk.publisher_effect_authority_record_byte_scope.v2"));
+                value.as_object().emplace("schema", Value("usk.publisher_effect_authority_record_byte_scope.v3"));
                 value.as_object().emplace("phase", Value(phase));
                 return value;
             };

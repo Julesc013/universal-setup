@@ -168,6 +168,11 @@ private:
     std::size_t observed_ = 0;
     Phase phase_ = Phase::initial;
 };
+// Closed final-result grammar only, also used by the transport's data decoder.
+// It cannot activate the private producer route or substitute native proof.
+std::size_t publisher_record_result_frame_count(const usk::json::Value& scope);
+void require_publisher_effect_record_result_frame(const usk::json::Value& packet,
+    const usk::json::Value& scope, std::size_t frame_index);
 // The marker/data validator cannot construct a scope or install a native route.
 void require_publisher_effect_record_byte_phase(const usk::json::Value&,
     const usk::json::Value& scope, const std::string& phase);

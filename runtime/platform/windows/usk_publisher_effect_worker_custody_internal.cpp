@@ -4,6 +4,8 @@
 #include "usk_publisher_effect_worker_custody_internal.h"
 #if defined(_WIN32)
 #include "usk_publisher_token_observation.h"
+#include "usk_publisher_effect_broker_internal.h"
+#include <algorithm>
 #include "usk_sha256.h"
 #include <bcrypt.h>
 #include <sddl.h>
@@ -268,22 +270,99 @@ struct Wire {
             "effect transport cancellation is signaled or unavailable");
         return GetTickCount64() + timeout;
     }
+    std::string encode_frame(const Value& body, std::uint64_t sequence_number) const {
+        const Value sequence(sequence_number), binding_value(binding);
+        auto packet = usk::json::canonical_object({
+            {"sequence", std::cref(sequence)}, {"binding_sha256", std::cref(binding_value)}, {"body", std::cref(body)}});
+        require(!packet.empty() && packet.size() <= packet_limit, "effect transport packet exceeds its bound");
+        const auto size = static_cast<DWORD>(packet.size());
+        const std::array<unsigned char, 4> header{{static_cast<unsigned char>(size),
+            static_cast<unsigned char>(size >> 8), static_cast<unsigned char>(size >> 16), static_cast<unsigned char>(size >> 24)}};
+        packet.insert(0, reinterpret_cast<const char*>(header.data()), header.size());
+        return packet;
+    }
+    void require_stream_active(ULONGLONG until) const {
+        require(GetTickCount64() < until && WaitForSingleObject(cancel.value, 0) == WAIT_TIMEOUT,
+            "effect record result stream stopped or exceeded its original deadline");
+    }
+    void send_record_result_stream(const Value& scope,
+        const std::vector<std::reference_wrapper<const Value>>& frames, DWORD timeout) {
+        try {
+            const auto until = deadline(timeout); // Full fresh original peer endpoint.
+            const auto count = publisher_record_result_frame_count(scope);
+            require(frames.size() == count && count <= std::numeric_limits<std::uint64_t>::max() - sent,
+                "effect record result stream count/sequence differs");
+            std::vector<std::string> encoded;
+            encoded.reserve(count);
+            std::size_t payload = 0;
+            for (std::size_t index = 0; index < count; ++index) {
+                require_stream_active(until);
+                require_publisher_effect_record_result_frame(frames[index].get(), scope, index);
+                auto frame = encode_frame(frames[index].get(), sent + index + 1u);
+                require(frame.size() <= publisher_record_result_stream_bytes_limit - 12u - payload,
+                    "effect record encoded result stream exceeds its closed bound");
+                payload += frame.size();
+                encoded.push_back(std::move(frame));
+            }
+            const auto header = publisher_record_result_stream_header(payload);
+            std::vector<unsigned char> block;
+            constexpr std::size_t transfer = 64u * 1024u;
+            block.reserve(transfer);
+            const auto append = [&](const unsigned char* data, std::size_t length) {
+                while (length) {
+                    const auto n = std::min(length, transfer - block.size());
+                    block.insert(block.end(), data, data + n); data += n; length -= n;
+                    if (block.size() == transfer) {
+                        require_stream_active(until);
+                        bytes(true, block.data(), static_cast<DWORD>(block.size()), until); block.clear();
+                    }
+                }
+            };
+            append(header.data(), header.size());
+            for (const auto& frame : encoded)
+                append(reinterpret_cast<const unsigned char*>(frame.data()), frame.size());
+            if (!block.empty()) {
+                require_stream_active(until);
+                bytes(true, block.data(), static_cast<DWORD>(block.size()), until);
+            }
+            require_stream_active(until); require_peer(); // Full fresh final peer endpoint.
+            sent += count;
+            usk::diagnostics::note(usk::diagnostics::Counter::wire_send_packets, count);
+            usk::diagnostics::note(usk::diagnostics::Counter::wire_send_bytes, payload + header.size());
+        } catch (...) { failed = true; throw; }
+    }
+    std::vector<Value> receive_record_result_stream(const Value& scope, DWORD timeout) {
+        const usk::diagnostics::DurationCounter elapsed(usk::diagnostics::Counter::wire_receive_elapsed_us);
+        try {
+            const auto until = deadline(timeout);
+            require(received != std::numeric_limits<std::uint64_t>::max(), "effect transport sequence exhausted");
+            PublisherRecordResultStreamDecoder decoder(scope, binding, received + 1u);
+            std::array<unsigned char, 12> header{};
+            bytes(false, header.data(), static_cast<DWORD>(header.size()), until);
+            decoder.feed(header.data(), header.size());
+            const auto payload = decoder.remaining_bytes();
+            std::array<unsigned char, 64u * 1024u> block{};
+            while (const auto remaining = decoder.remaining_bytes()) {
+                require_stream_active(until);
+                // Read ONLY the declared remaining stream bytes. Never fill
+                // unused capacity with an exact-length read awaiting future I/O.
+                const auto n = static_cast<DWORD>(std::min(remaining, block.size()));
+                bytes(false, block.data(), n, until); decoder.feed(block.data(), n);
+            }
+            auto frames = decoder.finish();
+            require_stream_active(until); require_peer();
+            received += frames.size();
+            usk::diagnostics::note(usk::diagnostics::Counter::wire_receive_packets, frames.size());
+            usk::diagnostics::note(usk::diagnostics::Counter::wire_receive_bytes, payload + header.size());
+            return frames;
+        } catch (...) { failed = true; throw; }
+    }
     void send(const Value& body, DWORD timeout) {
         try {
             const auto until = deadline(timeout);
             require(sent != std::numeric_limits<std::uint64_t>::max(), "effect transport sequence exhausted");
-            const Value sequence(sent + 1), binding_value(binding);
-            auto packet = usk::json::canonical_object({
-                {"sequence", std::cref(sequence)}, {"binding_sha256", std::cref(binding_value)},
-                {"body", std::cref(body)}});
-            require(!packet.empty() && packet.size() <= packet_limit, "effect transport packet exceeds its bound");
-            const auto size = static_cast<DWORD>(packet.size());
-            std::array<unsigned char, 4> header{{static_cast<unsigned char>(size),
-                static_cast<unsigned char>(size >> 8), static_cast<unsigned char>(size >> 16),
-                static_cast<unsigned char>(size >> 24)}};
-            // Submit the identical header and payload together. The native
-            // partial-transfer loop still retains each pending I/O buffer.
-            packet.insert(0, reinterpret_cast<const char*>(header.data()), header.size());
+            auto packet = encode_frame(body, sent + 1u);
+            const auto size = packet.size() - 4u;
             bytes(true, reinterpret_cast<unsigned char*>(packet.data()),
                 static_cast<DWORD>(packet.size()), until);
             require_peer();
@@ -580,6 +659,100 @@ PublisherEffectWorkerCustody::PublisherEffectWorkerCustody(const usk::base::Stab
         throw;
     }
 }
+std::array<unsigned char, 12> publisher_record_result_stream_header(std::size_t payload) {
+    require(payload && payload <= publisher_record_result_stream_bytes_limit - 12u,
+        "record result stream length exceeds its closed storage bound");
+    std::array<unsigned char, 12> header{{'U','S','K','R','S','0','0','1',0,0,0,0}};
+    for (unsigned i = 0; i < 4u; ++i) header[8u+i] = static_cast<unsigned char>(payload >> (8u*i));
+    return header;
+}
+struct PublisherRecordResultStreamDecoder::State {
+    Value scope;
+    std::string binding;
+    const std::uint64_t first_sequence;
+    const std::size_t expected;
+    std::array<unsigned char,12> header{};
+    std::array<unsigned char,4> frame_header{};
+    std::size_t header_used=0, remaining=0, frame_header_used=0, frame_size=0;
+    std::string packet;
+    std::vector<Value> frames;
+    bool failed=false, finished=false;
+    State(const Value& s, const std::string& b, std::uint64_t first)
+        : scope(s), binding(b), first_sequence(first), expected(publisher_record_result_frame_count(scope)) {
+        require(first && expected - 1u <= std::numeric_limits<std::uint64_t>::max() - first &&
+            binding.size()==64u && std::all_of(binding.begin(),binding.end(),[](char c) {
+                return (c>='0' && c<='9') || (c>='a' && c<='f'); }), "record result stream binding/sequence grammar differs");
+        frames.reserve(expected);
+    }
+    void decode() {
+        usk::json::ParseLimits limits; limits.max_bytes=packet_limit; limits.max_string_bytes=packet_limit;
+        Value parsed;
+        {
+            const usk::diagnostics::DurationCounter elapsed(usk::diagnostics::Counter::wire_parse_elapsed_us);
+            parsed=usk::json::parse(packet,limits);
+        }
+        require(parsed.as_object().size()==3u && frames.size()<expected &&
+            parsed.at("sequence").as_unsigned()==first_sequence+frames.size() &&
+            parsed.at("binding_sha256").as_string()==binding, "record result stream request binding or sequence differs");
+        auto& body=parsed.as_object().at("body");
+        require_publisher_effect_record_result_frame(body,scope,frames.size());
+        frames.push_back(std::move(body)); packet.clear(); frame_header_used=frame_size=0;
+    }
+};
+PublisherRecordResultStreamDecoder::PublisherRecordResultStreamDecoder(const Value& scope,
+    const std::string& binding, std::uint64_t first) : state_(std::make_unique<State>(scope,binding,first)) {}
+PublisherRecordResultStreamDecoder::~PublisherRecordResultStreamDecoder() = default;
+void PublisherRecordResultStreamDecoder::feed(const unsigned char* data, std::size_t size) {
+    auto& s=*state_;
+    try {
+        require(!s.failed && !s.finished && (data || !size), "record result stream decoder is poisoned/finished");
+        while (s.header_used<s.header.size() && size) {
+            s.header[s.header_used++]=*data++; --size;
+            if (s.header_used==s.header.size()) {
+                const auto empty=publisher_record_result_stream_header(1u);
+                require(std::equal(s.header.begin(),s.header.begin()+8,empty.begin()), "record result stream magic/version differs");
+                for (unsigned i=0;i<4u;++i) s.remaining |= static_cast<std::size_t>(s.header[8u+i]) << (8u*i);
+                require(s.remaining && s.remaining<=publisher_record_result_stream_bytes_limit-12u,
+                    "record result stream declared length exceeds its bound");
+            }
+        }
+        require(size<=s.remaining, "record result stream has bytes beyond its declared closed run");
+        while (size) {
+            require(s.frames.size()<s.expected, "record result stream has surplus frames");
+            if (s.frame_header_used<4u) {
+                s.frame_header[s.frame_header_used++]=*data++; --size; --s.remaining;
+                if (s.frame_header_used==4u) {
+                    for (unsigned i=0;i<4u;++i) s.frame_size |= static_cast<std::size_t>(s.frame_header[i]) << (8u*i);
+                    require(s.frame_size && s.frame_size<=packet_limit && s.frame_size<=s.remaining,
+                        "record result stream frame exceeds its packet/remaining bound");
+                    s.packet.reserve(s.frame_size);
+                }
+                continue;
+            }
+            const auto n=std::min(size,s.frame_size-s.packet.size());
+            s.packet.append(reinterpret_cast<const char*>(data),n); data+=n; size-=n; s.remaining-=n;
+            if (s.packet.size()==s.frame_size) s.decode();
+        }
+    } catch (...) { s.failed=true; throw; }
+}
+std::size_t PublisherRecordResultStreamDecoder::remaining_bytes() const {
+    const auto& s=*state_;
+    require(!s.failed && !s.finished && s.header_used==s.header.size(), "record result stream header is incomplete/poisoned");
+    return s.remaining;
+}
+std::vector<Value> PublisherRecordResultStreamDecoder::finish() {
+    auto& s=*state_;
+    try {
+        require(!s.failed && !s.finished && s.header_used==s.header.size() && s.remaining==0u &&
+            s.frame_header_used==0u && s.packet.empty() && s.frames.size()==s.expected,
+            "record result stream is truncated, surplus, poisoned or incomplete");
+        s.finished=true; return std::move(s.frames);
+    } catch (...) { s.failed=true; throw; }
+}
+void PublisherEffectWorkerCustody::send_record_result_stream(const Value& scope,
+    const std::vector<std::reference_wrapper<const Value>>& frames, DWORD timeout) {
+    state_->require_job(); state_->wire.send_record_result_stream(scope,frames,timeout); state_->require_job();
+}
 PublisherEffectWorkerCustody::~PublisherEffectWorkerCustody() {
     if (state_ && !state_->close(10000).confirmed()) state_.release();
 }
@@ -721,6 +894,9 @@ PublisherEffectWorkerPeer::~PublisherEffectWorkerPeer() {
 }
 void PublisherEffectWorkerPeer::send(const Value& body, DWORD timeout) { state_->wire.send(body, timeout); }
 Value PublisherEffectWorkerPeer::receive(DWORD timeout) { return state_->wire.receive(timeout); }
+std::vector<Value> PublisherEffectWorkerPeer::receive_record_result_stream(const Value& scope, DWORD timeout) {
+    return state_->wire.receive_record_result_stream(scope,timeout);
+}
 Value PublisherEffectWorkerPeer::observation() const { return state_->wire.observation(); }
 void PublisherEffectWorkerPeer::require_record_chunk_custody(const Value& original) const {
     state_->wire.require_record_chunk_custody(original);

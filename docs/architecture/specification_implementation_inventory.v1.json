@@ -5591,7 +5591,7 @@
         },
         {
           "path": "tests/native/usk_publisher_process_boundary_smoke.cpp",
-          "sha256": "d47877c0bb3d02467ee4e7cda0651535a97520eeb469f2a9488fd291d037a0a8"
+          "sha256": "2f995134b50be753c28398e68451ec65253451713b536090ba56bae000b9fdbc"
         },
         {
           "path": "tests/publisher_process_boundary.py",
@@ -6115,7 +6115,7 @@
         },
         {
           "path": "tests/native/usk_publisher_process_boundary_smoke.cpp",
-          "sha256": "d47877c0bb3d02467ee4e7cda0651535a97520eeb469f2a9488fd291d037a0a8"
+          "sha256": "2f995134b50be753c28398e68451ec65253451713b536090ba56bae000b9fdbc"
         },
         {
           "path": "tests/publisher_process_boundary.py",
@@ -6211,11 +6211,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_worker_custody_internal.h",
-          "sha256": "51c70825dc00cec989f8709323a0d0d37d82e1ab6e08ac3b62feb6c93a63fa1d"
+          "sha256": "bd50741a3a035f9d754f9c4bc832908cbf2c0ead12e6b2c0fe242ce535c36907"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_worker_custody_internal.cpp",
-          "sha256": "eebc81ede96e62df6746f7fa0f20a5e6189d852ef9cefc5828891ecf7d64a1fb"
+          "sha256": "422db759f3beaa52eb0b120622dd669ed8b62541dfe60e110ebd70847c6e0919"
         },
         {
           "path": "tests/native/usk_publisher_effect_worker_custody_smoke.cpp",
@@ -6223,11 +6223,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_broker_internal.h",
-          "sha256": "49a480a9849b5957fdc2c340f6d93b4deb9ceb071904202de3eec10f86d5f606"
+          "sha256": "ff39d83d9de1cff04d71226d957d829d18f56ca6cc6f8c69025c51c198d95ea7"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_broker_internal.cpp",
-          "sha256": "9b1dc51c57ec983610d981b9488218af4af5198c3160e704cd99ba0c1dcc27ac"
+          "sha256": "75d22b926e7255f385f4bee78d4cf73861da5d64f4f10fe9d16ea705cb84511e"
         },
         {
           "path": "tests/native/usk_publisher_broker_object_query_smoke.cpp",

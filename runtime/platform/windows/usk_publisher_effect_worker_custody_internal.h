@@ -10,6 +10,9 @@
 #include "usk_json.h"
 #include "usk_stable_file.h"
 #include "usk_publisher_token_observation.h"
+#include <array>
+#include <functional>
+#include <vector>
 #include <memory>
 #include <string>
 #include <exception>
@@ -47,6 +50,23 @@ private:
 // No publisher file, token, lease, SCM or creator handle is inherited/exported.
 // The child receives only one private connected pipe, a query/synchronize-only
 // parent process handle and a synchronize-only cancellation event.
+// Closed data decoder only. Construction/decoding supplies no live peer,
+// native custody, worker route or effect authority. The private wire route
+// separately brackets the entire fixed result run with fresh native checks.
+inline constexpr std::size_t publisher_record_result_stream_bytes_limit = 32u * 1024u * 1024u;
+std::array<unsigned char, 12> publisher_record_result_stream_header(std::size_t payload_bytes);
+class PublisherRecordResultStreamDecoder final {
+public:
+    PublisherRecordResultStreamDecoder(const usk::json::Value& scope,
+        const std::string& request_binding, std::uint64_t first_sequence);
+    ~PublisherRecordResultStreamDecoder();
+    void feed(const unsigned char*, std::size_t);
+    std::size_t remaining_bytes() const;
+    std::vector<usk::json::Value> finish();
+private:
+    struct State;
+    std::unique_ptr<State> state_;
+};
 class PublisherEffectWorkerCustody final {
 public:
     PublisherEffectWorkerCustody(const usk::base::StableFile& original_image,
@@ -71,6 +91,11 @@ public:
     // launch in this process. A destructor performs the same attempt if needed.
     PublisherEffectWorkerClosure close(DWORD timeout_ms = 10000);
 private:
+    friend class PublisherEffectBrokerReadback;
+    // Only the original broker's completed final+2*chunks run. No callbacks,
+    // control frames or caller-enabled skip-peer mode are accepted.
+    void send_record_result_stream(const usk::json::Value& scope,
+        const std::vector<std::reference_wrapper<const usk::json::Value>>& frames, DWORD timeout_ms);
     struct State;
     std::unique_ptr<State> state_;
 };
@@ -100,6 +125,7 @@ private:
     friend class PublisherEffectWorkerReadback;
     friend class PublisherEffectExecutionOwner;
     friend class PublisherEffectRecordByteRound;
+    std::vector<usk::json::Value> receive_record_result_stream(const usk::json::Value& scope, DWORD timeout_ms);
     // Only the fixed original record scope may use this identity check between
     // its complete fresh image-digest endpoints. Each call still observes the
     // held live peer and image/path identity; it returns no proof or authority.

@@ -55,9 +55,9 @@ bool same(const Value& left, const Value& right) {
     return usk::json::equal_values(left, right);
 }
 constexpr const char* record_byte_kind = "original_maintenance_record_bytes_bracket";
-constexpr const char* record_byte_schema = "usk.publisher_effect_record_byte_scope.v2";
+constexpr const char* record_byte_schema = "usk.publisher_effect_record_byte_scope.v3";
 constexpr const char* authority_record_kind = "original_maintenance_authority_record_bytes_bracket";
-constexpr const char* authority_record_schema = "usk.publisher_effect_authority_record_byte_scope.v2";
+constexpr const char* authority_record_schema = "usk.publisher_effect_authority_record_byte_scope.v3";
 Value record_phase(const Value& scope, const std::string& phase) {
     auto fields = scope.as_object();
     fields.emplace("schema", Value(scope.at("kind").as_string() == authority_record_kind ? authority_record_schema : record_byte_schema));
@@ -1421,11 +1421,17 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
                 final.as_object().emplace("selection", *selected_after);
             }
             record_charge(proof_bytes, final);
-            state.custody.send(final, remaining());
-            // Segment every independently owned raw result at the unchanged8
-            // ceiling; never build/send one oversized aggregate result packet.
+            // Both rounds, positive query closures and complete global AFTER
+            // have finished. Every logical frame retains its unchanged8 result
+            // ceiling, sequence/binding and4MiB bound. Only this sealed run uses
+            // one fresh native peer/job bracket and bounded64KiB I/O aggregation;
+            // former per-frame peer sampling/failure chronology are unclaimed.
+            std::vector<std::reference_wrapper<const Value>> frames;
+            frames.reserve(1u + 2u * chunks);
+            frames.emplace_back(final);
             for (const auto& round : results) for (const auto& chunk : round)
-                state.custody.send(chunk, remaining());
+                frames.emplace_back(chunk);
+            state.custody.send_record_result_stream(scope, frames, remaining());
             (void)remaining();
             return std::nullopt;
         }
@@ -1687,6 +1693,33 @@ void PublisherRecordByteRoundSequence::read_finished() {
 void PublisherRecordByteRoundSequence::require_complete() const {
     require(phase_ == Phase::complete, "record byte round sequence lacks both completed rounds and original read");
 }
+std::size_t publisher_record_result_frame_count(const Value& scope) {
+    (void)record_scope_from_begin(record_phase(scope, "begin"), scope.at("scope_sequence").as_unsigned(),
+        scope.at("kind").as_string() == authority_record_kind);
+    return 1u + 2u * static_cast<std::size_t>(scope.at("chunk_count").as_unsigned());
+}
+void require_publisher_effect_record_result_frame(const Value& packet, const Value& scope, std::size_t index) {
+    const auto count = publisher_record_result_frame_count(scope);
+    require(index < count, "record result stream has surplus frames");
+    if (index == 0u) {
+        record_require_packet(packet, scope, "final", scope.at("kind").as_string() == authority_record_kind ?
+            std::set<std::string>{"profile_before", "profile", "selection_before", "selection"} :
+            std::set<std::string>{"profile_before", "profile"});
+        return;
+    }
+    record_require_packet(packet, scope, "results", {"round", "chunk_index", "native_objects_sha256", "results"});
+    const auto chunks = static_cast<std::size_t>(scope.at("chunk_count").as_unsigned());
+    const auto chunk = (index - 1u) % chunks;
+    const auto& digest = packet.at("native_objects_sha256").as_string();
+    require(packet.at("round").as_unsigned() == (index - 1u) / chunks &&
+        packet.at("chunk_index").as_unsigned() == chunk &&
+        packet.at("results").as_array().size() == record_chunk_size(scope, chunk) &&
+        digest.size() == 64u && std::all_of(digest.begin(), digest.end(), [](char c) {
+            return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }),
+        "record result stream changed ordered round/chunk/count/digest grammar");
+    // The concrete reader STILL joins this digest to its actual original
+    // ordered objects and decodes EVERY descriptor/raw9 result after receipt.
+}
 void require_publisher_effect_record_byte_begin(const Value& begin, std::uint64_t sequence, bool authority) {
     (void)record_scope_from_begin(begin, sequence, authority, true);
 }
@@ -1945,7 +1978,9 @@ PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
         // positively closed before the original full local AFTER sample.
         after_queries_closed();
         (void)s.remaining();
-        auto final = s.peer.receive(s.remaining());
+        auto frames = s.peer.receive_record_result_stream(scope, s.remaining());
+        require(frames.size() == publisher_record_result_frame_count(scope), "child record final stream count differs");
+        auto final = std::move(frames.front());
         record_require_packet(final, scope, "final", selected_kind ?
             std::set<std::string>{"profile_before", "profile", "selection_before", "selection"} :
             std::set<std::string>{"profile_before", "profile"});
@@ -1954,7 +1989,7 @@ PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
         raw_results.reserve(2u * count);
         for (std::size_t round_index = 0; round_index < 2u; ++round_index)
             for (std::size_t index = 0; index < scope.at("chunk_count").as_unsigned(); ++index) {
-                auto packet = s.peer.receive(s.remaining());
+                auto packet = std::move(frames[1u + round_index * scope.at("chunk_count").as_unsigned() + index]);
                 record_require_packet(packet, scope, "results", {"round", "chunk_index", "native_objects_sha256", "results"});
                 const auto expected = s.chunk_objects(index);
                 require(packet.at("round").as_unsigned() == round_index && packet.at("chunk_index").as_unsigned() == index &&
