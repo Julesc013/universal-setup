@@ -791,6 +791,38 @@ void effect_execution_record_controls() {
         sequence_refused([] { PublisherRecordByteRoundSequence s(1); s.begin(0); s.observe(); s.close(0); s.begin(1); });
         sequence_refused([] { PublisherRecordByteRoundSequence s(1); s.begin(0); s.observe(); s.close(0); s.read_finished(); s.read_finished(); });
         sequence_refused([] { PublisherRecordByteRoundSequence s(1); s.begin(0); s.observe(); s.close(0); s.read_finished(); s.begin(1); s.require_complete(); });
+        // Actual production grouping data: all occurrences remain present;
+        // equal file IDs stay on one worker in their original order. These
+        // controls cannot create a native round owner or query admission.
+        for (std::size_t count = 1u; count <= 8u; ++count) {
+            Value::Array objects;
+            for (std::size_t index = 0; index < count; ++index)
+                objects.emplace_back(Value::Object{{"file_id", Value(std::string(49u,
+                    static_cast<char>('a' + (index * 3u + index / 2u) % 4u)))}});
+            const auto plan = publisher_record_query_plan(Value(objects));
+            std::array<unsigned, 8u> visits{};
+            std::array<std::size_t, 8u> workers{}, positions{};
+            for (std::size_t plan_worker = 0; plan_worker < plan.size(); ++plan_worker)
+                for (std::size_t position = 0; position < plan[plan_worker].size(); ++position) {
+                    const auto occurrence = plan[plan_worker][position];
+                    check(occurrence < count && ++visits[occurrence] == 1u,
+                        "record query plan duplicated or invented an occurrence");
+                    workers[occurrence] = plan_worker; positions[occurrence] = position;
+                }
+            for (std::size_t index = 0; index < count; ++index) {
+                check(visits[index] == 1u, "record query plan omitted an occurrence");
+                for (std::size_t later = index + 1u; later < count; ++later)
+                    if (objects[index].at("file_id").as_string() == objects[later].at("file_id").as_string())
+                        check(workers[index] == workers[later] && positions[index] < positions[later],
+                            "record query plan reordered or overlapped duplicate file IDs");
+            }
+        }
+        sequence_refused([] { (void)publisher_record_query_plan(Value(Value::Array{})); });
+        sequence_refused([] { (void)publisher_record_query_plan(Value(Value::Array(9u))); });
+        sequence_refused([] { (void)publisher_record_query_plan(Value(Value::Array{Value(Value::Object{})})); });
+        sequence_refused([] { (void)publisher_record_query_plan(Value(Value::Array{
+            Value(Value::Object{{"file_id", Value("short")}})})); });
+
         // The decoder below supplies data only, never a native peer/owner.
         // Production uses this exact parser inside the private native bracket.
         const std::string stream_binding(64u, 'b');

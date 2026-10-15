@@ -16,6 +16,7 @@
 #include "usk_sha256.h"
 #include "usk_record_io.h"
 #include <atomic>
+#include <process.h>
 #include <algorithm>
 #include <array>
 #include <optional>
@@ -505,8 +506,66 @@ PublisherServiceObservation publisher_effect_broker_service_record(const Value& 
         static_cast<std::uint32_t>(original.at("process_id").as_unsigned()), record_token(original.at("primary_token"))};
 }
 
+std::array<std::vector<std::size_t>, 2u> publisher_record_query_plan(const Value& objects_value) {
+    const auto& objects = objects_value.as_array();
+    require(!objects.empty() && objects.size() <= publisher_object_access_batch_limit,
+        "record query plan exceeds its original logical chunk bound");
+    std::vector<std::pair<std::string, std::vector<std::size_t>>> groups;
+    for (std::size_t index = 0; index < objects.size(); ++index) {
+        const auto& id = objects[index].at("file_id").as_string();
+        require(id.size() == 49u, "record query plan lacks a bounded original file ID");
+        auto found = std::find_if(groups.begin(), groups.end(),
+            [&](const auto& item) { return item.first == id; });
+        if (found == groups.end()) groups.emplace_back(id, std::vector<std::size_t>{index});
+        else found->second.push_back(index);
+    }
+    std::stable_sort(groups.begin(), groups.end(),
+        [](const auto& left, const auto& right) { return left.second.size() > right.second.size(); });
+    std::array<std::vector<std::size_t>, 2u> plan;
+    for (const auto& group : groups) {
+        auto& assigned = plan[plan[0].size() <= plan[1].size() ? 0u : 1u];
+        assigned.insert(assigned.end(), group.second.begin(), group.second.end());
+    }
+    return plan;
+}
+
+// An incomplete type outside this implementation. Only the original broker
+// can create it; a private slot must match this actual process-global owner.
+// No parsed data or untrusted caller can supply a native query admission.
+class PublisherRecordQueryRoundOwner final {
+    friend class PublisherEffectBrokerReadback;
+    friend class PublisherBrokerObjectQuery;
+public:
+    ~PublisherRecordQueryRoundOwner() = default;
+    bool completed() const noexcept { return completed_; }
+private:
+    DWORD process_ = GetCurrentProcessId(), thread_ = GetCurrentThreadId();
+    bool completed_ = false;
+    mutable std::array<std::atomic<HANDLE>, 2u> unknown_tokens_{{nullptr, nullptr}};
+    PublisherRecordQueryRoundOwner() {
+        void* absent = nullptr;
+        require(active_query.compare_exchange_strong(absent, this),
+            "broker query owner is active or closure is unknown");
+    }
+    bool matches() const noexcept {
+        return process_ == GetCurrentProcessId() && active_query.load() == this && !completed_;
+    }
+    void retain_unknown_token(std::size_t index, HANDLE token) const noexcept {
+        unknown_tokens_[index].store(token);
+    }
+    void complete() {
+        require(thread_ == GetCurrentThreadId() && matches(),
+            "broker record query round owner changed before completion");
+        void* original = this;
+        require(active_query.compare_exchange_strong(original, nullptr),
+            "broker record query round lost its global owner");
+        completed_ = true;
+    }
+};
+
 struct PublisherBrokerObjectQuery::State {
     HANDLE handle = INVALID_HANDLE_VALUE;
+    const PublisherRecordQueryRoundOwner* round_owner = nullptr;
     HANDLE volume = nullptr;
     Value volume_facts;
     Value expected;
@@ -519,27 +578,27 @@ struct PublisherBrokerObjectQuery::State {
             if (!closed) close_error = GetLastError();
             if (closed) {
                 handle = INVALID_HANDLE_VALUE;
-                if (claimed) { void* original = this; active_query.compare_exchange_strong(original, nullptr); claimed = false; }
+                if (claimed) { if (!round_owner) { void* original = this; active_query.compare_exchange_strong(original, nullptr); } claimed = false; }
             }
         }
         return closed;
     }
     void fence() const {
-        require(claimed && !attempted && handle != INVALID_HANDLE_VALUE &&
+        require(claimed && (!round_owner || round_owner->matches()) && !attempted && handle != INVALID_HANDLE_VALUE &&
             same(object(volume), volume_facts) && same(object(handle), expected) &&
             observe_publisher_noninheritable_handle_flags(handle) == 0 &&
             observe_publisher_handle_granted_access(handle) == query_rights,
             "broker query lost its original native object/volume/query-only handle");
     }
     void require_live() const {
-        require(claimed && !attempted && handle != INVALID_HANDLE_VALUE,
+        require(claimed && (!round_owner || round_owner->matches()) && !attempted && handle != INVALID_HANDLE_VALUE,
             "broker query lost its original native object/volume/query-only handle");
     }
     void fence_after_authenticated_access(const Value& observed) const {
         // The private channel just completed both native object/descriptor and
         // caller-token endpoints. Consume that fresh object observation here;
         // never accept a caller-supplied value or retain it for another query.
-        require(claimed && !attempted && handle != INVALID_HANDLE_VALUE &&
+        require(claimed && (!round_owner || round_owner->matches()) && !attempted && handle != INVALID_HANDLE_VALUE &&
             same(object(volume), volume_facts) && same(observed, expected) &&
             observe_publisher_noninheritable_handle_flags(handle) == 0 &&
             observe_publisher_handle_granted_access(handle) == query_rights,
@@ -553,10 +612,20 @@ PublisherBrokerObjectQuery::PublisherBrokerObjectQuery(HANDLE volume, const Valu
     const Value& expected_volume) : state_(std::make_unique<State>()) {
     initialize(volume, expected, &expected_volume);
 }
-void PublisherBrokerObjectQuery::initialize(HANDLE volume, const Value& expected, const Value* expected_volume) {
+PublisherBrokerObjectQuery::PublisherBrokerObjectQuery(HANDLE volume, const Value& expected,
+    const Value& expected_volume, const PublisherRecordQueryRoundOwner& round) : state_(std::make_unique<State>()) {
+    initialize(volume, expected, &expected_volume, &round);
+}
+void PublisherBrokerObjectQuery::initialize(HANDLE volume, const Value& expected, const Value* expected_volume,
+    const PublisherRecordQueryRoundOwner* round) {
     try {
-        void* absent = nullptr;
-        require(active_query.compare_exchange_strong(absent, state_.get()), "broker query owner is active or closure is unknown");
+        if (round) {
+            require(round->matches(), "broker record query lacks its original global round owner");
+            state_->round_owner = round;
+        } else {
+            void* absent = nullptr;
+            require(active_query.compare_exchange_strong(absent, state_.get()), "broker query owner is active or closure is unknown");
+        }
         state_->claimed = true;
         state_->volume = volume;
         // A broker BEFORE value is an expected comparison, never a native
@@ -1086,6 +1155,237 @@ struct PublisherEffectBrokerReadback::State {
         installation_recovery = is_installation_minimum(usk::json::parse(request));
         if (installation_recovery) (void)parse_original_installation_minimum(request);
     }
+    // Fixed producer-owned workers precede the first security baseline and
+    // remain live through every record scope's full native AFTER.
+    struct RecordChunkWork {
+        const Value::Array& objects;
+        const Value& volume_facts;
+        const Value& client;
+        const PublisherRecordQueryRoundOwner& round;
+        ULONGLONG started;
+        DWORD timeout;
+        std::array<std::vector<std::size_t>, 2u> plan;
+        std::vector<std::optional<Value>> results;
+        std::vector<std::exception_ptr> errors;
+        std::atomic<bool> cancelled{false}, closure_unknown{false};
+        RecordChunkWork(const Value::Array& objects_value, const Value& volume_value,
+            const Value& client_value, const PublisherRecordQueryRoundOwner& original,
+            ULONGLONG start, DWORD budget) : objects(objects_value), volume_facts(volume_value),
+            client(client_value), round(original), started(start), timeout(budget),
+            plan(publisher_record_query_plan(Value(objects_value))),
+            results(objects_value.size()), errors(objects_value.size()) {}
+    };
+    struct RecordThreadStart { State* owner = nullptr; std::size_t index = 0; };
+    std::array<RecordThreadStart, 2u> record_thread_starts;
+    std::array<HANDLE, 2u> record_threads{{nullptr, nullptr}}, record_wake{{nullptr, nullptr}};
+    std::array<DWORD, 2u> record_thread_ids{{0u, 0u}};
+    std::array<bool, 2u> record_join_attempted{{false, false}}, record_join_closed{{false, false}},
+        record_thread_ended{{false, false}}, record_wake_close_attempted{{false, false}},
+        record_wake_closed{{false, false}};
+    std::atomic<RecordChunkWork*> record_work{nullptr};
+    std::atomic<std::size_t> record_ready{0u}, record_completed{0u};
+    std::atomic<bool> record_stopping{false};
+    bool record_stop_attempted = false, record_stop_closed = false;
+    static constexpr DWORD record_pool_transition_budget = 5000u;
+
+    void poison_record_pool() noexcept {
+        void* absent = nullptr;
+        (void)active_query.compare_exchange_strong(absent, this);
+    }
+    void require_record_query_thread(std::size_t index, RecordChunkWork& work) const {
+        require(index < record_threads.size() && process_id == GetCurrentProcessId() &&
+            record_thread_ids[index] == GetCurrentThreadId() &&
+            GetThreadId(record_threads[index]) == record_thread_ids[index] &&
+            GetProcessIdOfThread(record_threads[index]) == process_id &&
+            WaitForSingleObject(record_threads[index], 0) == WAIT_TIMEOUT,
+            "broker record query worker lost its original native thread");
+        HANDLE token = nullptr;
+        if (OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &token)) {
+            if (!CloseHandle(token)) {
+                work.round.retain_unknown_token(index, token);
+                work.closure_unknown.store(true);
+            }
+            throw std::runtime_error("broker record query worker is impersonating");
+        }
+        require(GetLastError() == ERROR_NO_TOKEN,
+            "broker record query worker impersonation state is unavailable");
+    }
+    void run_record_queries(std::size_t thread, RecordChunkWork& work) noexcept {
+        for (const auto index : work.plan[thread]) {
+            if (work.cancelled.load()) return;
+            std::unique_ptr<PublisherBrokerObjectQuery> query;
+            try {
+                (void)readback_remaining(work.started, work.timeout,
+                    "broker record query chunk exceeded its original deadline");
+                require_record_query_thread(thread, work);
+                query.reset(new PublisherBrokerObjectQuery(volume, work.objects[index], work.volume_facts, work.round));
+                auto access = query->authenticated_access(channel);
+                require(query->close(), "broker record byte query handle closure is unknown");
+                require_record_query_thread(thread, work);
+                require(same(access.at("client"), work.client),
+                    "broker record query authenticated caller changed");
+                (void)readback_remaining(work.started, work.timeout,
+                    "broker record query chunk exceeded its original deadline");
+                work.results[index].emplace(std::move(access));
+            } catch (...) {
+                const auto original = std::current_exception();
+                try { std::rethrow_exception(original); }
+                catch (const PublisherBrokerQueryClosureUnknown&) { work.closure_unknown.store(true); }
+                catch (...) {}
+                if (query && !query->close()) work.closure_unknown.store(true);
+                work.errors[index] = original;
+                work.cancelled.store(true);
+                return;
+            }
+        }
+    }
+    static unsigned __stdcall record_query_thread_entry(void* raw) noexcept {
+        auto& start = *static_cast<RecordThreadStart*>(raw);
+        auto& owner = *start.owner;
+        owner.record_thread_ids[start.index] = GetCurrentThreadId();
+        owner.record_ready.fetch_add(1u);
+        for (;;) {
+            // This is an owned worker's idle park, never a caller join. Stop
+            // signals it and bounds the native thread join independently.
+            if (WaitForSingleObject(owner.record_wake[start.index], INFINITE) != WAIT_OBJECT_0)
+                std::terminate();
+            if (owner.record_stopping.load()) return 0u;
+            auto* work = owner.record_work.load();
+            if (!work) std::terminate();
+            owner.run_record_queries(start.index, *work);
+            work = nullptr;
+            // The acquire/release atomic RMW chain joins both workers' complete
+            // result writes before the original thread clears the borrow.
+            owner.record_completed.fetch_add(1u);
+        }
+    }
+    void start_record_queries() {
+        require(process_id == GetCurrentProcessId() && thread_id == GetCurrentThreadId() &&
+            !worker_security && record_ready.load() == 0u && !record_stopping.load(),
+            "broker record workers must precede the original security baseline");
+        const auto started = GetTickCount64();
+        for (std::size_t index = 0; index < record_wake.size(); ++index) {
+            (void)readback_remaining(started, record_pool_transition_budget,
+                "broker record worker startup exceeded its shared budget");
+            record_wake[index] = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+            DWORD flags = 0;
+            require(record_wake[index] && GetHandleInformation(record_wake[index], &flags) && flags == 0u,
+                "broker record wake event is unavailable or inheritable");
+        }
+        for (std::size_t index = 0; index < record_threads.size(); ++index) {
+            (void)readback_remaining(started, record_pool_transition_budget,
+                "broker record worker startup exceeded its shared budget");
+            record_thread_starts[index] = RecordThreadStart{this, index};
+            const auto native = _beginthreadex(nullptr, 0u, &State::record_query_thread_entry,
+                &record_thread_starts[index], 0u, nullptr);
+            require(native != 0u, "broker record query worker creation failed");
+            record_threads[index] = reinterpret_cast<HANDLE>(native);
+            DWORD flags = 0;
+            require(GetHandleInformation(record_threads[index], &flags) && flags == 0u,
+                "broker record query thread handle is inheritable or unavailable");
+        }
+        while (record_ready.load() != record_threads.size()) {
+            (void)readback_remaining(started, record_pool_transition_budget,
+                "broker record worker startup exceeded its shared budget");
+            Sleep(1u);
+        }
+        (void)readback_remaining(started, record_pool_transition_budget,
+            "broker record worker startup exceeded its shared budget");
+        for (std::size_t index = 0; index < record_threads.size(); ++index)
+            require(record_thread_ids[index] && GetThreadId(record_threads[index]) == record_thread_ids[index] &&
+                GetProcessIdOfThread(record_threads[index]) == process_id &&
+                WaitForSingleObject(record_threads[index], 0) == WAIT_TIMEOUT,
+                "broker record worker startup identity differs");
+    }
+    bool stop_record_queries(DWORD timeout = record_pool_transition_budget) noexcept {
+        // A second call (including destruction after terminal stop) observes
+        // the first result. Never signal or close a previously attempted
+        // handle again, even when the original close result was unknown.
+        if (record_stop_attempted) return record_stop_closed;
+        record_stop_attempted = true;
+        if (process_id != GetCurrentProcessId() || thread_id != GetCurrentThreadId() || record_work.load()) {
+            poison_record_pool(); return false;
+        }
+        const auto started = GetTickCount64();
+        const DWORD budget = std::min(timeout, record_pool_transition_budget);
+        record_stopping.store(true);
+        bool closed = true, all_ended = true;
+        for (const auto wake : record_wake)
+            if (wake && !SetEvent(wake)) closed = false;
+        for (std::size_t index = 0; index < record_threads.size(); ++index) {
+            if (!record_threads[index]) continue;
+            if (!record_join_attempted[index]) {
+                record_join_attempted[index] = true;
+                const auto elapsed = GetTickCount64() - started;
+                const DWORD remaining = elapsed >= budget ? 0u : static_cast<DWORD>(budget - elapsed);
+                record_thread_ended[index] = WaitForSingleObject(record_threads[index], remaining) == WAIT_OBJECT_0;
+                record_join_closed[index] = record_thread_ended[index] && CloseHandle(record_threads[index]) != FALSE;
+            }
+            closed = record_join_closed[index] && closed;
+            all_ended = record_thread_ended[index] && all_ended;
+        }
+        // Never close a wake event beneath an unconfirmed live waiter.
+        if (all_ended) {
+            for (std::size_t index = 0; index < record_wake.size(); ++index) {
+                if (!record_wake[index]) continue;
+                if (!record_wake_close_attempted[index]) {
+                    record_wake_close_attempted[index] = true;
+                    record_wake_closed[index] = CloseHandle(record_wake[index]) != FALSE;
+                }
+                closed = record_wake_closed[index] && closed;
+            }
+        }
+        if (!closed) poison_record_pool();
+        record_stop_closed = closed;
+        return record_stop_closed;
+    }
+    struct RetainFailedRecordRound {
+        void operator()(PublisherRecordQueryRoundOwner* owner) const noexcept {
+            if (owner && owner->completed()) delete owner;
+        }
+    };
+    std::unique_ptr<PublisherRecordQueryRoundOwner, RetainFailedRecordRound> begin_record_queries() {
+        require(!record_stopping.load() && record_ready.load() == record_threads.size() &&
+            process_id == GetCurrentProcessId() && thread_id == GetCurrentThreadId(),
+            "broker record query pool lacks its original live owner");
+        return std::unique_ptr<PublisherRecordQueryRoundOwner, RetainFailedRecordRound>(new PublisherRecordQueryRoundOwner());
+    }
+    Value::Array record_query_chunk(const Value::Array& objects, const Value& volume_facts,
+        const Value& client, const PublisherRecordQueryRoundOwner& round, ULONGLONG started, DWORD timeout) {
+        require(!record_stopping.load() && process_id == GetCurrentProcessId() && thread_id == GetCurrentThreadId() &&
+            round.matches() && !record_work.load(), "broker record chunk lost its original round owner");
+        RecordChunkWork work(objects, volume_facts, client, round, started, timeout);
+        std::exception_ptr deadline_failure;
+        record_completed.store(0u);
+        record_work.store(&work);
+        // Failed infrastructure signalling cannot unwind borrowed storage or
+        // expose a result. It ends the broker without a terminal proof.
+        for (const auto wake : record_wake) if (!SetEvent(wake)) std::terminate();
+        while (record_completed.load() != record_threads.size()) {
+            if (!deadline_failure) {
+                try { (void)readback_remaining(started, timeout,
+                    "broker record query chunk exceeded its original deadline"); }
+                catch (...) { deadline_failure = std::current_exception(); work.cancelled.store(true); }
+            }
+            // Already published synchronous native queries must drain; a
+            // deadline refuses proof, not their borrowed-state lifetime.
+            Sleep(1u);
+        }
+        record_work.store(nullptr);
+        if (work.closure_unknown.load())
+            throw std::runtime_error("broker original record query closure is unknown");
+        for (const auto& error : work.errors) if (error) std::rethrow_exception(error);
+        if (deadline_failure) std::rethrow_exception(deadline_failure);
+        require(!work.cancelled.load() && round.matches(), "broker record query chunk did not complete");
+        Value::Array output;
+        output.reserve(objects.size());
+        for (auto& result : work.results) {
+            require(result.has_value(), "broker record query occurrence is absent");
+            output.push_back(std::move(*result));
+        }
+        return output;
+    }
+
     // A collected endpoint is not completed proof. Only complete() can create
     // a result eligible for retention or a reply, after checking both endpoints.
     struct PendingObservation { Value profile, selection; };
@@ -1201,16 +1501,26 @@ struct PublisherEffectBrokerReadback::State {
 };
 PublisherEffectBrokerReadback::PublisherEffectBrokerReadback(const RegisteredPublisherAdmission& a,
     const PublisherRequestChannel& c, HANDLE v, PublisherEffectWorkerCustody& owner) : state_(std::make_unique<State>(a, c, v, owner)) {
-    auto initial = state_->fresh();
-    state_->baseline = initial.take_profile();
-    state_->selected_baseline = initial.take_selection();
-    if (state_->maintenance_recovery || state_->installation_recovery) state_->recovery_baseline = state_->recovery_current(true);
-    if (state_->maintenance_recovery) require_publisher_effect_original_maintenance_selection(
-        state_->recovery_baseline, usk::json::parse(state_->request), state_->fresh().profile());
-    if (state_->installation_recovery) require_publisher_effect_original_installation_selection(
-        state_->recovery_baseline, usk::json::parse(state_->request), state_->fresh().profile());
+    try {
+        state_->start_record_queries();
+        auto initial = state_->fresh();
+        state_->baseline = initial.take_profile();
+        state_->selected_baseline = initial.take_selection();
+        if (state_->maintenance_recovery || state_->installation_recovery) state_->recovery_baseline = state_->recovery_current(true);
+        if (state_->maintenance_recovery) require_publisher_effect_original_maintenance_selection(
+            state_->recovery_baseline, usk::json::parse(state_->request), state_->fresh().profile());
+        if (state_->installation_recovery) require_publisher_effect_original_installation_selection(
+            state_->recovery_baseline, usk::json::parse(state_->request), state_->fresh().profile());
+    } catch (...) {
+        if (!state_->stop_record_queries()) (void)state_.release();
+        throw;
+    }
 }
-PublisherEffectBrokerReadback::~PublisherEffectBrokerReadback() = default;
+PublisherEffectBrokerReadback::~PublisherEffectBrokerReadback() {
+    // A thread whose native join/handle close is unknown must retain its
+    // original parked storage; never free a live thread's synchronization.
+    if (state_ && !state_->stop_record_queries()) (void)state_.release();
+}
 namespace {
 void require_selected_endpoints(const Value& selected, const Value& actual_request,
     const Value& before, const Value& after, PublisherEffectSelectionKind kind) {
@@ -1299,6 +1609,9 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
                 request.at("message").as_string());
         }
         if (request.at("schema").as_string() == "usk.publisher_effect_worker_terminal.v1") {
+            require(state.stop_record_queries(readback_remaining(packet_started, timeout,
+                "broker terminal record query stop exceeded its original deadline")),
+                "broker record query worker closure is unknown");
             const auto completed = state.complete(pending_before, state.collect());
             const auto& after = completed.profile();
             require(immutable_profiles_equal(before, after) &&
@@ -1347,25 +1660,25 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
                 require_publisher_effect_record_byte_round_marker(ready, scope, static_cast<unsigned>(round), false);
                 record_charge(proof_bytes, ready);
                 round_sequence.begin(static_cast<unsigned>(round));
+                auto query_round = state.begin_record_queries();
                 results[round].reserve(chunks);
                 for (std::size_t index = 0; index < chunks; ++index) {
                     Value::Array objects;
                     for (std::size_t offset = 0; offset < record_chunk_size(scope, index); ++offset)
                         objects.push_back(ledger[index * publisher_object_access_batch_limit + offset]);
-                    Value::Array access_results;
-                    access_results.reserve(objects.size());
+                    // At most the original eight-result logical chunk is in
+                    // flight. Equal file IDs remain serialized in input order;
+                    // distinct IDs may overlap on two original native workers.
+                    // Former cross-ID sampling instants are unclaimed. Every
+                    // occurrence still has a fresh raw9/reopen/positive close.
+                    auto access_results = state.record_query_chunk(objects, before.at("volume_root"),
+                        before.at("authenticated_client"), *query_round, packet_started, timeout);
                     for (std::size_t offset = 0; offset < objects.size(); ++offset) {
                         const auto& expected = objects[offset];
-                        // Reuse only the immutable requested metadata. Every
-                        // duplicate occurrence gets another actual reopen,
-                        // fresh raw9 denial and positively checked close.
-                        PublisherBrokerObjectQuery query(state.volume, expected, before.at("volume_root"));
-                        auto access = query.authenticated_access(state.channel);
-                        require(query.close(), "broker record byte query handle closure is unknown");
+                        auto& access = access_results[offset];
                         // Literal shared raw9/client/object/mutation predicate MUST
                         // precede every sequencing acknowledgement and the read.
                         require_publisher_maintenance_read_only_access(access, before.at("authenticated_client"), expected);
-                        access_results.push_back(std::move(access));
                         round_sequence.observe();
                         (void)remaining();
                     }
@@ -1378,6 +1691,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
                     results[round].push_back(std::move(final_chunk));
                 }
                 round_sequence.close(static_cast<unsigned>(round));
+                query_round->complete(); // All actual slots closed and workers parked.
                 auto marker = record_phase(scope, "round_queries_closed");
                 marker.as_object().emplace("round", Value(static_cast<std::uint64_t>(round)));
                 marker.as_object().emplace("native_query_count", scope.at("occurrence_count"));
@@ -1987,9 +2301,13 @@ PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
         record_charge(s.proof_bytes, final);
         Value::Array raw_results;
         raw_results.reserve(2u * count);
+        const auto chunk_count = scope.at("chunk_count").as_unsigned();
+        require(chunk_count > 0u && chunk_count <= publisher_record_byte_chunk_limit,
+            "child record final stream chunk count exceeds its bound");
+        const auto chunks = static_cast<std::size_t>(chunk_count);
         for (std::size_t round_index = 0; round_index < 2u; ++round_index)
-            for (std::size_t index = 0; index < scope.at("chunk_count").as_unsigned(); ++index) {
-                auto packet = std::move(frames[1u + round_index * scope.at("chunk_count").as_unsigned() + index]);
+            for (std::size_t index = 0; index < chunks; ++index) {
+                auto packet = std::move(frames[1u + round_index * chunks + index]);
                 record_require_packet(packet, scope, "results", {"round", "chunk_index", "native_objects_sha256", "results"});
                 const auto expected = s.chunk_objects(index);
                 require(packet.at("round").as_unsigned() == round_index && packet.at("chunk_index").as_unsigned() == index &&

@@ -6,6 +6,7 @@
 #include "usk_publisher_effect_worker_custody_internal.h"
 #include "usk_publisher_handle_observation.h"
 #include "usk_publisher_worker_security.h"
+#include <array>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -16,11 +17,16 @@ namespace usk::platform::windows {
 // Read-only transport bound. Each occurrence has its own native query and
 // checked closure; the existing packet byte/value limits also remain in force.
 inline constexpr std::size_t publisher_object_access_batch_limit = 8u;
+// Bounded grouping data only. Equal file-ID occurrences retain input order on
+// one worker; every occurrence still requires its own actual native query.
+// This function cannot create a native round owner or query admission.
+std::array<std::vector<std::size_t>, 2u> publisher_record_query_plan(const usk::json::Value&);
 // Closed selectors for read-only original selection. They do not select an
 // operation, admit a worker, or grant recovery/effect authority.
 enum class PublisherEffectSelectionKind {
     reviewed_operation, original_maintenance_recovery, original_installation_recovery
 };
+class PublisherRecordQueryRoundOwner;
 class RegisteredPublisherAdmission;
 class PublisherRequestChannel;
 class PublisherEffectBrokerReadback;
@@ -92,7 +98,11 @@ public:
     bool close() noexcept;
 private:
     friend class PublisherEffectBrokerReadback;
-    void initialize(HANDLE, const usk::json::Value&, const usk::json::Value*);
+    // Only the original broker's fixed record round can admit these slots.
+    PublisherBrokerObjectQuery(HANDLE, const usk::json::Value&, const usk::json::Value&,
+        const PublisherRecordQueryRoundOwner&);
+    void initialize(HANDLE, const usk::json::Value&, const usk::json::Value*,
+        const PublisherRecordQueryRoundOwner* = nullptr);
     usk::json::Value authenticated_access(const PublisherRequestChannel&) const;
     struct State;
     std::unique_ptr<State> state_;
