@@ -25,7 +25,10 @@ enum class Phase : std::uint32_t {
     machine_request = 1, engine_request, response_write, authority_fence,
     record_proof, child_native_before, child_native_after, broker_collect,
     record_first_round, record_byte_read, record_second_round,
-    record_final_validation
+    record_final_validation,
+    // Append private diagnostic IDs; existing event fields and IDs stay stable.
+    record_readiness, record_result_receive, record_result_validation,
+    record_owner_validation, broker_original_selection
 };
 struct Snapshot {
     std::array<std::uint64_t, static_cast<std::size_t>(Counter::count)> totals{};

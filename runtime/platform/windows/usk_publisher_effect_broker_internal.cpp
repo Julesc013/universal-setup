@@ -1464,6 +1464,7 @@ struct PublisherEffectBrokerReadback::State {
         Value profile_, selection_;
     };
     Value recovery_current(bool select_original = false) const {
+        const usk::diagnostics::Scope diagnostic(usk::diagnostics::Phase::broker_original_selection);
         require(maintenance_recovery || installation_recovery, "broker original selection requires its actual minimal request");
         PublisherOriginalRecoveryIntentQuery query(admission, channel, volume);
         Value result(Value::Object{});
@@ -2389,6 +2390,8 @@ PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
     const Value* authority_native_before) {
     const auto started = GetTickCount64();
     try {
+        std::optional<usk::diagnostics::Scope> readiness_diagnostic{
+            std::in_place, usk::diagnostics::Phase::record_readiness};
         require(!state_->failed && state_->initialized && after_queries_closed &&
             state_->process_id == GetCurrentProcessId() && state_->thread_id == GetCurrentThreadId() &&
             state_->peer.canonical_request() == state_->request, "child record byte scope lacks its original initialized owner");
@@ -2443,6 +2446,7 @@ PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
             provisional.emplace(std::move(ready));
             (void)s.remaining();
         }
+        readiness_diagnostic.reset();
         {
             const usk::diagnostics::Scope diagnostic(usk::diagnostics::Phase::record_first_round);
             reader.run_round(round);
@@ -2465,6 +2469,8 @@ PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
         }
         require(s.chunk_index == scope.at("chunk_count").as_unsigned(), "child complete record second round is missing occurrences");
         s.round_sequence.require_complete();
+        std::optional<usk::diagnostics::Scope> receive_diagnostic{
+            std::in_place, usk::diagnostics::Phase::record_result_receive};
         const auto closed = s.peer.receive(s.remaining());
         record_require_packet(closed, scope, "all_second_queries_closed");
         // Distinct from read-finished: every second-round query has actually
@@ -2472,6 +2478,8 @@ PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
         after_queries_closed();
         (void)s.remaining();
         auto frames = s.peer.receive_record_result_stream(scope, s.remaining());
+        receive_diagnostic.reset();
+        const usk::diagnostics::Scope validation_diagnostic(usk::diagnostics::Phase::record_result_validation);
         require(frames.size() == publisher_record_result_frame_count(scope), "child record final stream count differs");
         auto final = std::move(frames.front());
         record_require_packet(final, scope, "final", selected_kind ?

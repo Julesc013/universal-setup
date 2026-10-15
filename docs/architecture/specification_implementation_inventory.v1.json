@@ -6227,7 +6227,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_broker_internal.cpp",
-          "sha256": "9a0e782f814b6a6a8c05ba724f1347f7b41c0d736421800fbe90a278332daed6"
+          "sha256": "b5d69b1a8ffcba0de2857a402c2a94802224d69281e4259ff8c7978d50eb7602"
         },
         {
           "path": "tests/native/usk_publisher_broker_object_query_smoke.cpp",
@@ -6235,7 +6235,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_execution_internal.cpp",
-          "sha256": "af78020776cf8935a3e6f83e55276c1e3b4aa4fb1c91ec7040b67cdec999830c"
+          "sha256": "6badc133270fc8bea99d1c17e40e0fcc2ba7860ded9f13c960143ad50e26e439"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_execution_internal.h",

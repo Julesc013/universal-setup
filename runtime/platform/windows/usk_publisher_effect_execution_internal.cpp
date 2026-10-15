@@ -280,6 +280,8 @@ void PublisherEffectExecutionOwner::verify_original_maintenance_record_bytes(
             observed.access = std::move(combined.access);
         } else observed = state_->readback.original_maintenance_record_bytes_bracket(reader,
             effect_proof_remaining(proof_started), after_queries_closed);
+        std::optional<usk::diagnostics::Scope> owner_diagnostic{
+            std::in_place, usk::diagnostics::Phase::record_owner_validation};
         // Selected endpoints stay owned through final validation and retention.
         // Borrow those exact values rather than copying both proof subtrees.
         const auto& before = selected ? selected->before : observed.before;
@@ -295,6 +297,7 @@ void PublisherEffectExecutionOwner::verify_original_maintenance_record_bytes(
                 "publisher authority record selected kind changed at completion");
             require_authority_record_selection(reader, after, selected->selection, *native_after);
         }
+        owner_diagnostic.reset();
         {
             const usk::diagnostics::Scope final_diagnostic(usk::diagnostics::Phase::record_final_validation);
             reader.finalize(observed.access); // All raw denials and actual final whole-chain joins.
