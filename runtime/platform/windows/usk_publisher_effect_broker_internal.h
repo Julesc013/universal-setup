@@ -152,9 +152,28 @@ private:
 inline constexpr std::size_t publisher_record_byte_occurrence_limit = 128u;
 inline constexpr std::size_t publisher_record_byte_chunk_limit = 16u;
 inline constexpr std::size_t publisher_record_byte_proof_bytes_limit = 32u * 1024u * 1024u;
+// Sequencing only. A complete count cannot establish native identity, access,
+// byte integrity or authority; callers must finish those independent proofs.
+class PublisherRecordByteRoundSequence final {
+public:
+    explicit PublisherRecordByteRoundSequence(std::size_t occurrences);
+    void begin(unsigned round);
+    void observe();
+    void close(unsigned round);
+    void read_finished();
+    void require_complete() const;
+private:
+    enum class Phase { initial, first_open, first_closed, read_done, second_open, complete };
+    const std::size_t occurrences_;
+    std::size_t observed_ = 0;
+    Phase phase_ = Phase::initial;
+};
 // The marker/data validator cannot construct a scope or install a native route.
 void require_publisher_effect_record_byte_phase(const usk::json::Value&,
     const usk::json::Value& scope, const std::string& phase);
+void require_publisher_effect_record_byte_begin(const usk::json::Value&, std::uint64_t sequence, bool authority);
+void require_publisher_effect_record_byte_round_marker(const usk::json::Value&,
+    const usk::json::Value& scope, unsigned round, bool closed);
 // Closed retained-data joins only: no native owner, reader, route or grant.
 void require_publisher_effect_authority_record_readback(const usk::json::Value& ready,
     const usk::json::Value& final, const usk::json::Value& scope,

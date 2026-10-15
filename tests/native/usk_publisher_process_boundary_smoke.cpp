@@ -728,7 +728,7 @@ void effect_execution_record_controls() {
             {"chunk_count", Value(std::uint64_t{3})}, {"ledger_sha256", Value(std::string(64u, 'a'))}});
         const auto phase_packet = [&](const Value& scope, const std::string& phase) {
             auto value = scope;
-            value.as_object().emplace("schema", Value("usk.publisher_effect_record_byte_scope.v1"));
+            value.as_object().emplace("schema", Value("usk.publisher_effect_record_byte_scope.v2"));
             value.as_object().emplace("phase", Value(phase));
             return value;
         };
@@ -761,6 +761,74 @@ void effect_execution_record_controls() {
         another_scope = record_scope;
         another_scope.as_object().at("chunk_count") = Value(std::uint64_t{2});
         phase_refused(phase_packet(another_scope, "all_second_queries_closed"), another_scope, "all_second_queries_closed");
+        // Exercise the production sequencing primitive independently of the
+        // transport. Counts are sequencing data, never native/access authority.
+        const auto sequence_refused = [&](const auto& action) {
+            bool refused = false;
+            try { action(); } catch (...) { refused = true; }
+            check(refused, "record byte incomplete or repeated round transition accepted");
+        };
+        for (const std::size_t count : {1u, 8u, 9u, 128u}) {
+            PublisherRecordByteRoundSequence sequence(count);
+            sequence.begin(0);
+            for (std::size_t i = 0; i < count; ++i) sequence.observe();
+            sequence.close(0); sequence.read_finished(); sequence.begin(1);
+            for (std::size_t i = 0; i < count; ++i) sequence.observe();
+            sequence.close(1); sequence.require_complete();
+            sequence_refused([&] { sequence.begin(0); });
+            sequence_refused([&] { sequence.read_finished(); });
+            sequence_refused([&] { sequence.close(1); });
+            sequence_refused([&] { sequence.observe(); });
+        }
+        sequence_refused([] { PublisherRecordByteRoundSequence invalid(0); });
+        sequence_refused([] { PublisherRecordByteRoundSequence invalid(129); });
+        sequence_refused([] { PublisherRecordByteRoundSequence s(9); s.begin(1); });
+        sequence_refused([] { PublisherRecordByteRoundSequence s(9); s.begin(0); s.begin(0); });
+        sequence_refused([] { PublisherRecordByteRoundSequence s(9); s.begin(0); s.read_finished(); });
+        sequence_refused([] { PublisherRecordByteRoundSequence s(9); s.begin(0); s.observe(); s.close(0); });
+        sequence_refused([] { PublisherRecordByteRoundSequence s(1); s.begin(0); s.observe(); s.close(1); });
+        sequence_refused([] { PublisherRecordByteRoundSequence s(1); s.begin(0); s.observe(); s.observe(); });
+        sequence_refused([] { PublisherRecordByteRoundSequence s(1); s.begin(0); s.observe(); s.close(0); s.begin(1); });
+        sequence_refused([] { PublisherRecordByteRoundSequence s(1); s.begin(0); s.observe(); s.close(0); s.read_finished(); s.read_finished(); });
+        sequence_refused([] { PublisherRecordByteRoundSequence s(1); s.begin(0); s.observe(); s.close(0); s.read_finished(); s.begin(1); s.require_complete(); });
+        auto whole_scope = record_scope;
+        Value::Array whole_objects;
+        for (std::size_t i = 0; i < 24u; ++i) whole_objects.push_back(object(i % 2u + 2u));
+        const Value whole_ledger(std::move(whole_objects));
+        whole_scope.as_object().at("ledger_sha256") = Value(usk::json::sha256_canonical(whole_ledger));
+        auto whole_begin = phase_packet(whole_scope, "begin");
+        whole_begin.as_object().emplace("native_objects", whole_ledger);
+        require_publisher_effect_record_byte_begin(whole_begin, 1, false); // Duplicates are retained, not deduplicated.
+        const auto begin_refused = [&](const Value& packet) {
+            sequence_refused([&] { require_publisher_effect_record_byte_begin(packet, 1, false); });
+        };
+        auto broken_begin = whole_begin;
+        broken_begin.as_object().erase("native_objects"); begin_refused(broken_begin);
+        broken_begin = whole_begin; broken_begin.as_object().at("schema") = Value("usk.publisher_effect_record_byte_scope.v1"); begin_refused(broken_begin);
+        broken_begin = whole_begin; broken_begin.as_object().at("scope_sequence") = Value(std::uint64_t{2}); begin_refused(broken_begin);
+        broken_begin = whole_begin; broken_begin.as_object().at("ledger_sha256") = Value(std::string(64u, 'a')); begin_refused(broken_begin);
+        broken_begin = whole_begin;
+        std::swap(broken_begin.as_object().at("native_objects").as_array()[0], broken_begin.as_object().at("native_objects").as_array()[1]); begin_refused(broken_begin);
+        broken_begin = whole_begin; broken_begin.as_object().at("native_objects").as_array().pop_back(); begin_refused(broken_begin);
+        broken_begin = whole_begin; broken_begin.as_object().at("native_objects").as_array().back().as_object().emplace("extra", Value(true));
+        broken_begin.as_object().at("ledger_sha256") = Value(usk::json::sha256_canonical(broken_begin.at("native_objects"))); begin_refused(broken_begin);
+        broken_begin = whole_begin;
+        broken_begin.as_object().at("native_objects").as_array().back().as_object().at("native_name") = Value(std::string(1024u * 1024u, 'x'));
+        broken_begin.as_object().at("ledger_sha256") = Value(usk::json::sha256_canonical(broken_begin.at("native_objects"))); begin_refused(broken_begin);
+        for (unsigned round = 0; round < 2u; ++round) {
+            auto closed = phase_packet(whole_scope, "round_queries_closed");
+            closed.as_object().emplace("round", Value(static_cast<std::uint64_t>(round)));
+            closed.as_object().emplace("native_query_count", Value(std::uint64_t{24}));
+            require_publisher_effect_record_byte_round_marker(closed, whole_scope, round, true);
+            sequence_refused([&] { require_publisher_effect_record_byte_round_marker(closed, whole_scope, round, false); });
+            sequence_refused([&] { require_publisher_effect_record_byte_round_marker(closed, whole_scope, 1u - round, true); });
+            auto missing = closed; missing.as_object().erase("native_query_count");
+            sequence_refused([&] { require_publisher_effect_record_byte_round_marker(missing, whole_scope, round, true); });
+            auto partial = closed; partial.as_object().at("native_query_count") = Value(std::uint64_t{8});
+            sequence_refused([&] { require_publisher_effect_record_byte_round_marker(partial, whole_scope, round, true); });
+            auto wrong_ledger = closed; wrong_ledger.as_object().at("ledger_sha256") = Value(std::string(64u, 'b'));
+            sequence_refused([&] { require_publisher_effect_record_byte_round_marker(wrong_ledger, whole_scope, round, true); });
+        }
         // Separate authority family binds exact provisional values to final
         // values. These synthetic joins cannot manufacture the sealed reader.
         const auto authority_controls = [&](const Value& profile, const Value& selected,
@@ -771,7 +839,7 @@ void effect_execution_record_controls() {
             scope.as_object().emplace("request_sha256", Value(usk::json::sha256_canonical(request)));
             const auto packet = [&](const std::string& phase) {
                 auto value = scope;
-                value.as_object().emplace("schema", Value("usk.publisher_effect_authority_record_byte_scope.v1"));
+                value.as_object().emplace("schema", Value("usk.publisher_effect_authority_record_byte_scope.v2"));
                 value.as_object().emplace("phase", Value(phase));
                 return value;
             };

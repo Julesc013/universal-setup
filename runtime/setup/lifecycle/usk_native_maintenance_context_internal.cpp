@@ -1300,7 +1300,7 @@ struct NativeMaintenanceContext::Impl {
             std::unique_ptr<Held> independent;
         };
         std::vector<PendingAccess> pending;
-        pending.reserve(publisher_object_access_batch_limit);
+        pending.reserve(record_read ? publisher_record_byte_occurrence_limit : publisher_object_access_batch_limit);
         bool selection_checked = false;
         const auto flush = [&]() {
             if (pending.empty()) return;
@@ -1308,7 +1308,19 @@ struct NativeMaintenanceContext::Impl {
             handles.reserve(pending.size());
             for (const auto& item : pending) handles.push_back(item.handle);
             Value results;
-            if (record_read) record_read->query_chunk(*record_round, handles);
+            if (record_read) {
+                // A sealed reader preflights the complete <=128 occurrence
+                // ledger before begin. Retain every independent observer here
+                // until the matching whole-round barrier. Primary native
+                // observations all precede round-ready; every post-native
+                // observation and checked close follows broker closure.
+                if (pending.size() > publisher_record_byte_occurrence_limit)
+                    throw std::runtime_error("native maintenance record round exceeded its retained occurrence bound");
+                for (std::size_t first = 0; first < handles.size(); first += publisher_object_access_batch_limit) {
+                    const auto last = std::min(handles.size(), first + publisher_object_access_batch_limit);
+                    record_read->query_chunk(*record_round, std::vector<HANDLE>(handles.begin() + first, handles.begin() + last));
+                }
+            }
             else if (selected_check && !selection_checked) {
                 // The first actual ordered chunk also carries the parent's
                 // selected operation and this child's full completed proof.
@@ -1340,11 +1352,15 @@ struct NativeMaintenanceContext::Impl {
             if (!same(observed, current.facts))
                 throw std::runtime_error("native maintenance retained batch object changed");
             pending.push_back(PendingAccess{&current, false, handle, std::move(observed), std::move(independent)});
-            if (pending.size() == publisher_object_access_batch_limit) flush();
+            if (record_read && pending.size() > publisher_record_byte_occurrence_limit)
+                throw std::runtime_error("native maintenance record collection exceeded its retained occurrence bound");
+            if (!record_read && pending.size() == publisher_object_access_batch_limit) flush();
         };
         // Preserve the original leaf-to-root held reads, recursive parent
-        // validation and root-to-leaf listing/reopen chronology. Only the
-        // read-only transport is deferred, in bounded ordered chunks.
+        // validation and root-to-leaf listing/reopen order. Sealed record
+        // readers retain the complete bounded round; other routes keep their
+        // original max-eight flush. Former interleaved sampling/close instants
+        // are unclaimed. No effect, grant or output spans this collection.
         const auto collect = [&](const auto& self, const Entry& current) -> void {
             remember(current, current.handle.value, nullptr);
             if (current.parent) self(self, *current.parent);

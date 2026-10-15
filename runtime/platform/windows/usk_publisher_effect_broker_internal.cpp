@@ -55,9 +55,9 @@ bool same(const Value& left, const Value& right) {
     return usk::json::equal_values(left, right);
 }
 constexpr const char* record_byte_kind = "original_maintenance_record_bytes_bracket";
-constexpr const char* record_byte_schema = "usk.publisher_effect_record_byte_scope.v1";
+constexpr const char* record_byte_schema = "usk.publisher_effect_record_byte_scope.v2";
 constexpr const char* authority_record_kind = "original_maintenance_authority_record_bytes_bracket";
-constexpr const char* authority_record_schema = "usk.publisher_effect_authority_record_byte_scope.v1";
+constexpr const char* authority_record_schema = "usk.publisher_effect_authority_record_byte_scope.v2";
 Value record_phase(const Value& scope, const std::string& phase) {
     auto fields = scope.as_object();
     fields.emplace("schema", Value(scope.at("kind").as_string() == authority_record_kind ? authority_record_schema : record_byte_schema));
@@ -74,7 +74,8 @@ void record_require_packet(const Value& packet, const Value& scope, const std::s
     for (const auto& name : extra) (void)packet.at(name);
     require_batch_packet_budget(packet);
 }
-Value record_scope_from_begin(const Value& begin, std::uint64_t sequence, bool authority = false) {
+Value record_scope_from_begin(const Value& begin, std::uint64_t sequence, bool authority = false,
+    bool complete_ledger = false) {
     Value::Object fields;
     for (const auto* name : {"kind", "scope_sequence", "occurrence_count", "chunk_count", "ledger_sha256"})
         fields.emplace(name, begin.at(name));
@@ -83,7 +84,7 @@ Value record_scope_from_begin(const Value& begin, std::uint64_t sequence, bool a
         fields.emplace("request_sha256", begin.at("request_sha256"));
     }
     Value scope(std::move(fields));
-    record_require_packet(begin, scope, "begin");
+    record_require_packet(begin, scope, "begin", complete_ledger ? std::set<std::string>{"native_objects"} : std::set<std::string>{});
     const auto count = scope.at("occurrence_count").as_unsigned();
     const auto chunks = scope.at("chunk_count").as_unsigned();
     const auto& sha = scope.at("ledger_sha256").as_string();
@@ -103,6 +104,28 @@ Value record_scope_from_begin(const Value& begin, std::uint64_t sequence, bool a
         sha.size() == 64u && std::all_of(sha.begin(), sha.end(), [](char c) {
             return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }),
         "record byte scope exceeds its closed original sequence/count/digest bounds");
+    if (complete_ledger) {
+        const auto& ledger = begin.at("native_objects");
+        require(ledger.as_array().size() == count && usk::json::sha256_canonical(ledger) == sha &&
+            usk::json::canonical(ledger).size() <= 1024u * 1024u,
+            "record byte complete ordered ledger differs from its count/digest/storage bound");
+        // Expected metadata only. The independent native reopen/fresh raw9
+        // proof still validates every occurrence in each round, with duplicates.
+        for (const auto& object : ledger.as_array()) {
+            require(object.as_object().size() == 9u && object.at("file_id").type() == Value::Type::string &&
+                object.at("native_name").type() == Value::Type::string &&
+                object.at("owner_sid").type() == Value::Type::string &&
+                object.at("attributes").as_unsigned() <= 0xffffffffu &&
+                !(object.at("attributes").as_unsigned() & FILE_ATTRIBUTE_REPARSE_POINT) &&
+                object.at("reparse_tag").as_unsigned() == 0 && object.at("link_count").as_unsigned() == 1u &&
+                !object.at("case_sensitive").as_boolean(), "record byte complete ledger object grammar differs");
+            (void)object.at("dacl_protected").as_boolean();
+            for (const auto& ace : object.at("dacl_aces").as_array())
+                require(ace.as_object().size() == 4u && ace.at("type").as_unsigned() <= 0xffu &&
+                    ace.at("flags").as_unsigned() <= 0xffu && ace.at("access_mask").as_unsigned() <= 0xffffffffu &&
+                    ace.at("sid").type() == Value::Type::string, "record byte complete ledger ACE grammar differs");
+        }
+    }
     return scope;
 }
 void record_charge(std::size_t& cumulative, const Value& packet) {
@@ -1292,7 +1315,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
         if (request.at("schema").as_string() == record_byte_schema || authority_record) {
             require(state.record_scope_sequence != std::numeric_limits<std::uint64_t>::max(),
                 "broker record byte scope sequence exhausted");
-            const auto scope = record_scope_from_begin(request, ++state.record_scope_sequence, authority_record);
+            const auto scope = record_scope_from_begin(request, ++state.record_scope_sequence, authority_record, true);
             const auto remaining = [&]() {
                 return readback_remaining(packet_started, timeout, "broker complete record byte scope exceeded its original deadline");
             };
@@ -1315,27 +1338,27 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
                 record_charge(proof_bytes, ready);
                 state.custody.send(ready, remaining());
             }
-            Value::Array ledger;
+            const auto& ledger = request.at("native_objects").as_array();
             std::array<std::vector<Value>, 2u> results;
             const auto chunks = static_cast<std::size_t>(scope.at("chunk_count").as_unsigned());
-            ledger.reserve(static_cast<std::size_t>(scope.at("occurrence_count").as_unsigned()));
+            PublisherRecordByteRoundSequence round_sequence(ledger.size());
             for (std::size_t round = 0; round < 2u; ++round) {
+                const auto ready = state.custody.receive(remaining());
+                require_publisher_effect_record_byte_round_marker(ready, scope, static_cast<unsigned>(round), false);
+                record_charge(proof_bytes, ready);
+                round_sequence.begin(static_cast<unsigned>(round));
                 results[round].reserve(chunks);
                 for (std::size_t index = 0; index < chunks; ++index) {
-                    const auto packet = state.custody.receive(remaining());
-                    record_require_packet(packet, scope, "query_chunk", {"round", "chunk_index", "native_objects"});
-                    require(packet.at("round").as_unsigned() == round && packet.at("chunk_index").as_unsigned() == index,
-                        "broker record byte scope received a duplicate/out-of-order chunk");
-                    const auto& objects = packet.at("native_objects").as_array();
-                    require(objects.size() == record_chunk_size(scope, index), "broker record byte scope chunk count differs");
-                    record_charge(proof_bytes, packet);
+                    Value::Array objects;
+                    for (std::size_t offset = 0; offset < record_chunk_size(scope, index); ++offset)
+                        objects.push_back(ledger[index * publisher_object_access_batch_limit + offset]);
                     Value::Array access_results;
                     access_results.reserve(objects.size());
                     for (std::size_t offset = 0; offset < objects.size(); ++offset) {
                         const auto& expected = objects[offset];
-                        if (round == 0u) ledger.push_back(expected);
-                        else require(same(expected, ledger[index * publisher_object_access_batch_limit + offset]),
-                            "broker record byte second round changed an ordered occurrence");
+                        // Reuse only the immutable requested metadata. Every
+                        // duplicate occurrence gets another actual reopen,
+                        // fresh raw9 denial and positively checked close.
                         PublisherBrokerObjectQuery query(state.volume, expected, before.at("volume_root"));
                         auto access = query.authenticated_access(state.channel);
                         require(query.close(), "broker record byte query handle closure is unknown");
@@ -1343,33 +1366,32 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
                         // precede every sequencing acknowledgement and the read.
                         require_publisher_maintenance_read_only_access(access, before.at("authenticated_client"), expected);
                         access_results.push_back(std::move(access));
+                        round_sequence.observe();
                         (void)remaining();
                     }
-                    if (round == 0u && index + 1u == chunks)
-                        require(usk::json::sha256_canonical(Value(ledger)) == scope.at("ledger_sha256").as_string(),
-                            "broker complete first-round ordered ledger digest differs");
                     auto final_chunk = record_phase(scope, "results");
                     final_chunk.as_object().emplace("round", Value(static_cast<std::uint64_t>(round)));
                     final_chunk.as_object().emplace("chunk_index", Value(static_cast<std::uint64_t>(index)));
-                    final_chunk.as_object().emplace("native_objects_sha256", Value(usk::json::sha256_canonical(packet.at("native_objects"))));
+                    final_chunk.as_object().emplace("native_objects_sha256", Value(usk::json::sha256_canonical(Value(std::move(objects)))));
                     final_chunk.as_object().emplace("results", Value(std::move(access_results)));
                     record_charge(proof_bytes, final_chunk);
                     results[round].push_back(std::move(final_chunk));
-                    auto marker = record_phase(scope, "chunk_closed");
-                    marker.as_object().emplace("round", Value(static_cast<std::uint64_t>(round)));
-                    marker.as_object().emplace("chunk_index", Value(static_cast<std::uint64_t>(index)));
-                    marker.as_object().emplace("native_query_count", Value(static_cast<std::uint64_t>(objects.size())));
-                    marker.as_object().emplace("native_objects_sha256", Value(usk::json::sha256_canonical(packet.at("native_objects"))));
-                    require_batch_packet_budget(marker);
-                    state.custody.send(marker, remaining());
                 }
+                round_sequence.close(static_cast<unsigned>(round));
+                auto marker = record_phase(scope, "round_queries_closed");
+                marker.as_object().emplace("round", Value(static_cast<std::uint64_t>(round)));
+                marker.as_object().emplace("native_query_count", scope.at("occurrence_count"));
+                require_publisher_effect_record_byte_round_marker(marker, scope, static_cast<unsigned>(round), true);
+                state.custody.send(marker, remaining());
                 if (round == 0u) {
                     const auto finished = state.custody.receive(remaining());
                     record_require_packet(finished, scope, "read_finished");
+                    round_sequence.read_finished();
                     // This rendezvous carries no claimed byte proof or result.
                     // Only the inaccessible concrete child's reader can issue it.
                 }
             }
+            round_sequence.require_complete();
             const auto queries_closed = record_phase(scope, "all_second_queries_closed");
             require_batch_packet_budget(queries_closed);
             state.custody.send(queries_closed, remaining());
@@ -1637,6 +1659,46 @@ namespace {
 PublisherWorkerTokenContext actual_worker_context(const Value&);
 void require_raw_object_access(const Value&, const Value&);
 }
+PublisherRecordByteRoundSequence::PublisherRecordByteRoundSequence(std::size_t occurrences)
+    : occurrences_(occurrences) {
+    require(occurrences && occurrences <= publisher_record_byte_occurrence_limit,
+        "record byte round sequence has another occurrence bound");
+}
+void PublisherRecordByteRoundSequence::begin(unsigned round) {
+    require((round == 0u && phase_ == Phase::initial) || (round == 1u && phase_ == Phase::read_done),
+        "record byte round began twice, out of order or before the original read");
+    phase_ = round == 0u ? Phase::first_open : Phase::second_open;
+    observed_ = 0;
+}
+void PublisherRecordByteRoundSequence::observe() {
+    require((phase_ == Phase::first_open || phase_ == Phase::second_open) && observed_ < occurrences_,
+        "record byte round has an extra or unsequenced occurrence");
+    ++observed_;
+}
+void PublisherRecordByteRoundSequence::close(unsigned round) {
+    require(((round == 0u && phase_ == Phase::first_open) || (round == 1u && phase_ == Phase::second_open)) &&
+        observed_ == occurrences_, "record byte round closure lacks its complete ordered occurrences");
+    phase_ = round == 0u ? Phase::first_closed : Phase::complete;
+}
+void PublisherRecordByteRoundSequence::read_finished() {
+    require(phase_ == Phase::first_closed, "record byte read lacks its complete first-round barrier");
+    phase_ = Phase::read_done;
+}
+void PublisherRecordByteRoundSequence::require_complete() const {
+    require(phase_ == Phase::complete, "record byte round sequence lacks both completed rounds and original read");
+}
+void require_publisher_effect_record_byte_begin(const Value& begin, std::uint64_t sequence, bool authority) {
+    (void)record_scope_from_begin(begin, sequence, authority, true);
+}
+void require_publisher_effect_record_byte_round_marker(const Value& marker, const Value& scope, unsigned round, bool closed) {
+    require(round < 2u, "record byte round marker has another round");
+    const auto checked = record_scope_from_begin(record_phase(scope, "begin"), scope.at("scope_sequence").as_unsigned(),
+        scope.at("kind").as_string() == authority_record_kind);
+    record_require_packet(marker, checked, closed ? "round_queries_closed" : "round_queries_ready", {"round", "native_query_count"});
+    require(marker.at("round").as_unsigned() == round &&
+        marker.at("native_query_count").as_unsigned() == scope.at("occurrence_count").as_unsigned(),
+        "record byte round marker changed its complete count or round");
+}
 void require_publisher_effect_record_byte_phase(const Value& packet, const Value& scope, const std::string& phase) {
     require(phase == "begin" || phase == "read_finished" || phase == "all_second_queries_closed",
         "record byte scope has an unknown rendezvous phase");
@@ -1682,9 +1744,13 @@ struct PublisherEffectRecordByteRound::State {
     Value custody;
     PublisherTokenObservation parent, child;
     std::size_t round = 0, chunk_index = 0, proof_bytes = 0;
+    PublisherRecordByteRoundSequence round_sequence;
+    struct PendingChunk { std::vector<HANDLE> handles; Value observed; };
+    std::vector<PendingChunk> pending_chunks;
     State(PublisherEffectWorkerPeer& p, const Value& l, Value s, ULONGLONG start, DWORD budget)
         : peer(p), ledger(l), scope(std::move(s)), started(start), timeout(budget), request(p.canonical_request()),
-        custody(p.observation()), parent(p.peer_primary_token()), child(observe_current_publisher_token()) {}
+        custody(p.observation()), parent(p.peer_primary_token()), child(observe_current_publisher_token()),
+        round_sequence(l.as_array().size()) {}
     DWORD remaining() const {
         return readback_remaining(started, timeout, "child complete record byte scope exceeded its original deadline");
     }
@@ -1729,41 +1795,50 @@ void PublisherEffectRecordByteRound::query_chunk(const std::vector<HANDLE>& hand
     s.require_chunk_binding();
     require(s.round < 2u && handles.size() == record_chunk_size(s.scope, s.chunk_index),
         "child record byte scope has another ordered pending chunk");
-    // The enclosing sealed reader already sampled each native occurrence
-    // before this call. Send only its owned, ordered frozen expectations;
-    // these values are not a new observation or an authorization decision.
-    const auto expected = s.chunk_objects(s.chunk_index);
-    auto query = record_phase(s.scope, "query_chunk");
-    query.as_object().emplace("round", Value(static_cast<std::uint64_t>(s.round)));
-    query.as_object().emplace("chunk_index", Value(static_cast<std::uint64_t>(s.chunk_index)));
-    query.as_object().emplace("native_objects", expected);
-    record_charge(s.proof_bytes, query);
-    s.peer.send(query, s.remaining());
-    // Overlap this additional local census with the broker's independent
-    // read-only queries. Every native check still precedes marker acceptance.
-    // Any failure poisons the enclosing begun exchange, without retry or bytes.
+    require(s.pending_chunks.size() == s.chunk_index, "child record byte pending chunk order differs");
+    if (s.chunk_index == 0u) {
+        // The sealed lifecycle owner has collected and retained ALL primary
+        // native observations/independent handles before entering this round.
+        // The broker cannot start queries before this rendezvous. The complete
+        // ledger sent at begin remains expected metadata, never fresh proof.
+        s.round_sequence.begin(static_cast<unsigned>(s.round));
+        auto ready = record_phase(s.scope, "round_queries_ready");
+        ready.as_object().emplace("round", Value(static_cast<std::uint64_t>(s.round)));
+        ready.as_object().emplace("native_query_count", s.scope.at("occurrence_count"));
+        require_publisher_effect_record_byte_round_marker(ready, s.scope, static_cast<unsigned>(s.round), false);
+        record_charge(s.proof_bytes, ready);
+        s.peer.send(ready, s.remaining());
+    }
+    // Keep every additional per-chunk local observation, including duplicate
+    // ancestry. The old per-chunk wire interleaving instants are unclaimed.
     Value::Array objects;
     objects.reserve(handles.size());
     for (const auto handle : handles) {
         require(observe_publisher_noninheritable_handle_flags(handle) == 0, "child record byte query handle is inheritable");
         objects.push_back(object(handle));
+        s.round_sequence.observe();
     }
-    const Value observed(std::move(objects));
+    Value observed(std::move(objects));
     require(s.matches_chunk(observed, s.chunk_index), "child record byte actual occurrence differs from its frozen ledger");
-    const auto marker = s.peer.receive(s.remaining());
-    record_require_packet(marker, s.scope, "chunk_closed", {"round", "chunk_index", "native_query_count", "native_objects_sha256"});
-    require(marker.at("round").as_unsigned() == s.round && marker.at("chunk_index").as_unsigned() == s.chunk_index &&
-        marker.at("native_query_count").as_unsigned() == handles.size() &&
-        marker.at("native_objects_sha256").as_string() == usk::json::sha256_canonical(observed),
-        "child record byte chunk closure differs from its actual queries");
-    // No usable raw result/authority is returned to the context. The broker's
-    // actual shared read-only denial and checked closes precede this marker.
-    for (std::size_t index = 0; index < handles.size(); ++index)
-        require(same(object(handles[index]), observed.as_array()[index]) &&
-            observe_publisher_noninheritable_handle_flags(handles[index]) == 0,
-            "child record byte held object changed across provisional query");
-    s.require_chunk_binding();
+    s.pending_chunks.push_back({handles, std::move(observed)});
     ++s.chunk_index;
+    if (s.chunk_index == s.scope.at("chunk_count").as_unsigned()) {
+        const auto marker = s.peer.receive(s.remaining());
+        require_publisher_effect_record_byte_round_marker(marker, s.scope, static_cast<unsigned>(s.round), true);
+        // Every former post-marker native observation remains AFTER all of
+        // the broker's actual raw9 queries and positively checked closes.
+        // The lifecycle owner keeps these exact independent handles alive;
+        // no byte read or usable raw result can precede this full barrier.
+        for (const auto& chunk : s.pending_chunks) {
+            for (std::size_t index = 0; index < chunk.handles.size(); ++index)
+                require(same(object(chunk.handles[index]), chunk.observed.as_array()[index]) &&
+                    observe_publisher_noninheritable_handle_flags(chunk.handles[index]) == 0,
+                    "child record byte held object changed across provisional query");
+            s.require_chunk_binding();
+        }
+        s.round_sequence.close(static_cast<unsigned>(s.round));
+        s.pending_chunks.clear();
+    }
 }
 PublisherEffectWorkerReadback::ObjectAccessObservation
 PublisherEffectWorkerReadback::original_maintenance_record_bytes_bracket(
@@ -1809,8 +1884,9 @@ PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
             scope.as_object().emplace("selected_kind", Value(selected_bracket_kind(*selected_kind)));
             scope.as_object().emplace("request_sha256", Value(raw_sha256(state_->request)));
         }
-        const auto begin = record_phase(scope, "begin");
-        (void)record_scope_from_begin(begin, state_->record_scope_sequence, selected_kind.has_value());
+        auto begin = record_phase(scope, "begin");
+        begin.as_object().emplace("native_objects", ledger);
+        (void)record_scope_from_begin(begin, state_->record_scope_sequence, selected_kind.has_value(), true);
         PublisherEffectRecordByteRound round(state_->peer, ledger, scope, started, timeout);
         auto& s = *round.state_;
         const auto before_peer = s.custody;
@@ -1854,6 +1930,7 @@ PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
         (void)s.remaining();
         const auto finished = record_phase(scope, "read_finished");
         record_require_packet(finished, scope, "read_finished");
+        s.round_sequence.read_finished();
         s.peer.send(finished, s.remaining());
         s.round = 1u; s.chunk_index = 0;
         {
@@ -1861,6 +1938,7 @@ PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
             reader.run_round(round);
         }
         require(s.chunk_index == scope.at("chunk_count").as_unsigned(), "child complete record second round is missing occurrences");
+        s.round_sequence.require_complete();
         const auto closed = s.peer.receive(s.remaining());
         record_require_packet(closed, scope, "all_second_queries_closed");
         // Distinct from read-finished: every second-round query has actually
