@@ -240,6 +240,9 @@ int main()
         if (usk::json::canonical_object(fields) != encoding) return false;
         const auto expected_refusal = refuses([&] { (void)usk::json::parse(encoding, budget); });
         if (expected_refusal != refuses([&] { usk::json::require_canonical_object_parse_limits(fields, budget); })) return false;
+        std::size_t object_bytes = 0;
+        const auto size_refusal = refuses([&] { object_bytes = usk::json::require_canonical_object_encoded_size(fields, budget); });
+        if (size_refusal != expected_refusal || (!size_refusal && object_bytes != encoding.size())) return false;
         if (!refuses([&] { (void)usk::json::require_canonical_object_member_parse_limits(fields, budget, "missing-selector"); })) return false;
         // Check every member, including every varied body type, against the
         // independent encoder while retaining full-envelope parser parity.

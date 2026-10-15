@@ -197,6 +197,18 @@ void require_publisher_effect_authority_record_readback(const usk::json::Value& 
     const usk::json::Value& actual_request);
 void require_publisher_maintenance_read_only_access(const usk::json::Value&,
     const usk::json::Value& client, const usk::json::Value& native_object);
+// Private v4 final-result encoding only. Projection requires the caller's
+// complete raw9 validation first and retains literal client/object equality.
+// Expansion checks the supplied hashes with the unchanged full raw predicate,
+// then restores the producer's owned raw8 grammar. Neither creates authority.
+usk::json::Value publisher_compact_record_access(usk::json::Value raw,
+    const usk::json::Value& client, const usk::json::Value& object);
+usk::json::Value publisher_expand_record_access(usk::json::Value compact,
+    const usk::json::Value& client, const usk::json::Value& object);
+// Check exact expanded bytes before cloning. Full expanded packet parser limits
+// and original cumulative charging remain mandatory at the original consumer.
+std::size_t publisher_preflight_expanded_record_results(const usk::json::Value& packet,
+    const usk::json::Value& client, const usk::json::Value& objects, std::size_t remaining_proof_bytes);
 class PublisherEffectRecordByteRound final {
 private:
     friend class PublisherEffectWorkerReadback;

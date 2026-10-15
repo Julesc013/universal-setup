@@ -78,6 +78,9 @@ std::string canonical_object(const CanonicalObjectView& fields);
 // Exactly the acceptance of parse(canonical_object(fields), limits), without
 // materializing another encoding or decoded tree. Keys are unique by construction.
 void require_canonical_object_parse_limits(const CanonicalObjectView& fields, const ParseLimits& limits);
+// Same full validation, returning the object's exact encoded size without an
+// encoding allocation. Referenced values live through this synchronous call.
+std::size_t require_canonical_object_encoded_size(const CanonicalObjectView& fields, const ParseLimits& limits);
 // Validate the full borrowed object under the same parser limits and return
 // the selected root value's exact encoded bytes, excluding its key/colon.
 // The selected member must exist; no value or authorization result is cached.

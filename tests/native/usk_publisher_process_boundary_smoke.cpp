@@ -895,7 +895,7 @@ void effect_execution_record_controls() {
             {"chunk_count", Value(std::uint64_t{3})}, {"ledger_sha256", Value(std::string(64u, 'a'))}});
         const auto phase_packet = [&](const Value& scope, const std::string& phase) {
             auto value = scope;
-            value.as_object().emplace("schema", Value("usk.publisher_effect_record_byte_scope.v3"));
+            value.as_object().emplace("schema", Value("usk.publisher_effect_record_byte_scope.v4"));
             value.as_object().emplace("phase", Value(phase));
             return value;
         };
@@ -1161,7 +1161,7 @@ void effect_execution_record_controls() {
             scope.as_object().emplace("request_sha256", Value(usk::json::sha256_canonical(request)));
             const auto packet = [&](const std::string& phase) {
                 auto value = scope;
-                value.as_object().emplace("schema", Value("usk.publisher_effect_authority_record_byte_scope.v3"));
+                value.as_object().emplace("schema", Value("usk.publisher_effect_authority_record_byte_scope.v4"));
                 value.as_object().emplace("phase", Value(phase));
                 return value;
             };
@@ -1211,6 +1211,88 @@ void effect_execution_record_controls() {
         if (!install) authority_controls(recovery_broker, selection, minimum, "original_maintenance_recovery_bracket");
         auto denied_access = access_row(object(2));
         require_publisher_maintenance_read_only_access(denied_access, client, object(2));
+
+        // v4 compacts only this producer's raw8 representation. Round trips
+        // restore independently owned records; these synthetic values grant
+        // no native custody or authorization.
+        const auto encoded_access = publisher_compact_record_access(denied_access, client, object(2));
+        check(encoded_access.as_object().size() == 8u && !encoded_access.contains("client") &&
+            !encoded_access.contains("native_object"), "record transport retained repeated binding trees");
+        check(usk::json::equal_values(publisher_expand_record_access(encoded_access, client, object(2)), denied_access),
+            "record compact round trip changed the full original raw result");
+        auto restored_access = publisher_expand_record_access(encoded_access, client, object(2));
+        restored_access.as_object().at("client").as_object().at("captured_process_id") = Value(std::uint64_t{99});
+        check(!usk::json::equal_values(restored_access.at("client"), client),
+            "restored client proof aliases its binding template");
+        sequence_refused([&] { (void)publisher_compact_record_access(denied_access, large_client, object(2)); });
+        sequence_refused([&] { (void)publisher_compact_record_access(denied_access, client, object(3)); });
+        for (const auto* key : {"client_sha256","native_object_sha256"}) {
+            auto supplied = denied_access; supplied.as_object().emplace(key, Value(std::string(64u,'a')));
+            sequence_refused([&] { (void)publisher_compact_record_access(supplied, client, object(2)); });
+        }
+        for (const auto& field : encoded_access.as_object()) {
+            auto missing = encoded_access; missing.as_object().erase(field.first);
+            sequence_refused([&] { (void)publisher_expand_record_access(missing, client, object(2)); });
+            auto mistyped = encoded_access; mistyped.as_object().at(field.first) = Value();
+            sequence_refused([&] { (void)publisher_expand_record_access(mistyped, client, object(2)); });
+        }
+        for (const auto* key : {"client_sha256","native_object_sha256"}) {
+            auto changed = encoded_access; changed.as_object().at(key) = Value(std::string(64u,'f'));
+            sequence_refused([&] { (void)publisher_expand_record_access(changed, client, object(2)); });
+        }
+        for (const auto* key : {"client","native_object","unexpected"}) {
+            auto changed = encoded_access; changed.as_object().emplace(key, Value());
+            sequence_refused([&] { (void)publisher_expand_record_access(changed, client, object(2)); });
+        }
+        auto changed_descriptor = encoded_access;
+        changed_descriptor.as_object().at("descriptor_hex") = Value("00");
+        sequence_refused([&] { (void)publisher_expand_record_access(changed_descriptor, client, object(2)); });
+        auto changed_right = encoded_access;
+        changed_right.as_object().at("checks").as_object().at("write_dac").as_object().at("allowed") = Value(true);
+        sequence_refused([&] { (void)publisher_expand_record_access(changed_right, client, object(2)); });
+        sequence_refused([&] { (void)publisher_expand_record_access(encoded_access, large_client, object(2)); });
+        sequence_refused([&] { (void)publisher_expand_record_access(encoded_access, client, object(3)); });
+        {
+            auto compact_fixture = stream_frames(8u);
+            auto expanded_fixture = compact_fixture;
+            const Value expected_objects(Value::Array(8u, object(2)));
+            const auto compact_large = publisher_compact_record_access(large_access, large_client, object(2));
+            for (std::size_t frame = 1u; frame < compact_fixture.second.size(); ++frame) {
+                for (auto& result : compact_fixture.second[frame].as_object().at("results").as_array()) result = compact_large;
+                for (auto& result : expanded_fixture.second[frame].as_object().at("results").as_array()) result = large_access;
+                const auto exact_bytes = usk::json::canonical(expanded_fixture.second[frame]).size();
+                check(publisher_preflight_expanded_record_results(compact_fixture.second[frame],large_client,
+                    expected_objects,exact_bytes) == exact_bytes, "record expanded-byte preflight differs from independent full encoding");
+                sequence_refused([&] { (void)publisher_preflight_expanded_record_results(
+                    compact_fixture.second[frame],large_client,expected_objects,exact_bytes-1u); });
+                sequence_refused([&] { (void)publisher_preflight_expanded_record_results(
+                    compact_fixture.second[frame],large_client,Value(Value::Array(7u,object(2))),exact_bytes); });
+                // Resource-only hostile template: compact bytes fit, expansion
+                // exceeds4MiB. This value is deliberately not an admitted client.
+                auto oversized_client = large_client;
+                oversized_client.as_object().emplace("budget_only_padding",Value(std::string(600u*1024u,'x')));
+                sequence_refused([&] { (void)publisher_preflight_expanded_record_results(
+                    compact_fixture.second[frame],oversized_client,expected_objects,publisher_record_byte_proof_bytes_limit); });
+            }
+            const auto compact_wire = stream_bytes(compact_fixture.second);
+            check(compact_wire.size() < stream_bytes(expanded_fixture.second).size(),
+                "record compact fixture did not reduce actual encoded transport bytes");
+            PublisherRecordResultStreamDecoder decoder(compact_fixture.first,stream_binding,7u);
+            decoder.feed(compact_wire.data(),compact_wire.size());
+            auto decoded = decoder.finish();
+            for (std::size_t frame = 1u; frame < decoded.size(); ++frame) {
+                (void)publisher_preflight_expanded_record_results(decoded[frame],large_client,
+                    expected_objects,publisher_record_byte_proof_bytes_limit);
+                for (auto& result : decoded[frame].as_object().at("results").as_array())
+                    result = publisher_expand_record_access(std::move(result),large_client,object(2));
+                check(usk::json::equal_values(decoded[frame],expanded_fixture.second[frame]),
+                    "private stream round trip changed an original expanded frame");
+            }
+            auto old_version = phase_packet(record_scope,"all_second_queries_closed");
+            old_version.as_object().at("schema") = Value("usk.publisher_effect_record_byte_scope.v3");
+            phase_refused(old_version,record_scope,"all_second_queries_closed");
+        }
+
         auto unknown_access = denied_access;
         unknown_access.as_object().emplace("unexpected", Value(true));
         bool unknown_refused = false;

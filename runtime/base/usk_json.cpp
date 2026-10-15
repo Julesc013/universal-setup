@@ -454,7 +454,7 @@ void append_canonical(Output& output, const Value& value)
 class CanonicalBudget {
 public:
     explicit CanonicalBudget(const ParseLimits& limits) : limits_(limits) {}
-    void object(const CanonicalObjectView& fields) { (void)object_member(fields, nullptr); }
+    std::size_t object(const CanonicalObjectView& fields) { (void)object_member(fields, nullptr); return bytes_; }
     std::size_t object_member(const CanonicalObjectView& fields, const std::string* selected)
     {
         count_value(0);
@@ -581,6 +581,11 @@ std::size_t require_canonical_object_member_parse_limits(const CanonicalObjectVi
 void require_canonical_object_parse_limits(const CanonicalObjectView& fields, const ParseLimits& limits)
 {
     CanonicalBudget(limits).object(fields);
+}
+
+std::size_t require_canonical_object_encoded_size(const CanonicalObjectView& fields, const ParseLimits& limits)
+{
+    return CanonicalBudget(limits).object(fields);
 }
 
 bool equal_values(const Value& left, const Value& right)
