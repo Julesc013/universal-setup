@@ -23,7 +23,9 @@
 #include <iostream>
 #include <map>
 #include <memory>
+#include <set>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 using usk::json::Value;
@@ -190,6 +192,171 @@ Value broker_lifetime_security(const Value& baseline, const std::vector<std::uin
     result.as_object().erase("original_baseline");
     return result;
 }
+// Differential DATA controls retain the legacy allocating adapters.
+// They establish projection equivalence, not native lifecycle or speed.
+void legacy_worker_security_projection(const Value& value, const PublisherWorkerTokenContext& worker) {
+    if (value.at("schema").as_string() == "usk.publisher_worker_security.v2") {
+        check(value.as_object().size() == 8 && value.at("scope").as_string() ==
+            "original_pinned_token_defaults_and_native_thread_retirement_partition",
+            "publisher retirement observation closed schema differs");
+        const auto& baseline = value.at("original_baseline");
+        check(baseline.at("schema").as_string() == "usk.publisher_worker_security.v1",
+            "publisher retirement baseline is not the original closed snapshot");
+        require_publisher_worker_security(baseline, worker);
+        Value::Object live_fields;
+        for (const auto& field : value.as_object()) {
+            // The original baseline and retirement evidence are checked below;
+            // this stored-policy value owns only the fields that survive the projection.
+            if (field.first == "original_baseline" || field.first == "retired_threads") continue;
+            live_fields.emplace(field.first, field.second);
+        }
+        Value live(std::move(live_fields));
+        live.as_object().at("schema") = baseline.at("schema");
+        live.as_object().at("scope") = baseline.at("scope");
+        require_publisher_worker_security(live, worker);
+        for (const auto* field : {"process_id", "current_thread_id", "primary_token"})
+            check(usk::json::equal_values(live.at(field), baseline.at(field)),
+                "publisher retirement changed original non-thread security facts");
+        std::map<std::uint64_t, const Value*> originals;
+        for (const auto& thread : baseline.at("threads").as_array())
+            originals.emplace(thread.at("thread_id").as_unsigned(), &thread);
+        std::set<std::uint64_t> partition;
+        for (const auto& thread : live.at("threads").as_array()) {
+            const auto id = thread.at("thread_id").as_unsigned();
+            check(originals.count(id) && partition.insert(id).second &&
+                usk::json::equal_values(thread, *originals.at(id)),
+                "publisher live partition added or changed an original thread");
+        }
+        const auto& retired = value.at("retired_threads").as_array();
+        check(retired.size() <= originals.size(), "publisher retirement evidence exceeds original population");
+        std::uint64_t previous = 0;
+        for (const auto& thread : retired) {
+            const auto id = thread.at("thread_id").as_unsigned();
+            const auto& birth = thread.at("creation_time").as_string();
+            const auto& exit = thread.at("exit_time").as_string();
+            check(thread.as_object().size() == 3 && id > previous && originals.count(id) &&
+                id != live.at("current_thread_id").as_unsigned() && partition.insert(id).second &&
+                birth == originals.at(id)->at("creation_time").as_string() && exit.size() == 16 &&
+                exit != "0000000000000000" && exit >= birth &&
+                std::all_of(exit.begin(), exit.end(), [](char ch) {
+                    return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f');
+                }), "publisher original retirement identity, native exit or partition differs");
+            previous = id;
+        }
+        check(partition.size() == originals.size(), "publisher original thread partition is incomplete");
+        return;
+    }
+    require_publisher_worker_security(value, worker);
+}
+void legacy_broker_security_projection(const Value& value, const PublisherWorkerTokenContext& worker) {
+    check(value.as_object().size() == 8 && value.at("schema").as_string() == "usk.publisher_broker_worker_security.v1" &&
+        value.at("scope").as_string() == "completed_policy_original_native_custody_and_pending_additions",
+        "SCM broker lifetime closed schema differs");
+    // Reuse the complete stored-policy and partition DATA checks. This does
+    // not turn a growing broker admission history into child native custody.
+    Value::Object partition_fields;
+    for (const auto& field : value.as_object()) {
+        // Copy each retained field once; the admitted baseline changes its key.
+        if (field.first == "admitted_baseline") continue;
+        partition_fields.emplace(field.first, field.second);
+    }
+    partition_fields.at("schema") = Value("usk.publisher_worker_security.v2");
+    partition_fields.at("scope") = Value("original_pinned_token_defaults_and_native_thread_retirement_partition");
+    partition_fields.emplace("original_baseline", value.at("admitted_baseline"));
+    Value partition(std::move(partition_fields));
+    legacy_worker_security_projection(partition, worker);
+}
+
+void borrowed_worker_security_projection_controls() {
+    auto baseline = worker_security();
+    for (std::uint64_t id : {701u, 702u}) {
+        auto thread = baseline.at("threads").as_array().front();
+        thread.as_object().at("thread_id") = Value(id);
+        thread.as_object().at("creation_time") = Value(id == 701u ? "0000000000000701" : "0000000000000702");
+        baseline.as_object().at("threads").as_array().push_back(std::move(thread));
+    }
+    PublisherWorkerTokenContext worker{500, service_sid, {}};
+    worker.token.process_groups = groups;
+    worker.token.identity = {0x500, 0x900, 0x501, TokenPrimary};
+    std::size_t compared = 0;
+    const auto result = [](const std::function<void()>& validate) {
+        try { validate(); return std::make_pair(true, std::string{}); }
+        catch (const std::exception& error) { return std::make_pair(false, std::string(error.what())); }
+    };
+    const auto compare = [&](const Value& value, bool broker) {
+        const auto original = usk::json::canonical(value);
+        const auto legacy = result([&] {
+            if (broker) legacy_broker_security_projection(value, worker);
+            else legacy_worker_security_projection(value, worker);
+        });
+        const auto borrowed = result([&] {
+            if (broker) require_publisher_broker_worker_security(value, worker);
+            else require_publisher_worker_security(value, worker);
+        });
+        check(legacy == borrowed, "borrowed security projection changed acceptance or first refusal");
+        check(usk::json::canonical(value) == original, "security projection mutated its borrowed input");
+        ++compared;
+        return borrowed.first;
+    };
+    const std::vector<Value> records{baseline, retirement_security(baseline),
+        retirement_security(baseline, {701, 702}), broker_lifetime_security(baseline),
+        broker_lifetime_security(baseline, {701, 702})};
+    for (std::size_t index = 0; index < records.size(); ++index) {
+        const auto& good = records[index];
+        const bool broker = index >= 3u;
+        check(compare(good, broker), "legacy valid security projection refused");
+        const auto change = [&](const std::function<void(Value&)>& mutate) {
+            auto bad = good; mutate(bad); (void)compare(bad, broker);
+        };
+        for (const auto& field : good.as_object()) {
+            change([&](Value& v) { v.as_object().erase(field.first); });
+            change([&](Value& v) { v.as_object().at(field.first) = Value(true); });
+            change([&](Value& v) {
+                v.as_object().erase(field.first);
+                v.as_object().emplace("unexpected", Value(false));
+            });
+        }
+        for (const char* key : {"unexpected", "original_baseline", "admitted_baseline"})
+            if (!good.as_object().count(key))
+                change([&](Value& v) { v.as_object().emplace(key, baseline); });
+        change([](Value& v) { v.as_object().at("schema") = Value("unknown"); });
+        change([](Value& v) { v.as_object().at("scope") = Value("unknown"); });
+        change([](Value& v) { v.as_object().at("process_id") = Value(std::uint64_t{501}); });
+        change([](Value& v) { v.as_object().at("current_thread_id") = Value(std::uint64_t{999}); });
+        change([](Value& v) { v.as_object().at("primary_token").as_object().at("token_id") = Value("0000000000000502"); });
+        change([](Value& v) { v.as_object().at("primary_token").as_object().at("default_owner_sid") = Value(consumer_sid); });
+        change([](Value& v) { v.as_object().at("threads").as_array().push_back(v.at("threads").as_array().front()); });
+        change([](Value& v) { auto& rows = v.as_object().at("threads").as_array(); std::reverse(rows.begin(), rows.end()); });
+        change([](Value& v) { v.as_object().at("threads").as_array().front().as_object().at("thread_impersonating") = Value(true); });
+        change([](Value& v) { v.as_object().at("threads").as_array().front().as_object().at("creation_time") = Value("0000000000000000"); });
+        if (index == 0u) continue;
+        if (broker) {
+            auto collision = good;
+            collision.as_object().erase("retired_threads");
+            collision.as_object().emplace("original_baseline", baseline);
+            check(collision.as_object().size() == 8u, "broker collision did not retain eight fields");
+            check(!compare(collision, true), "broker baseline rename collision was admitted");
+            // The synthetic-size refusal must still precede malformed baseline data.
+            collision.as_object().at("admitted_baseline") = Value(false);
+            check(!compare(collision, true), "broker collision skipped original first refusal");
+        }
+        const char* baseline_key = broker ? "admitted_baseline" : "original_baseline";
+        change([&](Value& v) { v.as_object().at(baseline_key).as_object().at("schema") = Value("usk.publisher_worker_security.v2"); });
+        change([&](Value& v) { v.as_object().at(baseline_key).as_object().at("scope") = Value("unknown"); });
+        change([&](Value& v) { v.as_object().at(baseline_key).as_object().at("threads").as_array().pop_back(); });
+        change([&](Value& v) { v.as_object().at(baseline_key).as_object().at("primary_token") = Value(false); });
+        change([](Value& v) { v.as_object().at("retired_threads") = Value(Value::Array{}); });
+        if (good.at("retired_threads").as_array().empty()) continue;
+        change([](Value& v) { v.as_object().at("retired_threads").as_array().push_back(v.at("retired_threads").as_array().front()); });
+        change([](Value& v) { auto& rows = v.as_object().at("retired_threads").as_array(); std::reverse(rows.begin(), rows.end()); });
+        for (const char* key : {"creation_time", "exit_time"})
+            change([&](Value& v) { v.as_object().at("retired_threads").as_array().front().as_object().at(key) = Value("0000000000000000"); });
+        change([](Value& v) { v.as_object().at("retired_threads").as_array().front().as_object().at("thread_id") = Value(std::uint64_t{700}); });
+        change([](Value& v) { v.as_object().at("retired_threads").as_array().front().as_object().emplace("authority", Value("granted")); });
+    }
+    std::cout << "Borrowed security projection legacy parity PASS " << compared << " data cases\n";
+}
+
 void worker_security_controls() {
     const auto observed = observe_current_publisher_worker_security();
     check(observed.as_object().size() == 6 && observed.at("process_id").as_unsigned() == GetCurrentProcessId() &&
@@ -2488,6 +2655,7 @@ int main() {
         system_thread_census_buffer_controls();
         worker_security_controls();
         worker_retirement_data_controls();
+        borrowed_worker_security_projection_controls();
         effect_execution_record_controls();
         worker_lifetime_controls();
         worker_retirement_readback_controls();

@@ -5591,7 +5591,7 @@
         },
         {
           "path": "tests/native/usk_publisher_process_boundary_smoke.cpp",
-          "sha256": "f45f9ddcb52deefd146fb9d0a1fd9972d3c7fbecfe051f0fb096e71342fae1d0"
+          "sha256": "cb27b4c020431a0cd76fe81c93d52f9b596f85112c69ceb0728b07dd4442f3d0"
         },
         {
           "path": "tests/publisher_process_boundary.py",
@@ -5607,7 +5607,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_worker_security.cpp",
-          "sha256": "73a0d554ad0230266fd4f19c78a57ee83ea1d7d59ea2fd221bb36ebe6418252f"
+          "sha256": "099c10b17f201b0cc25cd98ab2ca699ff4ff2fe0f73ac8a7bc924ce7adc8a0c3"
         },
         {
           "path": "tests/publisher_worker_security.py",
@@ -6115,7 +6115,7 @@
         },
         {
           "path": "tests/native/usk_publisher_process_boundary_smoke.cpp",
-          "sha256": "f45f9ddcb52deefd146fb9d0a1fd9972d3c7fbecfe051f0fb096e71342fae1d0"
+          "sha256": "cb27b4c020431a0cd76fe81c93d52f9b596f85112c69ceb0728b07dd4442f3d0"
         },
         {
           "path": "tests/publisher_process_boundary.py",
@@ -6131,7 +6131,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_worker_security.cpp",
-          "sha256": "73a0d554ad0230266fd4f19c78a57ee83ea1d7d59ea2fd221bb36ebe6418252f"
+          "sha256": "099c10b17f201b0cc25cd98ab2ca699ff4ff2fe0f73ac8a7bc924ce7adc8a0c3"
         },
         {
           "path": "tests/publisher_worker_security.py",

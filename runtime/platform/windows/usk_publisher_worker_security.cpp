@@ -1350,60 +1350,14 @@ void require_publisher_worker_security(const Value& value, const PublisherServic
     require_publisher_worker_security(value,
         PublisherWorkerTokenContext{service.process_id, service.service_sid, service.token});
 }
-void require_publisher_worker_security(const Value& value, const PublisherWorkerTokenContext& worker) {
-    if (value.at("schema").as_string() == "usk.publisher_worker_security.v2") {
-        require(value.as_object().size() == 8 && value.at("scope").as_string() ==
-            "original_pinned_token_defaults_and_native_thread_retirement_partition",
-            "publisher retirement observation closed schema differs");
-        const auto& baseline = value.at("original_baseline");
-        require(baseline.at("schema").as_string() == "usk.publisher_worker_security.v1",
-            "publisher retirement baseline is not the original closed snapshot");
-        require_publisher_worker_security(baseline, worker);
-        Value::Object live_fields;
-        for (const auto& field : value.as_object()) {
-            // The original baseline and retirement evidence are checked below;
-            // this stored-policy value owns only the fields that survive the projection.
-            if (field.first == "original_baseline" || field.first == "retired_threads") continue;
-            live_fields.emplace(field.first, field.second);
-        }
-        Value live(std::move(live_fields));
-        live.as_object().at("schema") = baseline.at("schema");
-        live.as_object().at("scope") = baseline.at("scope");
-        require_publisher_worker_security(live, worker);
-        for (const auto* field : {"process_id", "current_thread_id", "primary_token"})
-            require(same(live.at(field), baseline.at(field)),
-                "publisher retirement changed original non-thread security facts");
-        std::map<std::uint64_t, const Value*> originals;
-        for (const auto& thread : baseline.at("threads").as_array())
-            originals.emplace(thread.at("thread_id").as_unsigned(), &thread);
-        std::set<std::uint64_t> partition;
-        for (const auto& thread : live.at("threads").as_array()) {
-            const auto id = thread.at("thread_id").as_unsigned();
-            require(originals.count(id) && partition.insert(id).second &&
-                same(thread, *originals.at(id)),
-                "publisher live partition added or changed an original thread");
-        }
-        const auto& retired = value.at("retired_threads").as_array();
-        require(retired.size() <= originals.size(), "publisher retirement evidence exceeds original population");
-        std::uint64_t previous = 0;
-        for (const auto& thread : retired) {
-            const auto id = thread.at("thread_id").as_unsigned();
-            const auto& birth = thread.at("creation_time").as_string();
-            const auto& exit = thread.at("exit_time").as_string();
-            require(thread.as_object().size() == 3 && id > previous && originals.count(id) &&
-                id != live.at("current_thread_id").as_unsigned() && partition.insert(id).second &&
-                birth == originals.at(id)->at("creation_time").as_string() && exit.size() == 16 &&
-                exit != "0000000000000000" && exit >= birth &&
-                std::all_of(exit.begin(), exit.end(), [](char ch) {
-                    return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f');
-                }), "publisher original retirement identity, native exit or partition differs");
-            previous = id;
-        }
-        require(partition.size() == originals.size(), "publisher original thread partition is incomplete");
-        return;
-    }
-    require(value.as_object().size() == 6 && value.at("schema").as_string() == "usk.publisher_worker_security.v1" &&
-        value.at("scope").as_string() == "stored_primary_token_defaults_and_process_thread_owner_dacls" &&
+namespace {
+// Borrow only immutable stored fields for this call; no native fact or
+// validation result survives it. Header substitutions and logical key counts
+// reproduce the legacy schema adapters without allocating synthetic trees.
+void require_worker_live_fields(const Value& value, const Value& header,
+    std::size_t field_count, const PublisherWorkerTokenContext& worker) {
+    require(field_count == 6 && header.at("schema").as_string() == "usk.publisher_worker_security.v1" &&
+        header.at("scope").as_string() == "stored_primary_token_defaults_and_process_thread_owner_dacls" &&
         worker.process_id && value.at("process_id").as_unsigned() == worker.process_id &&
         canonical_sid(worker.service_sid) && worker.token.process_groups.size() <= 4096,
         "publisher worker security context or closed schema differs");
@@ -1457,23 +1411,70 @@ void require_publisher_worker_security(const Value& value, const PublisherWorker
     }
     require(found, "publisher worker current thread missing from closure");
 }
+void require_worker_partition_fields(const Value& value, const Value& baseline,
+    const PublisherWorkerTokenContext& worker) {
+    require(baseline.at("schema").as_string() == "usk.publisher_worker_security.v1",
+        "publisher retirement baseline is not the original closed snapshot");
+    require_publisher_worker_security(baseline, worker);
+    // This is the exact former live-v1 projection's key count. A missing
+    // retired_threads key leaves seven fields and must still refuse.
+    const auto live_count = value.as_object().size() - 1u -
+        value.as_object().count("retired_threads");
+    require_worker_live_fields(value, baseline, live_count, worker);
+    for (const auto* field : {"process_id", "current_thread_id", "primary_token"})
+        require(same(value.at(field), baseline.at(field)),
+            "publisher retirement changed original non-thread security facts");
+    std::map<std::uint64_t, const Value*> originals;
+    for (const auto& thread : baseline.at("threads").as_array())
+        originals.emplace(thread.at("thread_id").as_unsigned(), &thread);
+    std::set<std::uint64_t> partition;
+    for (const auto& thread : value.at("threads").as_array()) {
+        const auto id = thread.at("thread_id").as_unsigned();
+        require(originals.count(id) && partition.insert(id).second &&
+            same(thread, *originals.at(id)),
+            "publisher live partition added or changed an original thread");
+    }
+    const auto& retired = value.at("retired_threads").as_array();
+    require(retired.size() <= originals.size(), "publisher retirement evidence exceeds original population");
+    std::uint64_t previous = 0;
+    for (const auto& thread : retired) {
+        const auto id = thread.at("thread_id").as_unsigned();
+        const auto& birth = thread.at("creation_time").as_string();
+        const auto& exit = thread.at("exit_time").as_string();
+        require(thread.as_object().size() == 3 && id > previous && originals.count(id) &&
+            id != value.at("current_thread_id").as_unsigned() && partition.insert(id).second &&
+            birth == originals.at(id)->at("creation_time").as_string() && exit.size() == 16 &&
+            exit != "0000000000000000" && exit >= birth &&
+            std::all_of(exit.begin(), exit.end(), [](char ch) {
+                return (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f');
+            }), "publisher original retirement identity, native exit or partition differs");
+        previous = id;
+    }
+    require(partition.size() == originals.size(), "publisher original thread partition is incomplete");
+}
+} // namespace
+
+void require_publisher_worker_security(const Value& value, const PublisherWorkerTokenContext& worker) {
+    if (value.at("schema").as_string() == "usk.publisher_worker_security.v2") {
+        require(value.as_object().size() == 8 && value.at("scope").as_string() ==
+            "original_pinned_token_defaults_and_native_thread_retirement_partition",
+            "publisher retirement observation closed schema differs");
+        const auto& baseline = value.at("original_baseline");
+        require_worker_partition_fields(value, baseline, worker);
+        return;
+    }
+    require_worker_live_fields(value, value, value.as_object().size(), worker);
+}
 void require_publisher_broker_worker_security(const Value& value, const PublisherWorkerTokenContext& worker) {
     require(value.as_object().size() == 8 && value.at("schema").as_string() == "usk.publisher_broker_worker_security.v1" &&
         value.at("scope").as_string() == "completed_policy_original_native_custody_and_pending_additions",
         "SCM broker lifetime closed schema differs");
-    // Reuse the complete stored-policy and partition DATA checks. This does
-    // not turn a growing broker admission history into child native custody.
-    Value::Object partition_fields;
-    for (const auto& field : value.as_object()) {
-        // Copy each retained field once; the admitted baseline changes its key.
-        if (field.first == "admitted_baseline") continue;
-        partition_fields.emplace(field.first, field.second);
-    }
-    partition_fields.at("schema") = Value("usk.publisher_worker_security.v2");
-    partition_fields.at("scope") = Value("original_pinned_token_defaults_and_native_thread_retirement_partition");
-    partition_fields.emplace("original_baseline", value.at("admitted_baseline"));
-    Value partition(std::move(partition_fields));
-    require_publisher_worker_security(partition, worker);
+    const auto& baseline = value.at("admitted_baseline");
+    // The former rename used emplace: an existing original_baseline key
+    // prevented insertion and made the synthetic partition's count seven.
+    require(value.as_object().count("original_baseline") == 0,
+        "publisher retirement observation closed schema differs");
+    require_worker_partition_fields(value, baseline, worker);
 }
 void require_publisher_broker_worker_security_continuity(const Value& earlier, const Value& later) {
     require(earlier.at("schema").as_string() == "usk.publisher_broker_worker_security.v1" &&
