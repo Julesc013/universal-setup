@@ -20,7 +20,9 @@ inline constexpr std::size_t publisher_object_access_batch_limit = 8u;
 // Bounded grouping data only. Equal file-ID occurrences retain input order on
 // one worker; every occurrence still requires its own actual native query.
 // This function cannot create a native round owner or query admission.
-std::array<std::vector<std::size_t>, 2u> publisher_record_query_plan(const usk::json::Value&);
+inline constexpr std::size_t publisher_record_query_worker_count = 4u;
+using PublisherRecordQueryPlan = std::array<std::vector<std::size_t>, publisher_record_query_worker_count>;
+PublisherRecordQueryPlan publisher_record_query_plan(const usk::json::Value&);
 // Closed selectors for read-only original selection. They do not select an
 // operation, admit a worker, or grant recovery/effect authority.
 enum class PublisherEffectSelectionKind {

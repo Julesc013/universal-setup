@@ -506,7 +506,7 @@ PublisherServiceObservation publisher_effect_broker_service_record(const Value& 
         static_cast<std::uint32_t>(original.at("process_id").as_unsigned()), record_token(original.at("primary_token"))};
 }
 
-std::array<std::vector<std::size_t>, 2u> publisher_record_query_plan(const Value& objects_value) {
+PublisherRecordQueryPlan publisher_record_query_plan(const Value& objects_value) {
     const auto& objects = objects_value.as_array();
     require(!objects.empty() && objects.size() <= publisher_object_access_batch_limit,
         "record query plan exceeds its original logical chunk bound");
@@ -521,9 +521,10 @@ std::array<std::vector<std::size_t>, 2u> publisher_record_query_plan(const Value
     }
     std::stable_sort(groups.begin(), groups.end(),
         [](const auto& left, const auto& right) { return left.second.size() > right.second.size(); });
-    std::array<std::vector<std::size_t>, 2u> plan;
+    PublisherRecordQueryPlan plan;
     for (const auto& group : groups) {
-        auto& assigned = plan[plan[0].size() <= plan[1].size() ? 0u : 1u];
+        auto& assigned = *std::min_element(plan.begin(), plan.end(),
+            [](const auto& left, const auto& right) { return left.size() < right.size(); });
         assigned.insert(assigned.end(), group.second.begin(), group.second.end());
     }
     return plan;
@@ -541,8 +542,10 @@ public:
 private:
     DWORD process_ = GetCurrentProcessId(), thread_ = GetCurrentThreadId();
     bool completed_ = false;
-    mutable std::array<std::atomic<HANDLE>, 2u> unknown_tokens_{{nullptr, nullptr}};
+    mutable std::array<std::atomic<HANDLE>, publisher_record_query_worker_count> unknown_tokens_;
     PublisherRecordQueryRoundOwner() {
+        // C++17 atomics are initialized explicitly before publishing this owner.
+        for (auto& token : unknown_tokens_) std::atomic_init(&token, static_cast<HANDLE>(nullptr));
         void* absent = nullptr;
         require(active_query.compare_exchange_strong(absent, this),
             "broker query owner is active or closure is unknown");
@@ -1164,7 +1167,7 @@ struct PublisherEffectBrokerReadback::State {
         const PublisherRecordQueryRoundOwner& round;
         ULONGLONG started;
         DWORD timeout;
-        std::array<std::vector<std::size_t>, 2u> plan;
+        PublisherRecordQueryPlan plan;
         std::vector<std::optional<Value>> results;
         std::vector<std::exception_ptr> errors;
         std::atomic<bool> cancelled{false}, closure_unknown{false};
@@ -1176,14 +1179,12 @@ struct PublisherEffectBrokerReadback::State {
             results(objects_value.size()), errors(objects_value.size()) {}
     };
     struct RecordThreadStart { State* owner = nullptr; std::size_t index = 0; };
-    std::array<RecordThreadStart, 2u> record_thread_starts;
-    std::array<HANDLE, 2u> record_threads{{nullptr, nullptr}}, record_wake{{nullptr, nullptr}},
-        record_done{{nullptr, nullptr}};
-    std::array<DWORD, 2u> record_thread_ids{{0u, 0u}};
-    std::array<bool, 2u> record_join_attempted{{false, false}}, record_join_closed{{false, false}},
-        record_thread_ended{{false, false}}, record_wake_close_attempted{{false, false}},
-        record_wake_closed{{false, false}}, record_done_close_attempted{{false, false}},
-        record_done_closed{{false, false}};
+    std::array<RecordThreadStart, publisher_record_query_worker_count> record_thread_starts;
+    std::array<HANDLE, publisher_record_query_worker_count> record_threads{}, record_wake{}, record_done{};
+    std::array<DWORD, publisher_record_query_worker_count> record_thread_ids{};
+    std::array<bool, publisher_record_query_worker_count> record_join_attempted{}, record_join_closed{},
+        record_thread_ended{}, record_wake_close_attempted{}, record_wake_closed{},
+        record_done_close_attempted{}, record_done_closed{};
     std::atomic<RecordChunkWork*> record_work{nullptr};
     std::atomic<std::size_t> record_ready{0u}, record_completed{0u};
     std::atomic<bool> record_stopping{false};
@@ -1257,10 +1258,10 @@ struct PublisherEffectBrokerReadback::State {
             if (!work) std::terminate();
             owner.run_record_queries(start.index, *work);
             work = nullptr;
-            // The acquire/release atomic RMW chain joins both workers' complete
+            // The acquire/release atomic RMW chain joins all workers' complete
             // result writes before the original thread clears the borrow.
             owner.record_completed.fetch_add(1u);
-            // The original thread consumes BOTH auto-reset notifications before
+            // The original thread consumes ALL auto-reset notifications before
             // reusing the work slot. No timer tick or per-chunk reset is needed.
             if (!SetEvent(owner.record_done[start.index])) std::terminate();
         }
@@ -1695,7 +1696,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
                         objects.push_back(ledger[index * publisher_object_access_batch_limit + offset]);
                     // At most the original eight-result logical chunk is in
                     // flight. Equal file IDs remain serialized in input order;
-                    // distinct IDs may overlap on two original native workers.
+                    // distinct IDs may overlap on four original native workers.
                     // Former cross-ID sampling instants are unclaimed. Every
                     // occurrence still has a fresh raw9/reopen/positive close.
                     auto access_results = state.record_query_chunk(objects, before.at("volume_root"),
