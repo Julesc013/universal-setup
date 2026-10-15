@@ -59,14 +59,29 @@ std::wstring handle_name(HANDLE handle) {
     const usk::diagnostics::DurationCounter elapsed(
         usk::diagnostics::Counter::handle_name_elapsed_us,
         usk::diagnostics::Counter::handle_name_calls);
-    std::vector<unsigned char> buffer(65536);
-    if (!GetFileInformationByHandleEx(handle, FileNameInfo, buffer.data(),
-            static_cast<DWORD>(buffer.size()))) {
-        throw std::runtime_error("publisher observation cannot read the handle name");
+    // Most native names fit locally. Every observation still queries this
+    // held handle; the fixed fallback retains the existing long-name bound.
+    alignas(FILE_NAME_INFO) unsigned char inline_buffer[512]{};
+    std::vector<unsigned char> expanded;
+    auto* data = inline_buffer;
+    DWORD capacity = static_cast<DWORD>(sizeof(inline_buffer));
+    if (!GetFileInformationByHandleEx(handle, FileNameInfo, data, capacity)) {
+        const DWORD error = GetLastError();
+        if (error != ERROR_MORE_DATA) {
+            throw std::runtime_error("publisher observation cannot read the handle name");
+        }
+        // Ignore the failed response, including its reported length. A name
+        // may change before this fresh query; only its successful bytes count.
+        expanded.resize(65536);
+        data = expanded.data();
+        capacity = static_cast<DWORD>(expanded.size());
+        if (!GetFileInformationByHandleEx(handle, FileNameInfo, data, capacity)) {
+            throw std::runtime_error("publisher observation cannot read the handle name");
+        }
     }
-    const auto* info = reinterpret_cast<const FILE_NAME_INFO*>(buffer.data());
+    const auto* info = reinterpret_cast<const FILE_NAME_INFO*>(data);
     if (info->FileNameLength % sizeof(WCHAR) != 0 ||
-        info->FileNameLength > buffer.size() - offsetof(FILE_NAME_INFO, FileName)) {
+        info->FileNameLength > capacity - offsetof(FILE_NAME_INFO, FileName)) {
         throw std::runtime_error("publisher observation has a malformed handle name");
     }
     return {info->FileName, info->FileNameLength / sizeof(WCHAR)};

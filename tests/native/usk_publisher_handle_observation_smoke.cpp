@@ -9,6 +9,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
+#include <vector>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -79,6 +81,76 @@ void check_stored_protection(HANDLE handle, bool directory) {
         }
     }
 }
+
+std::wstring reference_native_name(HANDLE handle) {
+    // Independent oracle: the original one-call, full-capacity API query.
+    std::vector<unsigned char> bytes(65536);
+    check(GetFileInformationByHandleEx(handle, FileNameInfo, bytes.data(),
+        static_cast<DWORD>(bytes.size())) != FALSE, "reference native-name query failed");
+    const auto* info = reinterpret_cast<const FILE_NAME_INFO*>(bytes.data());
+    check(info->FileNameLength % sizeof(WCHAR) == 0 &&
+        info->FileNameLength <= bytes.size() - offsetof(FILE_NAME_INFO, FileName),
+        "reference native-name response is malformed");
+    return {info->FileName, info->FileNameLength / sizeof(WCHAR)};
+}
+
+void check_native_name(HANDLE handle, bool directory, bool needs_fallback) {
+    alignas(FILE_NAME_INFO) unsigned char probe_buffer[512]{};
+    const BOOL fits = GetFileInformationByHandleEx(handle, FileNameInfo, probe_buffer, sizeof(probe_buffer));
+    const DWORD error = fits ? ERROR_SUCCESS : GetLastError();
+    check(needs_fallback ? (!fits && error == ERROR_MORE_DATA) : fits != FALSE,
+        "native-name fixture did not exercise its required buffer path");
+    const auto observed = directory ? observe_publisher_directory_handle(handle) :
+        observe_publisher_file_handle(handle);
+    check(observed.native_name == reference_native_name(handle),
+        "observed native name differs from the original full-buffer query");
+}
+
+fs::path extended_path(const fs::path& path) {
+    const auto absolute = fs::absolute(path).wstring();
+    if (absolute.rfind(L"\\\\?\\", 0) == 0) return fs::path(absolute);
+    if (absolute.rfind(L"\\\\", 0) == 0) return fs::path(L"\\\\?\\UNC\\" + absolute.substr(2));
+    return fs::path(L"\\\\?\\" + absolute);
+}
+
+void check_long_native_names(const fs::path& root) {
+    const auto first = extended_path(root) / std::wstring(120, L'a');
+    const auto second = first / std::wstring(120, L'b');
+    check(fs::create_directory(first), "long-name first directory creation failed");
+    check(fs::create_directory(second), "long-name second directory creation failed");
+    {
+        Handle directory(CreateFileW(second.c_str(), FILE_READ_ATTRIBUTES | READ_CONTROL,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+        check_native_name(directory.get(), true, true);
+    }
+    const auto file = second / L"payload.bin";
+    const auto renamed = second / L"renamed.bin";
+    {
+        Handle created(CreateFileW(file.c_str(), GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL, nullptr));
+    }
+    {
+        Handle held(CreateFileW(file.c_str(), FILE_READ_ATTRIBUTES | READ_CONTROL,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+            FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+        check_native_name(held.get(), false, true);
+        const auto before = observe_publisher_file_handle(held.get());
+        fs::rename(file, renamed);
+        const auto after = observe_publisher_file_handle(held.get());
+        check(after.file_id == before.file_id && after.native_name != before.native_name &&
+            after.native_name == reference_native_name(held.get()),
+            "same-handle reobservation missed a long native-name change");
+        check_native_name(held.get(), false, true);
+        fs::rename(renamed, file);
+        const auto restored = observe_publisher_file_handle(held.get());
+        check(restored.file_id == before.file_id && restored.native_name == before.native_name,
+            "same-handle native name did not follow the restored fixture");
+    }
+    check(fs::remove(file) && fs::remove(second) && fs::remove(first),
+        "long-name fixture cleanup failed");
+}
 } // namespace
 
 void check_projection_equivalence() {
@@ -140,6 +212,7 @@ int main() {
                     FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                 FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
             const auto observed = observe_publisher_directory_handle(handle.get());
+            check_native_name(handle.get(), true, false);
             const auto access = usk::platform::windows::observe_publisher_handle_granted_access(handle.get());
             check((access & (FILE_READ_ATTRIBUTES | READ_CONTROL | WRITE_DAC)) ==
                     (FILE_READ_ATTRIBUTES | READ_CONTROL | WRITE_DAC) && (access & DELETE) == 0,
@@ -208,6 +281,7 @@ int main() {
                 FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
             check(refused(regular.get()), "regular file was admitted as a directory");
             const auto observed_file = observe_publisher_file_handle(regular.get());
+            check_native_name(regular.get(), false, false);
             check((observed_file.attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 &&
                 observed_file.link_count == 1 && !observed_file.owner_sid.empty() &&
                 !observed_file.dacl_aces.empty() && !observed_file.case_sensitive,
@@ -227,6 +301,7 @@ int main() {
             catch (const std::runtime_error&) { denied = true; }
             check(denied, "file handle lacking READ_CONTROL supplied security facts");
         }
+        check_long_native_names(root);
         fs::remove(file);
         fs::remove(directory);
         fs::remove(root);
