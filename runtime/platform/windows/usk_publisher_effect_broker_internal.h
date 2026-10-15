@@ -128,6 +128,8 @@ private:
 // here. Checked closure shares the broker's one-query/retained-unknown gate.
 class PublisherOriginalRecoveryIntentQuery final {
 public:
+    // Prepare owned query handles and parsed input only. A completed proof
+    // requires observation(), which freshly fences the entire original chain.
     PublisherOriginalRecoveryIntentQuery(const RegisteredPublisherAdmission&,
         const PublisherRequestChannel&, HANDLE original_volume_root);
     ~PublisherOriginalRecoveryIntentQuery();

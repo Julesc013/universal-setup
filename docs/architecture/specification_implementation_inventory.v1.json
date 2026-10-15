@@ -6223,11 +6223,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_broker_internal.h",
-          "sha256": "bec3efd396225b508ead65c91aa27366787ae4b95d5d1ca68f1ae4fd6b42f6d8"
+          "sha256": "39a669e840590a7aba0bd51ccbe6b9051896d9e227ae3be3eee801249b7168e4"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_broker_internal.cpp",
-          "sha256": "da280e42a3813682953cecd0d2f2b653074b62159fd68fe6840a4c7a89c8b7f1"
+          "sha256": "8afcbbb028d2de21b95b38842ee0264612e605eec805decf1a9b9bd5ec270d34"
         },
         {
           "path": "tests/native/usk_publisher_broker_object_query_smoke.cpp",

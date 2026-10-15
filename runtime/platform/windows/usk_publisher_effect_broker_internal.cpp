@@ -850,7 +850,7 @@ struct PublisherOriginalRecoveryIntentQuery::State {
         }
         require(read() == text, "broker original protected intent bytes changed");
     }
-    void begin() {
+    void prepare() {
         request = channel.authenticated_canonical_request();
         minimum = parse_original_minimum(request);
         names = original_intent_names(minimum);
@@ -942,7 +942,10 @@ struct PublisherOriginalRecoveryIntentQuery::State {
                 maintenance_kind(minimum.at("operation").as_string()), minimum.at("install_id").as_string(),
                 minimum.at("transaction_id").as_string(), record.at("initial_state_revision").as_string());
         }
-        fence();
+        // Preparation owns the checked handles and closed immutable input.
+        // Every observation() below still performs its complete fresh fence
+        // before exposing a projection. Construction supplies no completed
+        // proof; the former extra pre-observation sampling instant is unclaimed.
     }
 };
 PublisherOriginalRecoveryIntentQuery::PublisherOriginalRecoveryIntentQuery(const RegisteredPublisherAdmission& admission,
@@ -951,7 +954,7 @@ PublisherOriginalRecoveryIntentQuery::PublisherOriginalRecoveryIntentQuery(const
         void* absent = nullptr;
         require(active_query.compare_exchange_strong(absent, state_.get()), "broker query owner is active or closure is unknown");
         state_->claimed = true;
-        state_->begin();
+        state_->prepare();
     } catch (...) {
         const auto original = std::current_exception();
         if (!state_->close()) {
