@@ -3597,20 +3597,37 @@ inspect_recovery_prefix(const transaction::TransactionSpec& spec)
     return result;
 }
 
+void require_maintenance_pending_recovery_snapshot(const transaction::RecoveryInspection& transaction,
+    const transaction::MaintenanceEffectInspection& history,
+    const std::string& expected_transaction_snapshot_sha256, const std::string& expected_history_digest)
+{
+    if (!sha256(expected_transaction_snapshot_sha256) || !sha256(expected_history_digest) ||
+        transaction.snapshot_sha256 != expected_transaction_snapshot_sha256 || history.journal_digest != expected_history_digest ||
+        history.sealed || history.pending_kind.empty() || !transaction.commit_started ||
+        (transaction.current_state != "committing" && transaction.current_state != "committed" &&
+         transaction.current_state != "recovery_required"))
+        throw std::runtime_error("maintenance recovery snapshot changed or transaction is not resumable");
+}
+
 MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transaction::TransactionSpec& spec,
     const std::string& expected_transaction_snapshot_sha256, const std::string& expected_history_digest,
     const MaintenanceRecoveryOperations& operations, transaction::FaultInjector injector)
 {
     if (!operations.require_authority || !operations.apply_effect || !sha256(expected_transaction_snapshot_sha256) ||
         !sha256(expected_history_digest)) throw std::runtime_error("maintenance recovery has no operation-owned backend or exact snapshot");
-    const auto initial_prefix = inspect_recovery_prefix(spec);
+    std::pair<transaction::RecoveryInspection, transaction::MaintenanceEffectInspection> initial_prefix;
+    MaintenanceEffectReconciliation observation;
+    bool native_initial = false;
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+    native_initial = inspect_current_native_maintenance_pending_recovery(spec,
+        expected_transaction_snapshot_sha256, expected_history_digest, operations,
+        initial_prefix.first, initial_prefix.second, observation);
+#endif
+    if (!native_initial) initial_prefix = inspect_recovery_prefix(spec);
     const auto& transaction = initial_prefix.first;
     const auto& history = initial_prefix.second;
-    if (transaction.snapshot_sha256 != expected_transaction_snapshot_sha256 || history.journal_digest != expected_history_digest ||
-        history.sealed || history.pending_kind.empty() || !transaction.commit_started ||
-        (transaction.current_state != "committing" && transaction.current_state != "committed" &&
-         transaction.current_state != "recovery_required"))
-        throw std::runtime_error("maintenance recovery snapshot changed or transaction is not resumable");
+    require_maintenance_pending_recovery_snapshot(transaction, history,
+        expected_transaction_snapshot_sha256, expected_history_digest);
     const auto pin = [&] {
 #if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
         if (require_current_native_maintenance_recovery_prefix(spec, transaction, history, operations,
@@ -3632,7 +3649,7 @@ MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transac
         pin();
         return reconcile_maintenance_effect(spec);
     };
-    auto observation = pin_and_reconcile();
+    if (!native_initial) observation = pin_and_reconcile();
     std::string outcome = "applied";
     if (observation.state == "compatible_before_effect") {
         // Old hash-only metadata intents remain inspectable, but cannot supply

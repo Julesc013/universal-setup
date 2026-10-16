@@ -1141,7 +1141,10 @@ int maintenance_effect_interruption_proof()
                 selected.next_kind = "unchanged ordinary selection";
                 auto unchanged_transaction = transaction;
                 auto unchanged_history = history;
-                if (usk::lifecycle::detail::reconcile_current_native_maintenance_recovery_prefix(
+                if (usk::lifecycle::detail::inspect_current_native_maintenance_pending_recovery(
+                        spec, transaction.snapshot_sha256, history.journal_digest, *supplied,
+                        unchanged_transaction, unchanged_history, observed) ||
+                    usk::lifecycle::detail::reconcile_current_native_maintenance_recovery_prefix(
                         spec, transaction, history, *supplied, observed) ||
                     usk::lifecycle::detail::inspect_current_native_maintenance_recovery_step(
                         spec, transaction, history, *supplied, selected, unchanged_transaction, unchanged_history) ||
@@ -2199,6 +2202,46 @@ int protected_visible_finalization_proof()
     return 0;
 }
 
+void pending_recovery_snapshot_predicates()
+{
+    // Exercise the production-used pure predicate. These values grant no
+    // native owner or effect; the private adapter has separate native gates.
+    usk::transaction::RecoveryInspection transaction;
+    transaction.snapshot_sha256 = std::string(64u, '1');
+    transaction.commit_started = true;
+    usk::transaction::MaintenanceEffectInspection history;
+    history.journal_digest = std::string(64u, '2');
+    history.pending_kind = "replace_file";
+    const auto validate = [&](const auto& tx, const auto& effects,
+            const std::string& expected_tx, const std::string& expected_history) {
+        usk::lifecycle::detail::require_maintenance_pending_recovery_snapshot(
+            tx, effects, expected_tx, expected_history);
+    };
+    for (const auto* state : {"committing", "committed", "recovery_required"}) {
+        transaction.current_state = state;
+        validate(transaction, history, transaction.snapshot_sha256, history.journal_digest);
+    }
+    const auto denied = [&](const auto& tx, const auto& effects,
+            const std::string& expected_tx, const std::string& expected_history) {
+        if (!refuses([&] { validate(tx, effects, expected_tx, expected_history); }))
+            throw std::runtime_error("pending recovery accepted a changed or nonresumable snapshot");
+    };
+    denied(transaction, history, std::string(64u, '3'), history.journal_digest);
+    denied(transaction, history, transaction.snapshot_sha256, std::string(64u, '3'));
+    denied(transaction, history, "", history.journal_digest);
+    denied(transaction, history, transaction.snapshot_sha256, "");
+    auto unstarted = transaction; unstarted.commit_started = false;
+    denied(unstarted, history, transaction.snapshot_sha256, history.journal_digest);
+    auto sealed = history; sealed.sealed = true;
+    denied(transaction, sealed, transaction.snapshot_sha256, history.journal_digest);
+    auto empty = history; empty.pending_kind.clear();
+    denied(transaction, empty, transaction.snapshot_sha256, history.journal_digest);
+    for (const auto* state : {"created", "staging", "staged", "verified", "completed", "failed", "unknown"}) {
+        auto terminal = transaction; terminal.current_state = state;
+        denied(terminal, history, transaction.snapshot_sha256, history.journal_digest);
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -2249,6 +2292,7 @@ int main(int argc, char** argv)
             return missing_owned_parent_repair_proof();
         }
         if (argc != 1) throw std::runtime_error("unknown lifecycle smoke arguments");
+        pending_recovery_snapshot_predicates();
         if (const int protected_visible = protected_visible_finalization_proof()) {
             return protected_visible;
         }

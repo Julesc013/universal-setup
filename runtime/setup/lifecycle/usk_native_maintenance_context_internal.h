@@ -39,6 +39,11 @@ private:
         const usk::transaction::RecoveryInspection&,
         const usk::transaction::MaintenanceEffectInspection&,
         const MaintenanceRecoveryOperations&, MaintenanceEffectReconciliation&);
+    friend bool inspect_current_native_maintenance_pending_recovery(
+        const usk::transaction::TransactionSpec&, const std::string&, const std::string&,
+        const MaintenanceRecoveryOperations&,
+        usk::transaction::RecoveryInspection&, usk::transaction::MaintenanceEffectInspection&,
+        MaintenanceEffectReconciliation&);
     friend bool inspect_current_native_maintenance_recovery_step(
         const usk::transaction::TransactionSpec&,
         const usk::transaction::RecoveryInspection&,

@@ -48,6 +48,14 @@ MaintenanceContinuationInspection inspect_maintenance_continuation_unscoped(
 MaintenanceEffectReconciliation reconcile_maintenance_effect_unscoped(
     const transaction::TransactionSpec& spec);
 
+// Fixed initial snapshot validation only; this pure predicate grants no native
+// scope, authority, completion or mutation permission.
+void require_maintenance_pending_recovery_snapshot(
+    const transaction::RecoveryInspection& transaction,
+    const transaction::MaintenanceEffectInspection& history,
+    const std::string& expected_transaction_snapshot_sha256,
+    const std::string& expected_history_digest);
+
 // Internal operation-local backend, supplied by the owner of the native
 // operation. require_authority must retain and revalidate the original intent,
 // current installed revision, generation/worker fence, record parents and all
@@ -84,6 +92,17 @@ bool reconcile_current_native_maintenance_recovery_prefix(
     const transaction::MaintenanceEffectInspection& expected_history,
     const MaintenanceRecoveryOperations& operations,
     MaintenanceEffectReconciliation& output);
+// Original-backend initial pair, exact predicates and first pin/reconciliation
+// are one effect-free body. Finish the full original-record/global exit before
+// publishing any output; a decline leaves all outputs unchanged.
+bool inspect_current_native_maintenance_pending_recovery(
+    const transaction::TransactionSpec& spec,
+    const std::string& expected_transaction_snapshot_sha256,
+    const std::string& expected_history_digest,
+    const MaintenanceRecoveryOperations& operations,
+    transaction::RecoveryInspection& output_transaction,
+    transaction::MaintenanceEffectInspection& output_history,
+    MaintenanceEffectReconciliation& output_reconciliation);
 bool inspect_current_native_maintenance_recovery_step(
     const transaction::TransactionSpec& spec,
     const transaction::RecoveryInspection& expected_transaction,
