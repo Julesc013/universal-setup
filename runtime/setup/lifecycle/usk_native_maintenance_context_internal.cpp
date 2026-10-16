@@ -4130,7 +4130,8 @@ void NativeMaintenanceContext::Impl::PrefixReadRecipe::recheck(const transaction
         require_active();
         // Keep the final actual TX/history reads inside the same sealed
         // effect-free query composition. Each read retains its full native
-        // and selected-security proof; no result has escaped this recipe.
+        // proof; restored-repair selected security completes at the full entry
+        // and exit, before any result escapes this recipe.
         const auto after = transaction::TransactionSession::inspect_recovery(owner_.spec);
         const auto effects = transaction::MaintenanceEffectJournal::inspect(owner_.spec, after.stream_source_digest, false);
         if (after.snapshot_sha256 != current.snapshot_sha256 ||
@@ -4466,6 +4467,7 @@ struct NativeMaintenanceContext::Impl::RecipeQueryRead::State {
     const HANDLE volume;
     const PublisherHandleObservation volume_facts;
     const bool restored_owner, installed_issue_active, installed_confirmed;
+    const bool recipe_selection_deferred;
     const std::string failure_context;
     const Entry* const creator;
     const std::optional<PublisherHandleObservation> creator_observation;
@@ -4501,7 +4503,9 @@ struct NativeMaintenanceContext::Impl::RecipeQueryRead::State {
         const std::vector<const Entry*>* paired_tail, const Entry* paired_query)
         : recipe(composition), owner(value), child(value.original_child), volume(value.volume), volume_facts(value.volume_facts),
           restored_owner(value.restored_owner), installed_issue_active(value.installed_issue_active),
-          installed_confirmed(value.installed_confirmed), failure_context(context), creator(value.installed_postimage_file.get()),
+          installed_confirmed(value.installed_confirmed),
+          recipe_selection_deferred(value.restored_owner && value.spec.operation == "repair"),
+          failure_context(context), creator(value.installed_postimage_file.get()),
           creator_observation(observed), published_facts(value.installed_record_facts),
           paired_entries(paired_tail ? *paired_tail : std::vector<const Entry*>{}),
           byte_entry(query), paired_byte_entry(paired_query),
@@ -4620,7 +4624,9 @@ struct NativeMaintenanceContext::Impl::RecipeQueryRead::State {
             GetCurrentProcessId() != process || GetCurrentThreadId() != thread ||
             owner.volume != volume || !same(owner.volume_facts, volume_facts) ||
             owner.restored_owner != restored_owner || owner.installed_issue_active != installed_issue_active ||
-            owner.installed_confirmed != installed_confirmed || owner.installed_postimage_file.get() != creator ||
+            owner.installed_confirmed != installed_confirmed ||
+            recipe_selection_deferred != (owner.restored_owner && owner.spec.operation == "repair") ||
+            owner.installed_postimage_file.get() != creator ||
             !same(owner.installed_record_facts, published_facts) || records.size() != owner.restoration_record_observers.size())
             throw std::runtime_error("native maintenance recipe query record owner/roles changed");
         if (installed_maximum && (owner.installed_record_query_role() != installed_role ||
@@ -4675,6 +4681,13 @@ std::string NativeMaintenanceContext::Impl::RecipeQueryRead::owned_record_text()
 std::optional<PublisherEffectSelectionKind>
 NativeMaintenanceContext::Impl::RecipeQueryRead::authority_selection_kind() const {
     state_->require_frozen();
+    // The exact restored-repair reader cannot escape its private, effect-free
+    // recipe. Actual selected security and all original-record bytes complete
+    // at BOTH enclosing full authority proofs, before any recipe output.
+    // Each query still obtains its complete fresh broker/child native endpoints,
+    // both raw9 rounds, all duplicate roles, byte reads and final native joins.
+    // No selected observation or authority result is cached or granted here.
+    if (state_->recipe_selection_deferred) return std::nullopt;
     return state_->restored_owner ? PublisherEffectSelectionKind::original_maintenance_recovery :
         PublisherEffectSelectionKind::reviewed_operation;
 }
@@ -4686,7 +4699,7 @@ void NativeMaintenanceContext::Impl::RecipeQueryRead::require_authority_selectio
     const Value& profile, const Value& selected, const Value& native) {
     auto& s = *state_;
     s.require_frozen();
-    if (!s.prepared || s.active_round || s.finalized)
+    if (s.recipe_selection_deferred || !s.prepared || s.active_round || s.finalized)
         throw std::runtime_error("native maintenance recipe query selection is outside its fixed scope");
     const bool before = s.completed_rounds == 0u && !s.bytes_checked && !s.selection_before_checked;
     const bool after = s.completed_rounds == 2u && s.bytes_checked && s.selection_before_checked &&
@@ -4728,7 +4741,9 @@ void NativeMaintenanceContext::Impl::RecipeQueryRead::query_chunk(PublisherEffec
 void NativeMaintenanceContext::Impl::RecipeQueryRead::run_round(PublisherEffectRecordByteRound& round) {
     auto& s = *state_;
     s.require_frozen();
-    if (!s.prepared || !s.selection_before_checked || s.selection_after_checked || s.active_round ||
+    const bool selection_ready = s.recipe_selection_deferred ?
+        !s.selection_before_checked : s.selection_before_checked;
+    if (!s.prepared || !selection_ready || s.selection_after_checked || s.active_round ||
         s.completed_rounds >= 2u || s.finalized || (s.completed_rounds == 1u) != s.bytes_checked ||
         (s.completed_rounds == 1u && ((s.byte_entry != nullptr) != s.file_result.has_value() ||
             (s.paired_byte_entry != nullptr) != s.paired_file_result.has_value() ||
@@ -4784,8 +4799,11 @@ void NativeMaintenanceContext::Impl::RecipeQueryRead::read_original_bytes() {
 void NativeMaintenanceContext::Impl::RecipeQueryRead::finalize(const Value& raw_results) {
     auto& s = *state_;
     s.require_frozen();
-    if (s.active_round || s.completed_rounds != 2u || !s.bytes_checked || !s.selection_before_checked ||
-        !s.selection_after_checked || s.finalized || raw_results.as_array().size() != 2u * s.ordered.size() ||
+    const bool selection_complete = s.recipe_selection_deferred ?
+        (!s.selection_before_checked && !s.selection_after_checked) :
+        (s.selection_before_checked && s.selection_after_checked);
+    if (s.active_round || s.completed_rounds != 2u || !s.bytes_checked || !selection_complete ||
+        s.finalized || raw_results.as_array().size() != 2u * s.ordered.size() ||
         (s.byte_entry != nullptr) != s.file_result.has_value() ||
         (s.paired_byte_entry != nullptr) != s.paired_file_result.has_value() ||
         s.installed_maximum.has_value() != s.installed_result.has_value())
