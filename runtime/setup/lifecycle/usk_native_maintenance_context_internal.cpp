@@ -3428,13 +3428,9 @@ struct NativeMaintenanceContext::Impl {
         recipe.finish_authority();
         require_inspection_owner(supplied);
     }
-    MaintenanceEffectReconciliation read_recovery_reconciliation(const transaction::TransactionSpec& supplied,
-        const transaction::RecoveryInspection& expected_transaction,
-        const transaction::MaintenanceEffectInspection& expected_history) {
+    MaintenanceEffectReconciliation read_effect_reconciliation(const transaction::TransactionSpec& supplied) {
         require_inspection_owner(supplied);
         if (!active_read_recipe) throw std::runtime_error("native maintenance reconciliation reader is inactive");
-        read_recovery_prefix(supplied, expected_transaction, expected_history,
-            NativeMaintenanceRecoveryPrefixPin::exact_snapshot);
         // Retain the former independent reconciliation reader's actual initial
         // pair, exact body, binding predicate and actual closing pair. No effect
         // or supplied callback separates these fixed adjacent pure bodies.
@@ -3447,6 +3443,15 @@ struct NativeMaintenanceContext::Impl {
         active_read_recipe->recheck(current, history);
         require_inspection_owner(supplied);
         return result;
+    }
+    MaintenanceEffectReconciliation read_recovery_reconciliation(const transaction::TransactionSpec& supplied,
+        const transaction::RecoveryInspection& expected_transaction,
+        const transaction::MaintenanceEffectInspection& expected_history) {
+        require_inspection_owner(supplied);
+        if (!active_read_recipe) throw std::runtime_error("native maintenance reconciliation reader is inactive");
+        read_recovery_prefix(supplied, expected_transaction, expected_history,
+            NativeMaintenanceRecoveryPrefixPin::exact_snapshot);
+        return read_effect_reconciliation(supplied);
     }
     MaintenanceEffectReconciliation reconcile_recovery_prefix(const transaction::TransactionSpec& supplied,
         const transaction::RecoveryInspection& expected_transaction,
@@ -3547,24 +3552,63 @@ struct NativeMaintenanceContext::Impl {
             require_inspection_owner(supplied);
         } catch (...) { entry_readback_failed = true; throw; }
     }
+    void read_appended_intent(const transaction::TransactionSpec& supplied,
+        const std::string& source_digest, const MaintenanceContinuationInspection& selected,
+        const transaction::MaintenanceEffectInspection& previous_history) {
+        require_inspection_owner(supplied);
+        if (!active_read_recipe) throw std::runtime_error("native maintenance intent reader is inactive");
+        // Preserve the original reverse read order AFTER append and owner
+        // callback: actual history first, actual transaction second.
+        const auto appended = transaction::MaintenanceEffectJournal::inspect(supplied, source_digest);
+        if (transaction::TransactionSession::inspect_recovery(supplied).snapshot_sha256 != selected.transaction_snapshot_sha256 ||
+            appended.next_sequence != previous_history.next_sequence + 1u ||
+            appended.completed_effects != previous_history.completed_effects ||
+            appended.pending_kind != selected.next_kind ||
+            json::canonical(appended.pending_details) != json::canonical(selected.next_details))
+            throw std::runtime_error("maintenance continuation intent did not retain its selected effect");
+        require_inspection_owner(supplied);
+    }
     void validate_appended_intent(const transaction::TransactionSpec& supplied,
         const std::string& source_digest, const MaintenanceContinuationInspection& selected,
         const transaction::MaintenanceEffectInspection& previous_history) {
         require_recovery_reader(supplied);
         try {
             PrefixReadRecipe recipe(*this);
-            // Preserve the original reverse read order AFTER append and owner
-            // callback: actual history first, actual transaction second.
-            const auto appended = transaction::MaintenanceEffectJournal::inspect(supplied, source_digest);
-            if (transaction::TransactionSession::inspect_recovery(supplied).snapshot_sha256 != selected.transaction_snapshot_sha256 ||
-                appended.next_sequence != previous_history.next_sequence + 1u ||
-                appended.completed_effects != previous_history.completed_effects ||
-                appended.pending_kind != selected.next_kind ||
-                json::canonical(appended.pending_details) != json::canonical(selected.next_details))
-                throw std::runtime_error("maintenance continuation intent did not retain its selected effect");
+            read_appended_intent(supplied, source_digest, selected, previous_history);
             recipe.finish_authority();
             require_inspection_owner(supplied);
         } catch (...) { entry_readback_failed = true; throw; }
+    }
+    void validate_appended_intent_with_owner(const transaction::TransactionSpec& supplied,
+        const transaction::RecoveryInspection& expected_transaction,
+        const transaction::MaintenanceEffectInspection& expected_history,
+        const std::string& source_digest, const MaintenanceContinuationInspection& selected,
+        const transaction::MaintenanceEffectInspection& previous_history) {
+        require_recovery_reader(supplied);
+        PrefixReadRecipe recipe(*this);
+        // The append has returned. These are the original owner's actual reads,
+        // followed by the original reverse-order appended-intent validation.
+        read_recovery_prefix(supplied, expected_transaction, expected_history,
+            NativeMaintenanceRecoveryPrefixPin::original_context);
+        read_appended_intent(supplied, source_digest, selected, previous_history);
+        recipe.finish_authority();
+        require_inspection_owner(supplied);
+    }
+    MaintenanceEffectReconciliation reconcile_completed_recovery(const transaction::TransactionSpec& supplied,
+        const transaction::RecoveryInspection& expected_transaction,
+        const transaction::MaintenanceEffectInspection& expected_history) {
+        require_recovery_reader(supplied);
+        PrefixReadRecipe recipe(*this);
+        transaction::RecoveryInspection current;
+        transaction::MaintenanceEffectInspection completed;
+        inspect_prefix(supplied, current, completed);
+        recipe.recheck(current, completed); // Original standalone prefix closes.
+        require_maintenance_completed_effect_prefix(expected_transaction, expected_history, current, completed);
+        require_recovery_authority(supplied, current, completed); // Direct fixed original body.
+        auto result = read_effect_reconciliation(supplied);
+        recipe.finish_authority(); // No metadata escapes before the full fresh exit.
+        require_inspection_owner(supplied);
+        return result;
     }
     std::string apply_recovery_effect(const transaction::TransactionSpec& supplied,
         const transaction::MaintenanceEffectInspection& history) {
@@ -4801,6 +4845,32 @@ bool inspect_current_native_maintenance_recovery_step(const transaction::Transac
     if (NativeMaintenanceContext::original_recovery_reader(operations) != owner)
         throw std::runtime_error("native maintenance recovery reader changed its original owner");
     output_selection = std::move(selection); output_transaction = std::move(current); output_history = std::move(history);
+    return true;
+}
+
+bool validate_current_native_maintenance_appended_intent_with_owner(const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& expected_transaction,
+    const transaction::MaintenanceEffectInspection& expected_history,
+    const std::string& source_digest, const MaintenanceContinuationInspection& selected,
+    const transaction::MaintenanceEffectInspection& previous_history, const MaintenanceRecoveryOperations& operations) {
+    auto* owner = NativeMaintenanceContext::original_recovery_reader(operations);
+    if (!owner) return false;
+    owner->validate_appended_intent_with_owner(spec, expected_transaction, expected_history,
+        source_digest, selected, previous_history);
+    if (NativeMaintenanceContext::original_recovery_reader(operations) != owner)
+        throw std::runtime_error("native maintenance intent tail changed its original owner");
+    return true;
+}
+bool reconcile_current_native_maintenance_completed_effect(const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& expected_transaction,
+    const transaction::MaintenanceEffectInspection& expected_history,
+    const MaintenanceRecoveryOperations& operations, MaintenanceEffectReconciliation& output) {
+    auto* owner = NativeMaintenanceContext::original_recovery_reader(operations);
+    if (!owner) return false;
+    auto result = owner->reconcile_completed_recovery(spec, expected_transaction, expected_history);
+    if (NativeMaintenanceContext::original_recovery_reader(operations) != owner)
+        throw std::runtime_error("native maintenance completion tail changed its original owner");
+    output = std::move(result);
     return true;
 }
 

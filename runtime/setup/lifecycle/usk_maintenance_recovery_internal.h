@@ -56,6 +56,13 @@ void require_maintenance_pending_recovery_snapshot(
     const std::string& expected_transaction_snapshot_sha256,
     const std::string& expected_history_digest);
 
+// Exact post-completion metadata predicate; no authority or effects.
+void require_maintenance_completed_effect_prefix(
+    const transaction::RecoveryInspection& expected_transaction,
+    const transaction::MaintenanceEffectInspection& expected_history,
+    const transaction::RecoveryInspection& current,
+    const transaction::MaintenanceEffectInspection& completed);
+
 // Internal operation-local backend, supplied by the owner of the native
 // operation. require_authority must retain and revalidate the original intent,
 // current installed revision, generation/worker fence, record parents and all
@@ -125,6 +132,22 @@ bool validate_current_native_maintenance_appended_intent(
     const MaintenanceContinuationInspection& selected,
     const transaction::MaintenanceEffectInspection& previous_history,
     const MaintenanceRecoveryOperations& operations);
+// Fixed adjacent reads AFTER the journal write has returned. The full fresh
+// original-record/global exit precedes all outputs. No supplied callback,
+// journal transition, grant or effect enters either composition. Declines
+// preserve all outputs; callers retain the ordinary separate path.
+bool validate_current_native_maintenance_appended_intent_with_owner(
+    const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& expected_transaction,
+    const transaction::MaintenanceEffectInspection& expected_history,
+    const std::string& source_digest, const MaintenanceContinuationInspection& selected,
+    const transaction::MaintenanceEffectInspection& previous_history,
+    const MaintenanceRecoveryOperations& operations);
+bool reconcile_current_native_maintenance_completed_effect(
+    const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& expected_transaction,
+    const transaction::MaintenanceEffectInspection& expected_history,
+    const MaintenanceRecoveryOperations& operations, MaintenanceEffectReconciliation& output);
 #endif
 
 // Resolves exactly one pending intent, never the entire transaction. Pins the

@@ -59,6 +59,18 @@ private:
         const MaintenanceContinuationInspection&,
         const usk::transaction::MaintenanceEffectInspection&,
         const MaintenanceRecoveryOperations&);
+    friend bool validate_current_native_maintenance_appended_intent_with_owner(
+        const usk::transaction::TransactionSpec&,
+        const usk::transaction::RecoveryInspection&,
+        const usk::transaction::MaintenanceEffectInspection&,
+        const std::string&, const MaintenanceContinuationInspection&,
+        const usk::transaction::MaintenanceEffectInspection&,
+        const MaintenanceRecoveryOperations&);
+    friend bool reconcile_current_native_maintenance_completed_effect(
+        const usk::transaction::TransactionSpec&,
+        const usk::transaction::RecoveryInspection&,
+        const usk::transaction::MaintenanceEffectInspection&,
+        const MaintenanceRecoveryOperations&, MaintenanceEffectReconciliation&);
     friend std::string usk::platform::windows::execute_candidate_restricted_publisher(
         const usk::platform::windows::CandidatePublisherConfiguration&, bool&);
     NativeMaintenanceContext(HANDLE volume, const std::wstring& volume_root,

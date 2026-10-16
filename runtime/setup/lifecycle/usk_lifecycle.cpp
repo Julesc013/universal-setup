@@ -3609,6 +3609,18 @@ void require_maintenance_pending_recovery_snapshot(const transaction::RecoveryIn
         throw std::runtime_error("maintenance recovery snapshot changed or transaction is not resumable");
 }
 
+void require_maintenance_completed_effect_prefix(
+    const transaction::RecoveryInspection& transaction,
+    const transaction::MaintenanceEffectInspection& history,
+    const transaction::RecoveryInspection& current,
+    const transaction::MaintenanceEffectInspection& completed)
+{
+    if (current.snapshot_sha256 != transaction.snapshot_sha256 || completed.source_context != history.source_context ||
+        completed.sealed || !completed.pending_kind.empty() || completed.completed_effects != history.completed_effects + 1u ||
+        completed.next_sequence != history.next_sequence + 1u)
+        throw std::runtime_error("maintenance recovery completion differs from its exact original history");
+}
+
 MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transaction::TransactionSpec& spec,
     const std::string& expected_transaction_snapshot_sha256, const std::string& expected_history_digest,
     const MaintenanceRecoveryOperations& operations, transaction::FaultInjector injector)
@@ -3686,13 +3698,17 @@ MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transac
     pin();
     auto records = transaction::MaintenanceEffectJournal::resume(spec, history.source_digest, history.journal_digest);
     records->complete_effect(outcome, observation.result_digest);
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+    if (!injector) {
+        MaintenanceEffectReconciliation completed_observation;
+        if (reconcile_current_native_maintenance_completed_effect(spec, transaction, history,
+                operations, completed_observation)) return completed_observation;
+    }
+#endif
     const auto completed_prefix = inspect_recovery_prefix(spec);
     const auto& current = completed_prefix.first;
     const auto& completed = completed_prefix.second;
-    if (current.snapshot_sha256 != transaction.snapshot_sha256 || completed.source_context != history.source_context ||
-        completed.sealed || !completed.pending_kind.empty() || completed.completed_effects != history.completed_effects + 1u ||
-        completed.next_sequence != history.next_sequence + 1u)
-        throw std::runtime_error("maintenance recovery completion differs from its exact original history");
+    require_maintenance_completed_effect_prefix(transaction, history, current, completed);
     operations.require_authority(spec, current, completed);
     if (injector) injector("pending_effect", "after_completion");
     return reconcile_maintenance_effect(spec);
@@ -3780,12 +3796,19 @@ transaction::RecoveryInspection recover_maintenance_transaction(const transactio
             auto records = transaction::MaintenanceEffectJournal::resume(spec, current.stream_source_digest,
                 selected.history_digest, fenced_injector);
             records->begin_effect(selected.next_kind, selected.next_details);
-            require_owner();
             bool intent_validated = false;
 #if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
-            intent_validated = validate_current_native_maintenance_appended_intent(spec,
-                current.stream_source_digest, selected, history, operations);
+            if (!injector)
+                intent_validated = validate_current_native_maintenance_appended_intent_with_owner(spec,
+                    initial, initial_history, current.stream_source_digest, selected, history, operations);
 #endif
+            if (!intent_validated) {
+                require_owner();
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+                intent_validated = validate_current_native_maintenance_appended_intent(spec,
+                    current.stream_source_digest, selected, history, operations);
+#endif
+            }
             if (!intent_validated) {
                 const auto appended = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
                 if (transaction::TransactionSession::inspect_recovery(spec).snapshot_sha256 != selected.transaction_snapshot_sha256 ||

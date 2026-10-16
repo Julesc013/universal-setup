@@ -1151,7 +1151,11 @@ int maintenance_effect_interruption_proof()
                         unchanged_history.journal_digest != history.journal_digest || gates != 0u || applied_effects != 0u)
                         throw std::runtime_error("ordinary backend changed private pending preparation outputs or called a callback");
                 }
-                if (usk::lifecycle::detail::reconcile_current_native_maintenance_recovery_prefix(
+                if (usk::lifecycle::detail::validate_current_native_maintenance_appended_intent_with_owner(
+                        spec, transaction, history, history.source_digest, selected, history, *supplied) ||
+                    usk::lifecycle::detail::reconcile_current_native_maintenance_completed_effect(
+                        spec, transaction, history, *supplied, observed) ||
+                    usk::lifecycle::detail::reconcile_current_native_maintenance_recovery_prefix(
                         spec, transaction, history, *supplied, observed) ||
                     usk::lifecycle::detail::inspect_current_native_maintenance_recovery_step(
                         spec, transaction, history, *supplied, selected, unchanged_transaction, unchanged_history) ||
