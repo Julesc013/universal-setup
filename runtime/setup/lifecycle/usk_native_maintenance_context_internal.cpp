@@ -1160,9 +1160,9 @@ struct NativeMaintenanceContext::Impl {
         };
         operations.commit = [this](const auto& s, const auto& p, const auto& id, const auto& closure) { commit(s, p, id, closure); };
         operations.apply_effect = [this](const auto& s, const auto& history) { return apply_effect(s, history); };
-        operations.confirm_effect_completion = [this](const auto& s, const auto& history,
+        operations.confirm_effect_completion = [this](const auto& s, const auto& selection,
             const auto& outcome, const auto& result_digest) {
-            confirm_effect_completion(s, history, outcome, result_digest);
+            confirm_selected_effect_completion(s, selection, outcome, result_digest);
         };
         if (!restore) admit_original_payload();
         require_authority(spec);
@@ -1562,31 +1562,36 @@ struct NativeMaintenanceContext::Impl {
             throw std::runtime_error("native maintenance inspection lost its original TLS owner");
         if (active_read_recipe) active_read_recipe->require_active();
     }
+    transaction::MaintenanceEffectInspection read_effect_history_selection(
+        const transaction::TransactionSpec& supplied,
+        const transaction::detail::NativeMaintenanceEffectSelection& effect_selection) const {
+        using Role = transaction::detail::NativeMaintenanceEffectSelectionRole;
+        const char* refusal = nullptr;
+        switch (effect_selection.role) {
+        case Role::apply:
+            refusal = "maintenance payload dispatch lost its exact original intent";
+            break;
+        case Role::complete:
+            refusal = "native maintenance completion lost its original pending intent";
+            break;
+        default:
+            throw std::runtime_error("native maintenance history selection has no fixed role");
+        }
+        // Preserve the original supplied spec/source arguments and the
+        // complete owned completion vector, including SCM/ineligible reads.
+        auto history = transaction::MaintenanceEffectJournal::inspect(supplied, effect_selection.source_digest, true);
+        if (history.journal_digest != effect_selection.journal_digest ||
+            history.next_sequence != effect_selection.next_sequence ||
+            history.pending_sequence != effect_selection.pending_sequence ||
+            history.pending_kind != effect_selection.pending_kind)
+            throw std::runtime_error(refusal);
+        return history;
+    }
     transaction::MaintenanceEffectInspection inspect_effect_history(
         const transaction::TransactionSpec& supplied,
         const transaction::detail::NativeMaintenanceEffectSelection& effect_selection) const {
         const auto inspect = [&] {
-            using Role = transaction::detail::NativeMaintenanceEffectSelectionRole;
-            const char* refusal = nullptr;
-            switch (effect_selection.role) {
-            case Role::apply:
-                refusal = "maintenance payload dispatch lost its exact original intent";
-                break;
-            case Role::complete:
-                refusal = "native maintenance completion lost its original pending intent";
-                break;
-            default:
-                throw std::runtime_error("native maintenance history selection has no fixed role");
-            }
-            // Preserve the original supplied spec/source arguments and the
-            // complete owned completion vector, including SCM/ineligible reads.
-            auto history = transaction::MaintenanceEffectJournal::inspect(supplied, effect_selection.source_digest, true);
-            if (history.journal_digest != effect_selection.journal_digest ||
-                history.next_sequence != effect_selection.next_sequence ||
-                history.pending_sequence != effect_selection.pending_sequence ||
-                history.pending_kind != effect_selection.pending_kind)
-                throw std::runtime_error(refusal);
-            return history;
+            return read_effect_history_selection(supplied, effect_selection);
         };
         // Neither caller may mutate or invoke its concrete effect while an
         // enclosing read-only recipe is live. Never turn that failure into
@@ -3226,6 +3231,61 @@ struct NativeMaintenanceContext::Impl {
         transaction::TransactionSession::require_recovery_transition_extension(spec,
             *found->second->transaction_text, found->second->transaction_sha256, tx.snapshot_sha256);
     }
+    void read_confirmed_payload_completion(const transaction::TransactionSpec& supplied,
+        const transaction::MaintenanceEffectInspection& inspected, const std::string& outcome,
+        const std::string& result_digest, bool complete_grants,
+        transaction::RecoveryInspection& tx, transaction::MaintenanceEffectInspection& current) const {
+        require_inspection_owner(supplied);
+        if (!active_read_recipe)
+            throw std::runtime_error("native maintenance completion reader is inactive");
+        tx = transaction::TransactionSession::inspect_recovery(spec);
+        current = inspect_pending_read_only(inspected.pending_kind);
+        require_confirmed_payload_completion(tx, current, inspected, outcome, result_digest);
+        if (complete_grants && consumer_completion_required(current))
+            throw std::runtime_error("native maintenance read-only completion cannot issue a reader grant");
+        require_inspection_owner(supplied);
+    }
+    void confirm_selected_effect_completion(const transaction::TransactionSpec& supplied,
+        const transaction::detail::NativeMaintenanceEffectSelection& effect_selection,
+        const std::string& outcome, const std::string& result_digest) {
+        using Role = transaction::detail::NativeMaintenanceEffectSelectionRole;
+        require_same_transaction(supplied);
+        if (effect_selection.role != Role::complete)
+            throw std::runtime_error("native maintenance completion selection has another role");
+        if (active_read_recipe) {
+            entry_readback_failed = true;
+            throw std::runtime_error("native maintenance selected completion entered an active read recipe");
+        }
+        // Metadata-only preflight before any native begin. Publication and
+        // grant-producing completions keep their original separate readers.
+        const bool may_grant = !original_consumer_sid.empty() &&
+            ((spec.operation == "repair" && effect_selection.pending_kind == "replace_file") ||
+             (spec.operation == "move" && effect_selection.pending_kind == "publish_target"));
+        if (!original_child || !publication_confirmed || original_source_context.empty() ||
+            restoration_record_observers.empty() || effect_selection.pending_kind == "publish_target" || may_grant) {
+            const auto inspected = inspect_effect_history(supplied, effect_selection);
+            require_inspection_owner(supplied);
+            confirm_effect_completion(supplied, inspected, outcome, result_digest);
+            return;
+        }
+        require_inspection_owner(supplied);
+        try {
+            PrefixReadRecipe recipe(*this);
+            // Exact first history read, retain_completed=true, and original
+            // selection predicates precede the original bound-owner recheck.
+            const auto inspected = read_effect_history_selection(supplied, effect_selection);
+            require_inspection_owner(supplied);
+            if (inspected.pending_kind == "publish_target" || consumer_completion_required(inspected))
+                throw std::runtime_error("native maintenance selected completion cannot issue a reader grant");
+            transaction::RecoveryInspection tx;
+            transaction::MaintenanceEffectInspection current;
+            read_confirmed_payload_completion(supplied, inspected, outcome, result_digest, true, tx, current);
+            recipe.finish(tx, current);
+            require_inspection_owner(supplied);
+            // No grant, attempt state or persistence occurs in this scope.
+            // The journal writer performs its own full fresh effect fences.
+        } catch (...) { entry_readback_failed = true; throw; }
+    }
     void confirm_effect_completion(const transaction::TransactionSpec& supplied,
         const transaction::MaintenanceEffectInspection& inspected, const std::string& outcome,
         const std::string& result_digest, bool complete_grants = true) {
@@ -3245,11 +3305,9 @@ struct NativeMaintenanceContext::Impl {
             // transition checks in one scope; finish before returning to the
             // journal writer. Recheck the actual current grant predicate.
             PrefixReadRecipe recipe(*this);
-            const auto tx = transaction::TransactionSession::inspect_recovery(spec);
-            const auto current = inspect_pending_read_only(inspected.pending_kind);
-            require_confirmed_payload_completion(tx, current, inspected, outcome, result_digest);
-            if (complete_grants && consumer_completion_required(current))
-                throw std::runtime_error("native maintenance read-only completion cannot issue a reader grant");
+            transaction::RecoveryInspection tx;
+            transaction::MaintenanceEffectInspection current;
+            read_confirmed_payload_completion(supplied, inspected, outcome, result_digest, complete_grants, tx, current);
             recipe.finish(tx, current);
             return;
         }

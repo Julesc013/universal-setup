@@ -102,7 +102,10 @@ struct NativeMaintenanceTransactionOperations {
     std::function<EffectResult(const TransactionSpec&, const MaintenanceEffectInspection&)> apply_effect;
     // Completion of a resumed journal still requires this original owner's
     // actual confirmed outcome. Compatible observations alone are insufficient.
-    std::function<void(const TransactionSpec&, const MaintenanceEffectInspection&,
+    // The fixed complete-role selection and actual owned confirmation may
+    // compose their adjacent read-only bodies. Grants and persistence retain
+    // the concrete owner's separate fresh fences; selection is no authority.
+    std::function<void(const TransactionSpec&, const NativeMaintenanceEffectSelection&,
         const std::string&, const std::string&)> confirm_effect_completion;
 };
 class ScopedNativeMaintenanceTransaction final {

@@ -411,11 +411,9 @@ void MaintenanceEffectJournal::complete_effect(const std::string& outcome, const
             (!payload_attempted_ || payload_outcome_.empty() || outcome != payload_outcome_))
             throw std::runtime_error("native maintenance payload completion lacks its actual owner outcome");
         const auto* native = detail::ScopedNativeMaintenanceTransaction::current();
-        const auto history = native->inspect_effect_history(spec_, {
+        native->confirm_effect_completion(spec_, {
             detail::NativeMaintenanceEffectSelectionRole::complete,
-            source_digest_, last_digest_, pending_kind_, sequence_, pending_sequence_});
-        require_effect_owner_binding();
-        native->confirm_effect_completion(spec_, history, outcome, result_digest);
+            source_digest_, last_digest_, pending_kind_, sequence_, pending_sequence_}, outcome, result_digest);
         // Only the original private concrete owner supplies this callback. Its
         // completion ends with the full fresh authority check, after any grants.
         // Recheck the bound lifetime here without repeating that native query;
