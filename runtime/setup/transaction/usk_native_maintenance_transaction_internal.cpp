@@ -31,6 +31,7 @@ ScopedNativeMaintenanceTransaction::ScopedNativeMaintenanceTransaction(
     if (active_operations || !operations.require_authority || !operations.persist_journal || !operations.create_staging_root ||
         !operations.ensure_stream_parent || !operations.open_stream || !operations.require_stream ||
         !operations.finish_stream || !operations.observe_commit_closure || !operations.observe_file ||
+        !operations.file_pair_queries_available || !operations.observe_file_pair ||
         !operations.inspect_prefix || !operations.inspect_effect_history || !operations.resume_effect_history ||
         !operations.inspect_continuation || !operations.reconcile_effect ||
         !operations.commit || !operations.apply_effect || !operations.confirm_effect_completion)
@@ -55,6 +56,33 @@ std::optional<NativeMaintenanceFileObservation> observe_current_native_maintenan
     if (active_binding.expired() || !active_operations->observe_file)
         throw std::runtime_error("native maintenance file observer lost its original owner; no pathname fallback");
     return active_operations->observe_file(path);
+}
+bool native_maintenance_file_pair_queries_available() {
+    if (!active_operations) return false;
+    const auto* operations = active_operations;
+    const auto binding = active_binding;
+    require_native_maintenance_origin_binding(true, binding, active_binding);
+    if (!operations->file_pair_queries_available || !operations->observe_file_pair)
+        throw std::runtime_error("native maintenance file pair availability lost its original owner");
+    const bool available = operations->file_pair_queries_available();
+    require_native_maintenance_origin_binding(true, binding, active_binding);
+    if (active_operations != operations)
+        throw std::runtime_error("native maintenance file pair availability changed its original owner");
+    return available;
+}
+std::optional<std::array<NativeMaintenanceFileObservation, 2>> observe_current_native_maintenance_file_pair(
+    const std::array<std::filesystem::path, 2>& paths) {
+    if (!active_operations) return std::nullopt;
+    const auto* operations = active_operations;
+    const auto binding = active_binding;
+    require_native_maintenance_origin_binding(true, binding, active_binding);
+    if (!operations->observe_file_pair)
+        throw std::runtime_error("native maintenance file pair lost its original observer");
+    auto result = operations->observe_file_pair(paths);
+    require_native_maintenance_origin_binding(true, binding, active_binding);
+    if (active_operations != operations)
+        throw std::runtime_error("native maintenance file pair changed its original observer");
+    return result;
 }
 bool inspect_current_native_maintenance_prefix(const TransactionSpec& spec,
     RecoveryInspection& output_transaction, MaintenanceEffectInspection& output_history) {

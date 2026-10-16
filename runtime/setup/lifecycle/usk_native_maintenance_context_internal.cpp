@@ -242,16 +242,17 @@ struct NativeMaintenanceContext::Impl {
         friend struct Impl;
         RecipeQueryRead(const PrefixReadRecipe&, const Impl&, const std::vector<const Entry*>&,
             const std::optional<PublisherHandleObservation>&, const std::string&, const Entry*,
-            std::optional<std::size_t>);
+            std::optional<std::size_t>, const std::vector<const Entry*>* = nullptr, const Entry* = nullptr);
         std::optional<PublisherEffectSelectionKind> authority_selection_kind() const override;
         std::string authority_failure_context() const override;
         void require_authority_selection(const Value&, const Value&, const Value&) override;
         ~RecipeQueryRead() override;
         bool eligible() const;
         transaction::detail::NativeMaintenanceFileObservation file_observation() const;
+        std::array<transaction::detail::NativeMaintenanceFileObservation, 2> file_observation_pair() const;
         std::string owned_record_text() const;
         bool owns_round(const Impl&, const std::vector<const Entry*>&,
-            PublisherEffectRecordByteRound*, const PublisherHandleObservation*) const;
+            PublisherEffectRecordByteRound*, const PublisherHandleObservation*, const std::vector<const Entry*>* = nullptr) const;
         void prepare() override;
         const Value& ledger() const override;
         void run_round(PublisherEffectRecordByteRound&) override;
@@ -1140,6 +1141,8 @@ struct NativeMaintenanceContext::Impl {
             return observe_created_closure(s, p, files);
         };
         operations.observe_file = [this](const auto& p) { return observe_owned_file(p); };
+        operations.file_pair_queries_available = [this] { return file_pair_queries_available(); };
+        operations.observe_file_pair = [this](const auto& p) { return observe_owned_file_pair(p); };
         operations.inspect_prefix = [this](const auto& s, auto& current, auto& history) {
             inspect_prefix(s, current, history);
         };
@@ -1266,12 +1269,15 @@ struct NativeMaintenanceContext::Impl {
         PublisherEffectSelectionKind selected_kind = PublisherEffectSelectionKind::reviewed_operation,
         const std::string& failure_context = {}, NativeMaintenanceRecordByteRead* record_read = nullptr,
         PublisherEffectRecordByteRound* record_round = nullptr,
-        const PublisherHandleObservation* leading_installed_custody = nullptr) const {
+        const PublisherHandleObservation* leading_installed_custody = nullptr,
+        const std::vector<const Entry*>* paired_entries = nullptr) const {
         const auto* authority_read = dynamic_cast<const AuthorityRecordRead*>(record_read);
         const auto* recipe_read = dynamic_cast<const RecipeQueryRead*>(record_read);
         const bool sealed_read = authority_read || recipe_read;
+        if (paired_entries && (!recipe_read || paired_entries->empty()))
+            throw std::runtime_error("native maintenance file pair lacks its sealed second group");
         if (recipe_read && (!leading_volume_access || selected_check || creation ||
-                !recipe_read->owns_round(*this, entries, record_round, leading_installed_custody)))
+                !recipe_read->owns_round(*this, entries, record_round, leading_installed_custody, paired_entries)))
             throw std::runtime_error("native maintenance recipe query lacks its sealed original round");
         if (authority_read && (!leading_volume_access || selected_check || creation ||
                 !authority_read->owns_round(*this, entries, record_round, leading_installed_custody)))
@@ -1373,6 +1379,7 @@ struct NativeMaintenanceContext::Impl {
             const HANDLE handle = independent->value;
             remember(current, handle, std::move(independent));
         };
+        const auto collect_leading_roles = [&] {
         if (leading_installed_custody) {
             // Keep the actual creator's distinct access occurrence. It is not
             // an Entry reopen and its pending/published identity stays private
@@ -1392,6 +1399,8 @@ struct NativeMaintenanceContext::Impl {
                 throw std::runtime_error("native maintenance volume changed before composed access observation");
             pending.push_back(PendingAccess{nullptr, false, volume, std::move(observed), nullptr});
         }
+        };
+        collect_leading_roles();
         if (creation) {
             // Preserve the original standalone held occurrence before the full
             // entry ancestry. Its facts stay private and provisional until ALL
@@ -1404,15 +1413,25 @@ struct NativeMaintenanceContext::Impl {
                     reinterpret_cast<std::intptr_t>(creation->handle.value));
         }
         for (const auto* entry : entries) collect(collect, *entry);
+        if (paired_entries) {
+            // Independent creator/volume occurrences are repeated here;
+            // flattening only the Entry tails would omit actual raw9 roles.
+            collect_leading_roles();
+            for (const auto* entry : *paired_entries) collect(collect, *entry);
+        }
         flush();
         if (selected_check && !selection_checked)
             throw std::runtime_error("native maintenance selected fence lacks its completed access occurrence");
+        const auto recheck_group = [&](const std::vector<const Entry*>& group) {
         if (leading_volume_access && !same(observe_publisher_directory_handle(volume), volume_facts))
             throw std::runtime_error("native maintenance held volume changed after composed access group");
-        recheck_entries(entries);
+        recheck_entries(group);
         if (leading_installed_custody &&
             !same(native_facts(installed_postimage_file->handle.value, false), *leading_installed_custody))
             throw std::runtime_error("native maintenance installed custody changed after composed access group");
+        };
+        recheck_group(entries);
+        if (paired_entries) recheck_group(*paired_entries);
     }
     void recheck_entries(const std::vector<const Entry*>& entries) const {
         // Re-read complete held facts and every actual parent link after ALL
@@ -3636,8 +3655,7 @@ struct NativeMaintenanceContext::Impl {
         }
         return apply_effect(supplied, history).outcome;
     }
-    transaction::detail::NativeMaintenanceFileObservation observe_owned_file(const fs::path& path) const {
-        if (!original_child) require_authority(spec);
+    const Entry& select_owned_file(const fs::path& path) const {
         const Entry* selected = nullptr;
         try {
             auto wanted = volume_facts.native_name;
@@ -3660,6 +3678,56 @@ struct NativeMaintenanceContext::Impl {
             if (original_child) require_authority(spec);
             throw;
         }
+        return *selected;
+    }
+    bool file_pair_queries_available() const {
+        // Availability is metadata only. It cannot substitute for the actual
+        // adapter's fresh selected-security/byte/ancestry proof.
+        require_inspection_owner(spec);
+        if (entry_readback_failed || custody_failed || payload_failed || installed_uncertain)
+            throw std::runtime_error("native maintenance file pair owner has a failed effect or read");
+        return original_child && active_read_recipe && !restoration_record_observers.empty();
+    }
+    std::optional<std::array<transaction::detail::NativeMaintenanceFileObservation, 2>>
+    observe_owned_file_pair(const std::array<fs::path, 2>& paths) const {
+        if (!file_pair_queries_available()) return std::nullopt;
+        try {
+            active_read_recipe->require_active();
+            const std::array<const Entry*, 2> selected{
+                &select_owned_file(paths[0]), &select_owned_file(paths[1])};
+            std::array<std::string, 2> contexts;
+            std::array<std::optional<PublisherHandleObservation>, 2> custody;
+            std::array<std::vector<const Entry*>, 2> parents;
+            for (std::size_t i = 0; i < 2u; ++i) {
+                // Retain each file's actual state/lease/custody occurrences.
+                // Both groups are fixed pure work, without a native effect.
+                contexts[i] = require_authority_state(spec);
+                custody[i] = installed_custody_facts();
+                (void)relative_volume_path(spec.state_root); (void)relative_volume_path(spec.target_root);
+                if (custody[i] && installed_parent) parents[i].push_back(installed_parent);
+                if (staging_parent) parents[i].push_back(staging_parent);
+                if (target_parent) parents[i].push_back(target_parent);
+                parents[i].push_back(selected[i]);
+            }
+            if (contexts[0] != contexts[1] || custody[0].has_value() != custody[1].has_value() ||
+                (custody[0] && !same(*custody[0], *custody[1])))
+                throw std::runtime_error("native maintenance fixed file pair changed its common owner roles");
+            RecipeQueryRead read(*active_read_recipe, *this, parents[0], custody[0], contexts[0],
+                selected[0], std::nullopt, &parents[1], selected[1]);
+            if (!read.eligible()) return std::nullopt; // Complete ledger overflow, before wire begin.
+            original_child->verify_original_maintenance_record_bytes(read);
+            for (std::size_t i = 0; i < 2u; ++i) {
+                (void)require_authority_state(spec);
+                (void)installed_custody_facts();
+                (void)relative_volume_path(spec.state_root); (void)relative_volume_path(spec.target_root);
+                active_read_recipe->require_active();
+            }
+            return read.file_observation_pair(); // Neither provisional result can escape.
+        } catch (...) { entry_readback_failed = true; throw; }
+    }
+    transaction::detail::NativeMaintenanceFileObservation observe_owned_file(const fs::path& path) const {
+        if (!original_child) require_authority(spec);
+        const auto* selected = &select_owned_file(path);
         if (original_child) {
             // Only this fixed, retained file query can enter the sealed read
             // interval. Its result stays private until the complete proof and
@@ -4244,9 +4312,10 @@ struct NativeMaintenanceContext::Impl::RecipeQueryRead::State {
     const Entry* const creator;
     const std::optional<PublisherHandleObservation> creator_observation;
     const PublisherHandleObservation published_facts;
-    std::vector<const Entry*> records, entries;
+    std::vector<const Entry*> records, entries, paired_entries;
     const Entry* const byte_entry;
-    std::optional<transaction::detail::NativeMaintenanceFileObservation> file_result;
+    const Entry* const paired_byte_entry;
+    std::optional<transaction::detail::NativeMaintenanceFileObservation> file_result, paired_file_result;
     const std::optional<std::size_t> installed_maximum;
     const InstalledRecordQueryRole installed_role;
     const std::string installed_text, installed_sha256;
@@ -4270,17 +4339,23 @@ struct NativeMaintenanceContext::Impl::RecipeQueryRead::State {
     PublisherEffectRecordByteRound* active_round = nullptr;
     State(const PrefixReadRecipe& composition, const Impl& value, const std::vector<const Entry*>& tail,
         const std::optional<PublisherHandleObservation>& observed, const std::string& context,
-        const Entry* query, std::optional<std::size_t> installed_limit)
+        const Entry* query, std::optional<std::size_t> installed_limit,
+        const std::vector<const Entry*>* paired_tail, const Entry* paired_query)
         : recipe(composition), owner(value), child(value.original_child), volume(value.volume), volume_facts(value.volume_facts),
           restored_owner(value.restored_owner), installed_issue_active(value.installed_issue_active),
           installed_confirmed(value.installed_confirmed), failure_context(context), creator(value.installed_postimage_file.get()),
-          creator_observation(observed), published_facts(value.installed_record_facts), byte_entry(query),
+          creator_observation(observed), published_facts(value.installed_record_facts),
+          paired_entries(paired_tail ? *paired_tail : std::vector<const Entry*>{}),
+          byte_entry(query), paired_byte_entry(paired_query),
           installed_maximum(installed_limit), installed_role(installed_limit ? value.installed_record_query_role() :
               InstalledRecordQueryRole::unavailable), installed_text(installed_limit ? value.installed_record_text : std::string{}),
           installed_sha256(installed_limit ? value.installed_record_sha256 : std::string{}) {
         recipe.require_active();
         if (&recipe.owner_ != &owner || (!byte_entry && !installed_maximum))
             throw std::runtime_error("native maintenance recipe reader lacks its fixed query and owner");
+        if ((paired_query == nullptr) != (paired_tail == nullptr) ||
+            (paired_query && (!byte_entry || installed_maximum || paired_entries.empty())))
+            throw std::runtime_error("native maintenance fixed file pair has another query role");
         if (!child || owner.entry_readback_failed || owner.restoration_record_observers.empty())
             throw std::runtime_error("native maintenance recipe query record scope lacks its original records");
         if (creator_observation && (!creator || creator->handle.value == INVALID_HANDLE_VALUE))
@@ -4300,6 +4375,17 @@ struct NativeMaintenanceContext::Impl::RecipeQueryRead::State {
                 std::find(tail.begin(), tail.end(), byte_entry) == tail.end() ||
                 (!belongs(owner.files) && !belongs(owner.original_files) && !belongs(owner.verification_files)))
                 throw std::runtime_error("native maintenance recipe query file query lacks its completed owned tail");
+        }
+        if (paired_byte_entry) {
+            const auto belongs = [&](const auto& collection) {
+                return std::any_of(collection.begin(), collection.end(),
+                    [&](const auto& item) { return item.second.get() == paired_byte_entry; });
+            };
+            if (paired_byte_entry->handle.value == INVALID_HANDLE_VALUE || paired_byte_entry->directory ||
+                (paired_byte_entry->created && !paired_byte_entry->complete) ||
+                std::find(paired_entries.begin(), paired_entries.end(), paired_byte_entry) == paired_entries.end() ||
+                (!belongs(owner.files) && !belongs(owner.original_files) && !belongs(owner.verification_files)))
+                throw std::runtime_error("native maintenance fixed second file lacks its completed owned tail");
         }
         // Preflight only freezes original typed expectations and counts the
         // COMPLETE ledger. Exceeding a bound chooses the separate route before
@@ -4353,6 +4439,19 @@ struct NativeMaintenanceContext::Impl::RecipeQueryRead::State {
             entries.push_back(entry);
             if (!collect(collect, *entry, 0u, false)) return;
         }
+        if (paired_byte_entry) {
+            // This repeats the complete second per-file ledger, including
+            // creator/volume and duplicate ancestry. No role is deduplicated.
+            if (creator_observation) {
+                freeze(*creator);
+                if (!append(*creator_observation)) return;
+            }
+            if (!append(volume_facts)) return;
+            for (const auto* entry : paired_entries) {
+                if (!entry) throw std::runtime_error("native maintenance fixed second tail is absent");
+                if (!collect(collect, *entry, 0u, false)) return;
+            }
+        }
         ledger_value = Value(std::move(ledger));
         eligible = true;
         require_frozen();
@@ -4386,17 +4485,27 @@ struct NativeMaintenanceContext::Impl::RecipeQueryRead::State {
 };
 NativeMaintenanceContext::Impl::RecipeQueryRead::RecipeQueryRead(const PrefixReadRecipe& recipe, const Impl& owner,
     const std::vector<const Entry*>& tail, const std::optional<PublisherHandleObservation>& creator,
-    const std::string& failure_context, const Entry* query, std::optional<std::size_t> installed_limit)
-    : state_(std::make_unique<State>(recipe, owner, tail, creator, failure_context, query, installed_limit)) {}
+    const std::string& failure_context, const Entry* query, std::optional<std::size_t> installed_limit,
+    const std::vector<const Entry*>* paired_tail, const Entry* paired_query)
+    : state_(std::make_unique<State>(recipe, owner, tail, creator, failure_context, query, installed_limit,
+          paired_tail, paired_query)) {}
 NativeMaintenanceContext::Impl::RecipeQueryRead::~RecipeQueryRead() = default;
 bool NativeMaintenanceContext::Impl::RecipeQueryRead::eligible() const { return state_->eligible; }
 transaction::detail::NativeMaintenanceFileObservation
 NativeMaintenanceContext::Impl::RecipeQueryRead::file_observation() const {
     const auto& s = *state_;
     s.require_frozen();
-    if (!s.byte_entry || !s.file_result || !s.finalized)
+    if (!s.byte_entry || s.paired_byte_entry || !s.file_result || !s.finalized)
         throw std::runtime_error("native maintenance recipe query file query is not complete");
     return *s.file_result;
+}
+std::array<transaction::detail::NativeMaintenanceFileObservation, 2>
+NativeMaintenanceContext::Impl::RecipeQueryRead::file_observation_pair() const {
+    const auto& s = *state_;
+    s.require_frozen();
+    if (!s.byte_entry || !s.paired_byte_entry || !s.file_result || !s.paired_file_result || !s.finalized)
+        throw std::runtime_error("native maintenance fixed file pair is not complete");
+    return {*s.file_result, *s.paired_file_result};
 }
 std::string NativeMaintenanceContext::Impl::RecipeQueryRead::owned_record_text() const {
     const auto& s = *state_;
@@ -4433,11 +4542,12 @@ void NativeMaintenanceContext::Impl::RecipeQueryRead::require_authority_selectio
 }
 bool NativeMaintenanceContext::Impl::RecipeQueryRead::owns_round(const Impl& owner,
     const std::vector<const Entry*>& entries, PublisherEffectRecordByteRound* round,
-    const PublisherHandleObservation* creator) const {
+    const PublisherHandleObservation* creator, const std::vector<const Entry*>* paired_entries) const {
     const auto& s = *state_;
     s.require_frozen();
     return &owner == &s.owner && round && round == s.active_round && entries == s.entries &&
-        creator == (s.creator_observation ? &*s.creator_observation : nullptr);
+        creator == (s.creator_observation ? &*s.creator_observation : nullptr) &&
+        paired_entries == (s.paired_byte_entry ? &s.paired_entries : nullptr);
 }
 void NativeMaintenanceContext::Impl::RecipeQueryRead::prepare() {
     auto& s = *state_;
@@ -4463,12 +4573,14 @@ void NativeMaintenanceContext::Impl::RecipeQueryRead::run_round(PublisherEffectR
     if (!s.prepared || !s.selection_before_checked || s.selection_after_checked || s.active_round ||
         s.completed_rounds >= 2u || s.finalized || (s.completed_rounds == 1u) != s.bytes_checked ||
         (s.completed_rounds == 1u && ((s.byte_entry != nullptr) != s.file_result.has_value() ||
+            (s.paired_byte_entry != nullptr) != s.paired_file_result.has_value() ||
             s.installed_maximum.has_value() != s.installed_result.has_value())))
         throw std::runtime_error("native maintenance recipe query record round order differs");
     s.active_round = &round;
     try {
         s.owner.require_entry_batch(s.entries, nullptr, true, {}, PublisherEffectSelectionKind::reviewed_operation,
-            {}, this, &round, s.creator_observation ? &*s.creator_observation : nullptr);
+            {}, this, &round, s.creator_observation ? &*s.creator_observation : nullptr,
+            s.paired_byte_entry ? &s.paired_entries : nullptr);
         s.active_round = nullptr;
         s.require_frozen();
         ++s.completed_rounds;
@@ -4491,6 +4603,11 @@ void NativeMaintenanceContext::Impl::RecipeQueryRead::read_original_bytes() {
         s.file_result.emplace(transaction::detail::NativeMaintenanceFileObservation{
             journal_identity(s.byte_entry->handle.value), s.byte_entry->sha256, s.byte_entry->size});
     }
+    if (s.paired_byte_entry) {
+        s.owner.require_byte_content(*s.paired_byte_entry);
+        s.paired_file_result.emplace(transaction::detail::NativeMaintenanceFileObservation{
+            journal_identity(s.paired_byte_entry->handle.value), s.paired_byte_entry->sha256, s.paired_byte_entry->size});
+    }
     if (s.installed_maximum) {
         // The original created or restored installed handle is already a
         // distinct frozen raw9 role in BOTH complete ledgers. Restoration
@@ -4512,6 +4629,7 @@ void NativeMaintenanceContext::Impl::RecipeQueryRead::finalize(const Value& raw_
     if (s.active_round || s.completed_rounds != 2u || !s.bytes_checked || !s.selection_before_checked ||
         !s.selection_after_checked || s.finalized || raw_results.as_array().size() != 2u * s.ordered.size() ||
         (s.byte_entry != nullptr) != s.file_result.has_value() ||
+        (s.paired_byte_entry != nullptr) != s.paired_file_result.has_value() ||
         s.installed_maximum.has_value() != s.installed_result.has_value())
         throw std::runtime_error("native maintenance recipe query record final proof is incomplete");
     if (!raw_results.as_array().empty()) {
@@ -4522,7 +4640,8 @@ void NativeMaintenanceContext::Impl::RecipeQueryRead::finalize(const Value& raw_
     }
     // Entire native group is joined AFTER all global/wire/owner results. Every
     // entry gets actual fresh listing/reopens with positively checked closure.
-    s.owner.recheck_entries(s.entries);
+    const auto recheck_group = [&](const std::vector<const Entry*>& group) {
+    s.owner.recheck_entries(group);
     if (!same(observe_publisher_directory_handle(s.volume), s.volume_facts))
         throw std::runtime_error("native maintenance recipe query record held volume changed at completion");
     if (s.creator_observation) {
@@ -4531,6 +4650,9 @@ void NativeMaintenanceContext::Impl::RecipeQueryRead::finalize(const Value& raw_
             throw std::runtime_error("native maintenance recipe query record creator changed at completion");
         s.owner.require_installed_custody_identity(observed);
     }
+    };
+    recheck_group(s.entries);
+    if (s.paired_byte_entry) recheck_group(s.paired_entries);
     s.require_frozen();
     s.finalized = true;
 }

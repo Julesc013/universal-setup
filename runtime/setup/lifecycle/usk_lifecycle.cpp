@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <cctype>
 #include <array>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <memory>
@@ -556,7 +557,8 @@ usk::lifecycle::VerificationReport verify_manifest(
         ++report_entries;
         report_path_bytes += path.size();
     };
-    for (const auto& file : ownership.files) {
+    for (std::size_t file_index = 0; file_index < ownership.files.size(); ++file_index) {
+        const auto& file = ownership.files[file_index];
         charge_report_path(file.relative_path);
         expected.insert(file.relative_path);
         usk::lifecycle::FileVerification item{file.relative_path, {}, file.sha256, {}};
@@ -569,12 +571,14 @@ usk::lifecycle::VerificationReport verify_manifest(
             item.status = "wrong_type";
             ++report.modified_files;
         } else {
-            const auto record_file = [&](const MaintenanceFileObservation& actual) {
-                item.actual_sha256 = actual.sha256;
-                if (actual.size_bytes == file.size_bytes && item.actual_sha256 == file.sha256) {
-                    item.status = "present";
+            const auto record_file = [&](usk::lifecycle::FileVerification& observed,
+                    std::uint64_t expected_size, const std::string& expected_sha,
+                    const MaintenanceFileObservation& actual) {
+                observed.actual_sha256 = actual.sha256;
+                if (actual.size_bytes == expected_size && observed.actual_sha256 == expected_sha) {
+                    observed.status = "present";
                 } else {
-                    item.status = "modified";
+                    observed.status = "modified";
                     ++report.modified_files;
                 }
             };
@@ -583,15 +587,47 @@ usk::lifecycle::VerificationReport verify_manifest(
             // Preserve that refusal before the ordinary unreadable-file catch:
             // it is not evidence of changed payload bytes and must not fall
             // back to observing a pathname outside the original owner.
+            if (file_index + 1u < ownership.files.size() &&
+                usk::transaction::detail::native_maintenance_file_pair_queries_available()) {
+                const auto& next_file = ownership.files[file_index + 1u];
+                // No second pathname probe or charge occurs on ordinary/SCM
+                // routes. Preflight the original report charge without using
+                // it as authority or exceeding the existing input budget.
+                const bool next_fits = report_entries < maximum_verification_report_entries &&
+                    next_file.relative_path.size() <= maximum_verification_report_path_bytes - report_path_bytes;
+                if (next_fits) {
+                    const fs::path next_path = (root / fs::path(next_file.relative_path)).make_preferred();
+                    std::error_code next_error;
+                    if (fs::exists(next_path, next_error) && fs::is_regular_file(next_path, next_error) &&
+                        !fs::is_symlink(fs::symlink_status(next_path, next_error))) {
+                        // Native failures remain outside the ordinary unreadable
+                        // catch. Only pre-begin pair ineligibility returns null.
+                        const auto pair = usk::transaction::detail::observe_current_native_maintenance_file_pair(
+                            std::array<fs::path, 2>{path, next_path});
+                        if (pair) {
+                            const auto& a = (*pair)[0]; const auto& b = (*pair)[1];
+                            record_file(item, file.size_bytes, file.sha256, {a.native_identity, a.sha256, a.size_bytes});
+                            report.files.push_back(std::move(item));
+                            charge_report_path(next_file.relative_path);
+                            expected.insert(next_file.relative_path);
+                            usk::lifecycle::FileVerification next_item{next_file.relative_path, {}, next_file.sha256, {}};
+                            record_file(next_item, next_file.size_bytes, next_file.sha256, {b.native_identity, b.sha256, b.size_bytes});
+                            report.files.push_back(std::move(next_item));
+                            ++file_index;
+                            continue;
+                        }
+                    }
+                }
+            }
             const auto native = usk::transaction::detail::observe_current_native_maintenance_file(path);
             if (native) {
-                record_file({native->native_identity, native->sha256, native->size_bytes});
+                record_file(item, file.size_bytes, file.sha256, {native->native_identity, native->sha256, native->size_bytes});
             } else
 #endif
             {
                 try {
                     const auto actual = observe_maintenance_file(path);
-                    record_file(actual);
+                    record_file(item, file.size_bytes, file.sha256, actual);
                 } catch (const std::exception&) {
                     item.status = "unreadable";
                     ++report.modified_files;
@@ -892,15 +928,19 @@ MaintenanceSession begin_maintenance(
     return {std::move(transaction), std::move(effects)};
 }
 
-Value maintenance_file_observation(const fs::path& path, const std::string& relative_path,
+Value maintenance_file_observation_value(const MaintenanceFileObservation& file, const std::string& relative_path,
     const std::string& root_role = {})
 {
-    const auto file = observe_maintenance_file(path);
     Value result(Value::Object{{"relative_path", Value(relative_path)},
         {"native_identity", Value(file.native_identity)},
         {"sha256", Value(file.sha256)}, {"size_bytes", Value(file.size_bytes)}});
     if (!root_role.empty()) result.as_object().emplace("root_role", Value(root_role));
     return result;
+}
+Value maintenance_file_observation(const fs::path& path, const std::string& relative_path,
+    const std::string& root_role = {})
+{
+    return maintenance_file_observation_value(observe_maintenance_file(path), relative_path, root_role);
 }
 
 void maintenance_effect(usk::transaction::MaintenanceEffectJournal& journal,
@@ -3334,11 +3374,35 @@ static MaintenanceContinuationInspection inspect_maintenance_prefix(const transa
             context.at("installed_root").at("native_identity").as_string();
         if (transaction::observe_directory_identity(output_root) != expected_root_identity)
             throw std::runtime_error("maintenance resulting root lost its original native binding");
-        for (const auto& output : outputs) {
-            const auto relative = spec.operation == "move" ? output.first : output.first.substr(8u);
+        for (auto output = outputs.begin(); output != outputs.end(); ) {
+            const auto relative = spec.operation == "move" ? output->first : output->first.substr(8u);
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+            const auto next = std::next(output);
+            if (next != outputs.end()) {
+                const auto next_relative = spec.operation == "move" ? next->first : next->first.substr(8u);
+                // Both paths/expectations are fixed by the original prefix.
+                // No ordinary filesystem qualification or cached observation
+                // is introduced into this creation-handle query route.
+                const auto pair = transaction::detail::observe_current_native_maintenance_file_pair(
+                    std::array<fs::path, 2>{output_root / fs::u8path(relative), output_root / fs::u8path(next_relative)});
+                if (pair) {
+                    const auto check = [&](const auto& expected, const std::string& name, const auto& actual) {
+                        const auto observed = maintenance_file_observation_value(
+                            {actual.native_identity, actual.sha256, actual.size_bytes}, name);
+                        if (json::canonical(observed) != json::canonical(file_details(expected, name)))
+                            throw std::runtime_error("maintenance resulting file lost its original creation-handle postimage");
+                    };
+                    check(output->second, relative, (*pair)[0]);
+                    check(next->second, next_relative, (*pair)[1]);
+                    output = std::next(next);
+                    continue;
+                }
+            }
+#endif
             if (json::canonical(maintenance_file_observation(output_root / fs::u8path(relative), relative)) !=
-                json::canonical(file_details(output.second, relative)))
+                json::canonical(file_details(output->second, relative)))
                 throw std::runtime_error("maintenance resulting file lost its original creation-handle postimage");
+            ++output;
         }
     }
     auto expected_ownership = maintenance_expected_ownership(spec, original);

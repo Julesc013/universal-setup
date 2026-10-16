@@ -4,6 +4,7 @@
 #define USK_NATIVE_MAINTENANCE_TRANSACTION_INTERNAL_H
 #if defined(_WIN32)
 #include "usk_transaction_session.h"
+#include <array>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -31,6 +32,13 @@ struct NativeMaintenanceEffectSelection {
 // These values confer no custody, completion or mutation authority.
 std::optional<NativeMaintenanceFileObservation> observe_current_native_maintenance_file(
     const std::filesystem::path& path);
+// Metadata-only availability for the fixed native pair; false keeps scalar
+// observation. A broken active binding throws. No presence grants access.
+bool native_maintenance_file_pair_queries_available();
+// Complete two fixed owned-file reads before returning either observation.
+// Absence/ineligibility is decided before begin; a begun failure never declines.
+std::optional<std::array<NativeMaintenanceFileObservation, 2>> observe_current_native_maintenance_file_pair(
+    const std::array<std::filesystem::path, 2>& paths);
 // Fixed pure inspections supplied only by the original private owner.
 // False means no native scope. An active scope must complete its bound reader
 // before exposing output; failure never becomes an ordinary-path fallback.
@@ -70,6 +78,9 @@ struct NativeMaintenanceTransactionOperations {
     std::function<CommitClosureObservation(const TransactionSpec&, const std::filesystem::path&,
         const std::vector<CommitClosureFile>&)> observe_commit_closure;
     std::function<NativeMaintenanceFileObservation(const std::filesystem::path&)> observe_file;
+    std::function<bool()> file_pair_queries_available;
+    std::function<std::optional<std::array<NativeMaintenanceFileObservation, 2>>(
+        const std::array<std::filesystem::path, 2>&)> observe_file_pair;
     std::function<void(const TransactionSpec&, RecoveryInspection&,
         MaintenanceEffectInspection&)> inspect_prefix;
     // Complete the fixed actual history read and original pending predicates
