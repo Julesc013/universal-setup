@@ -19,8 +19,9 @@ function Get-PublisherInitialOperationPrefix([string]$DriveRoot,[string]$Install
 
 function Invoke-OwnedInitialMaintenanceBoundary($Config,$EffectPair,$Result) {
     $tx=[string]$Config.maintenance_transaction_id
-    if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
-        [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18' -or
+    # The hosted launcher checks its runner environment before scheduling this
+    # separate SYSTEM task. Here bind the actual observer identity and owners.
+    if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18' -or
         $Config.schema -cne 'usk.publisher.production_rename_observer_config.v2' -or
         $Config.observer_family -cne 'owned_effect_child_v1' -or
         $Config.phase -cne 'maintenance_initial' -or $tx -cnotmatch '^maintenance\.repair\.[0-9a-f]{32}$' -or

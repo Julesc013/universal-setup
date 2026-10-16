@@ -44,13 +44,28 @@ function Invoke-IndependentMetadataReadback {
  $script:invocations++;return $script:observed
 }
 foreach($command in @('repair.apply','repair.recover')) {
-foreach($variant in @('ordinary','original_failure','copied_failure','changed_capture','different_command','unconfirmed_close','qualification_changed')) {
+foreach($variant in @('ordinary','original_failure','copied_failure','changed_capture','different_command','unconfirmed_close','qualification_changed',
+ 'original_loss_failure','loss_wrong_schema','loss_wrong_request','loss_wrong_command','loss_wrong_pid',
+ 'loss_wrong_birth','loss_not_captured','loss_wrong_sid','duplicate_capture','missing_capture')) {
  $failed=[ordered]@{scope='original_failed_request_before_cleanup';qualification_granted=$false;
   command=$command;request_id='public.original';client_process_id=$PIDValue;
   client_creation_file_time=$ownerCreation;readback=$null}
  $receipt=[ordered]@{request_execution_failure=$failed;client_captures=@([pscustomobject]@{
   request_id=$failed.request_id;command=$failed.command;process_id=$PIDValue;creation_file_time=$ownerCreation;
   captured_before_primary_thread_resume=$true;primary_token=@{user_sid=$accountSid}})}
+ # Use inert original captures only. This exercises the actual resolver and
+ # refuses before any observer when identity or storage membership differs.
+ if($variant.StartsWith('loss_') -or $variant -cin @('original_loss_failure','duplicate_capture')) {
+  $receipt['maintenance_process_loss']=[ordered]@{
+   schema='usk.publisher_registered_maintenance_process_loss.v2';client_capture=$receipt.client_captures[0]}
+  if($variant -cne 'duplicate_capture'){$receipt.client_captures=@()}
+ }
+ if($variant -ceq 'missing_capture'){$receipt.client_captures=@()}
+ # Recovery has no eligible process-loss capture; test ambiguity in its
+ # ordinary list instead. Apply tests one ordinary plus one typed loss capture.
+ if($variant -ceq 'duplicate_capture' -and $command -ceq 'repair.recover') {
+  $receipt.client_captures+=@($receipt.client_captures[0])
+ }
  $supplied=$failed;$before=$script:invocations;$caught=$null
  $script:observed.independent.observer_token_handles_closed=$true
  switch($variant) {
@@ -60,10 +75,17 @@ foreach($variant in @('ordinary','original_failure','copied_failure','changed_ca
   'different_command' {$receipt.client_captures[0].command='uninstall.apply'}
   'unconfirmed_close' {$script:observed.independent.observer_token_handles_closed=$false}
   'qualification_changed' {$failed.qualification_granted=$true}
+  'loss_wrong_schema' {$receipt.maintenance_process_loss.schema='usk.publisher_registered_bootstrap_loss.v2'}
+  'loss_wrong_request' {$receipt.maintenance_process_loss.client_capture.request_id='public.foreign'}
+  'loss_wrong_command' {$receipt.maintenance_process_loss.client_capture.command='move.apply'}
+  'loss_wrong_pid' {$receipt.maintenance_process_loss.client_capture.process_id=$PIDValue+1}
+  'loss_wrong_birth' {$receipt.maintenance_process_loss.client_capture.creation_file_time='134360177507798015'}
+  'loss_not_captured' {$receipt.maintenance_process_loss.client_capture.captured_before_primary_thread_resume=$false}
+  'loss_wrong_sid' {$receipt.maintenance_process_loss.client_capture.primary_token.user_sid='S-1-5-21-1-2-3-5'}
  }
  try {$ignored=Read-NativeSnapshot -OriginalFailedRequest $supplied} catch {$caught=$_.Exception.Message}
  if(-not $caught){throw ('Refused diagnostic returned an accepted snapshot: '+$variant)}
- if($variant -ceq 'original_failure') {
+ if($variant -ceq 'original_failure' -or ($variant -ceq 'original_loss_failure' -and $command -ceq 'repair.apply')) {
   if(-not $caught.StartsWith('Independent owner/DACL differs: ',[StringComparison]::Ordinal) -or
    -not [object]::ReferenceEquals($failed.readback,$script:observed) -or
    $failed.readback_policy.status -cne 'refused' -or $failed.readback_policy.qualification_granted -ne $false -or
@@ -74,7 +96,9 @@ foreach($variant in @('ordinary','original_failure','copied_failure','changed_ca
  } elseif($failed.readback -or $failed.Contains('readback_policy')) {
   throw ('An unrelated or unclosed reader retained approved diagnostics: '+$variant)
  }
- if($variant -cin @('copied_failure','changed_capture','different_command','qualification_changed') -and $script:invocations -ne $before) {
+ if(($variant -cin @('copied_failure','changed_capture','different_command','qualification_changed','duplicate_capture','missing_capture') -or
+  $variant.StartsWith('loss_') -or ($variant -ceq 'original_loss_failure' -and $command -ceq 'repair.recover')) -and
+  $script:invocations -ne $before) {
   throw 'Unbound failure invoked an observer'
  }
 }

@@ -144,6 +144,15 @@ function Read-NativeSnapshot([switch]$PublicationPreserved,[ValidateSet(0,1,2)][
     if($IncludeMovedMaintenanceRoot -and -not $MaintenanceQualification){throw 'Maintenance readback scope is unavailable'}
     if($OriginalFailedRequest) {
         $originalCapture=@($receipt.client_captures|Where-Object request_id -ceq $OriginalFailedRequest.request_id)
+        # Interrupted maintenance keeps its original capture in this typed loss
+        # record instead of the ordinary list. Resolve only that same request;
+        # the shared gate below rejects duplicates and mismatched owner facts.
+        $maintenanceLoss=$receipt.maintenance_process_loss
+        if($OriginalFailedRequest.command -ceq 'repair.apply' -and
+            $maintenanceLoss.schema -ceq 'usk.publisher_registered_maintenance_process_loss.v2' -and
+            $maintenanceLoss.client_capture.request_id -ceq $OriginalFailedRequest.request_id) {
+            $originalCapture+=@($maintenanceLoss.client_capture)
+        }
         if(-not $MaintenanceQualification -or
             -not [object]::ReferenceEquals($OriginalFailedRequest,$receipt.request_execution_failure) -or
             $OriginalFailedRequest.scope -cne 'original_failed_request_before_cleanup' -or
