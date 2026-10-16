@@ -204,6 +204,7 @@ struct NativeMaintenanceContext::Impl {
         PrefixReadRecipe(const PrefixReadRecipe&) = delete;
         PrefixReadRecipe& operator=(const PrefixReadRecipe&) = delete;
         void require_active() const;
+        std::optional<std::string> read_installed_text(std::size_t);
         void recheck(const transaction::RecoveryInspection&, const transaction::MaintenanceEffectInspection&);
         void finish_authority();
         void finish(const transaction::RecoveryInspection&, const transaction::MaintenanceEffectInspection&);
@@ -211,6 +212,7 @@ struct NativeMaintenanceContext::Impl {
         const DWORD process_ = GetCurrentProcessId(), thread_ = GetCurrentThreadId();
         const std::weak_ptr<const void> binding_;
         PublisherEffectExecutionOwner* const child_;
+        std::unique_ptr<RecipeQueryRead> installed_expectations_;
         bool active_ = false;
     };
     class AuthorityRecordRead final : public NativeMaintenanceRecordByteRead {
@@ -240,6 +242,10 @@ struct NativeMaintenanceContext::Impl {
     class RecipeQueryRead final : public NativeMaintenanceRecordByteRead {
     private:
         friend struct Impl;
+        friend class PrefixReadRecipe;
+        friend struct std::default_delete<RecipeQueryRead>;
+        void require_installed_expectations(std::size_t) const;
+        void require_active_installed_expectations(std::size_t) const;
         RecipeQueryRead(const PrefixReadRecipe&, const Impl&, const std::vector<const Entry*>&,
             const std::optional<PublisherHandleObservation>&, const std::string&, const Entry*,
             std::optional<std::size_t>, const std::vector<const Entry*>* = nullptr, const Entry* = nullptr);
@@ -2008,6 +2014,10 @@ struct NativeMaintenanceContext::Impl {
         if (original_child && installed_confirmed && installed_postimage_file &&
             installed_postimage_file->complete && installed_record_text.size() <= maximum &&
             installed_record_query_role() != InstalledRecordQueryRole::unavailable) {
+            if (active_read_recipe) {
+                auto text = active_read_recipe->read_installed_text(maximum);
+                if (text) return text; // Provisional private bytes; recipe exit still required.
+            }
             OwnedRecordQuery query{maximum, {}};
             if (!complete_recipe_query(nullptr, &query))
                 require_authority(spec, nullptr, nullptr, nullptr, &query);
@@ -4127,8 +4137,28 @@ NativeMaintenanceContext::Impl::PrefixReadRecipe::PrefixReadRecipe(const Impl& o
     owner_.require_authority(owner_.spec);
     owner_.active_read_recipe = this;
     active_ = true;
-    try { require_active(); }
-    catch (...) { owner_.active_read_recipe = nullptr; active_ = false; owner_.entry_readback_failed = true; throw; }
+    try {
+        require_active();
+        // Admit only the known confirmed installed role of a restored repair.
+        // Reuse the existing complete typed EXPECTATION guard, never a native
+        // observation, byte result, authorization or prepared wire operation.
+        if (owner_.restored_owner && owner_.spec.operation == "repair" && owner_.publication_confirmed &&
+            owner_.installed_prepared && owner_.installed_confirmed && !owner_.installed_issue_active &&
+            owner_.installed_parent && owner_.installed_postimage_file &&
+            owner_.installed_postimage_file->complete && !owner_.installed_postimage_file->directory &&
+            owner_.installed_record_query_role() != InstalledRecordQueryRole::unavailable) {
+            const auto context = owner_.require_authority_state(owner_.spec);
+            const auto custody = owner_.installed_custody_facts();
+            std::vector<const Entry*> parents{owner_.installed_parent};
+            if (owner_.staging_parent) parents.push_back(owner_.staging_parent);
+            if (owner_.target_parent) parents.push_back(owner_.target_parent);
+            std::unique_ptr<RecipeQueryRead> expectations(new RecipeQueryRead(*this, owner_, parents,
+                custody, context, nullptr, owner_.installed_record_text.size()));
+            if (expectations->eligible()) installed_expectations_ = std::move(expectations);
+        }
+    } catch (...) {
+        owner_.active_read_recipe = nullptr; active_ = false; owner_.entry_readback_failed = true; throw;
+    }
 }
 NativeMaintenanceContext::Impl::PrefixReadRecipe::~PrefixReadRecipe() {
     if (active_) {
@@ -4148,14 +4178,49 @@ void NativeMaintenanceContext::Impl::PrefixReadRecipe::require_active() const {
         record_io::ScopedNativeRecordReadOperations::current() != &owner_.record_reads)
         throw std::runtime_error("native maintenance read-only recipe owner/lifetime changed");
 }
+std::optional<std::string>
+NativeMaintenanceContext::Impl::PrefixReadRecipe::read_installed_text(std::size_t maximum) {
+    if (!installed_expectations_) return std::nullopt; // Metadata-only decline before this read begins.
+    try {
+        require_active();
+        installed_expectations_->require_active_installed_expectations(maximum);
+        (void)owner_.require_authority_state(owner_.spec);
+        const auto custody = owner_.installed_custody_facts();
+        if (!custody) throw std::runtime_error("native maintenance installed recipe lost its held custody");
+        (void)owner_.relative_volume_path(owner_.spec.state_root);
+        (void)owner_.relative_volume_path(owner_.spec.target_root);
+        std::vector<const Entry*> parents{owner_.installed_parent};
+        if (owner_.staging_parent) parents.push_back(owner_.staging_parent);
+        if (owner_.target_parent) parents.push_back(owner_.target_parent);
+        owner_.recheck_entries(parents);
+        if (!same(observe_publisher_directory_handle(owner_.volume), owner_.volume_facts))
+            throw std::runtime_error("native maintenance installed recipe volume changed before bytes");
+        // Every logical query performs real fresh same-held hash/read/hash.
+        // Restored handles permit mutation sharing; holding one is insufficient.
+        owner_.require_installed_byte_content();
+        auto text = owner_.read_installed_record_text();
+        owner_.require_installed_byte_content();
+        owner_.recheck_entries(parents);
+        if (!same(observe_publisher_directory_handle(owner_.volume), owner_.volume_facts))
+            throw std::runtime_error("native maintenance installed recipe volume changed after bytes");
+        (void)owner_.installed_custody_facts();
+        (void)owner_.require_authority_state(owner_.spec);
+        (void)owner_.installed_custody_facts();
+        (void)owner_.relative_volume_path(owner_.spec.state_root);
+        (void)owner_.relative_volume_path(owner_.spec.target_root);
+        installed_expectations_->require_active_installed_expectations(maximum);
+        return text;
+    } catch (...) { owner_.entry_readback_failed = true; throw; }
+}
 void NativeMaintenanceContext::Impl::PrefixReadRecipe::recheck(const transaction::RecoveryInspection& current,
     const transaction::MaintenanceEffectInspection& history) {
     try {
         require_active();
         // Keep the final actual TX/history reads inside the same sealed
-        // effect-free query composition. Each read retains its full native
-        // proof; restored-repair selected security completes at the full entry
-        // and exit, before any result escapes this recipe.
+        // effect-free query composition. Per-query proof routes stay full.
+        // Admitted installed reads use the full enclosing entry/exit, with
+        // fresh local byte/custody/namespace checks on every logical read.
+        // No provisional result escapes before the complete recipe exit.
         const auto after = transaction::TransactionSession::inspect_recovery(owner_.spec);
         const auto effects = transaction::MaintenanceEffectJournal::inspect(owner_.spec, after.stream_source_digest, false);
         if (after.snapshot_sha256 != current.snapshot_sha256 ||
@@ -4172,12 +4237,20 @@ void NativeMaintenanceContext::Impl::PrefixReadRecipe::finish_authority() {
     if (active_) {
         try {
             require_active();
+            if (installed_expectations_)
+                installed_expectations_->require_active_installed_expectations(owner_.installed_record_text.size());
             // Dismantle before the complete actual original-record/global exit
             // proof. It cannot consume a recipe marker or saved authority.
             // Earlier separate late sampling instants/error order are unclaimed.
             owner_.active_read_recipe = nullptr;
             active_ = false;
             owner_.require_authority(owner_.spec);
+            if (installed_expectations_) {
+                transaction::detail::require_native_maintenance_origin_binding(true, binding_,
+                    transaction::detail::ScopedNativeMaintenanceTransaction::current_binding());
+                owner_.require_inspection_owner(owner_.spec);
+                installed_expectations_->require_installed_expectations(owner_.installed_record_text.size());
+            }
         } catch (...) { owner_.entry_readback_failed = true; throw; }
     } else owner_.require_authority(owner_.spec); // SCM/ordinary routes stay full.
 }
@@ -4644,6 +4717,9 @@ struct NativeMaintenanceContext::Impl::RecipeQueryRead::State {
     }
     void require_frozen() const {
         recipe.require_active();
+        require_owner_frozen();
+    }
+    void require_owner_frozen() const {
         if (!eligible || owner.entry_readback_failed || owner.original_child != child ||
             GetCurrentProcessId() != process || GetCurrentThreadId() != thread ||
             owner.volume != volume || !same(owner.volume_facts, volume_facts) ||
@@ -4679,6 +4755,29 @@ NativeMaintenanceContext::Impl::RecipeQueryRead::RecipeQueryRead(const PrefixRea
           paired_tail, paired_query)) {}
 NativeMaintenanceContext::Impl::RecipeQueryRead::~RecipeQueryRead() = default;
 bool NativeMaintenanceContext::Impl::RecipeQueryRead::eligible() const { return state_->eligible; }
+void NativeMaintenanceContext::Impl::RecipeQueryRead::require_installed_expectations(std::size_t maximum) const {
+    const auto& s = *state_;
+    s.require_owner_frozen();
+    if (!s.installed_maximum || s.byte_entry || s.paired_byte_entry || s.prepared || s.active_round ||
+        s.completed_rounds || s.bytes_checked || s.finalized || s.selection_before_checked ||
+        s.selection_after_checked || s.installed_result || s.file_result || s.paired_file_result ||
+        s.installed_text.size() > maximum || s.installed_text.size() != *s.installed_maximum ||
+        !s.owner.restored_owner || s.owner.spec.operation != "repair" || !s.owner.publication_confirmed ||
+        !s.owner.installed_prepared || !s.owner.installed_confirmed || s.owner.installed_issue_active ||
+        !s.owner.installed_parent || s.installed_role == InstalledRecordQueryRole::unavailable)
+        throw std::runtime_error("native maintenance installed recipe changed its unbegun confirmed query role");
+    std::size_t index = 0;
+    for (const auto* parent : {s.owner.installed_parent, s.owner.staging_parent, s.owner.target_parent}) {
+        if (parent && (index == s.entries.size() || s.entries[index++] != parent))
+            throw std::runtime_error("native maintenance installed recipe changed its exact parent roles");
+    }
+    if (index != s.entries.size())
+        throw std::runtime_error("native maintenance installed recipe changed its parent count");
+}
+void NativeMaintenanceContext::Impl::RecipeQueryRead::require_active_installed_expectations(std::size_t maximum) const {
+    state_->recipe.require_active();
+    require_installed_expectations(maximum);
+}
 transaction::detail::NativeMaintenanceFileObservation
 NativeMaintenanceContext::Impl::RecipeQueryRead::file_observation() const {
     const auto& s = *state_;
