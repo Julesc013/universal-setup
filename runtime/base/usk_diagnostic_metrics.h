@@ -28,7 +28,11 @@ enum class Phase : std::uint32_t {
     record_final_validation,
     // Append private diagnostic IDs; existing event fields and IDs stay stable.
     record_readiness, record_result_receive, record_result_validation,
-    record_owner_validation, broker_original_selection
+    record_owner_validation, broker_original_selection,
+    // Private caller labels only; no request/file identity or authority.
+    maintenance_recipe_entry, maintenance_recipe_exit,
+    maintenance_scalar_file_query, maintenance_fixed_pair_query,
+    maintenance_installed_local_query, maintenance_installed_native_query
 };
 struct Snapshot {
     std::array<std::uint64_t, static_cast<std::size_t>(Counter::count)> totals{};

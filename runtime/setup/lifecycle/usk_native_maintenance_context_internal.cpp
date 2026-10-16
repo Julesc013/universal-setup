@@ -1996,6 +1996,10 @@ struct NativeMaintenanceContext::Impl {
                 file_query ? &file_query->entry : nullptr,
                 record_query ? std::optional<std::size_t>{record_query->maximum} : std::nullopt);
             if (!read.eligible()) return false;
+            // Emit only after metadata admission; ordinary decline is not entry.
+            const usk::diagnostics::Scope query_diagnostic(file_query ?
+                usk::diagnostics::Phase::maintenance_scalar_file_query :
+                usk::diagnostics::Phase::maintenance_installed_native_query);
             original_child->verify_original_maintenance_record_bytes(read);
             (void)require_authority_state(spec);
             (void)installed_custody_facts();
@@ -3907,6 +3911,7 @@ struct NativeMaintenanceContext::Impl {
             RecipeQueryRead read(*active_read_recipe, *this, parents[0], custody[0], contexts[0],
                 selected[0], std::nullopt, &parents[1], selected[1]);
             if (!read.eligible()) return std::nullopt; // Complete ledger overflow, before wire begin.
+            const usk::diagnostics::Scope query_diagnostic(usk::diagnostics::Phase::maintenance_fixed_pair_query);
             original_child->verify_original_maintenance_record_bytes(read);
             for (std::size_t i = 0; i < 2u; ++i) {
                 (void)require_authority_state(spec);
@@ -4132,6 +4137,7 @@ NativeMaintenanceContext::Impl::PrefixReadRecipe::PrefixReadRecipe(const Impl& o
     if (transaction::detail::ScopedNativeMaintenanceTransaction::current() != &owner_.operations ||
         record_io::ScopedNativeRecordReadOperations::current() != &owner_.record_reads)
         throw std::runtime_error("native maintenance read-only recipe lost its original TLS operations");
+    const usk::diagnostics::Scope entry_diagnostic(usk::diagnostics::Phase::maintenance_recipe_entry);
     // Complete the actual original records, native endpoints and global state
     // before activating the distinct per-query composition. No output/effect.
     owner_.require_authority(owner_.spec);
@@ -4181,6 +4187,7 @@ void NativeMaintenanceContext::Impl::PrefixReadRecipe::require_active() const {
 std::optional<std::string>
 NativeMaintenanceContext::Impl::PrefixReadRecipe::read_installed_text(std::size_t maximum) {
     if (!installed_expectations_) return std::nullopt; // Metadata-only decline before this read begins.
+    const usk::diagnostics::Scope query_diagnostic(usk::diagnostics::Phase::maintenance_installed_local_query);
     try {
         require_active();
         installed_expectations_->require_active_installed_expectations(maximum);
@@ -4235,6 +4242,7 @@ void NativeMaintenanceContext::Impl::PrefixReadRecipe::recheck(const transaction
 }
 void NativeMaintenanceContext::Impl::PrefixReadRecipe::finish_authority() {
     if (active_) {
+        const usk::diagnostics::Scope exit_diagnostic(usk::diagnostics::Phase::maintenance_recipe_exit);
         try {
             require_active();
             if (installed_expectations_)
