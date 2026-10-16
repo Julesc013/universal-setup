@@ -522,6 +522,22 @@ std::optional<PublisherEffectBrokerRecordProjections> publisher_effect_broker_ma
     return PublisherEffectBrokerRecordProjections{std::move(service), std::move(worker)};
 }
 
+PublisherEffectBrokerOriginalRecord::PublisherEffectBrokerOriginalRecord(const Value& original)
+    : original_(original) {
+    // Only immutable supplied data is retained. Validation can fail here;
+    // no object exists and no execution route or native proof is granted.
+    require_publisher_effect_broker_readback_record(original_);
+}
+std::optional<PublisherEffectBrokerRecordProjections>
+PublisherEffectBrokerOriginalRecord::matching_projections(const Value& fresh) const {
+    require_publisher_effect_broker_readback_record(fresh);
+    if (!immutable_profiles_equal(fresh, original_)) return std::nullopt;
+    // Preserve service-then-worker extraction from the freshly validated data.
+    auto service = decoded_broker_service_record(fresh);
+    auto worker = decoded_worker_record_context(fresh);
+    return PublisherEffectBrokerRecordProjections{std::move(service), std::move(worker)};
+}
+
 PublisherRecordQueryPlan publisher_record_query_plan(const Value& objects_value) {
     const auto& objects = objects_value.as_array();
     require(!objects.empty() && objects.size() <= publisher_object_access_batch_limit,

@@ -1826,6 +1826,78 @@ void effect_execution_record_controls() {
         check(expected_records && owned_records && same_binding_records(*expected_records, *owned_records),
             "combined broker decoder borrowed caller record storage");
     }
+    // Validate one owned original, then exercise actual fresh-record matches.
+    // This removes later baseline allocation/parser failure opportunities; it
+    // does not promise the previous malformed-original refusal chronology.
+    static_assert(!std::is_copy_constructible<PublisherEffectBrokerOriginalRecord>::value &&
+        !std::is_move_constructible<PublisherEffectBrokerOriginalRecord>::value &&
+        !std::is_copy_assignable<PublisherEffectBrokerOriginalRecord>::value &&
+        !std::is_move_assignable<PublisherEffectBrokerOriginalRecord>::value,
+        "owned original must not be copied, moved from, or rebound");
+    const auto compare_owned_original = [&](const Value& fresh, const Value& original_record,
+        const PublisherEffectBrokerOriginalRecord& owned_original) {
+        std::optional<PublisherEffectBrokerRecordProjections> expected_records, actual_records;
+        std::string expected_error, actual_error;
+        try { expected_records = publisher_effect_broker_matching_record_projections(fresh, original_record); }
+        catch (const std::exception& error) { expected_error = std::string(typeid(error).name()) + ":" + error.what(); }
+        try { actual_records = owned_original.matching_projections(fresh); }
+        catch (const std::exception& error) { actual_error = std::string(typeid(error).name()) + ":" + error.what(); }
+        check(expected_error == actual_error && expected_records.has_value() == actual_records.has_value(),
+            "owned original omitted fresh validation or changed a valid-baseline match");
+        if (expected_records) check(same_binding_records(*expected_records, *actual_records),
+            "owned original changed fresh service or worker projections");
+    };
+    for (const auto& original_record : immutable_examples) {
+        const PublisherEffectBrokerOriginalRecord owned_original(original_record);
+        for (const auto& fresh : immutable_examples)
+            compare_owned_original(fresh, original_record, owned_original);
+        for (const auto& member : original_record.as_object()) {
+            auto invalid = original_record; invalid.as_object().at(member.first) = Value();
+            compare_owned_original(invalid, original_record, owned_original);
+            bool refused = false;
+            try { const PublisherEffectBrokerOriginalRecord invalid_original(invalid); }
+            catch (const std::exception&) { refused = true; }
+            check(refused, "owned original constructor accepted an incomplete baseline");
+        }
+        for (const auto& member : original_record.at("broker_security").at("worker_security").as_object()) {
+            auto invalid = original_record;
+            invalid.as_object().at("broker_security").as_object().at("worker_security").as_object().at(member.first) = Value();
+            compare_owned_original(invalid, original_record, owned_original);
+            bool refused = false;
+            try { const PublisherEffectBrokerOriginalRecord invalid_original(invalid); }
+            catch (const std::exception&) { refused = true; }
+            check(refused, "owned original constructor omitted baseline worker-security validation");
+        }
+        auto changed_request = original_record;
+        changed_request.as_object().at("request_sha256") = Value(std::string(64, 'e'));
+        changed_request.as_object().at("custody").as_object().at("request_sha256") = Value(std::string(64, 'e'));
+        compare_owned_original(changed_request, original_record, owned_original);
+        check(!owned_original.matching_projections(changed_request),
+            "owned original accepted another fully formed request binding");
+        // Moving a Value can preserve existing mutable references into its tree.
+        // The checked owner must deep-copy even an rvalue supplied with aliases.
+        auto aliased_source = original_record;
+        auto& schema_alias = aliased_source.as_object().at("schema");
+        auto& token_alias = aliased_source.as_object().at("service").as_object().at("primary_token").as_object();
+        const PublisherEffectBrokerOriginalRecord isolated_original(std::move(aliased_source));
+        schema_alias = Value("invalid_after_construction");
+        token_alias.at("user_sid") = Value(consumer_sid);
+        const auto isolated_result = isolated_original.matching_projections(original_record);
+        const auto isolated_expected = publisher_effect_broker_matching_record_projections(original_record, original_record);
+        check(isolated_result && isolated_expected && same_binding_records(*isolated_result, *isolated_expected),
+            "owned original retained mutable aliases into rvalue caller input");
+        auto supplied_original = original_record;
+        const PublisherEffectBrokerOriginalRecord independent_original(supplied_original);
+        supplied_original = Value();
+        auto supplied_fresh = original_record;
+        const auto actual_owned = independent_original.matching_projections(supplied_fresh);
+        const auto expected_owned = publisher_effect_broker_matching_record_projections(original_record, original_record);
+        supplied_fresh = Value();
+        check(actual_owned && expected_owned && same_binding_records(*actual_owned, *expected_owned),
+            "owned original or projections borrowed caller storage");
+    }
+    std::cout << "Owned original fresh-validation parity PASS " << immutable_examples.size()
+        << " baselines; malformed fresh/baseline, request mismatch and caller alias controls (data only)\n";
     for (const auto& example : immutable_examples) for (const auto& member : example.as_object()) {
         auto invalid = example; invalid.as_object().at(member.first) = Value();
         bool old_refused = false, new_refused = false;

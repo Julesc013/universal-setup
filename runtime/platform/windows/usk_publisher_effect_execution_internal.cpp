@@ -36,7 +36,9 @@ struct PublisherEffectExecutionOwner::State {
     const DWORD process_id = GetCurrentProcessId(), thread_id = GetCurrentThreadId();
     const std::wstring name;
     const std::string request;
-    const Value original;
+    // Full immutable baseline validation is done once. This is retained data,
+    // not cached current authority; every fresh profile/native join stays below.
+    const PublisherEffectBrokerOriginalRecord original;
     std::uint64_t routing_id = 0;
     bool failed = false;
     State(PublisherEffectWorkerPeer& p, const std::wstring& service_name) :
@@ -50,7 +52,7 @@ struct PublisherEffectExecutionOwner::State {
     }
     void require_native_binding(const Value& profile, const Value& native) const {
         // Decode this pair once, then keep all live native joins below.
-        const auto records = publisher_effect_broker_matching_record_projections(profile, original);
+        const auto records = original.matching_projections(profile);
         require(records.has_value(), "publisher child original broker binding changed");
         const auto& broker = records->service;
         const auto& worker = records->worker;

@@ -4,6 +4,7 @@
 #define USK_PUBLISHER_EFFECT_BROKER_INTERNAL_H
 #if defined(_WIN32)
 #include "usk_publisher_effect_worker_custody_internal.h"
+#include "usk_json.h"
 #include "usk_publisher_handle_observation.h"
 #include "usk_publisher_worker_security.h"
 #include <array>
@@ -55,6 +56,23 @@ struct PublisherEffectBrokerRecordProjections {
 // their independent validation. Every live native binding stays with callers.
 std::optional<PublisherEffectBrokerRecordProjections> publisher_effect_broker_matching_record_projections(
     const usk::json::Value& profile, const usk::json::Value& original);
+// Owned immutable retained data only; no native observation or authority.
+// Construction fully validates the original. Each match still fully validates
+// the fresh record and uses the existing exact immutable-field comparison.
+// A defensive deep copy excludes aliases into moved caller input as well.
+// There is no rebind, borrowed storage, or usable moved-from instance.
+class PublisherEffectBrokerOriginalRecord final {
+public:
+    explicit PublisherEffectBrokerOriginalRecord(const usk::json::Value& original);
+    PublisherEffectBrokerOriginalRecord(const PublisherEffectBrokerOriginalRecord&) = delete;
+    PublisherEffectBrokerOriginalRecord& operator=(const PublisherEffectBrokerOriginalRecord&) = delete;
+    PublisherEffectBrokerOriginalRecord(PublisherEffectBrokerOriginalRecord&&) = delete;
+    PublisherEffectBrokerOriginalRecord& operator=(PublisherEffectBrokerOriginalRecord&&) = delete;
+    std::optional<PublisherEffectBrokerRecordProjections> matching_projections(
+        const usk::json::Value& fresh) const;
+private:
+    const usk::json::Value original_;
+};
 PublisherWorkerTokenContext publisher_effect_worker_record_context(const usk::json::Value&);
 PublisherServiceObservation publisher_effect_broker_service_record(const usk::json::Value&);
 void require_publisher_effect_original_maintenance_selection(const usk::json::Value& selection,
