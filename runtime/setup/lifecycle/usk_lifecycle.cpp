@@ -3759,9 +3759,17 @@ MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transac
         observation.pending_kind != history.pending_kind)
         throw std::runtime_error("maintenance recovery postcondition changed its original binding");
     if (injector) injector("pending_effect", "before_completion");
-    pin();
-    auto records = transaction::MaintenanceEffectJournal::resume(spec, history.source_digest, history.journal_digest);
-    records->complete_effect(outcome, observation.result_digest);
+    bool completion_persisted = false;
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+    if (!injector)
+        completion_persisted = complete_current_native_maintenance_recovery_effect(spec, transaction,
+            history, operations, outcome, observation.result_digest);
+#endif
+    if (!completion_persisted) {
+        pin();
+        auto records = transaction::MaintenanceEffectJournal::resume(spec, history.source_digest, history.journal_digest);
+        records->complete_effect(outcome, observation.result_digest);
+    }
 #if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
     if (!injector) {
         MaintenanceEffectReconciliation completed_observation;

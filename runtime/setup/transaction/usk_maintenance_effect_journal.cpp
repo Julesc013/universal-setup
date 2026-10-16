@@ -421,6 +421,11 @@ void MaintenanceEffectJournal::complete_effect(const std::string& outcome, const
         require_effect_owner_binding();
     }
 #endif
+    persist_completion(outcome, result_digest);
+}
+
+void MaintenanceEffectJournal::persist_completion(const std::string& outcome, const std::string& result_digest)
+{
     validate_completion(pending_kind_, outcome, result_digest);
     persist("complete", Value(Value::Object{{"intent_sequence", Value(pending_sequence_)},
         {"kind", Value(pending_kind_)}, {"outcome", Value(outcome)},
@@ -527,6 +532,25 @@ MaintenanceEffectJournal::MaintenanceEffectJournal(TransactionSpec spec,
 #endif
     bind_original_owner();
 }
+
+#if defined(_WIN32)
+MaintenanceEffectJournal::MaintenanceEffectJournal(TransactionSpec spec,
+    MaintenanceEffectInspection inspected, NativeReadOnlyResumption)
+    : spec_(std::move(spec)),
+      directory_(fs::absolute(spec_.state_root).lexically_normal() / "transactions" /
+          (spec_.transaction_id + ".maintenance")), directory_identity_(std::move(inspected.directory_identity)),
+      source_digest_(std::move(inspected.source_digest)), last_digest_(std::move(inspected.journal_digest)),
+      pending_kind_(std::move(inspected.pending_kind)), pending_sequence_(inspected.pending_sequence),
+      sequence_(inspected.next_sequence), bytes_(inspected.serialized_bytes)
+{
+    // Only the fixed original owner's read-only tail constructs this object.
+    // Its enclosing fresh proof ends before the private persistence call.
+    resumed_ = true;
+    native_origin_ = true;
+    native_origin_binding_ = detail::ScopedNativeMaintenanceTransaction::current_binding();
+    require_effect_owner_binding();
+}
+#endif
 
 std::unique_ptr<MaintenanceEffectJournal> MaintenanceEffectJournal::resume(const TransactionSpec& spec,
     const std::string& expected_source_digest, const std::string& expected_history_digest, FaultInjector injector)

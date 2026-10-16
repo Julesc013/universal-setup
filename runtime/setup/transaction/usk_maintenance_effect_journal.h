@@ -13,6 +13,10 @@
 #include <utility>
 #include <vector>
 
+#if defined(_WIN32)
+namespace usk::lifecycle::detail { class NativeMaintenanceContext; }
+#endif
+
 namespace usk::transaction {
 
 struct CompletedMaintenanceEffect {
@@ -80,6 +84,15 @@ public:
         FaultInjector injector = {});
 
 private:
+#if defined(_WIN32)
+    friend class usk::lifecycle::detail::NativeMaintenanceContext;
+    // Inert metadata construction inside the concrete owner's sealed reader.
+    // Neither the tag nor its object grants authority or exposes persistence.
+    struct NativeReadOnlyResumption {};
+    MaintenanceEffectJournal(TransactionSpec spec, MaintenanceEffectInspection inspected,
+        NativeReadOnlyResumption);
+#endif
+    void persist_completion(const std::string& outcome, const std::string& result_digest);
     std::optional<std::pair<std::string, std::string>> apply_owned_effect();
     void bind_original_owner();
     void require_effect_owner_binding() const;

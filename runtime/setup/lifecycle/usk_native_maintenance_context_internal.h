@@ -34,6 +34,11 @@ private:
         const usk::transaction::RecoveryInspection&,
         const usk::transaction::MaintenanceEffectInspection&,
         const MaintenanceRecoveryOperations&, NativeMaintenanceRecoveryPrefixPin);
+    friend bool complete_current_native_maintenance_recovery_effect(
+        const usk::transaction::TransactionSpec&,
+        const usk::transaction::RecoveryInspection&,
+        const usk::transaction::MaintenanceEffectInspection&,
+        const MaintenanceRecoveryOperations&, const std::string&, const std::string&);
     friend bool reconcile_current_native_maintenance_recovery_prefix(
         const usk::transaction::TransactionSpec&,
         const usk::transaction::RecoveryInspection&,

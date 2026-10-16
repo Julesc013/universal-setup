@@ -89,6 +89,16 @@ bool require_current_native_maintenance_recovery_prefix(
     const transaction::MaintenanceEffectInspection& expected_history,
     const MaintenanceRecoveryOperations& operations,
     NativeMaintenanceRecoveryPrefixPin pin);
+// Fixed no-injector completion tail. The concrete owner finishes every pure
+// read and its full fresh exit before the separately fenced journal write.
+// Decline only before a native begin; begun failures cannot fall back.
+bool complete_current_native_maintenance_recovery_effect(
+    const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& expected_transaction,
+    const transaction::MaintenanceEffectInspection& expected_history,
+    const MaintenanceRecoveryOperations& operations,
+    const std::string& outcome, const std::string& result_digest);
+
 // Two fixed adjacent pure lifecycle groups. Outputs remain metadata and appear
 // only after the full original-record/global exit proof. No callback, effect,
 // grant or journal transition enters either body. Both original targets and

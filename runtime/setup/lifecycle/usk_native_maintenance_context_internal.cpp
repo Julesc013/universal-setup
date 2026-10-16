@@ -3505,6 +3505,60 @@ struct NativeMaintenanceContext::Impl {
         recipe.finish_authority();
         require_inspection_owner(supplied);
     }
+    bool complete_recovery_effect(const transaction::TransactionSpec& supplied,
+        const transaction::RecoveryInspection& expected_transaction,
+        const transaction::MaintenanceEffectInspection& expected_history,
+        const std::string& outcome, const std::string& result_digest) {
+        // Metadata-only eligibility. Publication/grant paths retain the
+        // original separate pin/resume/confirmation order and write fences.
+        const bool may_grant = !original_consumer_sid.empty() &&
+            ((spec.operation == "repair" && expected_history.pending_kind == "replace_file") ||
+             (spec.operation == "move" && expected_history.pending_kind == "publish_target"));
+        if (expected_history.pending_kind == "publish_target" || may_grant) return false;
+        require_recovery_reader(supplied);
+        using Journal = transaction::MaintenanceEffectJournal;
+        std::unique_ptr<Journal> journal;
+        try {
+            {
+                PrefixReadRecipe recipe(*this);
+                // Preserve the original exact pin, including its actual
+                // paired reads, closing comparisons and owner predicates.
+                read_recovery_prefix(supplied, expected_transaction, expected_history,
+                    NativeMaintenanceRecoveryPrefixPin::exact_snapshot);
+                // Preserve resume's real false-retention read and predicates.
+                auto inspected = Journal::inspect(supplied, expected_history.source_digest);
+                if (!digest(expected_history.journal_digest) ||
+                    inspected.journal_digest != expected_history.journal_digest || inspected.sealed)
+                    throw std::runtime_error("maintenance continuation snapshot changed or is sealed");
+                require_inspection_owner(supplied);
+                journal.reset(new Journal(supplied, std::move(inspected), Journal::NativeReadOnlyResumption{}));
+                if (journal->pending_kind_.empty())
+                    throw std::logic_error("maintenance completion has no intent");
+                journal->require_effect_owner_binding();
+                // The same complete-role true-retention selection precedes
+                // the actual no-grant owned outcome/transition confirmation.
+                const auto selected = read_effect_history_selection(supplied, {
+                    transaction::detail::NativeMaintenanceEffectSelectionRole::complete,
+                    journal->source_digest_, journal->last_digest_, journal->pending_kind_,
+                    journal->sequence_, journal->pending_sequence_});
+                journal->require_effect_owner_binding();
+                require_inspection_owner(supplied);
+                if (selected.pending_kind == "publish_target" || consumer_completion_required(selected))
+                    throw std::runtime_error("native maintenance selected completion cannot issue a reader grant");
+                transaction::RecoveryInspection current;
+                transaction::MaintenanceEffectInspection history;
+                read_confirmed_payload_completion(supplied, selected, outcome, result_digest, true, current, history);
+                recipe.finish(current, history);
+                require_inspection_owner(supplied);
+            }
+            // No read-only marker or saved authorization reaches persistence.
+            // The original protected writer completes fresh effect fences.
+            journal->require_effect_owner_binding();
+            journal->persist_completion(outcome, result_digest);
+            require_inspection_owner(supplied);
+            return true;
+        } catch (...) { entry_readback_failed = true; throw; }
+    }
     MaintenanceEffectReconciliation read_effect_reconciliation(const transaction::TransactionSpec& supplied) {
         require_inspection_owner(supplied);
         if (!active_read_recipe) throw std::runtime_error("native maintenance reconciliation reader is inactive");
@@ -4976,6 +5030,18 @@ bool require_current_native_maintenance_recovery_prefix(const transaction::Trans
     if (NativeMaintenanceContext::original_recovery_reader(operations) != selected)
         throw std::runtime_error("native maintenance recovery reader changed its original owner");
     return true; // Full fresh exit completed; no metadata/authority tuple is returned.
+}
+bool complete_current_native_maintenance_recovery_effect(const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& expected_transaction,
+    const transaction::MaintenanceEffectInspection& expected_history,
+    const MaintenanceRecoveryOperations& operations, const std::string& outcome, const std::string& result_digest) {
+    auto* owner = NativeMaintenanceContext::original_recovery_reader(operations);
+    if (!owner) return false;
+    if (!owner->complete_recovery_effect(spec, expected_transaction, expected_history, outcome, result_digest))
+        return false; // Metadata-only decline; no native scope has begun.
+    if (NativeMaintenanceContext::original_recovery_reader(operations) != owner)
+        throw std::runtime_error("native maintenance recovery completion changed its original owner");
+    return true;
 }
 bool reconcile_current_native_maintenance_recovery_prefix(const transaction::TransactionSpec& spec,
     const transaction::RecoveryInspection& expected_transaction,
