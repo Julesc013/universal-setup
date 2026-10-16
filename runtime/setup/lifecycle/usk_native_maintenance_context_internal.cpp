@@ -3771,6 +3771,7 @@ struct NativeMaintenanceContext::Impl {
     std::string apply_recovery_effect(const transaction::TransactionSpec& supplied,
         const transaction::MaintenanceEffectInspection& history, bool prepare_cleanup = false) {
         std::optional<transaction::MaintenanceEffectInspection> prepared;
+        bool prepared_unconfirmed_repair = false;
         if (original_child && publication_confirmed && !original_source_context.empty() &&
             !restoration_record_observers.empty() && !active_read_recipe) {
             // The fixed authority and optional later pending selection are
@@ -3780,9 +3781,23 @@ struct NativeMaintenanceContext::Impl {
             PrefixReadRecipe recipe(*this);
             const auto current = transaction::TransactionSession::inspect_recovery(spec);
             require_recovery_authority(supplied, current, history);
-            if (prepare_cleanup && current.commit_confirmed && current.current_state == "committed") {
-                // Keep the later pending selection and every mutable payload/
-                // namespace observation. Only the enclosing proof is composed.
+            // An unconfirmed restored repair will next run require_pending
+            // before apply_selected_effect. Both this recovery selection and
+            // that fixed pending selection only read. Compose them just as the
+            // existing committed-cleanup path does, before any attempt/outcome
+            // insertion, reader grant, custody write or native effect.
+            const auto prior_outcome = payload_outcomes.find(history.journal_digest);
+            const bool prepare_repair = !prepare_cleanup && restored_owner && spec.operation == "repair" &&
+                (history.pending_kind == "backup_file" || history.pending_kind == "replace_file") &&
+                (prior_outcome == payload_outcomes.end() || !prior_outcome->second->confirmed);
+            if (prepare_repair || (prepare_cleanup && current.commit_confirmed && current.current_state == "committed")) {
+                // Retain the later pending selection's actual TX/history,
+                // artifact, continuation, grammar and closing-pair reads. Full
+                // fresh entry/exit authority surrounds both adjacent bodies;
+                // no selected security or byte proof is reused across effects.
+                // Former separate middle sampling instants/error order are
+                // unclaimed. Confirmed, ordinary and other operation routes
+                // retain their existing selection and grant behavior.
                 require_same_transaction(supplied);
                 if (GetCurrentProcessId() != worker_context.process_id ||
                     (cancel_event && WaitForSingleObject(cancel_event, 0) != WAIT_TIMEOUT))
@@ -3790,12 +3805,17 @@ struct NativeMaintenanceContext::Impl {
                 const auto pending_tx = transaction::TransactionSession::inspect_recovery(spec);
                 auto pending = inspect_pending_read_only(history.pending_kind);
                 recipe.recheck(pending_tx, pending); // Original pending reader's actual closing pair.
-                if (spec.operation != "repair" ||
-                    (pending.pending_kind != "remove_file" && pending.pending_kind != "remove_directory") ||
-                    pending.pending_details.at("root_role").as_string() != "operation_target")
-                    throw std::runtime_error("native maintenance prepared effect is outside committed repair cleanup");
-                if (pending_tx.commit_confirmed && pending_tx.current_state == "committed")
-                    prepared.emplace(std::move(pending)); // Other actual states retain the ordinary selection below.
+                if (prepare_repair) {
+                    prepared.emplace(std::move(pending));
+                    prepared_unconfirmed_repair = true;
+                } else {
+                    if (spec.operation != "repair" ||
+                        (pending.pending_kind != "remove_file" && pending.pending_kind != "remove_directory") ||
+                        pending.pending_details.at("root_role").as_string() != "operation_target")
+                        throw std::runtime_error("native maintenance prepared effect is outside committed repair cleanup");
+                    if (pending_tx.commit_confirmed && pending_tx.current_state == "committed")
+                        prepared.emplace(std::move(pending)); // Other actual states retain the ordinary selection below.
+                }
             }
             recipe.finish_authority();
             require_inspection_owner(supplied);
@@ -3804,6 +3824,10 @@ struct NativeMaintenanceContext::Impl {
             require_recovery_authority(supplied, current, history);
         }
         const auto confirmed = payload_outcomes.find(history.journal_digest);
+        if (prepared_unconfirmed_repair && confirmed != payload_outcomes.end() && confirmed->second->confirmed) {
+            entry_readback_failed = true;
+            throw std::runtime_error("native maintenance pure pending selection changed its owned outcome");
+        }
         if (confirmed != payload_outcomes.end() && confirmed->second->confirmed) {
             complete_consumer_access(history);
             const auto observation = reconcile_maintenance_effect(spec);
