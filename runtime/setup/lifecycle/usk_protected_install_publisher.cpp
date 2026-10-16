@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
 
+#include "usk_diagnostic_metrics.h"
 #include "usk_publisher_anchor_create.h"
 #include "usk_publisher_staged_stream.h"
 #include "usk_publisher_volume_operation_guard.h"
@@ -4169,8 +4170,11 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                     usk::lifecycle::detail::NativeMaintenanceContext::RecoveryAdmission::ended_original_holder));
             const auto before = usk::transaction::TransactionSession::inspect_recovery(spec);
             const auto before_effects = usk::transaction::MaintenanceEffectJournal::inspect(spec, before.stream_source_digest);
-            const auto completed = usk::lifecycle::detail::recover_maintenance_transaction(spec, before.snapshot_sha256,
-                before_effects.journal_digest, owner->recovery_operations());
+            const auto completed = [&] {
+                const usk::diagnostics::Scope maintenance_recovery_run_diagnostic(usk::diagnostics::Phase::maintenance_recovery_run);
+                return usk::lifecycle::detail::recover_maintenance_transaction(spec, before.snapshot_sha256,
+                    before_effects.journal_digest, owner->recovery_operations());
+            }();
             const auto effects = usk::transaction::MaintenanceEffectJournal::inspect(spec, completed.stream_source_digest);
             if (completed.current_state != "completed" || !effects.sealed || !effects.pending_kind.empty())
                 throw std::runtime_error("native maintenance recovery lacks its completed sealed original prefix");
@@ -4181,7 +4185,10 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 {"effect_history_sha256", Value(effects.journal_digest)}, {"source_digest", Value(completed.stream_source_digest)},
                 {"recorded_at", Value(completed.recorded_at)}, {"report_id", Value("recovery." + operation + "." + operation_id)}});
             report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(report)));
-            lease.finish(false);
+            {
+                const usk::diagnostics::Scope maintenance_recovery_lease_finish_diagnostic(usk::diagnostics::Phase::maintenance_recovery_lease_finish);
+                lease.finish(false);
+            }
             return usk::json::canonical(Value(Value::Object{
                 {"schema", Value("usk.publisher_lab_service_observation.v1")}, {"status", Value("pass")},
                 {"request_sha256", Value(usk::json::sha256_canonical(request))},

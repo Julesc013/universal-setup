@@ -1596,6 +1596,7 @@ struct NativeMaintenanceContext::Impl {
     transaction::MaintenanceEffectInspection inspect_effect_history(
         const transaction::TransactionSpec& supplied,
         const transaction::detail::NativeMaintenanceEffectSelection& effect_selection) const {
+        const usk::diagnostics::Scope maintenance_effect_history_inspection_diagnostic(usk::diagnostics::Phase::maintenance_effect_history_inspection);
         const auto inspect = [&] {
             return read_effect_history_selection(supplied, effect_selection);
         };
@@ -1621,6 +1622,7 @@ struct NativeMaintenanceContext::Impl {
     transaction::MaintenanceEffectInspection resume_effect_history(
         const transaction::TransactionSpec& supplied, const std::string& expected_source_digest,
         const std::string& expected_history_digest) const {
+        const usk::diagnostics::Scope maintenance_effect_history_resumption_diagnostic(usk::diagnostics::Phase::maintenance_effect_history_resumption);
         const auto inspect = [&] {
             // Keep the actual read first and the original false retention mode;
             // an unresolved pending intent is admissible for resumption.
@@ -1648,6 +1650,7 @@ struct NativeMaintenanceContext::Impl {
     void inspect_prefix(const transaction::TransactionSpec& supplied,
         transaction::RecoveryInspection& output_transaction,
         transaction::MaintenanceEffectInspection& output_history) const {
+        const usk::diagnostics::Scope maintenance_prefix_inspection_diagnostic(usk::diagnostics::Phase::maintenance_prefix_inspection);
         require_inspection_owner(supplied);
         const auto inspect = [&] {
             auto current = transaction::TransactionSession::inspect_recovery(spec);
@@ -1675,6 +1678,7 @@ struct NativeMaintenanceContext::Impl {
         output_history = std::move(result.second);
     }
     MaintenanceContinuationInspection inspect_continuation(const transaction::TransactionSpec& supplied) const {
+        const usk::diagnostics::Scope maintenance_continuation_inspection_diagnostic(usk::diagnostics::Phase::maintenance_continuation_inspection);
         require_inspection_owner(supplied);
         if (active_read_recipe) {
             // A fixed nested body stays inside the enclosing recipe. Its owner
@@ -1696,6 +1700,7 @@ struct NativeMaintenanceContext::Impl {
         return result;
     }
     MaintenanceEffectReconciliation reconcile_effect(const transaction::TransactionSpec& supplied) const {
+        const usk::diagnostics::Scope maintenance_effect_reconciliation_diagnostic(usk::diagnostics::Phase::maintenance_effect_reconciliation);
         require_inspection_owner(supplied);
         if (active_read_recipe) {
             auto result = reconcile_maintenance_effect_unscoped(spec);
@@ -3379,6 +3384,7 @@ struct NativeMaintenanceContext::Impl {
     void require_recovery_authority(const transaction::TransactionSpec& supplied,
         const transaction::RecoveryInspection& inspected_transaction,
         const transaction::MaintenanceEffectInspection& inspected_history) {
+        const usk::diagnostics::Scope maintenance_recovery_authority_diagnostic(usk::diagnostics::Phase::maintenance_recovery_authority);
         require_same_transaction(supplied);
         if (!original_child) require_authority(supplied);
         else if (GetCurrentProcessId() != worker_context.process_id ||
@@ -3496,6 +3502,7 @@ struct NativeMaintenanceContext::Impl {
         const transaction::RecoveryInspection& expected_transaction,
         const transaction::MaintenanceEffectInspection& expected_history,
         NativeMaintenanceRecoveryPrefixPin pin) {
+        const usk::diagnostics::Scope maintenance_recovery_prefix_read_diagnostic(usk::diagnostics::Phase::maintenance_recovery_prefix_read);
         require_inspection_owner(supplied);
         if (!active_read_recipe) throw std::runtime_error("native maintenance fixed recovery reader is inactive");
         transaction::RecoveryInspection current;
@@ -3532,6 +3539,7 @@ struct NativeMaintenanceContext::Impl {
         const transaction::RecoveryInspection& expected_transaction,
         const transaction::MaintenanceEffectInspection& expected_history,
         const std::string& outcome, const std::string& result_digest) {
+        const usk::diagnostics::Scope maintenance_recovery_effect_completion_diagnostic(usk::diagnostics::Phase::maintenance_recovery_effect_completion);
         // Metadata-only eligibility. Publication/grant paths retain the
         // original separate pin/resume/confirmation order and write fences.
         const bool may_grant = !original_consumer_sid.empty() &&
@@ -4221,6 +4229,7 @@ NativeMaintenanceContext::Impl::PrefixReadRecipe::read_installed_text(std::size_
 }
 void NativeMaintenanceContext::Impl::PrefixReadRecipe::recheck(const transaction::RecoveryInspection& current,
     const transaction::MaintenanceEffectInspection& history) {
+    const usk::diagnostics::Scope maintenance_prefix_recheck_diagnostic(usk::diagnostics::Phase::maintenance_prefix_recheck);
     try {
         require_active();
         // Keep the final actual TX/history reads inside the same sealed

@@ -32,7 +32,27 @@ enum class Phase : std::uint32_t {
     // Private caller labels only; no request/file identity or authority.
     maintenance_recipe_entry, maintenance_recipe_exit,
     maintenance_scalar_file_query, maintenance_fixed_pair_query,
-    maintenance_installed_local_query, maintenance_installed_native_query
+    maintenance_installed_local_query, maintenance_installed_native_query,
+    // Fixed caller/finalization labels only; no native result or authority.
+    maintenance_effect_history_inspection,
+    maintenance_effect_history_resumption,
+    maintenance_prefix_inspection,
+    maintenance_continuation_inspection,
+    maintenance_effect_reconciliation,
+    maintenance_recovery_authority,
+    maintenance_recovery_prefix_read,
+    maintenance_recovery_effect_completion,
+    maintenance_prefix_recheck,
+    maintenance_recovery_run,
+    maintenance_recovery_lease_finish,
+    effect_worker_finalization,
+    effect_terminal_validation,
+    effect_worker_terminal_send,
+    effect_worker_parent_retirement,
+    effect_broker_worker_closure,
+    effect_broker_volume_closure,
+    publisher_response_projection,
+    effect_worker_failure_reporting
 };
 struct Snapshot {
     std::array<std::uint64_t, static_cast<std::size_t>(Counter::count)> totals{};

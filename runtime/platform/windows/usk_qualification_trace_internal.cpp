@@ -15,11 +15,38 @@ TRACELOGGING_DEFINE_PROVIDER(usk_qualification_provider, "UniversalSetup.Qualifi
 
 namespace usk::platform::windows {
 namespace {
-std::atomic<std::uint64_t> emitted{0};
+// Preserve the process-wide 16384-event ceiling. Ordinary events cannot
+// consume the final32 slots needed to observe the fixed request/terminal path.
+// An entry or unwinding exit is diagnostic data, never a completion verdict.
+constexpr std::uint64_t event_limit = 16384, final_event_reserve = 32;
+std::atomic<std::uint64_t> ordinary_emitted{0}, final_emitted{0};
 std::atomic<bool> owned{false};
-bool claim_event() noexcept {
+bool final_path_phase(usk::diagnostics::Phase phase) noexcept {
+    using usk::diagnostics::Phase;
+    switch (phase) {
+    case Phase::machine_request:
+    case Phase::engine_request:
+    case Phase::response_write:
+    case Phase::maintenance_recovery_run:
+    case Phase::maintenance_recovery_lease_finish:
+    case Phase::effect_worker_finalization:
+    case Phase::effect_terminal_validation:
+    case Phase::effect_worker_terminal_send:
+    case Phase::effect_worker_parent_retirement:
+    case Phase::effect_broker_worker_closure:
+    case Phase::effect_broker_volume_closure:
+    case Phase::publisher_response_projection:
+    case Phase::effect_worker_failure_reporting:
+        return true;
+    default: return false;
+    }
+}
+bool claim_event(usk::diagnostics::Phase phase) noexcept {
+    const bool final = final_path_phase(phase);
+    auto& emitted = final ? final_emitted : ordinary_emitted;
+    const auto limit = final ? final_event_reserve : event_limit - final_event_reserve;
     auto previous = emitted.load(std::memory_order_relaxed);
-    while (previous < 16384) {
+    while (previous < limit) {
         if (emitted.compare_exchange_weak(previous, previous + 1, std::memory_order_relaxed)) return true;
     }
     return false;
@@ -27,7 +54,7 @@ bool claim_event() noexcept {
 bool write_event(const usk::diagnostics::Event& event) noexcept {
     const DWORD error = GetLastError();
     if (!TraceLoggingProviderEnabled(usk_qualification_provider, WINEVENT_LEVEL_INFO, 1) ||
-        !claim_event()) {
+        !claim_event(event.phase)) {
         SetLastError(error);
         return false;
     }

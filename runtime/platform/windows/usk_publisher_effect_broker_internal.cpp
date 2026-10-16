@@ -1635,6 +1635,7 @@ void require_publisher_effect_failure_diagnostic(const Value& diagnostic) {
         "effect worker failure diagnostic is not closed bounded error data");
 }
 void require_publisher_effect_terminal_record(const Value& value, const Value& broker) {
+    const usk::diagnostics::Scope effect_terminal_validation_diagnostic(usk::diagnostics::Phase::effect_terminal_validation);
     require_publisher_effect_broker_readback_record(broker);
     require_closed(value, {"schema", "request_sha256", "status", "response", "error", "error_code",
         "operation_inspection_ref", "effects_may_exist", "definite_preflight_refusal"});

@@ -285,6 +285,7 @@ int private_effect_worker_main(int argc, wchar_t** argv) {
     std::unique_ptr<PublisherEffectWorkerPeer> original_peer;
     bool terminal_attempted = false;
     const auto report_failure = [&original_peer, &terminal_attempted](const char* message) noexcept {
+        const usk::diagnostics::Scope effect_worker_failure_reporting_diagnostic(usk::diagnostics::Phase::effect_worker_failure_reporting);
         if (original_peer && !terminal_attempted) {
             try {
                 Value diagnostic(Value::Object{{"schema", Value("usk.publisher_effect_worker_failure_diagnostic.v1")},
@@ -353,7 +354,10 @@ int private_effect_worker_main(int argc, wchar_t** argv) {
                 terminal.as_object().at("effects_may_exist") = Value(effects);
                 // The engine and all its guard/lease/creator/effect scopes have
                 // ended. Failed native observation cannot manufacture a terminal.
-                require_publisher_effect_terminal_record(terminal, owner.service_admission());
+                {
+                    const usk::diagnostics::Scope effect_worker_finalization_diagnostic(usk::diagnostics::Phase::effect_worker_finalization);
+                    require_publisher_effect_terminal_record(terminal, owner.service_admission());
+                }
             } catch (...) {
                 // An invalid terminal is never sent. Preserve the first actual
                 // engine failure for the error-only conservative reporting path.
@@ -362,10 +366,16 @@ int private_effect_worker_main(int argc, wchar_t** argv) {
             }
         }
         terminal_attempted = true; // No diagnostic or other packet after this attempt.
-        peer.send(terminal);
+        {
+            const usk::diagnostics::Scope effect_worker_terminal_send_diagnostic(usk::diagnostics::Phase::effect_worker_terminal_send);
+            peer.send(terminal);
+        }
         // Keep the original peer alive through live validation and explicit
         // parent job closure. No SCM dispatch, callbacks or extra readback.
-        (void)peer.await_parent_retirement();
+        {
+            const usk::diagnostics::Scope effect_worker_parent_retirement_diagnostic(usk::diagnostics::Phase::effect_worker_parent_retirement);
+            (void)peer.await_parent_retirement();
+        }
         return 5; // Parent disposal normally terminates this child in its job.
     } catch (const std::exception& error) { return report_failure(error.what()); }
     catch (...) { return report_failure("non-standard failure before confirmed terminal"); }
@@ -383,6 +393,7 @@ public:
     BrokerVolumeObserver& operator=(const BrokerVolumeObserver&) = delete;
     HANDLE get() const { return handle_; }
     bool close() noexcept {
+        const usk::diagnostics::Scope effect_broker_volume_closure_diagnostic(usk::diagnostics::Phase::effect_broker_volume_closure);
         if (!attempted_) {
             attempted_ = true;
             closed_ = CloseHandle(handle_) != FALSE;
@@ -420,13 +431,19 @@ usk::json::Value execute_registered_child(usk::platform::windows::RegisteredPubl
     } catch (...) {
         const auto primary = std::current_exception();
         if (child) {
-            const auto closure = child->close();
+            const auto closure = [&] {
+                const usk::diagnostics::Scope effect_broker_worker_closure_diagnostic(usk::diagnostics::Phase::effect_broker_worker_closure);
+                return child->close();
+            }();
             if (!closure.confirmed()) throw PublisherEffectWorkerClosureUnknown(closure, primary);
         }
         if (!volume.close()) throw PublisherBrokerQueryClosureUnknown(volume.error(), primary);
         std::rethrow_exception(primary);
     }
-    const auto closure = child->close();
+    const auto closure = [&] {
+        const usk::diagnostics::Scope effect_broker_worker_closure_diagnostic(usk::diagnostics::Phase::effect_broker_worker_closure);
+        return child->close();
+    }();
     if (!closure.confirmed()) throw PublisherEffectWorkerClosureUnknown(closure, {});
     if (!volume.close()) throw PublisherBrokerQueryClosureUnknown(volume.error(), {});
     effects_may_exist = terminal.at("effects_may_exist").as_boolean();
@@ -574,14 +591,17 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 config,publication_effects_may_exist);
             response=usk::json::parse(observed);
         }
-        if (registered_admission) {
-            const auto pid = static_cast<std::uint64_t>(GetCurrentProcessId());
-            if (response.contains("process_id") && response.at("process_id").as_unsigned() != pid)
-                throw std::runtime_error("native response worker process differs from the live host");
-            response.as_object().emplace("process_id", usk::json::Value(pid));
-            response.as_object().emplace("registered_admission", registered_admission->evidence());
-        }
-        const auto data = usk::json::canonical(response);
+        const auto data = [&] {
+            const usk::diagnostics::Scope publisher_response_projection_diagnostic(usk::diagnostics::Phase::publisher_response_projection);
+            if (registered_admission) {
+                const auto pid = static_cast<std::uint64_t>(GetCurrentProcessId());
+                if (response.contains("process_id") && response.at("process_id").as_unsigned() != pid)
+                    throw std::runtime_error("native response worker process differs from the live host");
+                response.as_object().emplace("process_id", usk::json::Value(pid));
+                response.as_object().emplace("registered_admission", registered_admission->evidence());
+            }
+            return usk::json::canonical(response);
+        }();
         if (!receipt_path.empty()) write_receipt(data);
         if (request_channel) {
             request_channel->reply(data);
