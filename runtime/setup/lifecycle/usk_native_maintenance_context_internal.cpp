@@ -3460,9 +3460,10 @@ struct NativeMaintenanceContext::Impl {
     }
     void inspect_pending_recovery(const transaction::TransactionSpec& supplied,
         const std::string& expected_transaction_snapshot_sha256, const std::string& expected_history_digest,
+        bool prepare_before_effect,
         transaction::RecoveryInspection& output_transaction,
         transaction::MaintenanceEffectInspection& output_history,
-        MaintenanceEffectReconciliation& output_reconciliation) {
+        MaintenanceEffectReconciliation& output_reconciliation, bool& output_pre_effect_prepared) {
         require_recovery_reader(supplied);
         PrefixReadRecipe recipe(*this);
         transaction::RecoveryInspection current;
@@ -3475,11 +3476,22 @@ struct NativeMaintenanceContext::Impl {
         require_maintenance_pending_recovery_snapshot(current, history,
             expected_transaction_snapshot_sha256, expected_history_digest);
         auto result = read_recovery_reconciliation(supplied, current, history);
+        bool prepared = false;
+        if (prepare_before_effect && result.state == "compatible_before_effect") {
+            // The absent-injector caller has only fixed pure work here. Retain
+            // every actual postimage query and the following exact pin; no
+            // callback, effect, grant or journal write enters this composition.
+            read_recovery_postimage(supplied, history);
+            read_recovery_prefix(supplied, current, history,
+                NativeMaintenanceRecoveryPrefixPin::exact_snapshot);
+            prepared = true;
+        }
         recipe.finish_authority(); // Full actual original-record/global exit.
         require_inspection_owner(supplied);
         output_transaction = std::move(current);
         output_history = std::move(history);
         output_reconciliation = std::move(result);
+        output_pre_effect_prepared = prepared;
     }
     void inspect_recovery_step(const transaction::TransactionSpec& supplied,
         const transaction::RecoveryInspection& expected_transaction,
@@ -3514,16 +3526,23 @@ struct NativeMaintenanceContext::Impl {
         output_transaction = std::move(current);
         output_history = std::move(history);
     }
+    void read_recovery_postimage(const transaction::TransactionSpec& supplied,
+        const transaction::MaintenanceEffectInspection& history) {
+        require_inspection_owner(supplied);
+        if (!active_read_recipe) throw std::runtime_error("native maintenance postimage reader is inactive");
+        // This is the outer admissibility occurrence, not the later actual
+        // effect preparation. Discard each reconstructed value here.
+        if (history.pending_kind == "write_ownership") (void)maintenance_ownership_postimage(supplied, history);
+        if (history.pending_kind == "write_installed") (void)maintenance_installed_postimage(supplied, history);
+        if (history.pending_kind == "append_audit") (void)maintenance_audit_postimage(supplied, history);
+        require_inspection_owner(supplied);
+    }
     void validate_recovery_postimage(const transaction::TransactionSpec& supplied,
         const transaction::MaintenanceEffectInspection& history) {
         require_recovery_reader(supplied);
         try {
             PrefixReadRecipe recipe(*this);
-            // This is the outer admissibility occurrence, not the later actual
-            // effect preparation. Discard each reconstructed value here.
-            if (history.pending_kind == "write_ownership") (void)maintenance_ownership_postimage(supplied, history);
-            if (history.pending_kind == "write_installed") (void)maintenance_installed_postimage(supplied, history);
-            if (history.pending_kind == "append_audit") (void)maintenance_audit_postimage(supplied, history);
+            read_recovery_postimage(supplied, history);
             recipe.finish_authority();
             require_inspection_owner(supplied);
         } catch (...) { entry_readback_failed = true; throw; }
@@ -4748,22 +4767,24 @@ bool reconcile_current_native_maintenance_recovery_prefix(const transaction::Tra
 }
 bool inspect_current_native_maintenance_pending_recovery(const transaction::TransactionSpec& spec,
     const std::string& expected_transaction_snapshot_sha256, const std::string& expected_history_digest,
-    const MaintenanceRecoveryOperations& operations,
+    const MaintenanceRecoveryOperations& operations, bool prepare_before_effect,
     transaction::RecoveryInspection& output_transaction,
     transaction::MaintenanceEffectInspection& output_history,
-    MaintenanceEffectReconciliation& output_reconciliation) {
+    MaintenanceEffectReconciliation& output_reconciliation, bool& output_pre_effect_prepared) {
     auto* owner = NativeMaintenanceContext::original_recovery_reader(operations);
     if (!owner) return false;
     transaction::RecoveryInspection current;
     transaction::MaintenanceEffectInspection history;
     MaintenanceEffectReconciliation observed;
+    bool prepared = false;
     owner->inspect_pending_recovery(spec, expected_transaction_snapshot_sha256, expected_history_digest,
-        current, history, observed);
+        prepare_before_effect, current, history, observed, prepared);
     if (NativeMaintenanceContext::original_recovery_reader(operations) != owner)
         throw std::runtime_error("native maintenance pending recovery changed its original owner");
     output_transaction = std::move(current);
     output_history = std::move(history);
     output_reconciliation = std::move(observed);
+    output_pre_effect_prepared = prepared;
     return true;
 }
 bool inspect_current_native_maintenance_recovery_step(const transaction::TransactionSpec& spec,

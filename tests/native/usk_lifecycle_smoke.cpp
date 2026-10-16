@@ -1141,10 +1141,17 @@ int maintenance_effect_interruption_proof()
                 selected.next_kind = "unchanged ordinary selection";
                 auto unchanged_transaction = transaction;
                 auto unchanged_history = history;
-                if (usk::lifecycle::detail::inspect_current_native_maintenance_pending_recovery(
-                        spec, transaction.snapshot_sha256, history.journal_digest, *supplied,
-                        unchanged_transaction, unchanged_history, observed) ||
-                    usk::lifecycle::detail::reconcile_current_native_maintenance_recovery_prefix(
+                for (const bool prepare_before_effect : {false, true}) {
+                    bool unchanged_preparation = true;
+                    if (usk::lifecycle::detail::inspect_current_native_maintenance_pending_recovery(
+                            spec, transaction.snapshot_sha256, history.journal_digest, *supplied, prepare_before_effect,
+                            unchanged_transaction, unchanged_history, observed, unchanged_preparation) ||
+                        !unchanged_preparation || observed.state != "unchanged ordinary output" ||
+                        unchanged_transaction.snapshot_sha256 != transaction.snapshot_sha256 ||
+                        unchanged_history.journal_digest != history.journal_digest || gates != 0u || applied_effects != 0u)
+                        throw std::runtime_error("ordinary backend changed private pending preparation outputs or called a callback");
+                }
+                if (usk::lifecycle::detail::reconcile_current_native_maintenance_recovery_prefix(
                         spec, transaction, history, *supplied, observed) ||
                     usk::lifecycle::detail::inspect_current_native_maintenance_recovery_step(
                         spec, transaction, history, *supplied, selected, unchanged_transaction, unchanged_history) ||

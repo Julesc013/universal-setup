@@ -41,9 +41,9 @@ private:
         const MaintenanceRecoveryOperations&, MaintenanceEffectReconciliation&);
     friend bool inspect_current_native_maintenance_pending_recovery(
         const usk::transaction::TransactionSpec&, const std::string&, const std::string&,
-        const MaintenanceRecoveryOperations&,
+        const MaintenanceRecoveryOperations&, bool,
         usk::transaction::RecoveryInspection&, usk::transaction::MaintenanceEffectInspection&,
-        MaintenanceEffectReconciliation&);
+        MaintenanceEffectReconciliation&, bool&);
     friend bool inspect_current_native_maintenance_recovery_step(
         const usk::transaction::TransactionSpec&,
         const usk::transaction::RecoveryInspection&,

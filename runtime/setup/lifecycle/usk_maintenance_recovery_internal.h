@@ -92,17 +92,20 @@ bool reconcile_current_native_maintenance_recovery_prefix(
     const transaction::MaintenanceEffectInspection& expected_history,
     const MaintenanceRecoveryOperations& operations,
     MaintenanceEffectReconciliation& output);
-// Original-backend initial pair, exact predicates and first pin/reconciliation
-// are one effect-free body. Finish the full original-record/global exit before
-// publishing any output; a decline leaves all outputs unchanged.
+// Original-backend initial pair/predicates and first pin/reconciliation form
+// one effect-free body. With injector absent, compatible-before preparation
+// also includes the discarded postimage checks and following exact prefix pin.
+// Finish the full original-record/global exit before publishing any output;
+// the preparation flag replaces only those completed reads, never effect checks.
+// A decline leaves all outputs, including the preparation flag, unchanged.
 bool inspect_current_native_maintenance_pending_recovery(
     const transaction::TransactionSpec& spec,
     const std::string& expected_transaction_snapshot_sha256,
     const std::string& expected_history_digest,
-    const MaintenanceRecoveryOperations& operations,
+    const MaintenanceRecoveryOperations& operations, bool prepare_before_effect,
     transaction::RecoveryInspection& output_transaction,
     transaction::MaintenanceEffectInspection& output_history,
-    MaintenanceEffectReconciliation& output_reconciliation);
+    MaintenanceEffectReconciliation& output_reconciliation, bool& output_pre_effect_prepared);
 bool inspect_current_native_maintenance_recovery_step(
     const transaction::TransactionSpec& spec,
     const transaction::RecoveryInspection& expected_transaction,

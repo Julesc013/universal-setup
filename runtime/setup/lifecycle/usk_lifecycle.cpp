@@ -3618,10 +3618,11 @@ MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transac
     std::pair<transaction::RecoveryInspection, transaction::MaintenanceEffectInspection> initial_prefix;
     MaintenanceEffectReconciliation observation;
     bool native_initial = false;
+    bool native_pre_effect_prepared = false;
 #if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
     native_initial = inspect_current_native_maintenance_pending_recovery(spec,
-        expected_transaction_snapshot_sha256, expected_history_digest, operations,
-        initial_prefix.first, initial_prefix.second, observation);
+        expected_transaction_snapshot_sha256, expected_history_digest, operations, !injector,
+        initial_prefix.first, initial_prefix.second, observation, native_pre_effect_prepared);
 #endif
     if (!native_initial) initial_prefix = inspect_recovery_prefix(spec);
     const auto& transaction = initial_prefix.first;
@@ -3654,9 +3655,10 @@ MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transac
     if (observation.state == "compatible_before_effect") {
         // Old hash-only metadata intents remain inspectable, but cannot supply
         // a missing write. No reconstructed or newly chosen postimage is used.
-        bool postimage_validated = false;
+        bool postimage_validated = native_pre_effect_prepared;
 #if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
-        postimage_validated = validate_current_native_maintenance_recovery_postimage(spec, history, operations);
+        if (!postimage_validated)
+            postimage_validated = validate_current_native_maintenance_recovery_postimage(spec, history, operations);
 #endif
         if (!postimage_validated) {
             if (history.pending_kind == "write_ownership") (void)maintenance_ownership_postimage(spec, history);
@@ -3664,7 +3666,9 @@ MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transac
             if (history.pending_kind == "append_audit") (void)maintenance_audit_postimage(spec, history);
         }
         if (injector) injector("pending_effect", "before_effect");
-        pin();
+        // An absent injector permits only the fixed reads already completed
+        // by the original native reader. The concrete effect checks stay fresh.
+        if (!native_pre_effect_prepared) pin();
         outcome = operations.apply_effect(spec, history);
         if (injector) injector("pending_effect", "after_effect");
         observation = pin_and_reconcile();
