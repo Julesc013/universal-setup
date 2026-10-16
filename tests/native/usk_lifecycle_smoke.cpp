@@ -1141,6 +1141,8 @@ int maintenance_effect_interruption_proof()
                 selected.next_kind = "unchanged ordinary selection";
                 auto unchanged_transaction = transaction;
                 auto unchanged_history = history;
+                std::unique_ptr<usk::transaction::MaintenanceEffectJournal> unchanged_journal;
+                std::string unchanged_outcome = "unchanged ordinary outcome";
                 for (const bool prepare_before_effect : {false, true}) {
                     bool unchanged_preparation = true;
                     if (usk::lifecycle::detail::inspect_current_native_maintenance_pending_recovery(
@@ -1150,6 +1152,13 @@ int maintenance_effect_interruption_proof()
                         unchanged_transaction.snapshot_sha256 != transaction.snapshot_sha256 ||
                         unchanged_history.journal_digest != history.journal_digest || gates != 0u || applied_effects != 0u)
                         throw std::runtime_error("ordinary backend changed private pending preparation outputs or called a callback");
+                    if (usk::lifecycle::detail::inspect_current_native_maintenance_recovery_step(
+                            spec, transaction, history, *supplied, selected, unchanged_transaction, unchanged_history,
+                            prepare_before_effect, unchanged_journal) ||
+                        unchanged_journal || selected.next_kind != "unchanged ordinary selection" ||
+                        unchanged_transaction.snapshot_sha256 != transaction.snapshot_sha256 ||
+                        unchanged_history.journal_digest != history.journal_digest || gates != 0u || applied_effects != 0u)
+                        throw std::runtime_error("ordinary backend changed private journal preparation outputs or called a callback");
                 }
                 if (usk::lifecycle::detail::validate_current_native_maintenance_appended_intent_with_owner(
                         spec, transaction, history, history.source_digest, selected, history, *supplied) ||
@@ -1157,8 +1166,9 @@ int maintenance_effect_interruption_proof()
                         spec, transaction, history, *supplied, observed) ||
                     usk::lifecycle::detail::reconcile_current_native_maintenance_recovery_prefix(
                         spec, transaction, history, *supplied, observed) ||
-                    usk::lifecycle::detail::inspect_current_native_maintenance_recovery_step(
-                        spec, transaction, history, *supplied, selected, unchanged_transaction, unchanged_history) ||
+                    usk::lifecycle::detail::apply_current_native_maintenance_recovery_cleanup(
+                        spec, history, *supplied, unchanged_outcome) ||
+                    unchanged_outcome != "unchanged ordinary outcome" || unchanged_journal || gates != 0u || applied_effects != 0u ||
                     observed.state != "unchanged ordinary output" || selected.next_kind != "unchanged ordinary selection" ||
                     unchanged_transaction.snapshot_sha256 != transaction.snapshot_sha256 ||
                     unchanged_history.journal_digest != history.journal_digest)

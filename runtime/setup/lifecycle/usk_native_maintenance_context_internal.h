@@ -9,6 +9,7 @@
 #include "usk_native_maintenance_transaction_internal.h"
 #include "usk_record_io.h"
 #include <memory>
+namespace usk::transaction { class MaintenanceEffectJournal; }
 namespace usk::lifecycle::detail {
 struct MaintenanceRecoveryOperations;
 struct MaintenanceContinuationInspection;
@@ -54,7 +55,12 @@ private:
         const usk::transaction::RecoveryInspection&,
         const usk::transaction::MaintenanceEffectInspection&,
         const MaintenanceRecoveryOperations&, MaintenanceContinuationInspection&,
-        usk::transaction::RecoveryInspection&, usk::transaction::MaintenanceEffectInspection&);
+        usk::transaction::RecoveryInspection&, usk::transaction::MaintenanceEffectInspection&,
+        bool, std::unique_ptr<usk::transaction::MaintenanceEffectJournal>&);
+    friend bool apply_current_native_maintenance_recovery_cleanup(
+        const usk::transaction::TransactionSpec&,
+        const usk::transaction::MaintenanceEffectInspection&,
+        const MaintenanceRecoveryOperations&, std::string&);
     friend bool validate_current_native_maintenance_recovery_postimage(
         const usk::transaction::TransactionSpec&,
         const usk::transaction::MaintenanceEffectInspection&,

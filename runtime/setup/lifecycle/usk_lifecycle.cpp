@@ -3745,7 +3745,12 @@ MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transac
         // An absent injector permits only the fixed reads already completed
         // by the original native reader. The concrete effect checks stay fresh.
         if (!native_pre_effect_prepared) pin();
-        outcome = operations.apply_effect(spec, history);
+        bool native_cleanup_applied = false;
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+        if (!injector)
+            native_cleanup_applied = apply_current_native_maintenance_recovery_cleanup(spec, history, operations, outcome);
+#endif
+        if (!native_cleanup_applied) outcome = operations.apply_effect(spec, history);
         if (injector) injector("pending_effect", "after_effect");
         observation = pin_and_reconcile();
         const bool retained = outcome == "retained" && history.pending_kind == "remove_directory" &&
@@ -3830,9 +3835,10 @@ transaction::RecoveryInspection recover_maintenance_transaction(const transactio
         MaintenanceContinuationInspection selected;
         std::pair<transaction::RecoveryInspection, transaction::MaintenanceEffectInspection> current_prefix;
         bool native_step = false;
+        std::unique_ptr<transaction::MaintenanceEffectJournal> prepared_cleanup_journal;
 #if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
         native_step = inspect_current_native_maintenance_recovery_step(spec, initial, initial_history, operations,
-            selected, current_prefix.first, current_prefix.second);
+            selected, current_prefix.first, current_prefix.second, !injector, prepared_cleanup_journal);
 #endif
         if (!native_step) {
             selected = inspect_maintenance_continuation(spec);
@@ -3865,8 +3871,9 @@ transaction::RecoveryInspection recover_maintenance_transaction(const transactio
             continue;
         }
         if (!selected.effects_complete) {
-            auto records = transaction::MaintenanceEffectJournal::resume(spec, current.stream_source_digest,
-                selected.history_digest, fenced_injector);
+            auto records = prepared_cleanup_journal ? std::move(prepared_cleanup_journal) :
+                transaction::MaintenanceEffectJournal::resume(spec, current.stream_source_digest,
+                    selected.history_digest, fenced_injector);
             records->begin_effect(selected.next_kind, selected.next_details);
             bool intent_validated = false;
 #if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)

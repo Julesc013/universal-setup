@@ -130,7 +130,16 @@ bool inspect_current_native_maintenance_recovery_step(
     const MaintenanceRecoveryOperations& operations,
     MaintenanceContinuationInspection& output_selection,
     transaction::RecoveryInspection& output_transaction,
-    transaction::MaintenanceEffectInspection& output_history);
+    transaction::MaintenanceEffectInspection& output_history,
+    bool prepare_cleanup_journal,
+    std::unique_ptr<transaction::MaintenanceEffectJournal>& output_journal);
+// Fixed absent-injector original repair cleanup only. Selection remains fresh;
+// the complete query scope ends before the original concrete effect begins.
+// A decline occurs before native entry and leaves outcome unchanged.
+bool apply_current_native_maintenance_recovery_cleanup(
+    const transaction::TransactionSpec& spec,
+    const transaction::MaintenanceEffectInspection& history,
+    const MaintenanceRecoveryOperations& operations, std::string& outcome);
 // Fixed recovery-only readers. Exact original backend targets select them;
 // no supplied callback/effect enters either scope. Validation grants nothing.
 bool validate_current_native_maintenance_recovery_postimage(

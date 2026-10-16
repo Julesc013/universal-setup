@@ -3051,6 +3051,15 @@ struct NativeMaintenanceContext::Impl {
         // effects retain their own mandatory fresh fences below.
         require_same_transaction(supplied);
         const auto history = require_pending(inspected.pending_kind);
+        return apply_selected_effect(supplied, inspected, history);
+    }
+    transaction::detail::NativeMaintenanceTransactionOperations::EffectResult apply_selected_effect(
+        const transaction::TransactionSpec& supplied,
+        const transaction::MaintenanceEffectInspection& inspected,
+        const transaction::MaintenanceEffectInspection& history) {
+        // Private freshly selected metadata only. Attempt insertion, the actual
+        // pre-effect pair, outcomes, writes and grants retain their old order.
+        require_same_transaction(supplied);
         if (history.journal_digest != inspected.journal_digest || history.source_context != inspected.source_context ||
             history.pending_sequence != inspected.pending_sequence || !equal(history.pending_details, inspected.pending_details) ||
             !publication_confirmed || payload_outcomes.size() >= 100000u ||
@@ -3634,9 +3643,12 @@ struct NativeMaintenanceContext::Impl {
         const transaction::MaintenanceEffectInspection& expected_history,
         MaintenanceContinuationInspection& output_selection,
         transaction::RecoveryInspection& output_transaction,
-        transaction::MaintenanceEffectInspection& output_history) {
+        transaction::MaintenanceEffectInspection& output_history,
+        bool prepare_cleanup_journal,
+        std::unique_ptr<transaction::MaintenanceEffectJournal>& output_journal) {
         require_recovery_reader(supplied);
         PrefixReadRecipe recipe(*this);
+        std::unique_ptr<transaction::MaintenanceEffectJournal> journal;
         // Preserve the original standalone continuation reader's actual pair,
         // unscoped body, exact comparison and closing pair before the owner pin.
         const auto before = transaction::TransactionSession::inspect_recovery(spec);
@@ -3655,9 +3667,24 @@ struct NativeMaintenanceContext::Impl {
         if (current.snapshot_sha256 != selected.transaction_snapshot_sha256 ||
             history.journal_digest != selected.history_digest)
             throw std::runtime_error("maintenance selected continuation changed before its effect");
+        if (prepare_cleanup_journal && spec.operation == "repair" && current.commit_confirmed &&
+            current.current_state == "committed" && !selected.pending && !selected.effects_complete && !selected.sealed &&
+            (selected.next_kind == "remove_file" || selected.next_kind == "remove_directory") &&
+            selected.next_details.at("root_role").as_string() == "operation_target") {
+            // Keep resume's actual false-retention read and exact predicates.
+            // The inert object remains private until the full fresh exit.
+            using Journal = transaction::MaintenanceEffectJournal;
+            auto inspected = Journal::inspect(supplied, current.stream_source_digest);
+            if (!digest(selected.history_digest) || inspected.journal_digest != selected.history_digest || inspected.sealed)
+                throw std::runtime_error("maintenance continuation snapshot changed or is sealed");
+            require_inspection_owner(supplied);
+            journal.reset(new Journal(supplied, std::move(inspected), Journal::NativeReadOnlyResumption{}));
+            journal->require_effect_owner_binding();
+        }
         recipe.finish_authority();
         require_inspection_owner(supplied);
-        // Metadata only; no result escapes before the complete actual exit.
+        // No journal or metadata escapes before the complete actual exit.
+        output_journal = std::move(journal);
         output_selection = std::move(selected);
         output_transaction = std::move(current);
         output_history = std::move(history);
@@ -3742,16 +3769,34 @@ struct NativeMaintenanceContext::Impl {
         return result;
     }
     std::string apply_recovery_effect(const transaction::TransactionSpec& supplied,
-        const transaction::MaintenanceEffectInspection& history) {
+        const transaction::MaintenanceEffectInspection& history, bool prepare_cleanup = false) {
+        std::optional<transaction::MaintenanceEffectInspection> prepared;
         if (original_child && publication_confirmed && !original_source_context.empty() &&
             !restoration_record_observers.empty() && !active_read_recipe) {
-            // Only the initial actual transaction read and fixed authority body
-            // are query-only. Finish before examining outcomes or issuing grants
-            // or effects; the original concrete apply body remains unchanged.
+            // The fixed authority and optional later pending selection are
+            // query-only. Finish before attempt/outcome mutation, grants or
+            // effects; every concrete effect fence remains unchanged.
             require_recovery_reader(supplied);
             PrefixReadRecipe recipe(*this);
             const auto current = transaction::TransactionSession::inspect_recovery(spec);
             require_recovery_authority(supplied, current, history);
+            if (prepare_cleanup && current.commit_confirmed && current.current_state == "committed") {
+                // Keep the later pending selection and every mutable payload/
+                // namespace observation. Only the enclosing proof is composed.
+                require_same_transaction(supplied);
+                if (GetCurrentProcessId() != worker_context.process_id ||
+                    (cancel_event && WaitForSingleObject(cancel_event, 0) != WAIT_TIMEOUT))
+                    throw std::runtime_error("native maintenance worker stopped or changed");
+                const auto pending_tx = transaction::TransactionSession::inspect_recovery(spec);
+                auto pending = inspect_pending_read_only(history.pending_kind);
+                recipe.recheck(pending_tx, pending); // Original pending reader's actual closing pair.
+                if (spec.operation != "repair" ||
+                    (pending.pending_kind != "remove_file" && pending.pending_kind != "remove_directory") ||
+                    pending.pending_details.at("root_role").as_string() != "operation_target")
+                    throw std::runtime_error("native maintenance prepared effect is outside committed repair cleanup");
+                if (pending_tx.commit_confirmed && pending_tx.current_state == "committed")
+                    prepared.emplace(std::move(pending)); // Other actual states retain the ordinary selection below.
+            }
             recipe.finish_authority();
             require_inspection_owner(supplied);
         } else {
@@ -3765,6 +3810,7 @@ struct NativeMaintenanceContext::Impl {
             confirm_effect_completion(supplied, history, confirmed->second->outcome, observation.result_digest);
             return confirmed->second->outcome; // Actual same-owner result; never another native call.
         }
+        if (prepared) return apply_selected_effect(supplied, history, *prepared).outcome;
         return apply_effect(supplied, history).outcome;
     }
     const Entry& select_owned_file(const fs::path& path) const {
@@ -5081,17 +5127,40 @@ bool inspect_current_native_maintenance_recovery_step(const transaction::Transac
     const transaction::RecoveryInspection& expected_transaction,
     const transaction::MaintenanceEffectInspection& expected_history,
     const MaintenanceRecoveryOperations& operations, MaintenanceContinuationInspection& output_selection,
-    transaction::RecoveryInspection& output_transaction, transaction::MaintenanceEffectInspection& output_history) {
+    transaction::RecoveryInspection& output_transaction, transaction::MaintenanceEffectInspection& output_history,
+    bool prepare_cleanup_journal, std::unique_ptr<transaction::MaintenanceEffectJournal>& output_journal) {
     auto* owner = NativeMaintenanceContext::original_recovery_reader(operations);
     if (!owner) return false;
     MaintenanceContinuationInspection selection;
     transaction::RecoveryInspection current;
     transaction::MaintenanceEffectInspection history;
-    owner->inspect_recovery_step(spec, expected_transaction, expected_history, selection, current, history);
+    std::unique_ptr<transaction::MaintenanceEffectJournal> journal;
+    owner->inspect_recovery_step(spec, expected_transaction, expected_history, selection, current, history,
+        prepare_cleanup_journal, journal);
     if (NativeMaintenanceContext::original_recovery_reader(operations) != owner)
         throw std::runtime_error("native maintenance recovery reader changed its original owner");
     output_selection = std::move(selection); output_transaction = std::move(current); output_history = std::move(history);
+    output_journal = std::move(journal);
     return true;
+}
+
+bool apply_current_native_maintenance_recovery_cleanup(const transaction::TransactionSpec& spec,
+    const transaction::MaintenanceEffectInspection& history,
+    const MaintenanceRecoveryOperations& operations, std::string& outcome) {
+    auto* owner = NativeMaintenanceContext::original_recovery_reader(operations);
+    if (!owner) return false;
+    // Metadata-only eligibility; actual selection and owner proofs follow.
+    if (owner->spec.operation != "repair" ||
+        (history.pending_kind != "remove_file" && history.pending_kind != "remove_directory") ||
+        history.pending_details.at("root_role").as_string() != "operation_target") return false;
+    const auto confirmed = owner->payload_outcomes.find(history.journal_digest);
+    if (confirmed != owner->payload_outcomes.end() && confirmed->second->confirmed) return false;
+    owner->require_recovery_reader(spec);
+    auto result = owner->apply_recovery_effect(spec, history, true);
+    if (NativeMaintenanceContext::original_recovery_reader(operations) != owner)
+        throw std::runtime_error("native maintenance recovery cleanup changed its original owner");
+    outcome = std::move(result);
+    return true; // The effect ran after the complete read-only proof ended.
 }
 
 bool validate_current_native_maintenance_appended_intent_with_owner(const transaction::TransactionSpec& spec,
