@@ -90,19 +90,27 @@ std::wstring join(const std::wstring& a,const std::wstring& b) {
 }
 std::wstring parent(const std::wstring& path) { return fs::path(path).parent_path().wstring(); }
 struct Records {
-    const OwnedPublisherRetirementHistory& view;
     std::map<std::wstring,const Record*> files;
+    std::map<std::wstring,const PublisherRetirementDirectoryMetadata*> directories;
     std::set<std::wstring> consumed_files, consumed_dirs;
-    explicit Records(const OwnedPublisherRetirementHistory& v):view(v) {
+    explicit Records(const OwnedPublisherRetirementHistory& v) {
         require(v.records.size()<=200000u && v.directories.size()<=200001u,"namespace count exceeds bound");
+        // Native custody enumerates generic separators. Project exact held
+        // members into one Windows key space without reopening any object.
+        for(const auto& directory:v.directories) {
+            const auto key=directory.first.empty()?std::wstring{}:
+                owned_relative(narrow(directory.first)).make_preferred().wstring();
+            require(directories.emplace(key,&directory.second).second,"duplicate normalized directory member");
+        }
         std::size_t bytes=0;
         for(const auto& r:v.records) {
-            require(!r.relative_path.empty() && owned_relative(narrow(r.relative_path)).wstring()==r.relative_path,
-                "file member name differs");
+            auto path=owned_relative(narrow(r.relative_path));
+            require(path.wstring()==r.relative_path,"file member name differs");
+            const auto key=path.make_preferred().wstring();
             require(r.bytes.size()<=16u*1024u*1024u && r.bytes.size()<=64u*1024u*1024u-bytes,
                 "aggregate record bytes exceed bound");
             bytes+=r.bytes.size();
-            require(files.emplace(r.relative_path,&r).second && !v.directories.count(r.relative_path),"duplicate member");
+            require(files.emplace(key,&r).second && !directories.count(key),"duplicate normalized member");
         }
     }
     const Record& file(const std::wstring& path) {
@@ -112,9 +120,9 @@ struct Records {
     }
     Value value(const std::wstring& path) { return parse(file(path)); }
     const PublisherRetirementDirectoryMetadata& dir(const std::wstring& path) {
-        auto it=view.directories.find(path);
-        if(it==view.directories.end()) throw std::runtime_error("owned publisher retirement: required held directory is absent: "+narrow(path));
-        consumed_dirs.insert(path); return it->second;
+        auto it=directories.find(path);
+        if(it==directories.end()) throw std::runtime_error("owned publisher retirement: required held directory is absent: "+narrow(path));
+        consumed_dirs.insert(path); return *it->second;
     }
     std::vector<std::pair<std::string,std::string>> children(const std::wstring& path) {
         (void)dir(path);
@@ -126,7 +134,7 @@ struct Records {
         return out;
     }
     void finish() {
-        require(consumed_files.size()==files.size() && consumed_dirs.size()==view.directories.size(),
+        require(consumed_files.size()==files.size() && consumed_dirs.size()==directories.size(),
             "unknown, pending, retained payload or unexplained namespace member remains");
     }
 };

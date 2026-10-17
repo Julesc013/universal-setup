@@ -5591,7 +5591,7 @@
         },
         {
           "path": "tests/native/usk_publisher_process_boundary_smoke.cpp",
-          "sha256": "821627317a9157284676a49c1d76272fc4fec8c89ea77b4b4d694e3f60154c4a"
+          "sha256": "22c98a6a8b95a20414e15e80d47df2363031e7ce466305e5e1bcd9bb92291bf1"
         },
         {
           "path": "tests/publisher_process_boundary.py",
@@ -6115,7 +6115,7 @@
         },
         {
           "path": "tests/native/usk_publisher_process_boundary_smoke.cpp",
-          "sha256": "821627317a9157284676a49c1d76272fc4fec8c89ea77b4b4d694e3f60154c4a"
+          "sha256": "22c98a6a8b95a20414e15e80d47df2363031e7ce466305e5e1bcd9bb92291bf1"
         },
         {
           "path": "tests/publisher_process_boundary.py",

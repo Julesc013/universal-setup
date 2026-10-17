@@ -1768,11 +1768,13 @@ void effect_execution_record_controls() {
             phase("protected_empty", tree), phase("sealed", tree), phase("publish_prepared", tree)})}});
     auto visible_tree = tree;
     visible_tree.as_object().at("root").as_object().at("native_name") = Value("\\publication\\role3\\visible");
+    // This synthetic execution record describes the admitted x64 producer,
+    // irrespective of this test reader's ABI (24-byte structure +14 name bytes).
     const Value rename(Value::Object{{"schema", Value("usk.publisher_bound_rename_call.v2")}, {"api", Value("NtSetInformationFile")},
         {"source_file_id", Value(object_id(6))}, {"destination_parent_file_id", Value(object_id(3))}, {"destination_component", Value("visible")},
         {"former_name", tree.at("root").at("native_name")}, {"visible_name", visible_tree.at("root").at("native_name")},
         {"destination_absence_status", Value(std::uint64_t{0xc0000034u})}, {"information_class", Value(std::uint64_t{10})},
-        {"information_bytes", Value(static_cast<std::uint64_t>(sizeof(FILE_RENAME_INFO) + 14))}, {"file_name_bytes", Value(std::uint64_t{14})},
+        {"information_bytes", Value(std::uint64_t{38})}, {"file_name_bytes", Value(std::uint64_t{14})},
         {"replace_if_exists", Value(false)}, {"native_status", Value(std::uint64_t{0})}, {"io_status", Value(std::uint64_t{0})},
         {"source_granted_access", phase_execution.at("handles").as_array().at(6).at("granted_access")},
         {"destination_parent_granted_access", phase_execution.at("handles").as_array().at(3).at("granted_access")},

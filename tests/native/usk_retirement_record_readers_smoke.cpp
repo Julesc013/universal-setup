@@ -500,6 +500,29 @@ void owned_retirement_history_controls(const fs::path& path) {
     historical_boundary_controls(history,service);
     require(selected.installation_ids.size()==1u && !selected.historical_holders.empty() &&
         !selected.reviewed_volume_paths.empty());
+    // Exercise the actual native custody's generic relative-path projection.
+    // Native observations/bytes are identical; only lookup separators differ.
+    auto native=history;
+    for(auto& record:native.records)
+        std::replace(record.relative_path.begin(),record.relative_path.end(),L'\\',L'/');
+    decltype(native.directories) native_directories;
+    for(const auto& directory:native.directories) {
+        auto name=directory.first;std::replace(name.begin(),name.end(),L'\\',L'/');
+        require(native_directories.emplace(name,directory.second).second);
+    }
+    native.directories=std::move(native_directories);
+    const auto native_selected=validate_owned_publisher_retirement_history(native,service);
+    require(native_selected.installation_ids==selected.installation_ids &&
+        native_selected.reviewed_volume_paths==selected.reviewed_volume_paths &&
+        usk::json::equal_values(Value(Value::Array(native_selected.historical_holders)),
+            Value(Value::Array(selected.historical_holders))));
+    auto alias=native;alias.records.push_back(history.records.front());
+    refuses([&]{(void)validate_owned_publisher_retirement_history(alias,service);});
+    alias=native;
+    const auto directory_alias=std::find_if(history.directories.begin(),history.directories.end(),
+        [](const auto& entry){return entry.first.find(L'\\')!=std::wstring::npos;});
+    require(directory_alias!=history.directories.end() && alias.directories.emplace(*directory_alias).second);
+    refuses([&]{(void)validate_owned_publisher_retirement_history(alias,service);});
     auto bad=history;bad.volume_root=L"invalid";
     refuses([&]{(void)validate_owned_publisher_retirement_history(bad,service);});
     bad=history;bad.records.push_back(history.records.front());
