@@ -8,7 +8,12 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR249 is normally merged into dev at0aaba4de; main remainsc048f7.
+PR250 is normally merged into dev at6933fc29 after all required core checks,
+independent source review and the live merge gate. Seven reviewed checkpoints
+PR244 through PR250 were integrated on18October2026; main remainsc048f7.
+Reviewed/core-qualified dev integration is daily; main promotion targets19October
+when its additional publisher and applicable acceptance gates pass.
+PR249 was previously integrated at0aaba4de.
 All six required core checks, specification validation, independent source review
 and the live merge gate passed before development integration. The actual hosted
 registered controller now passes healthy verification, stale-request refusals and
@@ -18,13 +23,23 @@ refuses incomplete owned publisher retirement and retains service/binary authori
 The legacy machine route still refuses its remounted device policy.
 Both independent fresh repair/move/uninstall cohorts pass on PR248 and PR249,
 including historical source-retired retries. Move explicitly retains its old root
-and defers reference/removal work. Both genuinely interrupted source-retired
-repair recovery cohorts still exceed120seconds with request-boundUNKNOWN and
-no verified terminal response/state. Both builds enable diagnostics; comparison
-with/without the WPR wrapper does not qualify release-default performance.
-No main, complete maintenance, retirement or release acceptance follows.
+and defers reference/removal work. PR248 and PR249 genuinely interrupted source-retired
+repair recovery cohorts exceeded120seconds with request-boundUNKNOWN.
+The later PR250 run39046838030/1 has a materially different result: both actual
+interrupted source-retired repair recoveries return current-requestok/completed
+under the unchanged120second wait. Matching native completion, independent
+completed journal/sealed effects/current state, lease generation4to5, restored
+payload and passing ordinary verification are retained; verification leaves all
+104 native rows unchanged in each cohort. Its actual synthetic build929dfe9c
+has the submitted7da6273/accepteddev6933 source tree. This is not a causal speed
+claim for the allocation repair or unpublished token-buffer experiment.
+Both service builds enable diagnostics; comparison with/without WPR does not
+qualify release-default performance. The cohort profile/recovery qualification
+flags remain false, and owned retirement plus the legacy remounted-device route
+still fail the publisher job. No main, complete maintenance, retirement or
+release acceptance follows.
 
-The next transport repair makes the existing UNKNOWN exception's bounded message
+The integrated PR250 transport repair makes the existing UNKNOWN exception's bounded message
 allocation-free and prepares each one-shot invocation's UNKNOWN bytes before
 transport. This closes an allocation-failure path that could otherwise become a
 false non-dispatch refusal. Target/registration/enrollment intent and uncertain-start
@@ -34,6 +49,21 @@ schemas; no dispatch marker, C ABI, endpoint authority or deadline is added.
 Native fault controls cover message construction/propagation and current-request
 fallback formatting. These are not a live registered-service allocation-fault run
 or the unfinished public C SDK factory/transport integration.
+
+The next token-buffer change targets measured repeated capacity queries and
+temporary allocation in client_token_facts. It returns a fresh successful native
+content read for each of the same six properties, with fixed aligned1KiB storage
+and the existing64KiB exact-size fallback. The owner cannot move/copy because
+TokenUser/Groups retain pointers into their own returned storage. It is neither a
+token cache nor authority reuse. The earlier sizing observation is removed, so
+historical refusal chronology is not claimed identical; all existing content,
+layout, identity, access and before/after security checks remain.
+Direct tests use actual private identification/restricted tokens and the existing
+real named-pipe/access fixture. They cover all six property values against an
+independent two-call reader, allocation denial, >1KiB native fallback, changed
+ModifiedID/privileges and unusable failures. A bounded local helper benchmark is
+separate from full request qualification; no recovery deadline improvement or
+main/release acceptance is established by it.
 
 The held eight-query recovery preview remains unapplied. Independent review finds
 its removed intermediate child/broker/client security observations nonredundant.
