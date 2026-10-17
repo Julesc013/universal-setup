@@ -8,13 +8,14 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR246 is merged into dev atec90c10; main remainsc048f7.
-Its33d9b6f source passed all six required core checks, specification validation,
-independent review and the live merge policy. Publisher qualification failed
-separately in CI39037422797; development integration is not release acceptance.
-The retained stale-request observation is client exit3/statusrecovery_required,
+PR247 is merged into dev at7a7a51a; main remainsc048f7.
+Itsdd12b4b source passed all six required core checks, specification validation,
+independent review and the live merge policy. Publisher qualification remains
+separate in CI39039802715; development integration is not release acceptance.
+Earlier PR246 CI39037422797 failed publisher qualification. Its retained
+stale-request observation is client exit3/statusrecovery_required,
 with error 'broker original protected intent is absent'. It does not establish
-request admission. The next repair narrows only this initial native absence
+request admission. The integrated repair narrows only this initial native absence
 before the broker's first admission reply, after confirmed query/worker,
 child/job and volume closure. Later failures remain conservative; hosted
 execution must still qualify the route with the unchanged refusal assertions.
