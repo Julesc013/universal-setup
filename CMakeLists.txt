@@ -580,6 +580,9 @@ if(USK_BUILD_TESTS)
       PROPERTIES
         ENVIRONMENT "CMAKE_GENERATOR=${CMAKE_GENERATOR}"
         TIMEOUT 900
+        # Each fixture launches a parallel compiler build. Keep those heavy
+        # jobs separate from each other and the bounded process control tests.
+        RUN_SERIAL TRUE
     )
   endforeach()
 

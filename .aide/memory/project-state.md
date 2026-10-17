@@ -14,6 +14,9 @@ job stopped before actor startup: the generated account description exceeded
 Windows'48character limit. Product compilation and dispatch were not reached.
 The preceding legacy machine/device-policy failure remains an open obligation,
 not an executed failure in this run. Main, deployment and release remain unqualified.
+Post-merge CI39023218129 exceeded a preflight PowerShell invocation's10second
+bound while SDK compiler fixtures overlapped. The next change isolates those
+heavy fixtures while preserving every control assertion and deadline.
 
 Continue the connected admitted-target controller/consumer path, source-free
 recovery within120seconds, and genuine owned maintenance/retirement. The next
