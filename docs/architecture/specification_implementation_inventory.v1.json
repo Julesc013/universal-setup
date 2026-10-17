@@ -870,7 +870,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -994,7 +994,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -1369,7 +1369,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "70abb47490cb9d79f84d83e91c741d48da5acb5f5abfcf741396545ba14c1777"
+          "sha256": "d50dba3ea6abfb03a3bcf5f48d8686648279a3f65d6f173259339e45174f7a4e"
         },
         {
           "path": "tests/native/usk_one_shot_smoke.cpp",
@@ -2519,7 +2519,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         },
         {
           "path": "apps/cli/usk_machine.cpp",
@@ -2571,7 +2571,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "70abb47490cb9d79f84d83e91c741d48da5acb5f5abfcf741396545ba14c1777"
+          "sha256": "d50dba3ea6abfb03a3bcf5f48d8686648279a3f65d6f173259339e45174f7a4e"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -2699,7 +2699,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "98110813e086c79399bf736e888251d659d41b1d66e0d55799536a891dbeabc0"
+          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -2982,7 +2982,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         },
         {
           "path": "apps/cli/usk_machine.cpp",
@@ -3034,7 +3034,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "70abb47490cb9d79f84d83e91c741d48da5acb5f5abfcf741396545ba14c1777"
+          "sha256": "d50dba3ea6abfb03a3bcf5f48d8686648279a3f65d6f173259339e45174f7a4e"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -3162,7 +3162,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "98110813e086c79399bf736e888251d659d41b1d66e0d55799536a891dbeabc0"
+          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -3445,7 +3445,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         },
         {
           "path": "apps/cli/usk_machine.cpp",
@@ -3497,7 +3497,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "70abb47490cb9d79f84d83e91c741d48da5acb5f5abfcf741396545ba14c1777"
+          "sha256": "d50dba3ea6abfb03a3bcf5f48d8686648279a3f65d6f173259339e45174f7a4e"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -3625,7 +3625,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "98110813e086c79399bf736e888251d659d41b1d66e0d55799536a891dbeabc0"
+          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -4069,7 +4069,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -4104,7 +4104,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -4139,7 +4139,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -4880,7 +4880,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         }
       ],
       "acceptance_ids": [
@@ -4916,7 +4916,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         }
       ],
       "acceptance_ids": [
@@ -4952,7 +4952,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         }
       ],
       "acceptance_ids": [
@@ -5028,7 +5028,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -5335,7 +5335,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         },
         {
           "path": "tests/native/usk_publisher_service_mode_probe.py",
@@ -5427,7 +5427,7 @@
         },
         {
           "path": "tests/test_publisher_metadata_readback.py",
-          "sha256": "6dd42803726acaae31358c4207fc77ecd1762684a9ac61146b0193ed74efe8e4"
+          "sha256": "9bf3e3567f9c08ea3439de6cca6884ee4f1478d68fd452c0f0d54f6c7b2afb09"
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
@@ -5447,7 +5447,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "98110813e086c79399bf736e888251d659d41b1d66e0d55799536a891dbeabc0"
+          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -5507,7 +5507,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "70abb47490cb9d79f84d83e91c741d48da5acb5f5abfcf741396545ba14c1777"
+          "sha256": "d50dba3ea6abfb03a3bcf5f48d8686648279a3f65d6f173259339e45174f7a4e"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -5847,7 +5847,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         },
         {
           "path": "tests/native/usk_publisher_service_mode_probe.py",
@@ -5931,7 +5931,7 @@
         },
         {
           "path": "tests/test_publisher_metadata_readback.py",
-          "sha256": "6dd42803726acaae31358c4207fc77ecd1762684a9ac61146b0193ed74efe8e4"
+          "sha256": "9bf3e3567f9c08ea3439de6cca6884ee4f1478d68fd452c0f0d54f6c7b2afb09"
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
@@ -5951,7 +5951,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "98110813e086c79399bf736e888251d659d41b1d66e0d55799536a891dbeabc0"
+          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -6023,7 +6023,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "70abb47490cb9d79f84d83e91c741d48da5acb5f5abfcf741396545ba14c1777"
+          "sha256": "d50dba3ea6abfb03a3bcf5f48d8686648279a3f65d6f173259339e45174f7a4e"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -6479,7 +6479,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "70abb47490cb9d79f84d83e91c741d48da5acb5f5abfcf741396545ba14c1777"
+          "sha256": "d50dba3ea6abfb03a3bcf5f48d8686648279a3f65d6f173259339e45174f7a4e"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -6515,7 +6515,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "98110813e086c79399bf736e888251d659d41b1d66e0d55799536a891dbeabc0"
+          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
         },
         {
           "path": "tests/windows_publisher_public_maintenance_probe.ps1",
@@ -6563,7 +6563,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         },
         {
           "path": "runtime/setup/transaction/usk_install_lease.h",
@@ -6738,7 +6738,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "70abb47490cb9d79f84d83e91c741d48da5acb5f5abfcf741396545ba14c1777"
+          "sha256": "d50dba3ea6abfb03a3bcf5f48d8686648279a3f65d6f173259339e45174f7a4e"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -6774,7 +6774,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "98110813e086c79399bf736e888251d659d41b1d66e0d55799536a891dbeabc0"
+          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
         },
         {
           "path": "tests/windows_publisher_public_maintenance_probe.ps1",
@@ -6822,7 +6822,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         },
         {
           "path": "runtime/setup/transaction/usk_install_lease.h",
@@ -7898,7 +7898,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "70abb47490cb9d79f84d83e91c741d48da5acb5f5abfcf741396545ba14c1777"
+          "sha256": "d50dba3ea6abfb03a3bcf5f48d8686648279a3f65d6f173259339e45174f7a4e"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -7934,7 +7934,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "98110813e086c79399bf736e888251d659d41b1d66e0d55799536a891dbeabc0"
+          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
         },
         {
           "path": "tests/windows_publisher_public_maintenance_probe.ps1",
@@ -7982,7 +7982,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         },
         {
           "path": "runtime/setup/transaction/usk_install_lease.h",
@@ -8151,7 +8151,7 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
-          "sha256": "70abb47490cb9d79f84d83e91c741d48da5acb5f5abfcf741396545ba14c1777"
+          "sha256": "d50dba3ea6abfb03a3bcf5f48d8686648279a3f65d6f173259339e45174f7a4e"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.h",
@@ -8187,7 +8187,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "98110813e086c79399bf736e888251d659d41b1d66e0d55799536a891dbeabc0"
+          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
         },
         {
           "path": "tests/windows_publisher_public_maintenance_probe.ps1",
@@ -8235,7 +8235,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "6dcddabfdaba53ad94dcc32e26db70b094fe25147e410bb2a72591418498a55d"
+          "sha256": "5062997710c682bb96a7311695907e4537a09af20ac2577e14e850118a88e650"
         },
         {
           "path": "runtime/setup/transaction/usk_install_lease.h",

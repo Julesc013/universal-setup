@@ -691,6 +691,11 @@ if(USK_BUILD_TESTS)
     # concurrent SDK compiler subprocesses, without changing its deadline.
     set_tests_properties(usk_publisher_standard_launcher_smoke PROPERTIES TIMEOUT 15 RUN_SERIAL TRUE)
     if(TARGET usk_machine)
+      add_test(NAME usk_publisher_controller_readonly_plan_smoke
+        COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_controller_readonly_plan_smoke.ps1"
+          -MachineBinary "$<TARGET_FILE:usk_machine>")
+      set_tests_properties(usk_publisher_controller_readonly_plan_smoke PROPERTIES TIMEOUT 30)
       add_test(NAME usk_publisher_candidate_apply_process_smoke
         COMMAND "${Python3_EXECUTABLE}"
           "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/usk_bundle_plan_process_probe.py"

@@ -461,7 +461,10 @@ $branches=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.IfSta
 if($strings.Count -ne 1 -or $branches.Count -ne 1){throw 'Actual failure serializer/formatter absent or ambiguous'}
 $output=Join-Path $env:USK_FAILURE_DIRECTORY 'success.json'
 $failureOutput=$output+'.failure.json'
-$child='$global:UskMetadataObserverPhase=''control_child_failure''; try { throw [InvalidOperationException]::new(''child-original-''+(''x''*10000)) }'+
+$child='$global:UskMetadataReadonlyPlanningFailure=@{schema=''usk.controller_readonly_plan_failure.v1'';'+
+ 'request_id=''plan.test'';planner_exited=$true;exit_code=4;qualification_granted=$false;authority_granted=$false;'+
+ 'stdout=@{captured_bytes_base64=''YWN0dWFs'';complete_file_claimed=$false}};'+
+ '$global:UskMetadataObserverPhase=''control_child_failure''; try { throw [InvalidOperationException]::new(''child-original-''+(''x''*10000)) }'+
  $strings[0].Value.Replace('__FAILURE_OUTPUT__',$failureOutput.Replace("'","''"))
 & $env:USK_FAILURE_BINARY -NoProfile -NonInteractive -EncodedCommand ([Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($child)))
 if($LASTEXITCODE -ne 1 -or (Test-Path -LiteralPath $output) -or (Test-Path -LiteralPath ($failureOutput+'.pending'))){
@@ -472,7 +475,11 @@ if($record.schema -cne 'usk.publisher.metadata_observer_failure.v1' -or $record.
  $record.phase -cne 'control_child_failure' -or $record.exception_type -cne 'System.InvalidOperationException' -or
  $record.hresult -ne -2146233079 -or -not $record.message.StartsWith('child-original-',[StringComparison]::Ordinal) -or
  $record.message.Length -ne 8192 -or $record.stack.Length -gt 8192 -or $record.observer_token_handles_closed -ne $false -or
- (Get-Item -LiteralPath $failureOutput).Length -gt 65536){throw 'Actual child diagnostic differs'}
+ (Get-Item -LiteralPath $failureOutput).Length -gt 65536 -or
+ $record.readonly_planning.request_id -cne 'plan.test' -or $record.readonly_planning.exit_code -ne 4 -or
+ $record.readonly_planning.qualification_granted -or $record.readonly_planning.authority_granted -or
+ $record.readonly_planning.stdout.captured_bytes_base64 -cne 'YWN0dWFs' -or
+ $record.readonly_planning.stdout.complete_file_claimed){throw 'Actual child diagnostic differs'}
 function Get-ScheduledTaskInfo {param($TaskName,$ErrorAction) throw [InvalidOperationException]::new('task-status-unavailable-'+('z'*10000))}
 $name='inert-control';$caught=$null
 try {& ([scriptblock]::Create($branches[0].Extent.Text))} catch {$caught=$_.Exception.Message}
@@ -485,6 +492,8 @@ $propagated=$caught.Substring($prefix.Length,$index-$prefix.Length)|ConvertFrom-
 $query=$caught.Substring($index+$separator.Length)|ConvertFrom-Json
 if($propagated.phase -cne $record.phase -or $propagated.hresult -ne $record.hresult -or
  $propagated.message -cne $record.message -or $propagated.observer_token_handles_closed -ne $false -or
+ ($propagated.readonly_planning|ConvertTo-Json -Depth 4 -Compress) -cne
+ ($record.readonly_planning|ConvertTo-Json -Depth 4 -Compress) -or
  $query.available -ne $false -or $null -ne $query.result -or $query.error.Length -ne 8192 -or
  -not $query.error.StartsWith('task-status-unavailable-',[StringComparison]::Ordinal)) {
  throw 'Child failure or bounded supplementary query error differs'

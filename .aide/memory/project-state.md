@@ -8,9 +8,35 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR251 is normally merged into dev at3e0e3dfe after all required core checks,
-independent source review and the live merge gate. Eight reviewed checkpoints
-PR244 through PR251 were integrated on18October2026; main remainsc048f7.
+PR252 is normally merged into dev atd88253dd after all required core checks,
+independent source review and the live merge gate. Nine reviewed checkpoints
+PR244 through PR252 were integrated on18October2026; main remainsc048f7.
+PR252's terminal publisher run39054655658/1 is red. Both fresh maintenance
+cohorts complete, while both genuinely interrupted source-retired repair
+recoveries again exceed120seconds with current-requestUNKNOWN and no native
+completion capture. Its synthetic build1ce09a372a1d has dev's325003b9 source
+tree; embedded build and package identity remain separate. The new controller
+stops at readonly repair planning before enrolled repair/uninstall/retirement
+execute. Its generic planner failure did not retain exit/stdout/stderr evidence.
+
+The current local diagnostic increment retains the readonly planner's process
+handle before waiting. Five actual redirected WinPS5 machine refusals yielded
+null ExitCode without this association, and five yielded actual exit4 with it.
+Both real successful repair/uninstall plans also return exit0 and matching
+request/plan identities under WinPS5 and PS7 without changing ordinary fixture
+file bytes. This reproduces a local harness defect, not the independently
+established cause of the hosted SYSTEM failure. Missing/nonzero exit remains
+refusal. Failure-only records bind the selected inputs and retain at most4096
+stdout and2048 stderr bytes with actual prefix hashes, partial labels and no
+authority/completion claim. Capture follows all cleanup attempts, preserves
+the primary error and discards provisional plans on any planning/close failure.
+Focused native-prefix/process-tail controls cover malformed/empty output,
+mismatched identity, timeout, unsafe capture, secondary cleanup and cleanup-only
+failure; they do not manufacture the SYSTEM admission gate. Required hosted
+qualification, reliable recovery, completed retirement and main/release
+acceptance remain open; deadlines and inventory classifications are unchanged.
+
+PR251 was previously integrated at3e0e3dfe.
 PR250 was previously integrated at6933fc29.
 Reviewed/core-qualified dev integration is daily; main promotion targets19October
 when its additional publisher and applicable acceptance gates pass.
@@ -104,9 +130,31 @@ ordered/pending/sealed effects, missing/invalid input and sticky failure, and
 audit chain links. This is ordinary filesystem metadata coverage, not live
 privileged retirement or a current-service custody proof.
 
-The privileged retirement custody, journal/effect/lease/complete-namespace proof,
-real owned uninstall connection and final deletion remain unfinished. This is
-implementation preparation, with no installed-target retirement availability.
+The native retirement implementation now has an existing-only custody owner
+beside registration: original protected binding/admission, exact stopped SCM
+configuration and configured consumer, held protected image/digest, admitted volume/device
+identity, volume exclusion and ordered installation guards. Parent-relative
+metadata reads retain complete directory listings (including empty directories),
+actual returned bytes, identity/security/stream observations and live handles.
+Reads and final revalidation compare the original facts; observation failure is
+sticky and wrong-thread use is refused. This does not claim held handles prevent
+all mutation. Per-file16MiB and aggregate64MiB retained metadata bytes are bounded;
+entry/depth and separately accounted evidence bounds are not a total-memory claim.
+Complete retained directory listings and one recheck scratch listing share64MiB
+of the existing native enumeration accounting. Installation ID count and bytes
+are preflighted before copying or acquiring native guards. Held registration/image
+leaves are joined to the actual held native parents; newly opened handles acquire
+stack RAII custody before an owning wrapper allocation can fail. Destruction must
+remain on the originating thread and is not a validation or close-confirmation result.
+The real elevated non-impersonated administrator is authorized separately from
+the configured consumer, preserving administrative retirement of standard-user
+registrations. Existing transport/enrollment current-caller checks are unchanged.
+SCM/image absence after partial retirement is inspected from the original
+protected registration instead of requiring the deleted service to exist.
+This owner has no deletion/finalizer or CLI route. It is unfinished implementation;
+strict compilation and existing reader tests are not a positive native custody
+run. The fixed lifecycle journal/effect/audit/lease/current-revision closure and
+private final effects remain required before installed-target retirement exists.
 
 The held eight-query recovery preview remains unapplied. Independent review finds
 its removed intermediate child/broker/client security observations nonredundant.

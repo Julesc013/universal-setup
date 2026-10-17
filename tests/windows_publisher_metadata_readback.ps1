@@ -434,6 +434,32 @@ public static class UskMetadataFacts {
    return ReadHandle(h);
   }
  }
+ // Failure-only prefix from the original planner's fixed redirected file.
+ // No-follow/single-link checks precede reading; this is never a full-file,
+ // successful-plan, native-completion or authority observation.
+ public static Dictionary<string,object> ReadDiagnosticPrefix(string path,int limit) {
+  if(limit<=0 || limit>8192) throw new ArgumentOutOfRangeException("limit");
+  using(var h=CreateFile(path,0x20081,7,IntPtr.Zero,3,0x02200000,IntPtr.Zero)) {
+   if(h.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error(),"Planner diagnostic unavailable");
+   object[] facts=ReadHandle(h);var standard=Query(h,1,24);
+   long length=BitConverter.ToInt64(standard,8);
+   if(((uint)facts[2]&16)!=0 || standard[20]!=0 || standard[21]!=0 || length<0 ||
+      BitConverter.ToUInt32(standard,16)!=1)
+    throw new InvalidOperationException("Planner diagnostic is not an ordinary single-link file");
+   byte[] bytes=new byte[limit];int count=0;
+   using(var file=new FileStream(h,FileAccess.Read,4096,false)) {
+    while(count<bytes.Length) {int n=file.Read(bytes,count,bytes.Length-count);if(n==0)break;count+=n;}
+    var after=Query(h,1,24);Array.Resize(ref bytes,count);
+    using(var sha=SHA256.Create()) {
+     return new Dictionary<string,object>{{"capture_status","captured_prefix"},
+      {"file_id",facts[0]},{"observed_bytes",length},{"length_after_capture",BitConverter.ToInt64(after,8)},
+      {"capture_limit_bytes",limit},{"captured_bytes",count},{"captured_bytes_base64",Convert.ToBase64String(bytes)},
+      {"captured_bytes_sha256",BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-","").ToLowerInvariant()},
+      {"potentially_partial",true},{"complete_file_claimed",false}};
+    }
+   }
+  }
+ }
  static object[] ReadHandle(SafeFileHandle h) {
    if(h.IsInvalid) throw new InvalidOperationException("Independent metadata handle unavailable");
    var id=new byte[24]; var tag=new byte[8]; uint needed;
@@ -1563,6 +1589,7 @@ if($contentReadFailures.Count) {
 }
 if($MaintenancePlanningBinding) {
  $global:UskMetadataObserverPhase='readonly_maintenance_plan'
+ $global:UskMetadataReadonlyPlanningFailure=$null
  if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18') {
   throw 'Maintenance planning observer is not SYSTEM'
  }
@@ -1572,6 +1599,7 @@ if($MaintenancePlanningBinding) {
  }
  $planningRoot=Join-Path (Split-Path -Parent $Output) 'controller-inputs'
  $held=[Collections.Generic.List[object]]::new();$planner=$null;$plannerEnded=$false;$planningFailure=$null
+ $planningDiagnostic=$null
  try {
   $texts=@{}
   foreach($role in @('machine','request','context')) {
@@ -1609,11 +1637,25 @@ if($MaintenancePlanningBinding) {
   }
   $stdout=$binding.request+'.plan.stdout';$stderr=$binding.request+'.plan.stderr'
   if((Test-Path -LiteralPath $stdout) -or (Test-Path -LiteralPath $stderr)){throw 'Maintenance planning output already exists'}
+  # Bind failure evidence before process creation can partially succeed. It
+  # remains failure-only and cannot acknowledge planner or token closure.
+  $planningDiagnostic=[ordered]@{schema='usk.controller_readonly_plan_failure.v1';
+   qualification_granted=$false;authority_granted=$false;planner_exited=$false;
+   process_id=$null;exit_code=$null;request_id=$request.request_id;
+   request_sha256=$binding.request_sha256;context_sha256=$binding.context_sha256;
+   machine_sha256=$binding.machine_sha256;stdout=$null;stderr=$null}
   $planner=Start-Process -FilePath $binding.machine -ArgumentList @('--machine','--request-file',
       ('"'+$binding.request+'"'),'--context-file',('"'+$binding.context+'"')) -WindowStyle Hidden -PassThru `
       -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+  $planningDiagnostic.process_id=$planner.Id
+  # Windows PowerShell may lose a redirected child's ExitCode unless the
+  # Process owns its native handle before waiting. Keep that association until
+  # Dispose; a missing exit code remains a refusal, never implicit success.
+  $plannerHandle=$planner.Handle
+  if($plannerHandle -eq [IntPtr]::Zero){throw 'Readonly planner process handle is unavailable'}
   if(-not $planner.WaitForExit(30000)){throw 'Readonly maintenance planner exceeded its bound'}
   $planner.WaitForExit();$plannerEnded=$true
+  $planningDiagnostic.planner_exited=$true;$planningDiagnostic.exit_code=$planner.ExitCode
   $outputFile=Get-Item -LiteralPath $stdout
   if($planner.ExitCode -ne 0 -or $outputFile.Length -eq 0 -or $outputFile.Length -gt 4MB) {
    throw 'Readonly maintenance planner did not return a bounded success'
@@ -1627,7 +1669,9 @@ if($MaintenancePlanningBinding) {
    request_sha256=$binding.request_sha256;context_sha256=$binding.context_sha256;
    machine_sha256=$binding.machine_sha256;planner_exited=$true;
    response_sha256=(Get-FileHash -LiteralPath $stdout -Algorithm SHA256).Hash.ToLowerInvariant();response_json=$planText}
- } catch {$planningFailure=$_} finally {
+ } catch {
+  $planningFailure=$_
+ } finally {
   # Attempt all owned closes; retain the original planning failure.
   try {
    if($planner -and -not $plannerEnded){$planner.Kill();if(-not $planner.WaitForExit(5000)){throw 'Readonly planner closure is unknown'}}
@@ -1636,6 +1680,21 @@ if($MaintenancePlanningBinding) {
   foreach($stream in $held) {
    try {$stream.Dispose()} catch {if(-not $planningFailure){$planningFailure=$_}}
   }
+ }
+ if($planningFailure -and $planningDiagnostic) {
+  # Capture after every cleanup attempt, including cleanup-only failures.
+  # Returned prefixes remain potentially partial; never replace the primary
+  # planning/closure error or publish a provisional successful plan.
+  $result.Remove('maintenance_plan')|Out-Null
+  foreach($capture in @(@{role='stdout';path=$stdout;limit=4096},@{role='stderr';path=$stderr;limit=2048})) {
+   try {$planningDiagnostic[$capture.role]=[UskMetadataFacts]::ReadDiagnosticPrefix($capture.path,$capture.limit)}
+   catch {
+    $text=[string]$_.Exception.Message
+    $planningDiagnostic[$capture.role]=[ordered]@{capture_status='unavailable';
+     error=$text.Substring(0,[Math]::Min(512,$text.Length));complete_file_claimed=$false}
+   }
+  }
+  $global:UskMetadataReadonlyPlanningFailure=$planningDiagnostic
  }
  if($planningFailure){throw $planningFailure}
 }
@@ -1693,6 +1752,9 @@ try {
    phase=$global:UskMetadataObserverPhase;exception_type=$caught.Exception.GetType().FullName;
    hresult=$caught.Exception.HResult;message=$caught.Exception.Message;stack=$caught.ScriptStackTrace;
    observer_token_handles_closed=$false}
+  if($global:UskMetadataReadonlyPlanningFailure) {
+   $failure['readonly_planning']=$global:UskMetadataReadonlyPlanningFailure
+  }
   foreach($field in @('message','stack')) {
    $text=[string]$failure[$field];$failure[$field]=$text.Substring(0,[Math]::Min(8192,$text.Length))
   }
