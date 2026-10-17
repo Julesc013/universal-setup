@@ -160,9 +160,34 @@ $try=@($ast.EndBlock.Statements|Where-Object {
 if($try.Count -ne 1){throw 'Original lab creation control flow is ambiguous'}
 $flow=$try[0].Body.Extent.Text
 $created=$flow.IndexOf("throw 'file-backed VHD was not created'")
-$protected=$flow.IndexOf("if(`$PublicInstallation){`$receipt['backing_image_provisioning']=Protect-NewOwnedVhdImage `$vhd `$receipt}")
+$protected=$flow.IndexOf("`$receipt['backing_image_provisioning']=Protect-NewOwnedVhdImage `$vhd `$receipt")
 $attached=$flow.IndexOf('Mount-DiskImage -ImagePath $vhd -NoDriveLetter')
 if($created -lt 0 -or $protected -le $created -or $attached -le $protected){throw 'New image policy does not precede first attachment'}
+# Execute the actual preparation selector for each public/controller mode.
+# Replace the two filesystem effects with observations only for this routing test.
+$preparation=@($try[0].Body.Statements|Where-Object {
+    $_.Extent.Text.Contains('Protect-NewOwnedVhdImage $vhd $receipt') -or
+    $_.Extent.Text.Contains('Mount-DiskImage -ImagePath $vhd -NoDriveLetter')
+})
+if($preparation.Count -ne 2){throw 'Original attachment preparation flow is ambiguous'}
+function Protect-NewOwnedVhdImage([string]$ImagePath,[Collections.IDictionary]$Receipt) {
+    if($ImagePath -cne 'synthetic-new-image.vhdx'){throw 'Inert image path differs'}
+    $script:preparationCalls.Add('protect')
+    return @{scope='inert_preparation_selector_only'}
+}
+function Mount-DiskImage([string]$ImagePath,[switch]$NoDriveLetter,[string]$ErrorAction) {
+    if($ImagePath -cne 'synthetic-new-image.vhdx' -or -not $NoDriveLetter){throw 'Inert mount arguments differ'}
+    $script:preparationCalls.Add('attach')
+}
+$preparationRows=@()
+foreach($PublicInstallation in @($false,$true)) {
+  foreach($AdmittedTarget in @($false,$true)) {
+    $script:preparationCalls=[Collections.Generic.List[string]]::new()
+    $receipt=@{};$vhd='synthetic-new-image.vhdx'
+    foreach($statement in $preparation){. ([scriptblock]::Create($statement.Extent.Text))}
+    $preparationRows+=@{public=$PublicInstallation;admitted=$AdmittedTarget;calls=@($script:preparationCalls)}
+  }
+}
 # Exercise the ACTUAL one-attempt C# method with inert private-constructor
 # closers. These synthetic values are never passed to an OS close/open call.
 $constructors=@([UskOwnedVhdImage].GetConstructors([Reflection.BindingFlags]'Instance,NonPublic'))
@@ -233,7 +258,8 @@ foreach($custody in @('unknown','released','not_acquired')) {
     $retentionRows+=@{custody=$custody;refused=$refused}
 }
 @{policy_cases=$rows;ordinary=$ordinary;native_policy=$nativePolicy;close_controls=$closeRows;flow_controls=$flowRows;
-    retention_controls=$retentionRows;before_attachment=$true;profile_ba_setter_executed=$false}|ConvertTo-Json -Depth 8 -Compress
+    retention_controls=$retentionRows;preparation_controls=$preparationRows;
+    before_attachment=$true;profile_ba_setter_executed=$false}|ConvertTo-Json -Depth 8 -Compress
 '''
 
 
@@ -271,6 +297,11 @@ class PublisherVhdImageSecurityTests(unittest.TestCase):
         self.assertEqual(row['reopened_size'], 256)
         self.assertTrue(self.observation['before_attachment'])
         self.assertFalse(self.observation['profile_ba_setter_executed'])
+        rows = self.observation['preparation_controls']
+        self.assertEqual(len(rows), 4)
+        for row in rows:
+            expected = ['protect', 'attach'] if row['public'] or row['admitted'] else ['attach']
+            self.assertEqual(row['calls'], expected, row)
 
     def test_raw_native_policy_preserves_actual_order(self):
         row = self.observation['native_policy']
