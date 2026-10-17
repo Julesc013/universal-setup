@@ -2527,7 +2527,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "489848da1343d480570b86db97fae6d85674027a2a1a8b72a3b76c4cc75c55df"
+          "sha256": "a5b57f15b09630c65fd797d983db72f55768aa45eea297ffa41dbd56fd202232"
         },
         {
           "path": "release/evidence/wu007-active-holder-partial-integration.v1.json",
@@ -2990,7 +2990,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "489848da1343d480570b86db97fae6d85674027a2a1a8b72a3b76c4cc75c55df"
+          "sha256": "a5b57f15b09630c65fd797d983db72f55768aa45eea297ffa41dbd56fd202232"
         },
         {
           "path": "release/evidence/wu007-active-holder-partial-integration.v1.json",
@@ -3453,7 +3453,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "489848da1343d480570b86db97fae6d85674027a2a1a8b72a3b76c4cc75c55df"
+          "sha256": "a5b57f15b09630c65fd797d983db72f55768aa45eea297ffa41dbd56fd202232"
         },
         {
           "path": "release/evidence/wu007-active-holder-partial-integration.v1.json",
@@ -5331,7 +5331,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "489848da1343d480570b86db97fae6d85674027a2a1a8b72a3b76c4cc75c55df"
+          "sha256": "a5b57f15b09630c65fd797d983db72f55768aa45eea297ffa41dbd56fd202232"
         },
         {
           "path": "CMakeLists.txt",
@@ -5843,7 +5843,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "489848da1343d480570b86db97fae6d85674027a2a1a8b72a3b76c4cc75c55df"
+          "sha256": "a5b57f15b09630c65fd797d983db72f55768aa45eea297ffa41dbd56fd202232"
         },
         {
           "path": "CMakeLists.txt",
@@ -6223,11 +6223,11 @@
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_broker_internal.h",
-          "sha256": "97365f825335c311066ce6e666c587535beb6013a24045775bf3842b694ca9bd"
+          "sha256": "b5f61670547235e206250f693862014fc89765882acc9a9fb01318391d99080d"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_effect_broker_internal.cpp",
-          "sha256": "0f762498d5eab63e1a777e573907660a787649cf097addccf9d374c19aa8b3fe"
+          "sha256": "0a3c6c267b3130c463e3de9d6c70d141c0503c74f9301c7f433400c38c8c6b6c"
         },
         {
           "path": "tests/native/usk_publisher_broker_object_query_smoke.cpp",
@@ -6471,7 +6471,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "489848da1343d480570b86db97fae6d85674027a2a1a8b72a3b76c4cc75c55df"
+          "sha256": "a5b57f15b09630c65fd797d983db72f55768aa45eea297ffa41dbd56fd202232"
         },
         {
           "path": "runtime/command/usk_one_shot.cpp",
@@ -6730,7 +6730,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "489848da1343d480570b86db97fae6d85674027a2a1a8b72a3b76c4cc75c55df"
+          "sha256": "a5b57f15b09630c65fd797d983db72f55768aa45eea297ffa41dbd56fd202232"
         },
         {
           "path": "runtime/command/usk_one_shot.cpp",
@@ -7890,7 +7890,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "489848da1343d480570b86db97fae6d85674027a2a1a8b72a3b76c4cc75c55df"
+          "sha256": "a5b57f15b09630c65fd797d983db72f55768aa45eea297ffa41dbd56fd202232"
         },
         {
           "path": "runtime/command/usk_one_shot.cpp",
@@ -8143,7 +8143,7 @@
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
-          "sha256": "489848da1343d480570b86db97fae6d85674027a2a1a8b72a3b76c4cc75c55df"
+          "sha256": "a5b57f15b09630c65fd797d983db72f55768aa45eea297ffa41dbd56fd202232"
         },
         {
           "path": "runtime/command/usk_one_shot.cpp",

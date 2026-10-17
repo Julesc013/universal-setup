@@ -438,7 +438,13 @@ usk::json::Value execute_registered_child(usk::platform::windows::RegisteredPubl
             if (!closure.confirmed()) throw PublisherEffectWorkerClosureUnknown(closure, primary);
         }
         if (!volume.close()) throw PublisherBrokerQueryClosureUnknown(volume.error(), primary);
-        std::rethrow_exception(primary);
+        // The initial broker sent no admission readback, its native query and
+        // record workers closed, and the actual child/job and volume are now
+        // confirmed closed. Retain every other failure's conservative effects.
+        try { std::rethrow_exception(primary); }
+        catch (const PublisherOriginalInstallationPreflightRefused&) {
+            throw StaleReviewedInstallRequest();
+        }
     }
     const auto closure = [&] {
         const usk::diagnostics::Scope effect_broker_worker_closure_diagnostic(usk::diagnostics::Phase::effect_broker_worker_closure);
