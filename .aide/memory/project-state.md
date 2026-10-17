@@ -8,10 +8,12 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR247 is merged into dev at7a7a51a; main remainsc048f7.
-Itsdd12b4b source passed all six required core checks, specification validation,
-independent review and the live merge policy. Publisher qualification in CI39039802715 failed separately; development
-integration is not release acceptance. Its registered controller passed the
+PR248 is merged into dev at541544c; main remainsc048f7.
+Itsaa6f1dc source passed all six required core checks, specification validation,
+independent review and the live merge policy. Its native cohorts remain
+separately pending in CI39041319002; development integration is not release acceptance.
+PR247 was integrated at7a7a51a. Its publisher qualification in CI39039802715
+failed separately. Its registered controller passed the
 unchanged stale-recovery refusal, installed verification and stale-verify refusal.
 Intentional owned-file damage then returned recovery_required because completed
 nonpassing verification was rejected by the worker terminal grammar. The legacy
