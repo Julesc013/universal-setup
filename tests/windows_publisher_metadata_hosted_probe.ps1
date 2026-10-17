@@ -24,6 +24,7 @@ param(
     [switch]$ReuseRegistration,
     [switch]$MachineRequestClient,
     [switch]$ControllerApply,
+    [switch]$AdmittedTarget,
     [switch]$NonAdminClient,
     [switch]$ProductionConcurrentRights,
     [switch]$ProductionPostpublishRights,
@@ -35,6 +36,16 @@ param(
     [switch]$HostilePostrename
 )
 $ErrorActionPreference='Stop'
+if($AdmittedTarget -and (-not $ControllerApply -or -not $RegisteredService -or
+    -not $ReviewedSource -or -not $ReuseRegistration -or $ConsumerAccess -or
+    $NonAdminClient -or $MachineRequestClient -or $ProductionConcurrentRights -or
+    $InterruptDuringConsumerAccess -or $InterruptAfterVisibleRecord -or
+    $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or
+    $TerminateAtPoststage -or $TerminateAtPostrename -or $ProductionPostpublishRights -or
+    $ProductionPostrenameTermination -or $ProductionPreparedTermination -or
+    $ExpectUnprotectedRefusal -or $ExpectPreexistingAnchorRefusal -or $HostileRights -or $HostilePostrename)) {
+    throw 'Admitted target currently requires the uninterrupted registered controller profile'
+}
 . (Join-Path $PSScriptRoot 'windows_publisher_production_boundary.ps1')
 if($HostilePostrename) {
     if($HostileRights){throw 'Select one hostile-rights phase'}
@@ -140,7 +151,7 @@ if($RegisteredService -and $HostileRights -and
 if($NonAdminClient -and (-not $RegisteredService -or $ConsumerAccess)) {
     throw 'Non-admin client requires the registered service without consumer payload rights'
 }
-$registeredMode=if($ConsumerAccess){'--grant-client-read'}elseif($NonAdminClient){'--admit-client-observer'}else{''}
+$registeredMode=if($AdmittedTarget){'--service-admitted-client'}elseif($ConsumerAccess){'--grant-client-read'}elseif($NonAdminClient){'--admit-client-observer'}else{''}
 $script:controllerPending=[bool]$ControllerApply
 $script:controllerMode='apply'
 $recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or $InterruptDuringConsumerAccess -or $ProductionPostrenameTermination -or $ProductionPreparedTermination
@@ -442,7 +453,7 @@ $vmId=(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Virtual Machine\Guest\Paramete
 if($vmId -notmatch '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') { throw 'Observed hosted VM identity unavailable' }
 $id=[guid]::NewGuid().ToString('N')
 $service=$(if($RegisteredService){'USK_PUB_'}else{'USK_VM_'})+$id
-$root='C:\USK-Lab'
+$root=if($AdmittedTarget){Join-Path (Split-Path -Parent $vhd) 'controller-inputs'}else{'C:\USK-Lab'}
 if(Test-Path -LiteralPath $root){throw 'Unexpected existing hosted campaign input root'}
 New-Item -ItemType Directory -Path $root|Out-Null
 $fixture=Join-Path $root ('metadata-inputs-'+$id)
@@ -558,6 +569,26 @@ function Read-ClientObservation($client) {
 }
 function Start-RegisteredPublisher {
     if($script:controllerPending){return}
+    if($AdmittedTarget) {
+        # Preserve the existing raw client actor for the negative/replay calls.
+        # SCM activation supplies no request authority: the actual service must
+        # establish its private admission before opening its authenticated pipe.
+        $before=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+        if($before.PathName -cne $expectedRegisteredCommand -or $before.State -cne 'Stopped' -or
+            $before.StartName -cne 'LocalSystem' -or $before.ServiceType -cne 'Own Process' -or
+            (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\$service").ServiceSidType -ne 3) {
+            throw 'Owned admitted activation differs from the exact stopped registration'
+        }
+        & sc.exe start $service|Out-Null
+        if($LASTEXITCODE -ne 0){throw 'Owned admitted SCM activation failed'}
+        $after=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+        if($after.PathName -cne $before.PathName -or $after.StartName -cne $before.StartName -or
+            $after.ServiceType -cne $before.ServiceType -or
+            (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\$service").ServiceSidType -ne 3) {
+            throw 'Owned admitted configuration changed across SCM activation'
+        }
+        return
+    }
     $startArgs=@('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid)
     if($registeredMode){$startArgs+=$registeredMode}
     $started=& $ServiceControlBinary @startArgs
@@ -855,6 +886,12 @@ try {
     if($InterruptDuringConsumerAccess){$command+=' --interrupt-consumer-grant'}
     if($ClientBinary) {
         $callerSid=if($ConsumerAccess -or $NonAdminClient){$consumerSid}else{[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
+        if($AdmittedTarget) {
+            # Service admission binds its configured account's read projection.
+            # This controller profile does not claim a non-admin consumer actor.
+            $consumerSid=$callerSid
+            $receipt['admitted_caller_sid']=$callerSid
+        }
         $clientArguments=' --authorized-client-sid '+$callerSid
         if($ConsumerAccess){$clientArguments+=' --grant-client-read'}
         $command+=$clientArguments
@@ -867,7 +904,7 @@ try {
         $sourceServiceHash=(Get-FileHash -LiteralPath $ServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant()
         $expectedRegisteredCommand='"'+$installedServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
             ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+
-            $(if($NonAdminClient){' --admit-client-observer'}else{''})+
+            $(if($AdmittedTarget){' --service-admitted-client'}elseif($NonAdminClient){' --admit-client-observer'}else{''})+
             ' --authorized-client-sid '+$callerSid+
             $(if($ConsumerAccess){' --grant-client-read'}else{''})
         $controlArgs=@('--register',$service,$ServiceBinary,$VolumeRoot,$envelope,
@@ -1079,19 +1116,43 @@ try {
         $receipt['preopened_root_process_id']=$preopenedRootProcess.Id
         $receipt['preopened_root_user_sid']=$consumerSid
     }
-    if(-not $ExpectUnprotectedRefusal) {
+    if($AdmittedTarget) {
+        # Provision only the still-empty, exactly owned target. No lab ACL
+        # writer substitutes for the product's retained admission protocol.
+        Assert-OwnedVolume
+        $admitted=& $ServiceControlBinary --provision-target $service --confirm-empty-volume
+        if($LASTEXITCODE -ne 0){throw 'Product target admission did not complete'}
+        $admission=($admitted -join "`n")|ConvertFrom-Json
+        if($admission.schema -cne 'usk.publisher_service_control.v1' -or
+            $admission.status -cne 'target_admitted' -or $admission.service -cne $service) {
+            throw 'Product target admission response differs'
+        }
+        $receipt['target_admission']=$admission
+        $enrolled=& $ServiceControlBinary --enroll-reviewed-operation $service $envelope `
+            $receipt.envelope_sha256 $binding.apply_file
+        if($LASTEXITCODE -ne 0){throw 'Product reviewed installation enrollment did not complete'}
+        $enrollment=($enrolled -join "`n")|ConvertFrom-Json
+        if($enrollment.schema -cne 'usk.publisher_service_control.v1' -or
+            $enrollment.status -cne 'reviewed_operation_enrolled' -or $enrollment.service -cne $service) {
+            throw 'Product reviewed installation enrollment response differs'
+        }
+        $receipt['original_installation_enrollment']=$enrollment
+    }
+    if(-not $ExpectUnprotectedRefusal -and -not $AdmittedTarget) {
         $acl=[Security.AccessControl.DirectorySecurity]::new()
         $acl.SetSecurityDescriptorSddlForm('O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;'+$sid+')')
         Set-Acl -LiteralPath $VolumeRoot -AclObject $acl
     }
     $receipt['root_acl_at_service_start']=Get-OwnedVolumeRootSddl 'service-start'
     Assert-OwnedVolume
-    $device=& $DeviceAclBinary --owned-hosted-vm-vhd-volume $VolumeRoot $service ([int]$disk.Number) $vhd $vmId 2>&1
+    $deviceMode=if($AdmittedTarget){'--observe-owned-hosted-vm-vhd-volume'}else{'--owned-hosted-vm-vhd-volume'}
+    $device=& $DeviceAclBinary $deviceMode $VolumeRoot $service ([int]$disk.Number) $vhd $vmId 2>&1
     if($LASTEXITCODE -ne 0){throw ('Owned VHD device ACL failed: '+($device -join '; '))}
     $deviceText=$device -join "`n"
     if($deviceText.Length -gt 16KB){throw 'Owned VHD device ACL receipt exceeds bound'}
     $deviceAdmission=$deviceText|ConvertFrom-Json
-    if($deviceAdmission.service_sid -cne $sid -or
+    if(($AdmittedTarget -and $deviceAdmission.admission -cne 'hosted_vm_read_only') -or
+        $deviceAdmission.service_sid -cne $sid -or
         [string]::IsNullOrWhiteSpace($deviceAdmission.before_dacl) -or
         [string]::IsNullOrWhiteSpace($deviceAdmission.after_dacl)) {
         throw 'Owned VHD device ACL receipt differs'
@@ -1115,9 +1176,10 @@ try {
         $changed.transaction_id=$changed.transaction_id+'.substituted'
         [IO.File]::WriteAllText($changedApply,
             ($changed|ConvertTo-Json -Depth 32 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
-        & $ServiceControlBinary --apply-registered $service $ServiceBinary $VolumeRoot `
-            $envelope $receipt.envelope_sha256 $callerSid $sourceServiceHash $changedApply `
-            2>$changedError|Out-Null
+        $changedArgs=@('--apply-registered',$service,$ServiceBinary,$VolumeRoot,
+            $envelope,$receipt.envelope_sha256,$callerSid,$sourceServiceHash,$changedApply)
+        if($AdmittedTarget){$changedArgs+=$registeredMode}
+        & $ServiceControlBinary @changedArgs 2>$changedError|Out-Null
         if($LASTEXITCODE -ne 3 -or (Get-Service $service).Status -ne 'Stopped' -or
             (Test-Path -LiteralPath ($drive+'publication')) -or
             (Get-Content -LiteralPath $changedError -Raw) -notmatch 'apply request differs') {
@@ -2125,7 +2187,7 @@ try {
         }
         $receipt['native_receipt_sha256']=(Get-FileHash -LiteralPath $nativePath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
-    $receipt['consumer_sid']=if($ConsumerAccess){$consumerSid}else{''}
+    $receipt['consumer_sid']=if($ConsumerAccess -or $AdmittedTarget){$consumerSid}else{''}
     if($RegisteredService -and -not $HostileRights -and -not $recover) {
         # The packaged client has received the terminal reply and closed its
         # authenticated pipe. The one-request service must now stop itself
@@ -2395,7 +2457,7 @@ try {
         $staleVerifyResult=Read-ClientObservation $staleClient
         $staleResponse=$staleVerifyResult.service
         if($staleClient.process.ExitCode -eq 0 -or $staleResponse.status -ne 'failed' -or
-            $staleResponse.error -notmatch 'differs from completed install') {
+            $staleResponse.error -cne 'authenticated verify request lacks the current completed installed state') {
             throw 'Stale authenticated verification request was not refused'
         }
         $receipt.registered_installed_verify['stale_transaction_refused']=$true
@@ -2715,6 +2777,7 @@ try {
     }
 } catch {
     $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'
+    if($AdmittedTarget){$receipt['primary_failure']=$failure}
 } finally {
     if($requestClient) {
         try { Stop-OwnedPublisherProcessTree $requestClient.process|Out-Null }
@@ -2795,7 +2858,18 @@ try {
     if($created) {
         try {
             if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
-            if($ProductionConcurrentRights -and $receipt.status -eq 'protected_metadata_observed') {
+            if($AdmittedTarget) {
+                # Keep authority when product retirement refuses. Never use
+                # sc-delete or erase retained lifecycle evidence to pass cleanup.
+                $remove=@('--unregister',$service,$ServiceBinary,$VolumeRoot,$callerSid,$registeredMode)
+                $retirementError=Join-Path $root 'product-retirement-error.txt'
+                $removed=& $ServiceControlBinary @remove 2>$retirementError
+                if($LASTEXITCODE -ne 0 -or ($removed|ConvertFrom-Json).status -cne 'removal_requested') {
+                    $receipt['product_retirement_failure']=Read-BoundedDiagnostic $retirementError 16384
+                    throw 'Admitted publisher retirement incomplete; retain recovery authority'
+                }
+                $receipt['product_service_unregister']=$removed|ConvertFrom-Json
+            } elseif($ProductionConcurrentRights -and $receipt.status -eq 'protected_metadata_observed') {
                 $held=[IO.File]::Open($controlLock,[IO.FileMode]::Open,
                     [IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
                 try {
@@ -2837,7 +2911,15 @@ try {
                 [DateTime]::UtcNow -lt $removeDeadline){Start-Sleep -Milliseconds 100}
             if(Get-Service $service -ErrorAction SilentlyContinue){throw 'Owned service remains after deletion'}
             $receipt.service_removed=$true
-        } catch { $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
+        } catch {
+            if($AdmittedTarget) {
+                $receipt['retirement_cleanup_failure']=$_.Exception.Message
+                $receipt['service_present_after_retirement_failure']=[bool](Get-Service $service -ErrorAction SilentlyContinue)
+                $receipt['binary_present_after_retirement_failure']=Test-Path -LiteralPath $installedServiceBinary -PathType Leaf
+                if(-not $failure){$failure=$_.Exception.Message;$receipt.failure=$failure}
+                $receipt.status='failed'
+            } else {$failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
+        }
     }
     if($RegisteredService -and $installedServiceBinary -and
         -not (Get-Service $service -ErrorAction SilentlyContinue) -and
@@ -2881,7 +2963,8 @@ try {
     if($receipt.status -in @('protected_metadata_observed','preprotected_boundary_refusal_observed',
         'preexisting_anchor_recovery_required_observed') -and $receipt.service_removed) {
         try {
-            if([IO.Path]::GetFullPath($root) -cne 'C:\USK-Lab'){throw 'Owned hosted cleanup root differs'}
+            $expectedRoot=if($AdmittedTarget){Join-Path (Split-Path -Parent $vhd) 'controller-inputs'}else{'C:\USK-Lab'}
+            if([IO.Path]::GetFullPath($root) -cne $expectedRoot){throw 'Owned hosted cleanup root differs'}
             $pending=[Collections.Generic.Queue[string]]::new();$pending.Enqueue($root)
             while($pending.Count) {
                 $directory=$pending.Dequeue();$item=Get-Item -LiteralPath $directory -Force
@@ -2926,6 +3009,11 @@ try {
             Remove-Item -LiteralPath $observerRoot -ErrorAction Stop
         }
         catch { $failure='Owned root ACL observer directory cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
+    }
+    if($AdmittedTarget -and $receipt.primary_failure) {
+        if($failure -cne $receipt.primary_failure){$receipt['cleanup_failure']=$failure}
+        $failure=$receipt.primary_failure
+        $receipt.failure=$failure
     }
     $receipt|ConvertTo-Json -Depth 32|Set-Content -LiteralPath $out -Encoding UTF8
     # The existing outer harness dismounts/deletes only its identified VHD.

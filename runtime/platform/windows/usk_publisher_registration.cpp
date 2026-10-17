@@ -13,6 +13,7 @@
 #include <winioctl.h>
 
 #include "usk_publisher_registration.h"
+#include "usk_publisher_controller_request_internal.h"
 #include "usk_publisher_service_readback_internal.h"
 #include "usk_publisher_effect_worker_custody_internal.h"
 #include "usk_publisher_execution_observation.h"
@@ -2273,11 +2274,29 @@ usk::json::Value enroll_reviewed_operation(const std::wstring& name, const std::
     }
 }
 
-int report_registered_response(const std::wstring& name, const std::string& request) {
+// Caller-supplied pins constrain an actual service-admitted registration; they
+// never create admission or authorize a fallback to the privileged legacy path.
+// All references remain owned by the synchronous controller invocation.
+struct RegisteredControllerRequestPins {
+    const std::wstring& binary;
+    const std::wstring& volume;
+    const std::wstring& caller;
+    const std::wstring& binary_sha256;
+    const std::wstring* exact_command = nullptr;
+};
+std::string submit_registered_request(const std::wstring& name,
+    const std::string& request, const PublisherRequestOptions& options,
+    const RegisteredControllerRequestPins* pins,
+    detail::PublisherControllerRequestBoundary* boundary);
+
+int report_registered_response_impl(const std::wstring& name, const std::string& request,
+    const RegisteredControllerRequestPins* pins,
+    detail::PublisherControllerRequestBoundary* boundary) {
     std::string response;
     std::string status;
     try {
-        response = usk::platform::windows::submit_publisher_request(name, request, 120000);
+        response = pins ? submit_registered_request(name, request, {}, pins, boundary) :
+            usk::platform::windows::submit_publisher_request(name, request, 120000);
         usk::json::ParseLimits limits;
         limits.max_bytes = 4u * 1024u * 1024u;
         limits.max_string_bytes = 2u * 1024u * 1024u;
@@ -2290,6 +2309,9 @@ int report_registered_response(const std::wstring& name, const std::string& requ
         if (status != "pass" && status != "failed" && status != "recovery_required") {
             throw std::runtime_error("unexpected publisher response status");
         }
+    } catch (const usk::base::EffectRequestNotDispatched& error) {
+        if (pins) throw; // The outer invocation boundary decides conservative UNKNOWN.
+        throw usk::platform::windows::PublisherRequestOutcomeUnknown(error.what());
     } catch (const std::exception& error) {
         throw usk::platform::windows::PublisherRequestOutcomeUnknown(error.what());
     }
@@ -2304,6 +2326,14 @@ int report_registered_response(const std::wstring& name, const std::string& requ
             "publisher response output failed");
     }
     return status == "pass" ? 0 : 3;
+}
+
+int report_registered_response(const std::wstring& name, const std::string& request,
+    const RegisteredControllerRequestPins* pins = nullptr) {
+    if (!pins) return report_registered_response_impl(name, request, nullptr, nullptr);
+    return detail::run_admitted_controller_request([&](auto& boundary) {
+        return report_registered_response_impl(name, request, pins, &boundary);
+    });
 }
 
 int apply_registered(const std::wstring& name, const std::wstring& installed_binary,
@@ -2331,6 +2361,11 @@ int apply_registered(const std::wstring& name, const std::wstring& installed_bin
     const std::wstring expected_command = command_prefix(name, installed_binary, volume) +
         L" --reviewed-plan-envelope \"" + envelope + L"\" " + envelope_digest +
         command_suffix(caller, mode);
+    if (mode == L"--service-admitted-client") {
+        const RegisteredControllerRequestPins pins{
+            installed_binary, volume, caller, binary_digest, &expected_command};
+        return report_registered_response(name, request, &pins);
+    }
     request_start(name, installed_binary, volume, caller, mode, &expected_command);
     return report_registered_response(name, request);
 }
@@ -2475,6 +2510,10 @@ int run_registered_operation(const std::wstring& name, const std::wstring& binar
         throw std::runtime_error("installed publisher digest differs");
     }
     binary.verify_unchanged();
+    if (access_mode == L"--service-admitted-client") {
+        const RegisteredControllerRequestPins pins{binary_path, volume, caller, binary_digest};
+        return report_registered_response(name, request, &pins);
+    }
     {
         // Reconfiguration and start share the same controller lock. No other
         // cooperating controller can swap the mode between these steps.
@@ -2991,8 +3030,11 @@ usk::json::Value RegisteredPublisherAdmission::capability_observation(const std:
     return result;
 }
 
-std::string submit_registered_publisher_request(const std::wstring& name,
-    const std::string& request, const PublisherRequestOptions& options) {
+namespace {
+std::string submit_registered_request(const std::wstring& name,
+    const std::string& request, const PublisherRequestOptions& options,
+    const RegisteredControllerRequestPins* pins,
+    detail::PublisherControllerRequestBoundary* boundary) {
     // Legacy privileged admission holds the controller guard here. The new
     // registered mode holds it in the actual service while the ordinary client
     // validates SCM's stored policy and binds the live pipe/PID/image.
@@ -3070,6 +3112,21 @@ std::string submit_registered_publisher_request(const std::wstring& name,
         require_current_caller_sid(caller);
         require_volume(args[4]);
         const bool service_admitted = args.size() >= 3 && args[args.size() - 3] == L"--service-admitted-client";
+        if (pins) {
+            if (!service_admitted)
+                throw std::runtime_error("controller request requires the actual service-admitted registration");
+            require_existing_command(before.binary_path, name, pins->binary,
+                pins->volume, pins->caller, L"--service-admitted-client");
+            if (pins->exact_command && before.binary_path != *pins->exact_command)
+                throw std::runtime_error("registered reviewed source or caller differs");
+            if (!lower_sha256(pins->binary_sha256))
+                throw std::runtime_error("installed publisher digest is invalid");
+            require_protected_binary(name, pins->binary);
+            binary = std::make_unique<usk::base::StableFile>(std::filesystem::path(pins->binary));
+            if (binary->sha256_hex() != utf8(pins->binary_sha256))
+                throw std::runtime_error("installed publisher digest differs");
+            binary->verify_unchanged();
+        }
         if (service_admitted) {
             require_publisher_consumer_sid(utf8(caller));
             const auto service_access = observe_publisher_service_access(service->get(), utf8(caller));
@@ -3102,6 +3159,7 @@ std::string submit_registered_publisher_request(const std::wstring& name,
                 usk::json::canonical(observe_publisher_service_access(service->get(), utf8(caller))) !=
                     usk::json::canonical(service_access))
                 throw std::runtime_error("registered publisher configuration changed before dispatch");
+            if (pins) binary->verify_unchanged();
             admitted_image = args[0];
         } else {
         if (service_observation)
@@ -3267,20 +3325,29 @@ std::string submit_registered_publisher_request(const std::wstring& name,
         // request. SCM startup by itself cannot authorize a publication.
         throw usk::base::EffectRequestNotDispatched();
     }
-    // The concrete transport owns the exact first-write boundary. Its typed
-    // non-dispatch result cannot turn a lost post-write reply into a refusal.
+    // The transport owns the exact first-write boundary. The opt-in controller
+    // also retains conservative entry state through exception construction and
+    // terminal projection; it must not trust a later downgrade to non-dispatch.
     try {
+        if (boundary) boundary->enter_transport();
         return submit_publisher_request(name, request, 120000, admitted_image, options);
     } catch (const usk::base::EffectRequestNotDispatched&) {
         throw;
     } catch (const PublisherRequestOutcomeUnknown&) {
         throw;
     } catch (const std::exception&) {
-        // The concrete transport wraps every exception after an attempted
-        // write as outcome-unknown. Only its remaining pre-write exceptions
-        // reach this admission refusal; raw candidate behavior is unchanged.
+        // Retain the existing ordinary-client classification here. Its separate
+        // allocation-failure qualification remains incomplete. The controller's
+        // sticky boundary encloses this catch and preserves UNKNOWN even if a
+        // lower layer failed while constructing its typed UNKNOWN exception.
         throw usk::base::EffectRequestNotDispatched();
     }
+}
+} // namespace
+
+std::string submit_registered_publisher_request(const std::wstring& name,
+    const std::string& request, const PublisherRequestOptions& options) {
+    return submit_registered_request(name, request, options, nullptr, nullptr);
 }
 
 int publisher_service_control_main(int argc, wchar_t** argv) {
@@ -3338,7 +3405,7 @@ int publisher_service_control_main(int argc, wchar_t** argv) {
         (!start || (argc != 6 && argc != 7)) &&
         (!unregister || (argc != 6 && argc != 7)) &&
         (!retire || argc != 6)) {
-        std::wcerr << L"usage: usk_publisher_service_control (--register NAME SOURCE_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 | --apply-registered NAME INSTALLED_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 APPLY_FILE | --recover-registered NAME INSTALLED_BINARY VOLUME CALLER_SID BINARY_SHA256 REQUEST_FILE | --verify-registered NAME INSTALLED_BINARY VOLUME CALLER_SID BINARY_SHA256 REQUEST_FILE | --recover NAME INSTALLED_BINARY VOLUME CALLER_SID | --verify NAME INSTALLED_BINARY VOLUME CALLER_SID | --start NAME INSTALLED_BINARY VOLUME CALLER_SID | --unregister NAME INSTALLED_BINARY VOLUME CALLER_SID) [--admit-client-observer|--grant-client-read] | --retire-binary NAME INSTALLED_BINARY BINARY_SHA256 SERVICE_SID | --enroll-reviewed-operation NAME ENVELOPE SHA256 APPLY_FILE\n";
+        std::wcerr << L"usage: usk_publisher_service_control (--register NAME SOURCE_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 | --apply-registered NAME INSTALLED_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 APPLY_FILE | --recover-registered NAME INSTALLED_BINARY VOLUME CALLER_SID BINARY_SHA256 REQUEST_FILE | --verify-registered NAME INSTALLED_BINARY VOLUME CALLER_SID BINARY_SHA256 REQUEST_FILE | --recover NAME INSTALLED_BINARY VOLUME CALLER_SID | --verify NAME INSTALLED_BINARY VOLUME CALLER_SID | --start NAME INSTALLED_BINARY VOLUME CALLER_SID | --unregister NAME INSTALLED_BINARY VOLUME CALLER_SID) [--admit-client-observer|--grant-client-read] | --service-admitted-client is additionally available for register/apply-registered/recover-registered/verify-registered/unregister | --retire-binary NAME INSTALLED_BINARY BINARY_SHA256 SERVICE_SID | --enroll-reviewed-operation NAME ENVELOPE SHA256 APPLY_FILE\n";
         return 2;
     }
     try {
@@ -3352,7 +3419,8 @@ int publisher_service_control_main(int argc, wchar_t** argv) {
         if (!generated_name(name) ||
             (has_mode && mode != L"--admit-client-observer" &&
                 mode != L"--grant-client-read" && mode != L"--service-admitted-client") ||
-            (mode == L"--service-admitted-client" && !registration && !unregister)) {
+            (mode == L"--service-admitted-client" && !registration && !unregister &&
+                !apply && !run_recovery && !run_verify)) {
             throw std::runtime_error("service name or caller access mode is invalid");
         }
         if (!retire) {

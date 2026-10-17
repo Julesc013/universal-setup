@@ -20,6 +20,7 @@ param(
     [switch]$ReuseRegistration,
     [switch]$MachineRequestClient,
     [switch]$ControllerApply,
+    [switch]$AdmittedTarget,
     [switch]$PublicInstallation,
     [switch]$PublicStandardClient,
     [switch]$PublicStandardBootstrapLoss,
@@ -48,6 +49,16 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if($AdmittedTarget -and (-not $ControllerApply -or -not $RegisteredService -or
+    -not $ReviewedSource -or -not $ReuseRegistration -or $ConsumerAccess -or
+    $NonAdminClient -or $MachineRequestClient -or $ProductionConcurrentRights -or
+    $PublicInstallation -or $InterruptDuringConsumerAccess -or $InterruptAfterVisibleRecord -or
+    $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or
+    $TerminateAtPoststage -or $TerminateAtPostrename -or $ProductionPostpublishRights -or
+    $ProductionPostrenameTermination -or $ProductionPreparedTermination -or
+    $ExpectUnprotectedRefusal -or $ExpectPreexistingAnchorRefusal -or $HostileRights -or $HostilePostrename)) {
+    throw 'Admitted target currently requires the uninterrupted registered controller profile'
+}
 if($PublicStandardMaintenanceInitialQualification -and $PublicStandardMaintenanceRecoveryQualification) {
     throw 'Initial maintenance and published recovery require separate owned fixtures'
 }
@@ -734,7 +745,7 @@ try {
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary -DeviceAclBinary $DeviceAclBinary `
                 -MachineBinary $MachineBinary -PublicApplyBinary $PublicApplyBinary -ClientBinary $ClientBinary -PayloadBinary $PayloadBinary -ConsumerAccess:$ConsumerAccess -InterruptDuringConsumerAccess:$InterruptDuringConsumerAccess -OutputPath $serviceOutput `
-                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -TerminateAtPoststage:$TerminateAtPoststage -TerminateAtPostrename:$TerminateAtPostrename -ReviewedSource:$ReviewedSource -RegisteredService:$RegisteredService -ReuseRegistration:$ReuseRegistration -MachineRequestClient:$MachineRequestClient -ControllerApply:$ControllerApply -NonAdminClient:$NonAdminClient -ProductionConcurrentRights:$ProductionConcurrentRights -ProductionPostpublishRights:$ProductionPostpublishRights -ProductionPostrenameTermination:$ProductionPostrenameTermination -ProductionPreparedTermination:$ProductionPreparedTermination -ExpectUnprotectedRefusal:$ExpectUnprotectedRefusal -ExpectPreexistingAnchorRefusal:$ExpectPreexistingAnchorRefusal -HostileRights:($HostileRights -and -not $HostilePostrename) -HostilePostrename:$HostilePostrename
+                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -TerminateAtPoststage:$TerminateAtPoststage -TerminateAtPostrename:$TerminateAtPostrename -ReviewedSource:$ReviewedSource -RegisteredService:$RegisteredService -ReuseRegistration:$ReuseRegistration -MachineRequestClient:$MachineRequestClient -ControllerApply:$ControllerApply -AdmittedTarget:$AdmittedTarget -NonAdminClient:$NonAdminClient -ProductionConcurrentRights:$ProductionConcurrentRights -ProductionPostpublishRights:$ProductionPostpublishRights -ProductionPostrenameTermination:$ProductionPostrenameTermination -ProductionPreparedTermination:$ProductionPreparedTermination -ExpectUnprotectedRefusal:$ExpectUnprotectedRefusal -ExpectPreexistingAnchorRefusal:$ExpectPreexistingAnchorRefusal -HostileRights:($HostileRights -and -not $HostilePostrename) -HostilePostrename:$HostilePostrename
         } else {
             & (Join-Path $PSScriptRoot 'windows_publisher_service_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
@@ -773,6 +784,20 @@ try {
             throw 'Owned client cleanup unconfirmed; retain backing volume until runner VM disposal'
         }
         $backingFileExisted = Test-Path -LiteralPath $vhd -PathType Leaf
+        if($AdmittedTarget -and ($mounted -or $backingFileExisted)) {
+            # A missing receipt is uncertainty, not proof that admission never
+            # happened. Keep the recovery volume until product retirement and
+            # all owned clients are positively confirmed closed.
+            $observation=$receipt.service_observation
+            if(-not $observation -or $observation.retirement_cleanup_failure -or
+                -not [object]::Equals($observation.service_removed,$true) -or
+                -not [object]::Equals($observation.protected_service_binary_removed,$true) -or
+                -not [object]::Equals($observation.client_cleanup_confirmed,$true)) {
+                $receipt['admitted_target_retained_for_recovery']=$true
+                $receipt.status='failed'
+                throw 'Admitted publisher retirement unconfirmed; retain mounted recovery volume and backing file'
+            }
+        }
         if ($mounted) {
             $image = Get-DiskImage -ImagePath $vhd -ErrorAction Stop
             if ($image.Attached) { Dismount-DiskImage -ImagePath $vhd -ErrorAction Stop }

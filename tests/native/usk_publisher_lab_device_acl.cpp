@@ -196,8 +196,10 @@ int wmain(int argc, wchar_t** argv) {
             std::wstring(argv[1]) == L"--owned-vhd-volume";
         const bool campaign_vm = argc == 7 &&
             std::wstring(argv[1]) == L"--owned-vm-vhd-volume";
+        const bool observe_only = argc == 7 &&
+            std::wstring(argv[1]) == L"--observe-owned-hosted-vm-vhd-volume";
         const bool hosted_vm = argc == 7 &&
-            std::wstring(argv[1]) == L"--owned-hosted-vm-vhd-volume";
+            (std::wstring(argv[1]) == L"--owned-hosted-vm-vhd-volume" || observe_only);
         if (!hosted && !campaign_vm && !hosted_vm) {
             throw std::runtime_error("expected a supported disposable-lab admission mode");
         }
@@ -235,7 +237,8 @@ int wmain(int argc, wchar_t** argv) {
         type.VendorId = VIRTUAL_STORAGE_TYPE_VENDOR_MICROSOFT;
         HANDLE raw_vhd = nullptr;
         const DWORD open_error = OpenVirtualDisk(&type, vhd.c_str(),
-            VIRTUAL_DISK_ACCESS_GET_INFO | VIRTUAL_DISK_ACCESS_DETACH,
+            observe_only ? VIRTUAL_DISK_ACCESS_GET_INFO :
+                (VIRTUAL_DISK_ACCESS_GET_INFO | VIRTUAL_DISK_ACCESS_DETACH),
             OPEN_VIRTUAL_DISK_FLAG_NONE,
             nullptr, &raw_vhd);
         if (open_error != ERROR_SUCCESS || !raw_vhd ||
@@ -246,7 +249,7 @@ int wmain(int argc, wchar_t** argv) {
         Handle vhd_handle(raw_vhd);
         const DWORD vhd_disk_number = attached_vhd_disk_number(vhd_handle.get());
         const std::wstring device = root.substr(0, root.size() - 1);
-        Handle volume(CreateFileW(device.c_str(), READ_CONTROL | WRITE_DAC,
+        Handle volume(CreateFileW(device.c_str(), READ_CONTROL | (observe_only ? 0u : WRITE_DAC),
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
             OPEN_EXISTING, 0, nullptr));
         wchar_t* disk_end = nullptr;
@@ -289,6 +292,19 @@ int wmain(int argc, wchar_t** argv) {
             throw std::runtime_error("dedicated service SID cannot be rendered");
         }
         LocalPointer owned_sid_text(sid_text);
+        if (observe_only) {
+            // Product provisioning already established admission. This mode
+            // opens no ACL writer and cannot repair a missing service policy.
+            PACL confirmed_dacl = nullptr;
+            LocalPointer confirmed_descriptor;
+            const auto after = dacl_sddl(volume.get(), &confirmed_dacl, confirmed_descriptor);
+            if (before != after || after.find(ascii(sid_text)) == std::string::npos)
+                throw std::runtime_error("read-only admitted device observation differs or lacks service SID");
+            std::cout << "{\"admission\":\"hosted_vm_read_only\",\"before_dacl\":" << quote(before) <<
+                ",\"after_dacl\":" << quote(after) << ",\"service_sid\":" << quote(ascii(sid_text)) <<
+                ",\"vhd_disk_number\":" << vhd_disk_number << "}\n";
+            return 0;
+        }
         EXPLICIT_ACCESS_W entry{};
         entry.grfAccessPermissions = FILE_ALL_ACCESS;
         entry.grfAccessMode = GRANT_ACCESS;

@@ -693,7 +693,8 @@ if(USK_BUILD_TESTS)
         add_test(NAME usk_publisher_apply_control_preflight
           COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/usk_publisher_apply_control_probe.py"
-            "$<TARGET_FILE:usk_publisher_service_control>")
+            "$<TARGET_FILE:usk_publisher_service_control>"
+            "$<TARGET_FILE:usk_publisher_lab_device_acl>")
         set_tests_properties(usk_publisher_apply_control_preflight PROPERTIES TIMEOUT 30)
       endif()
       if(TARGET usk_publisher_service)
@@ -757,7 +758,7 @@ if(USK_BUILD_TESTS)
             -MachineBinary "$<TARGET_FILE:usk_machine>"
             -PublicApplyBinary "$<TARGET_FILE:usk_publisher_candidate_context_smoke>"
             -ClientBinary "$<TARGET_FILE:usk_publisher_client>"
-            -ReviewedSource -RegisteredService -ControllerApply)
+            -ReviewedSource -RegisteredService -ControllerApply -ReuseRegistration -AdmittedTarget)
         set_tests_properties(usk_controller_registered_apply_hosted
           PROPERTIES RUN_SERIAL TRUE TIMEOUT 420 LABELS publisher-qualification)
       endif()
