@@ -13,6 +13,7 @@
 #include <winioctl.h>
 
 #include "usk_publisher_registration.h"
+#include "usk_publisher_owned_retirement_custody_internal.h"
 #include "usk_publisher_controller_request_internal.h"
 #include "usk_publisher_service_readback_internal.h"
 #include "usk_publisher_effect_worker_custody_internal.h"
@@ -36,6 +37,7 @@
 #include "usk_effect_dispatch.h"
 
 #include <array>
+#include <atomic>
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -44,6 +46,7 @@
 #include <filesystem>
 #include <iostream>
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -59,6 +62,7 @@ public:
     ServiceHandle(const ServiceHandle&) = delete;
     ServiceHandle& operator=(const ServiceHandle&) = delete;
     SC_HANDLE get() const noexcept { return value_; }
+    SC_HANDLE release() noexcept { const auto value = value_; value_ = nullptr; return value; }
 private:
     SC_HANDLE value_;
 };
@@ -1504,7 +1508,8 @@ bool native_metadata_security_matches(const std::vector<BYTE>& bytes,
     return true;
 }
 
-usk::json::Value target_empty_namespace(HANDLE root, bool require_metadata_protected = true) {
+usk::json::Value observe_target_os_namespace(HANDLE root, bool require_metadata_protected,
+    bool observe_os_metadata_only) {
     // The root itself can carry streams independently of its directory entries.
     // Every pre-effect, post-lock and retirement namespace check includes it.
     require_publisher_stream_shape(root);
@@ -1512,6 +1517,10 @@ usk::json::Value target_empty_namespace(HANDLE root, bool require_metadata_prote
     Value::Array metadata;
     const auto entries = observe_publisher_directory_entries(root, 65536);
     for (const auto& entry : entries) {
+        // Only the separate existing-owned custody uses this projection. It
+        // independently enumerates and retains every other entry. Unpublished
+        // admission/retirement keep the default complete-empty-namespace check.
+        if (observe_os_metadata_only && entry.name != L"System Volume Information") continue;
         // NTFS/Windows may initialize this reserved OS metadata directory.
         // It is never adopted as payload. The initial trusted prestate may
         // need an intent-backed protection-only transition; all completed
@@ -1584,6 +1593,10 @@ usk::json::Value target_empty_namespace(HANDLE root, bool require_metadata_prote
         }
     }
     return Value(std::move(metadata));
+}
+
+usk::json::Value target_empty_namespace(HANDLE root, bool require_metadata_protected = true) {
+    return observe_target_os_namespace(root, require_metadata_protected, false);
 }
 
 usk::json::Value protected_metadata_snapshot(const usk::json::Value& original) {
@@ -2652,6 +2665,567 @@ void retire_protected_binary(const std::wstring& name,
 }
 
 } // namespace
+
+
+namespace {
+std::wstring retirement_wide(const std::string& text) {
+    if (text.empty() || text.size() > 8192u)
+        throw std::runtime_error("owned retirement registration text exceeds bound");
+    const int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+        static_cast<int>(text.size()), nullptr, 0);
+    if (length <= 0) throw std::runtime_error("owned retirement registration text is invalid");
+    std::wstring result(static_cast<std::size_t>(length), L'\0');
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+            static_cast<int>(text.size()), result.data(), length) != length ||
+        utf8(result) != text)
+        throw std::runtime_error("owned retirement registration text changed");
+    return result;
+}
+
+// Hash the bytes actually consumed, with independent same-handle observations
+// before and after. A held mutation-sharing handle is not treated as immutable.
+std::string read_retirement_file(HANDLE file, std::uint64_t maximum_bytes,
+    std::string* retained_bytes, const PublisherHandleObservation& expected) {
+    observe_publisher_noninheritable_handle_flags(file);
+    const auto before = observe_publisher_file_handle(file);
+    if (!detail::equal_publisher_handle_observations(expected, before))
+        throw std::runtime_error("owned retirement original held record identity or security changed");
+    require_publisher_stream_shape(file);
+    LARGE_INTEGER size{}, zero{};
+    if (before.link_count != 1 || !GetFileSizeEx(file, &size) ||
+        size.QuadPart <= 0 || static_cast<std::uint64_t>(size.QuadPart) > maximum_bytes ||
+        !SetFilePointerEx(file, zero, nullptr, FILE_BEGIN))
+        throw std::runtime_error("owned retirement held record size or position is invalid");
+    if (retained_bytes) retained_bytes->reserve(static_cast<std::size_t>(size.QuadPart));
+    usk::base::Sha256 digest;
+    std::array<unsigned char, 64 * 1024> buffer{};
+    std::uint64_t total = 0;
+    for (;;) {
+        DWORD count = 0;
+        if (!ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &count, nullptr))
+            throw std::runtime_error("owned retirement held record read failed");
+        if (!count) break;
+        if (total > static_cast<std::uint64_t>(size.QuadPart) ||
+            count > static_cast<std::uint64_t>(size.QuadPart) - total)
+            throw std::runtime_error("owned retirement held record grew");
+        digest.update(buffer.data(), count);
+        if (retained_bytes) retained_bytes->append(
+            reinterpret_cast<const char*>(buffer.data()), count);
+        total += count;
+    }
+    LARGE_INTEGER after_size{};
+    require_publisher_stream_shape(file);
+    if (total != static_cast<std::uint64_t>(size.QuadPart) ||
+        !GetFileSizeEx(file, &after_size) || after_size.QuadPart != size.QuadPart ||
+        !detail::equal_publisher_handle_observations(before, observe_publisher_file_handle(file)))
+        throw std::runtime_error("owned retirement held record changed during read");
+    return digest.finish();
+}
+
+bool retirement_same_listing(const std::vector<PublisherDirectoryEntry>& left,
+    std::vector<PublisherDirectoryEntry> right) {
+    const auto less = [](const auto& a, const auto& b) { return a.name < b.name; };
+    std::sort(right.begin(), right.end(), less);
+    if (left.size() != right.size()) return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        const auto& a = left[index]; const auto& b = right[index];
+        if (a.name != b.name || a.file_id != b.file_id || a.attributes != b.attributes ||
+            a.reparse_tag != b.reparse_tag || a.listing_size != b.listing_size) return false;
+    }
+    return true;
+}
+
+void require_retirement_held_member(HANDLE parent,
+    const std::vector<PublisherDirectoryEntry>& listing,
+    const std::wstring& name, HANDLE child) {
+    const auto found = std::find_if(listing.begin(), listing.end(),
+        [&](const auto& entry) { return entry.name == name; });
+    FILE_ID_INFO parent_id{}, child_id{};
+    FILE_ATTRIBUTE_TAG_INFO attributes{};
+    if (found == listing.end() ||
+        !GetFileInformationByHandleEx(parent, FileIdInfo, &parent_id, sizeof(parent_id)) ||
+        !GetFileInformationByHandleEx(child, FileIdInfo, &child_id, sizeof(child_id)) ||
+        !GetFileInformationByHandleEx(child, FileAttributeTagInfo, &attributes, sizeof(attributes)) ||
+        parent_id.VolumeSerialNumber != child_id.VolumeSerialNumber ||
+        !std::equal(found->file_id.begin(), found->file_id.end(), std::begin(child_id.FileId.Identifier)) ||
+        found->reparse_tag != 0 ||
+        ((found->attributes | attributes.FileAttributes) & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+        ((found->attributes ^ attributes.FileAttributes) & FILE_ATTRIBUTE_DIRECTORY) != 0)
+        throw std::runtime_error("owned retirement held child differs from its native parent entry");
+}
+} // namespace
+
+struct PublisherOwnedRetirementCustody::State {
+    struct Node {
+        std::unique_ptr<FileHandle> file;
+        PublisherHandleObservation facts;
+        std::vector<PublisherDirectoryEntry> children;
+        HANDLE handle = INVALID_HANDLE_VALUE;
+        std::size_t record_index = 0;
+        bool directory = false;
+    };
+    std::wstring name, command, binary, volume, caller;
+    DWORD thread = GetCurrentThreadId();
+    mutable std::atomic<bool> failed{false};
+    bool installations_acquired = false;
+    std::unique_ptr<ServiceControlGuard> control;
+    std::unique_ptr<ServiceHandle> manager, service;
+    std::unique_ptr<PublisherVolumeOperationGuard> volume_guard;
+    std::vector<std::unique_ptr<PublisherInstallOperationGuard>> install_guards;
+    std::vector<std::string> install_ids;
+    std::vector<BYTE> sid;
+    std::string service_sid;
+    std::array<std::unique_ptr<FileHandle>, 3> registration_files;
+    std::array<PublisherHandleObservation, 3> registration_facts;
+    std::array<std::string, 3> registration_hashes;
+    std::array<std::unique_ptr<FileHandle>, 2> image_parents;
+    std::array<PublisherHandleObservation, 2> parent_facts;
+    usk::json::Value binding, identity, intended_policy;
+    ServiceConfiguration configuration;
+    std::unique_ptr<FileHandle> image, root, device;
+    PublisherHandleObservation image_facts, root_facts;
+    std::vector<std::unique_ptr<Node>> nodes;
+    std::vector<PublisherRetirementRecord> records;
+    std::vector<std::wstring> directories;
+    std::set<std::string> file_ids;
+    std::uint64_t retained_bytes = 0;
+    std::size_t evidence_bytes = 0;
+    // Same accounting unit as observe_publisher_directory_entries. This is a
+    // shared retained-listing plus one recheck-scratch allowance, not total RAM.
+    static constexpr std::size_t maximum_listing_bytes = 64u * 1024u * 1024u;
+    std::size_t retained_listing_bytes = 0;
+    std::size_t largest_listing_bytes = 0;
+    std::size_t listed_entries = 0;
+
+    void initialize(const std::wstring& service_name);
+
+    void require_controller() const {
+        HANDLE impersonation = nullptr;
+        const BOOL has_token = OpenThreadToken(GetCurrentThread(), TOKEN_QUERY, TRUE, &impersonation);
+        const DWORD token_error = GetLastError();
+        if (impersonation) CloseHandle(impersonation);
+        if (has_token || token_error != ERROR_NO_TOKEN)
+            throw std::runtime_error("owned retirement cannot use an impersonated or unknown controller");
+        BYTE administrators[SECURITY_MAX_SID_SIZE]{};
+        DWORD size = sizeof(administrators);
+        BOOL member = FALSE;
+        if (!CreateWellKnownSid(WinBuiltinAdministratorsSid, nullptr, administrators, &size) ||
+            !CheckTokenMembership(nullptr, administrators, &member) || !member)
+            throw std::runtime_error("owned retirement requires the elevated administrative controller");
+        // The configured consumer remains bound by original SCM/access facts.
+        // Administrative retirement need not run as that standard-user consumer.
+    }
+    void require_owner() const {
+        if (failed || thread != GetCurrentThreadId()) {
+            failed = true;
+            throw std::runtime_error("owned retirement custody is failed or belongs to another thread");
+        }
+    }
+    void check_scm() const {
+        if (service) {
+            require_stopped(service->get());
+            SERVICE_STATUS_PROCESS status{};
+            DWORD needed = 0;
+            if (!QueryServiceStatusEx(service->get(), SC_STATUS_PROCESS_INFO,
+                    reinterpret_cast<BYTE*>(&status), sizeof(status), &needed) ||
+                status.dwCurrentState != SERVICE_STOPPED || status.dwProcessId != 0)
+                throw std::runtime_error("owned retirement service process has not ended");
+            const auto current = query_configuration(service->get());
+            require_profile(current);
+            if (current.binary_path != command || !same_configuration(current, configuration))
+                throw std::runtime_error("owned retirement SCM command differs from original registration");
+            require_publisher_service_access(
+                observe_publisher_service_access(service->get(), utf8(caller)), utf8(caller));
+        } else {
+            ServiceHandle probe(OpenServiceW(manager->get(), name.c_str(), SERVICE_QUERY_CONFIG));
+            const DWORD error = GetLastError();
+            if (probe.get() || error != ERROR_SERVICE_DOES_NOT_EXIST)
+                throw std::runtime_error("owned retirement SCM absence is uncertain");
+        }
+    }
+    void check_native_binding() const {
+        require_owner();
+        require_controller();
+        for (std::size_t index = 0; index < registration_files.size(); ++index) {
+            require_control_lock_shape(registration_files[index]->get(), false);
+            if (!detail::equal_publisher_handle_observations(registration_facts[index],
+                    observe_publisher_file_handle(registration_files[index]->get())) ||
+                read_retirement_file(registration_files[index]->get(), 16384, nullptr,
+                    registration_facts[index]) != registration_hashes[index])
+                throw std::runtime_error("owned retirement protected registration changed");
+        }
+        for (std::size_t index = 0; index < image_parents.size(); ++index) {
+            observe_publisher_noninheritable_handle_flags(image_parents[index]->get());
+            require_control_lock_shape(image_parents[index]->get(), true);
+            if (!detail::equal_publisher_handle_observations(parent_facts[index],
+                    observe_publisher_directory_handle(image_parents[index]->get())))
+                throw std::runtime_error("owned retirement protected executable parent changed");
+        }
+        const auto child_name = [](const std::wstring& parent, const std::wstring& leaf) {
+            return parent + (parent.back() == L'\\' ? L"" : L"\\") + leaf;
+        };
+        if (parent_facts[0].native_name.empty() || parent_facts[1].native_name.empty() ||
+            parent_facts[1].native_name != child_name(parent_facts[0].native_name, L"Publisher"))
+            throw std::runtime_error("owned retirement executable parent is outside the held native hierarchy");
+        {
+            const auto listing = observe_publisher_directory_entries(image_parents[0]->get(),
+                maximum_listing_bytes - retained_listing_bytes);
+            require_retirement_held_member(image_parents[0]->get(), listing,
+                L"Publisher", image_parents[1]->get());
+        }
+        const std::array<std::wstring, 3> record_names{name + L".binding.json",
+            name + L".target-intent.json", name + L".target-admitted.json"};
+        {
+            const auto listing = observe_publisher_directory_entries(image_parents[1]->get(),
+                maximum_listing_bytes - retained_listing_bytes);
+            for (std::size_t index = 0; index < record_names.size(); ++index) {
+                if (registration_facts[index].native_name !=
+                        child_name(parent_facts[1].native_name, record_names[index]))
+                    throw std::runtime_error("owned retirement registration leaf is outside its held native parent");
+                require_retirement_held_member(image_parents[1]->get(), listing,
+                    record_names[index], registration_files[index]->get());
+            }
+            if (image)
+                require_retirement_held_member(image_parents[1]->get(), listing, name + L".exe", image->get());
+        }
+        observe_publisher_noninheritable_handle_flags(root->get());
+        observe_publisher_noninheritable_handle_flags(device->get());
+        require_publisher_object_security_shape(observe_publisher_directory_handle(root->get()), service_sid);
+        require_publisher_stream_shape(root->get());
+        if (!detail::equal_publisher_handle_observations(root_facts,
+                observe_publisher_directory_handle(root->get())) ||
+            usk::json::canonical(registration_volume_identity(volume)) !=
+                usk::json::canonical(binding.at("volume_identity")) ||
+            usk::json::canonical(dedicated_target_disk_identity(volume)) !=
+                usk::json::canonical(identity.at("disk_identity")) ||
+            usk::json::canonical(device_owner_dacl_policy(
+                read_publisher_owner_dacl_from_handle(device->get()))) !=
+                usk::json::canonical(intended_policy) ||
+            usk::json::canonical(observe_target_os_namespace(root->get(), true, true)) !=
+                usk::json::canonical(identity.at("metadata")))
+            throw std::runtime_error("owned retirement admitted native boundary changed");
+        if (image) {
+            if (image_facts.native_name != child_name(parent_facts[1].native_name, name + L".exe"))
+                throw std::runtime_error("owned retirement executable is outside its held native parent");
+            require_protected_binary_handle(name, binary, image->get(), true, &sid);
+            if (!detail::equal_publisher_handle_observations(image_facts,
+                    observe_publisher_file_handle(image->get())) ||
+                read_retirement_file(image->get(), 256u * 1024u * 1024u, nullptr, image_facts) !=
+                    binding.at("binary_sha256").as_string())
+                throw std::runtime_error("owned retirement protected executable changed");
+        } else if (GetFileAttributesW(binary.c_str()) != INVALID_FILE_ATTRIBUTES ||
+            GetLastError() != ERROR_FILE_NOT_FOUND) {
+            throw std::runtime_error("owned retirement executable absence changed");
+        }
+        check_scm();
+        for (std::size_t index = 0; index < install_guards.size(); ++index)
+            install_guards[index]->require_owned(volume, install_ids[index]);
+    }
+
+    void walk(Node& node, const std::wstring& prefix, unsigned depth) {
+        const HANDLE parent = node.handle;
+        if (depth > 128u || nodes.size() >= 200000u)
+            throw std::runtime_error("owned retirement metadata exceeds depth or entry bound");
+        node.directory = true;
+        node.facts = observe_publisher_directory_handle(parent);
+        require_publisher_object_security_shape(node.facts, service_sid);
+        require_publisher_stream_shape(parent);
+        const auto remaining = maximum_listing_bytes - retained_listing_bytes;
+        const auto allowance = (std::min)(remaining / 2, remaining - largest_listing_bytes);
+        if (!allowance)
+            throw std::runtime_error("owned retirement shared listing allowance is exhausted");
+        node.children = observe_publisher_directory_entries(parent, allowance);
+        if (node.children.size() > 200000u - listed_entries)
+            throw std::runtime_error("owned retirement complete listing exceeds remaining entry bound");
+        listed_entries += node.children.size();
+        std::size_t listing_bytes = 0;
+        for (const auto& entry : node.children)
+            listing_bytes += 2 * sizeof(PublisherDirectoryEntry) +
+                2 * entry.name.size() * sizeof(WCHAR) + 128;
+        retained_listing_bytes += listing_bytes;
+        largest_listing_bytes = (std::max)(largest_listing_bytes, listing_bytes);
+        std::sort(node.children.begin(), node.children.end(),
+            [](const auto& a, const auto& b) { return a.name < b.name; });
+        for (const auto& entry : node.children) {
+            if (prefix.empty() && entry.name == L"System Volume Information") continue;
+            if (nodes.size() >= 200000u)
+                throw std::runtime_error("owned retirement metadata exceeds entry bound");
+            auto child = std::make_unique<Node>();
+            FileHandle opened(open_publisher_listed_child(
+                parent, entry, false, false, false, false, true));
+            child->file = std::make_unique<FileHandle>(opened.get());
+            opened.release(); // Wrapper allocation cannot strand the native open.
+            child->handle = child->file->get();
+            observe_publisher_noninheritable_handle_flags(child->handle);
+            child->directory = (entry.attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            child->facts = child->directory ? observe_publisher_directory_handle(child->file->get()) :
+                observe_publisher_file_handle(child->file->get());
+            require_publisher_object_security_shape(child->facts, service_sid);
+            require_publisher_stream_shape(child->file->get());
+            if (!file_ids.insert(child->facts.file_id).second)
+                throw std::runtime_error("owned retirement metadata aliases another held object");
+            const auto path = prefix.empty() ? entry.name : prefix + L"/" + entry.name;
+            const std::size_t cost = sizeof(Node) + sizeof(PublisherRetirementRecord) +
+                (path.size() + child->facts.native_name.size() + entry.name.size()) * sizeof(wchar_t) +
+                child->facts.file_id.size() + child->facts.owner_sid.size() + 256u;
+            if (cost > 64u * 1024u * 1024u - evidence_bytes)
+                throw std::runtime_error("owned retirement metadata evidence exceeds bound");
+            evidence_bytes += cost;
+            for (const auto& ace : child->facts.dacl_aces) {
+                const auto ace_cost = sizeof(ObservedAce) + ace.sid.size();
+                if (ace_cost > 64u * 1024u * 1024u - evidence_bytes)
+                    throw std::runtime_error("owned retirement security evidence exceeds bound");
+                evidence_bytes += ace_cost;
+            }
+            if (child->directory) {
+                directories.push_back(path);
+                auto* retained = child.get();
+                // Keep this exact parent alive before descending.
+                nodes.push_back(std::move(child));
+                walk(*retained, path, depth + 1);
+            } else {
+                LARGE_INTEGER size{};
+                if (!GetFileSizeEx(child->file->get(), &size) || size.QuadPart <= 0 ||
+                    size.QuadPart > 16ll * 1024 * 1024 ||
+                    static_cast<std::uint64_t>(size.QuadPart) > 64u * 1024u * 1024u - retained_bytes)
+                    throw std::runtime_error("owned retirement metadata content exceeds bound");
+                PublisherRetirementRecord record;
+                record.relative_path = path;
+                record.object = child->facts;
+                record.sha256 = read_retirement_file(child->file->get(),
+                    (std::min<std::uint64_t>)(16u * 1024u * 1024u,
+                        64u * 1024u * 1024u - retained_bytes), &record.bytes, child->facts);
+                retained_bytes += record.bytes.size();
+                child->record_index = records.size();
+                records.push_back(std::move(record));
+                nodes.push_back(std::move(child));
+            }
+        }
+        if (!retirement_same_listing(node.children, observe_publisher_directory_entries(parent,
+                maximum_listing_bytes - retained_listing_bytes)) ||
+            !detail::equal_publisher_handle_observations(node.facts,
+                observe_publisher_directory_handle(parent)))
+            throw std::runtime_error("owned retirement namespace changed during collection");
+    }
+    void verify() const {
+        ScopedControllerPrivilege backup;
+        check_native_binding();
+        for (const auto& node : nodes) {
+            const auto handle = node->handle;
+            require_publisher_stream_shape(handle);
+            const auto current = node->directory ? observe_publisher_directory_handle(handle) :
+                observe_publisher_file_handle(handle);
+            require_publisher_object_security_shape(current, service_sid);
+            if (!detail::equal_publisher_handle_observations(node->facts, current))
+                throw std::runtime_error("owned retirement metadata native identity or security changed");
+            if (node->directory &&
+                !retirement_same_listing(node->children, observe_publisher_directory_entries(handle,
+                    maximum_listing_bytes - retained_listing_bytes)))
+                throw std::runtime_error("owned retirement complete namespace changed");
+            if (!node->directory && read_retirement_file(handle, 16u * 1024u * 1024u,
+                    nullptr, node->facts) !=
+                    records.at(node->record_index).sha256)
+                throw std::runtime_error("owned retirement consumed metadata changed");
+        }
+        check_native_binding();
+    }
+};
+
+
+void PublisherOwnedRetirementCustody::State::initialize(const std::wstring& service_name) {
+    if (!generated_name(service_name))
+        throw std::runtime_error("owned retirement requires the original generated service name");
+    name = service_name;
+    // Existing-only: observation never creates an administrative registration.
+    control = std::make_unique<ServiceControlGuard>(name, false, true);
+    const auto binding_path = registration_binding_path(name);
+    const std::array<std::filesystem::path, 3> paths{binding_path,
+        binding_path.parent_path() / (name + L".target-intent.json"),
+        binding_path.parent_path() / (name + L".target-admitted.json")};
+    std::array<usk::json::Value, 3> documents;
+    for (std::size_t index = 0; index < paths.size(); ++index) {
+        registration_files[index] = std::make_unique<FileHandle>(paths[index].c_str(),
+            GENERIC_READ | READ_CONTROL | FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+            FILE_FLAG_OPEN_REPARSE_POINT);
+        if (registration_files[index]->get() == INVALID_HANDLE_VALUE)
+            throw std::runtime_error("owned retirement protected registration is unavailable");
+        require_control_lock_shape(registration_files[index]->get(), false);
+        registration_facts[index] = observe_publisher_file_handle(registration_files[index]->get());
+        std::string bytes;
+        registration_hashes[index] = read_retirement_file(
+            registration_files[index]->get(), 16384, &bytes, registration_facts[index]);
+        usk::json::ParseLimits limits;
+        limits.max_bytes = 16384; limits.max_string_bytes = 8192;
+        documents[index] = usk::json::parse(bytes, limits);
+    }
+    binding = documents[0];
+    if (binding.as_object().size() != 6 ||
+        binding.at("schema").as_string() != "usk.publisher_registration_binding.v1" ||
+        binding.at("service_name").as_string() != utf8(name) ||
+        !lower_sha256(retirement_wide(binding.at("binary_sha256").as_string())))
+        throw std::runtime_error("owned retirement original registration is invalid");
+    command = retirement_wide(binding.at("command").as_string());
+    const auto args = command_arguments(command);
+    // The first owned route uses the actual admitted-client registration. It
+    // does not reinterpret older laboratory or mutable SCM registrations.
+    if (args.size() != 11 || args[5] != L"--reviewed-plan-envelope")
+        throw std::runtime_error("owned retirement needs the original admitted registration");
+    binary = args[0]; volume = args[4]; caller = args[10];
+    require_existing_command(command, name, binary, volume, caller, L"--service-admitted-client");
+    require_volume(volume); require_canonical_sid(caller);
+    require_controller();
+    sid = retained_service_sid(retirement_wide(binding.at("service_sid").as_string()));
+    const auto derived = derive_ascii_publisher_service_sid(name);
+    if (!EqualSid(sid.data(), const_cast<BYTE*>(derived.data())))
+        throw std::runtime_error("owned retirement service SID differs from original name");
+    service_sid = binding.at("service_sid").as_string();
+    const auto& intent = documents[1]; const auto& admitted = documents[2];
+    if (!publisher_target_intent_has_device_transition(intent))
+        throw std::runtime_error("owned retirement requires completed original device admission");
+    identity = intent.at("identity");
+    if (identity.as_object().size() != 4 || admitted.as_object().size() != 2 ||
+        admitted.at("schema").as_string() != "usk.publisher_target_admitted.v1" ||
+        usk::json::canonical(admitted.at("identity")) != usk::json::canonical(identity) ||
+        identity.at("registration_sha256").as_string() != usk::json::sha256_canonical(binding) ||
+        usk::json::canonical(identity.at("volume_identity")) !=
+            usk::json::canonical(binding.at("volume_identity")) ||
+        usk::json::canonical(identity.at("metadata")) !=
+            usk::json::canonical(protected_metadata_snapshot(intent.at("original_metadata"))))
+        throw std::runtime_error("owned retirement protected admission identity differs");
+    const auto original_device = device_security_from_sddl(
+        intent.at("mounted_device_transition").at("original_owner_dacl").as_string());
+    intended_policy = intent.at("mounted_device_transition").at("intended_policy");
+    if (usk::json::canonical(device_owner_dacl_policy(intended_device_security(original_device, sid))) !=
+            usk::json::canonical(intended_policy))
+        throw std::runtime_error("owned retirement device policy differs from original derivation");
+
+    ServiceHandle opened_manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+    manager = std::make_unique<ServiceHandle>(opened_manager.get());
+    opened_manager.release();
+    if (!manager->get()) throw std::runtime_error("owned retirement service manager is unavailable");
+    const auto raw_service = OpenServiceW(manager->get(), name.c_str(),
+        SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS | READ_CONTROL | DELETE);
+    const auto service_error = GetLastError();
+    ServiceHandle opened_service(raw_service);
+    if (raw_service) {
+        service = std::make_unique<ServiceHandle>(opened_service.get());
+        opened_service.release();
+        configuration = query_configuration(service->get());
+        (void)publisher_service_sid(name);
+    } else if (service_error != ERROR_SERVICE_DOES_NOT_EXIST) {
+        throw std::runtime_error("owned retirement service is unavailable or pending deletion");
+    }
+    check_scm();
+    // Order is service control, volume, then sorted installation guards.
+    volume_guard = std::make_unique<PublisherVolumeOperationGuard>(volume);
+    if (volume_guard->previous_owner_abandoned())
+        throw std::runtime_error("owned retirement volume ownership was abandoned; reconcile first");
+    ScopedControllerPrivilege backup;
+    root = std::make_unique<FileHandle>(volume.c_str(),
+        FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+    device = std::make_unique<FileHandle>(volume.substr(0, volume.size() - 1).c_str(),
+        READ_CONTROL, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, 0);
+    if (root->get() == INVALID_HANDLE_VALUE || device->get() == INVALID_HANDLE_VALUE)
+        throw std::runtime_error("owned retirement admitted target custody is unavailable");
+    root_facts = observe_publisher_directory_handle(root->get());
+    const auto& expected_volume = identity.at("volume_identity");
+    if (root_facts.file_id != expected_volume.at("root_file_id").as_string() ||
+        std::to_string(observe_local_ntfs_volume_handle(root->get()).file_id_volume_serial) !=
+            expected_volume.at("volume_serial").as_string())
+        throw std::runtime_error("owned retirement held target is not the admitted root");
+
+    const auto image_path = publisher_binary_path(name);
+    if (CompareStringOrdinal(binary.c_str(), -1, image_path.c_str(), -1, TRUE) != CSTR_EQUAL)
+        throw std::runtime_error("owned retirement original executable is outside its protected location");
+    const std::array<std::filesystem::path, 2> parents{
+        image_path.parent_path().parent_path(), image_path.parent_path()};
+    for (std::size_t index = 0; index < parents.size(); ++index) {
+        image_parents[index] = std::make_unique<FileHandle>(parents[index].c_str(),
+            FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | READ_CONTROL,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
+        if (image_parents[index]->get() == INVALID_HANDLE_VALUE)
+            throw std::runtime_error("owned retirement protected executable parent is unavailable");
+        require_control_lock_shape(image_parents[index]->get(), true);
+        parent_facts[index] = observe_publisher_directory_handle(image_parents[index]->get());
+    }
+    auto held_image = std::make_unique<FileHandle>(binary.c_str(),
+        GENERIC_READ | READ_CONTROL | FILE_READ_ATTRIBUTES | DELETE, 0,
+        FILE_FLAG_OPEN_REPARSE_POINT);
+    const auto image_error = GetLastError();
+    if (held_image->get() != INVALID_HANDLE_VALUE) {
+        require_protected_binary_handle(name, binary, held_image->get(), true, &sid);
+        image_facts = observe_publisher_file_handle(held_image->get());
+        image = std::move(held_image);
+    } else if (image_error != ERROR_FILE_NOT_FOUND || service) {
+        throw std::runtime_error("owned retirement executable is active, changed or unavailable");
+    }
+    // Both absent is a revalidation case, never a replay of an earlier grant.
+    check_native_binding();
+    file_ids.insert(root_facts.file_id);
+    auto root_node = std::make_unique<Node>();
+    root_node->handle = root->get();
+    auto* retained_root = root_node.get();
+    nodes.push_back(std::move(root_node));
+    walk(*retained_root, L"", 0);
+    verify();
+}
+
+PublisherOwnedRetirementCustody::PublisherOwnedRetirementCustody(const std::wstring& name)
+    : state_(std::make_unique<State>()) {
+    state_->initialize(name);
+}
+PublisherOwnedRetirementCustody::~PublisherOwnedRetirementCustody() = default;
+
+const usk::json::Value& PublisherOwnedRetirementCustody::registration() const {
+    state_->require_owner(); return state_->binding;
+}
+const std::wstring& PublisherOwnedRetirementCustody::volume_root() const {
+    state_->require_owner(); return state_->volume;
+}
+const std::vector<PublisherRetirementRecord>& PublisherOwnedRetirementCustody::records() const {
+    state_->require_owner(); return state_->records;
+}
+const std::vector<std::wstring>& PublisherOwnedRetirementCustody::directories() const {
+    state_->require_owner(); return state_->directories;
+}
+void PublisherOwnedRetirementCustody::acquire_installations(
+    const std::vector<std::string>& sorted_install_ids) {
+    state_->require_owner();
+    try {
+        if (state_->installations_acquired || sorted_install_ids.empty() || sorted_install_ids.size() > 200000u)
+            throw std::runtime_error("owned retirement needs one complete sorted installation set");
+        std::size_t id_bytes = 0;
+        for (const auto& id : sorted_install_ids) {
+            if (id.empty() || id.size() > 128u || id.size() > 1024u * 1024u - id_bytes ||
+                id.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") !=
+                    std::string::npos)
+                throw std::runtime_error("owned retirement installation IDs exceed canonical input bounds");
+            id_bytes += id.size();
+        }
+        if (!std::is_sorted(sorted_install_ids.begin(), sorted_install_ids.end()) ||
+            std::adjacent_find(sorted_install_ids.begin(), sorted_install_ids.end()) != sorted_install_ids.end())
+            throw std::runtime_error("owned retirement installation IDs must be unique and sorted");
+        state_->install_ids = sorted_install_ids;
+        for (const auto& id : state_->install_ids) {
+            auto guard = std::make_unique<PublisherInstallOperationGuard>(state_->volume, id);
+            if (guard->previous_owner_abandoned())
+                throw std::runtime_error("owned retirement installation ownership was abandoned; reconcile first");
+            state_->install_guards.push_back(std::move(guard));
+        }
+        state_->installations_acquired = true;
+        state_->verify();
+    } catch (...) {
+        state_->failed = true; throw;
+    }
+}
+void PublisherOwnedRetirementCustody::require_unchanged() {
+    state_->require_owner();
+    try { state_->verify(); }
+    catch (...) { state_->failed = true; throw; }
+}
 
 usk::json::Value parse_publisher_reviewed_operation_envelope(
     const std::string& bytes, const std::string& canonical_request) {
