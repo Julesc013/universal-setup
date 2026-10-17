@@ -14,6 +14,94 @@ import unittest
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_stale_recovery_captures_each_failed_terminal_predicate(self):
+        # Execute the actual receipt assignment, refusal assertion and success
+        # assignment with inert replies. This proves diagnostic retention and
+        # unchanged control flow, not native admission or filesystem protection.
+        root = Path(__file__).resolve().parents[1]
+        code = r"""$ErrorActionPreference='Stop'
+# Match this host, rather than the PS7 module path inherited through Python.
+Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile(
+ $env:USK_HOSTED_SOURCE,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Hosted fixture syntax differs'}
+function Assignment([string]$name) {
+ $nodes=@($ast.FindAll({param($n)
+  $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+  $n.Left.Extent.Text -ceq ('$receipt['+[char]39+$name+[char]39+']')
+ },$true))
+ if($nodes.Count -ne 1){throw ('Receipt assignment differs: '+$name)}
+ return $nodes[0]
+}
+$capture=Assignment 'registered_stale_recovery_observation'
+$accepted=Assignment 'stale_minimal_recovery_refused'
+$guards=@($ast.FindAll({param($n)
+ $n -is [Management.Automation.Language.IfStatementAst] -and
+ $n.Extent.Text.StartsWith('if($requestClient.process.ExitCode -eq 0 -or $stale.status',[StringComparison]::Ordinal)
+},$true))
+if($guards.Count -ne 1 -or $capture.Extent.EndOffset -ge $guards[0].Extent.StartOffset -or
+ $guards[0].Extent.EndOffset -ge $accepted.Extent.StartOffset){throw 'Actual refusal/observation order differs'}
+$rows=@()
+foreach($case in @('ok','exit','status','error')) {
+ $receipt=@{}
+ $staleRecovery=@{schema='usk.publisher_recovery_request.v1';request_id='stale.test';
+  install_id='install.test';transaction_id='install.test.changed'}
+ $stale=@{schema='usk.publisher_lab_service_observation.v1';status='failed';
+  error='reviewed install reentry differs from durable plan and source';transaction_id='install.test.changed'}
+ $requestClient=[pscustomobject]@{process=[pscustomobject]@{ExitCode=3};
+  response=$env:USK_REPLY_FILE;client_mode='controller_recover_registered';
+  binary_sha256=('a'*64)}
+ switch($case) {
+  exit {$requestClient.process.ExitCode=0}
+  status {$stale.status='pass'}
+  error {$stale.error='different original-boundary refusal'}
+ }
+ $staleResult=@{service=$stale;envelope=$null};$staleClientIdentity=$null
+ [IO.File]::WriteAllText($requestClient.response,($stale|ConvertTo-Json -Compress),[Text.UTF8Encoding]::new($false))
+ & ([scriptblock]::Create($capture.Extent.Text))
+ $failure=$null
+ try {
+  & ([scriptblock]::Create($guards[0].Extent.Text))
+  & ([scriptblock]::Create($accepted.Extent.Text))
+ } catch {$failure=$_.Exception.Message}
+ $observed=$receipt.registered_stale_recovery_observation
+ $rows+=@{case=$case;failure=$failure;observed=$observed;
+  refusal_recorded=$receipt.ContainsKey('stale_minimal_recovery_refused')}
+}
+$rows|ConvertTo-Json -Depth 16 -Compress
+"""
+        with tempfile.TemporaryDirectory() as temporary:
+            environment = dict(os.environ, USK_HOSTED_SOURCE=str(
+                root / 'tests/windows_publisher_metadata_hosted_probe.ps1'),
+                USK_REPLY_FILE=str(Path(temporary) / 'client-response.json'))
+            for shell in [shutil.which('pwsh'), shutil.which('powershell.exe')]:
+                self.assertIsNotNone(shell)
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive',
+                                         '-ExecutionPolicy', 'Bypass', '-Command', code], env=environment,
+                                        capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr[-4096:])
+                rows = json.loads(result.stdout)
+                self.assertEqual(len(rows), 4)
+                for row in rows:
+                    observed = row['observed']
+                    self.assertEqual(observed['client_exit_code'],
+                                     0 if row['case'] == 'exit' else 3)
+                    self.assertEqual(observed['service_response']['status'],
+                                     'pass' if row['case'] == 'status' else 'failed')
+                    self.assertEqual(observed['service_response']['error'],
+                                     'different original-boundary refusal' if row['case'] == 'error'
+                                     else 'reviewed install reentry differs from durable plan and source')
+                    self.assertEqual(observed['submitted_request']['transaction_id'],
+                                     'install.test.changed')
+                    self.assertEqual(len(observed['response_file_sha256']), 64)
+                    self.assertEqual(row['refusal_recorded'], row['case'] == 'ok')
+                    if row['case'] == 'ok':
+                        self.assertIsNone(row['failure'])
+                    else:
+                        self.assertEqual(row['failure'],
+                                         'Changed minimal recovery request was admitted')
+
     def test_registered_reentry_reconciles_only_one_protected_lease_generation(self):
         # Exercise all three ACTUAL registered call sites and the real Python
         # reconciler using synthetic coordination rows, without native effects.
