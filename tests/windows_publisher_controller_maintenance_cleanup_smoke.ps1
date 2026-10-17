@@ -101,4 +101,76 @@ try {
     [IO.File]::Delete($responsePath)
     [IO.Directory]::Delete($temporary)
 }
-Write-Output 'PASS controller maintenance request primary-error and shared cleanup barriers'
+# Exercise the actual retirement caller with inert control/readback adapters.
+# The positive case is a fixture observation, never native retirement evidence.
+$retirementFunctions=@($ast.FindAll({param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -ceq 'Invoke-ControllerOwnedRetirement'
+},$true))
+if($retirementFunctions.Count -ne 1){throw 'Controller retirement helper is ambiguous'}
+. ([scriptblock]::Create($retirementFunctions[0].Extent.Text))
+$AdmittedTarget=$true;$ControllerApply=$true;$service='inert-service'
+$installedServiceBinary='inert-protected.exe';$ServiceControlBinary='Invoke-InertRetirementControl'
+$drive='inert-drive';$vhd='inert-volume.vhdx';$root=$temporary
+function Invoke-InertRetirementControl {
+    param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Arguments)
+    if($Arguments.Count -ne 2 -or $Arguments[0] -cne '--retire-owned' -or $Arguments[1] -cne $service) {
+        throw 'Retirement dispatch lost its fixed owner and service'
+    }
+    $script:retirementDispatchCount++
+    $global:LASTEXITCODE=$script:retirementExitCode
+    @{schema='usk.publisher_service_control.v1';status='owned_retired';service=$service}|ConvertTo-Json -Compress
+}
+function Get-Service {
+    param($Name,$ErrorAction)
+    if($script:retirementDispatchCount -eq 0 -or $script:serviceRetained){return [pscustomobject]@{Status='Stopped'}}
+}
+function Test-Path {param($LiteralPath) return $script:imageRetained}
+function Assert-OwnedVolume {}
+function Read-BoundedDiagnostic {param($Path,$Maximum) return 'inert incomplete native retirement'}
+function Invoke-IndependentMetadataReadback {
+    param($DriveRoot,$OutputRoot,$RunId)
+    return @{independent=@{rows=@(@{path='retained-state';sha256=$script:readbackDigest})}}
+}
+function Reset-InertRetirement {
+    $script:retirementDispatchCount=0;$script:retirementExitCode=0
+    $script:serviceRetained=$false;$script:imageRetained=$false;$script:readbackDigest='unchanged'
+    $script:clientCleanupConfirmed=$true
+    $script:receipt=@{owned_uninstall=@{status='owned_uninstall_observed_retirement_pending';
+        retirement_qualified=$false;cases=@(@{status='observed_completed'},@{status='observed_completed';
+            after=@{independent=@{rows=@(@{path='retained-state';sha256='unchanged'})}}})}}
+}
+[IO.Directory]::CreateDirectory($root)|Out-Null
+try {
+foreach($kind in @('uncertain-client','incomplete-uninstall','native-failure','service-retained','image-retained','changed-evidence','completed')) {
+    Reset-InertRetirement
+    switch($kind) {
+        'uncertain-client' {$script:clientCleanupConfirmed=$false}
+        'incomplete-uninstall' {$receipt.owned_uninstall.cases[-1].status='unknown'}
+        'native-failure' {$script:retirementExitCode=5}
+        'service-retained' {$script:serviceRetained=$true}
+        'image-retained' {$script:imageRetained=$true}
+        'changed-evidence' {$script:readbackDigest='changed'}
+    }
+    $caught=$null
+    try {Invoke-ControllerOwnedRetirement} catch {$caught=$_}
+    if($kind -ceq 'completed') {
+        if($caught -or $script:retirementDispatchCount -ne 1 -or
+            $receipt.owned_uninstall.status -cne 'owned_uninstall_and_retirement_observed' -or
+            -not $receipt.owned_uninstall.retirement_observed -or $receipt.owned_uninstall.retirement_qualified) {
+            throw ('Inert completed retirement lost its qualified distinction: '+$caught)
+        }
+    } else {
+        $expectedDispatch=if($kind -in @('uncertain-client','incomplete-uninstall')){0}else{1}
+        if(-not $caught -or $script:retirementDispatchCount -ne $expectedDispatch -or
+            $receipt.owned_uninstall.retirement_observed -or $receipt.protected_service_binary_removed -or
+            $receipt.owned_uninstall.status -cne 'owned_uninstall_observed_retirement_pending') {
+            throw ('Inert incomplete retirement escaped or discarded evidence: '+$kind)
+        }
+    }
+}
+} finally {
+    [IO.File]::Delete((Join-Path $root 'owned-retirement-error.txt'))
+    [IO.Directory]::Delete($root)
+}
+Write-Output 'PASS controller maintenance primary-error, cleanup and retirement completion barriers'

@@ -139,6 +139,12 @@ public:
     static void require_completed_transition_extension(const TransactionSpec& spec,
         const std::string& original_text, const std::string& original_snapshot_sha256,
         const std::string& expected_current_snapshot_sha256);
+    // Historical bytes only; neither path is reopened. The caller separately
+    // proves actual membership/custody/currentness and supplies both raw pins.
+    static void require_completed_transition_extension_bytes(const TransactionSpec& spec,
+        const std::string& original_text, const std::string& original_snapshot_sha256,
+        const std::string& current_text, const std::string& expected_current_snapshot_sha256);
+
     // Read-only complete stream observations from that exact validated
     // snapshot, including original creation-handle output identities.
     static StreamJournal inspect_recovery_stream(const TransactionSpec& spec,

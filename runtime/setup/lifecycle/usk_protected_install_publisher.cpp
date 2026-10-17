@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
 
+#include "usk_owned_publisher_retirement_internal.h"
 #include "usk_diagnostic_metrics.h"
 #include "usk_publisher_anchor_create.h"
 #include "usk_publisher_staged_stream.h"
@@ -48,6 +49,7 @@
 #include <functional>
 #include <iterator>
 #include <memory>
+#include <map>
 #include <optional>
 #include <set>
 #include <string>
@@ -807,6 +809,13 @@ void require_native_descendant_continuity(const usk::json::Value& earlier, const
 
 void require_native_rename_call(const usk::json::Value& call,
     const usk::json::Value& prepared, const usk::json::Value& bound) {
+    // Decode the original call's admitted x64 ABI, independent of this
+    // metadata reader's architecture. Native argument construction is separate.
+    usk::platform::windows::require_publisher_execution_platform(
+        bound.at("execution_phases").as_array().at(0).at("execution").at("platform"));
+    constexpr std::uint64_t retained_x64_rename_info_bytes = 24;
+    static_assert(sizeof(void*) != 8 || sizeof(FILE_RENAME_INFO) == retained_x64_rename_info_bytes,
+        "native x64 rename structure differs from the retained execution profile");
     const auto& component = prepared.at("destination_name").as_string();
     const bool rights_bound = call.at("schema").as_string() == "usk.publisher_bound_rename_call.v2";
     if (call.as_object().size() != (rights_bound ? 21u : 18u) ||
@@ -822,7 +831,7 @@ void require_native_rename_call(const usk::json::Value& call,
         call.at("destination_absence_status").as_unsigned() != 0xc0000034u ||
         call.at("information_class").as_unsigned() != 10 ||
         call.at("file_name_bytes").as_unsigned() != component.size() * sizeof(WCHAR) ||
-        call.at("information_bytes").as_unsigned() != sizeof(FILE_RENAME_INFO) + component.size() * sizeof(WCHAR) ||
+        call.at("information_bytes").as_unsigned() != retained_x64_rename_info_bytes + component.size() * sizeof(WCHAR) ||
         call.at("replace_if_exists").as_boolean() || call.at("native_status").as_unsigned() != 0 ||
         call.at("io_status").as_unsigned() != 0 || call.at("clock").as_string() != "qpc" ||
         (rights_bound && (call.at("source_granted_access").as_unsigned() > 0xffffffffu ||
@@ -1332,16 +1341,7 @@ void require_original_install_snapshot_binding(const usk::json::Value& snapshot)
         throw std::runtime_error("durable caller apply binding differs");
 }
 
-usk::lifecycle::InstallPlan restore_reviewed_install_plan(
-    const std::string& record,
-    ReviewedInstallSnapshotPurpose purpose = ReviewedInstallSnapshotPurpose::current_install_request) {
-    const auto snapshot = usk::json::parse(record);
-    if (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v2" &&
-        snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3" &&
-        snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v4") {
-        throw std::runtime_error("protected public finalization requires a v2 plan snapshot");
-    }
-    require_reviewed_install_snapshot_binding(snapshot, purpose);
+usk::lifecycle::InstallPlan decode_retained_install_plan_fields(const usk::json::Value& snapshot) {
     const auto& request = snapshot.at("plan_request");
     const auto& recipe = request.at("recipe");
     const std::filesystem::path setup_root(snapshot.at("setup_root").as_string());
@@ -1386,6 +1386,19 @@ usk::lifecycle::InstallPlan restore_reviewed_install_plan(
         throw std::runtime_error("restored protected install plan digest differs");
     }
     return plan;
+}
+
+usk::lifecycle::InstallPlan restore_reviewed_install_plan(
+    const std::string& record,
+    ReviewedInstallSnapshotPurpose purpose = ReviewedInstallSnapshotPurpose::current_install_request) {
+    const auto snapshot = usk::json::parse(record);
+    if (snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v2" &&
+        snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v3" &&
+        snapshot.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_snapshot.v4") {
+        throw std::runtime_error("protected public finalization requires a v2 plan snapshot");
+    }
+    require_reviewed_install_snapshot_binding(snapshot, purpose);
+    return decode_retained_install_plan_fields(snapshot);
 }
 
 ReviewedPlanBinding reviewed_plan_from_retained_snapshot(const std::string& record, bool require_request_binding);
@@ -3930,6 +3943,120 @@ std::string verify_completed_install_in_service(HANDLE volume,
         ",\"verify_response\":" + response + "}\n";
 }
 } // namespace
+
+usk::lifecycle::InstallPlan usk::lifecycle::detail::decode_owned_retirement_install_history(
+    const std::string& snapshot_text, const std::string& prepared_text,
+    const std::string& visible_text, const std::string& completion_text,
+    const std::wstring& expected_service, const std::string& expected_sid,
+    const std::string& expected_consumer)
+{
+    using usk::json::Value;
+    const auto snapshot = usk::json::parse(snapshot_text);
+    const auto prepared = usk::json::parse(prepared_text);
+    const auto visible = usk::json::parse(visible_text);
+    const auto completion = usk::json::parse(completion_text);
+    const auto require = [](bool ok) {
+        if (!ok) throw std::runtime_error("owned retirement initial publication differs");
+    };
+    require(snapshot.at("schema").as_string() == "usk.publisher.lab_reviewed_plan_snapshot.v4" &&
+        snapshot.as_object().size() == 17u &&
+        snapshot.at("consumer_read_sid").as_string() == expected_consumer);
+    usk::platform::windows::require_publisher_consumer_sid(expected_consumer);
+    const auto& apply = snapshot.at("apply_request");
+    require(apply.as_object().size() == 7u &&
+        apply.at("schema").as_string() == "usk.install_local_apply_request.v1" &&
+        apply.at("confirmation").as_string() == "APPLY" &&
+        usk::json::equal_values(apply.at("plan_request"), snapshot.at("plan_request")) &&
+        apply.at("reviewed_plan_id").as_string() == snapshot.at("plan_request").at("request_id").as_string() &&
+        apply.at("reviewed_plan_digest").as_string() == snapshot.at("plan_digest").as_string() &&
+        apply.at("transaction_id").as_string() == snapshot.at("transaction_id").as_string() &&
+        usk::record_io::valid_identifier(apply.at("transaction_id").as_string()) &&
+        apply.at("applied_at").as_string() == snapshot.at("applied_at").as_string());
+    require_prepared_execution_phases(prepared, expected_sid, expected_service);
+    require_visible_execution_phase(visible, expected_sid, prepared, expected_service);
+    const auto& binding = prepared.at("source_binding");
+    require(binding.as_object().size() == 6u &&
+        binding.at("reviewed_plan_snapshot_sha256").as_string() == record_sha256(snapshot_text) &&
+        binding.at("reviewed_plan_digest").as_string() == snapshot.at("plan_digest").as_string() &&
+        binding.at("archive_sha256").as_string() == snapshot.at("archive_sha256").as_string() &&
+        binding.at("archive_identity_digest").as_string() == snapshot.at("archive_identity_digest").as_string() &&
+        binding.at("entry_set_digest").as_string() == snapshot.at("entry_set_digest").as_string() &&
+        binding.at("plan_envelope_sha256").as_string() == snapshot.at("plan_envelope_sha256").as_string());
+    const auto policy_context=usk::json::parse(snapshot.at("restart_policy_context").as_string());
+    require(snapshot.at("policy_digest").as_string()==usk::json::sha256_canonical(policy_context.at("policy")));
+    for(const auto& entry:snapshot.at("planned_entries").as_array())
+        require(entry.at("entry_type").as_string()=="file" || entry.at("entry_type").as_string()=="directory");
+    const auto plan = decode_retained_install_plan_fields(snapshot);
+    std::vector<usk::platform::windows::PublisherExpectedFile> files;
+    for (const auto& file : plan.files)
+        files.push_back({std::filesystem::u8path(file.relative_path).wstring(), file.size_bytes, file.sha256});
+    require(selected_file_set_digest(std::move(files)) == snapshot.at("selected_file_set_digest").as_string() &&
+        prepared.at("selected_file_set_digest").as_string() == snapshot.at("selected_file_set_digest").as_string() &&
+        prepared.at("service_sid").as_string() == expected_sid &&
+        snapshot.at("archive_sha256").as_string() == snapshot.at("plan_request").at("archive").at("expected_sha256").as_string() &&
+        snapshot.at("plan_request").at("required_commit_authority").as_string() == "staged_child_bound_v1" &&
+        std::filesystem::u8path(snapshot.at("plan_request").at("target").at("root").as_string()).lexically_normal() ==
+            plan.target_root.lexically_normal() &&
+        ascii(selected_visible_component(snapshot.at("target_root").as_string())) == prepared.at("destination_name").as_string());
+    require(completion.as_object().size() == 11u &&
+        completion.at("schema").as_string() == "usk.publisher.lab_installed_state.v2" &&
+        completion.at("phase").as_string() == "lab_installed_state" &&
+        completion.at("prepared_record_sha256").as_string() == record_sha256(prepared_text) &&
+        completion.at("visible_record_sha256").as_string() == record_sha256(visible_text) &&
+        completion.at("service_sid").as_string() == expected_sid &&
+        usk::json::equal_values(completion.at("source_binding"), binding) &&
+        usk::json::equal_values(completion.at("volume_serial"), prepared.at("volume_serial")) &&
+        usk::json::equal_values(completion.at("destination_parent_file_id"), prepared.at("destination_parent_file_id")) &&
+        usk::json::equal_values(completion.at("destination_name"), prepared.at("destination_name")) &&
+        usk::json::equal_values(completion.at("selected_file_set_digest"), prepared.at("selected_file_set_digest")) &&
+        completion.at("visible_root_file_id").as_string() == visible.at("visible_tree").at("root").at("file_id").as_string());
+    const auto& anchors=prepared.at("protected_anchors");
+    const auto original_root=prepared.at("sealed_tree").at("root").at("file_id").as_string();
+    const auto destination=prepared.at("destination_name").as_string();
+    const auto staged_name=anchors.at("staging").at("native_name").as_string()+"\\candidate";
+    const auto visible_name=anchors.at("destination_parent").at("native_name").as_string()+"\\"+destination;
+    const auto expected_visible=prepared_tree_at_visible_name(prepared.at("sealed_tree"),staged_name,visible_name);
+    require(prepared.at("phase").as_string()=="lab_prepared_evidence" &&
+        prepared.at("source_file_id").as_string()==original_root &&
+        prepared.at("destination_parent_file_id").as_string()==anchors.at("destination_parent").at("file_id").as_string() &&
+        prepared.at("volume_serial").as_unsigned()==anchors.at("volume").at("file_id_volume_serial").as_unsigned() &&
+        visible.at("schema").as_string()==prepared.at("schema").as_string() &&
+        visible.as_object().size()==visible_record_field_count(prepared.at("schema").as_string()) &&
+        visible.at("phase").as_string()=="lab_visible_evidence" &&
+        visible.at("source_file_id").as_string()==original_root &&
+        visible.at("destination_parent_file_id").as_string()==prepared.at("destination_parent_file_id").as_string() &&
+        visible.at("destination_name").as_string()==destination &&
+        visible.at("selected_file_set_digest").as_string()==prepared.at("selected_file_set_digest").as_string() &&
+        visible.at("prepared_record_sha256").as_string()==record_sha256(prepared_text) &&
+        usk::json::equal_values(visible.at("protected_anchors"),anchors) &&
+        usk::json::canonical(visible.at("visible_tree"))==expected_visible &&
+        completion.at("visible_root_file_id").as_string()==original_root);
+    std::map<std::wstring,const usk::lifecycle::PayloadFile*> expected_files;
+    std::set<std::wstring> expected_directories,seen;
+    for(const auto& file:plan.files) {
+        const auto path=std::filesystem::u8path(file.relative_path).lexically_normal();
+        require(expected_files.emplace(path.generic_wstring(),&file).second);
+        for(auto directory=path.parent_path();!directory.empty();directory=directory.parent_path())
+            expected_directories.insert(directory.generic_wstring());
+    }
+    for(const auto& entry:prepared.at("sealed_tree").at("descendants").as_array()) {
+        const auto relative=std::filesystem::u8path(entry.at("relative_path").as_string()).generic_wstring();
+        require(seen.insert(relative).second);
+        if((entry.at("object").at("attributes").as_unsigned()&FILE_ATTRIBUTE_DIRECTORY)!=0u) {
+            require(expected_directories.erase(relative)==1u && entry.at("size").as_unsigned()==0u &&
+                entry.at("sha256").as_string().empty());
+        } else {
+            const auto found=expected_files.find(relative);
+            require(found!=expected_files.end() && entry.at("size").as_unsigned()==found->second->size_bytes &&
+                entry.at("sha256").as_string()==found->second->sha256);
+            expected_files.erase(found);
+        }
+    }
+    require(expected_files.empty() && expected_directories.empty());
+    // This is a historical byte decoder. It installs no original-consumer
+    // scope, active engine, native owner, global visible component or grant.
+    return plan;
+}
 
 void usk::platform::windows::require_candidate_publisher_execution_records(
     const usk::json::Value& prepared, const usk::json::Value& visible,

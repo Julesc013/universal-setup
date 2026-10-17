@@ -8,30 +8,49 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR254 is normally merged into dev at709e6364, source tree4a0fda1f, after
-all six required core checks, specification validation, independent exact
-source-composition review and the live gate. Eleven checkpoints PR244-254 were
-integrated on18October2026. Its retained hosted controller now completes both
-fresh unmoved repair and uninstall with matching request-bound public/native
-replies. SYSTEM readback shows retired/pass state and no owned root/descendants.
-Generic publisher retirement still refuses and retains the service and image.
-The latest whole publisher run is still executing; recovery, completed retirement,
-main, deployment and release acceptance are not established.
+PR255 is normally merged into dev at6147f297, source tree0f7a3179, after
+six required core checks, specification validation, independent source review
+and the live branch gate. Twelve checkpoints PR244-255 were integrated on
+18October2026; dev-push39068769137 also completed successfully. Main remains
+c048f7f1 and the next weekly target is19October when additional qualification
+passes. The current external task checkpoint binds changing local/remote facts.
 
-The next retirement join uses a bounded completed lease-ledger reader. Actual
-retained controller history includes a second completed install generation with
-the original operation ID and unchanged recorded revision, followed by repair.
-The existing immutable-operation selector correctly refuses reuse for its own
-purpose and remains unchanged. The new metadata reader validates each recorded
-transition once, accounts for every operation through completion, binds the
-supplied installation/root/final revision and identifies repeated completions
-only when their operation/context and recorded revisions remain consistent.
-That classification does not establish an absence of intervening native effects.
-Move and other unsupported operation families refuse. The4096record bound,
-unfinished/handoff histories, changed/resealed roles, contexts, holders and
-revisions are tested. Native membership, actual ended PID+birth holders, all
-creator/effect/audit histories and payload absence still need the fixed route.
-No retirement entrypoint or final effect is enabled by this reader.
+The owned-retirement implementation now has a fixed native owner and a separate
+historical object-role replay. It binds the complete held namespace, operation
+contexts and roots, original publication, all recorded lease holders and exact
+installed-record prefixes, sealed maintenance effects and custody, immutable
+state/ownership/audit results, creator object roles and current retired absence.
+Historical byte parsing supplies no native authority; the native owner still
+obtains original protected custody and guards, observes ended holders, rechecks
+the whole custody, then invokes its private exact service/image finalization.
+The administrative --retire-owned command now calls this fixed owner; the hosted
+controller exercises refusal before uninstall and actual retirement only after
+independent retired/root-absence checks. Independent final review and actual
+native retirement qualification remain required.
+
+The locally passing historical116-record/28-directory uninstall projection now
+runs through the actual metadata route. Its source pins and limited historical
+meaning are documented beside the fixture. Additional regressions target wrong
+object parents/roles/grants, changed publication links, byte-only transition
+extensions and fully resealed wrong-writer/metadata-creation associations.
+Transaction document comparison is shared without removing the live reader's
+before/read/after observations; the byte route never reopens recorded paths.
+The original error mentioning an archive was a metadata journal reopen through
+the filesystem checker, not evidence of a source-archive dependency.
+
+Fresh hosted repair and unmoved uninstall have matching public/native replies
+and SYSTEM retired/pass root-absence readback. Retained b6f4f28 recoveries exceeded
+120seconds. The newer accepted e147585 run39067721076/1 completes both genuinely
+interrupted source-retired repair requests within the unchanged public helper
+contract: matching public/native completion, lease generation4-to-5, SYSTEM
+verified state and ordinary verification pass; client/account cleanup is confirmed.
+Its build3cb2b3e2 has accepted dev's0f7a3179 tree. Both cohorts use diagnostics;
+two successful requests establish neither a speedup nor whole-profile reliability.
+The overall publisher job still fails packaged/controller cleanup with generic
+retirement refusing; its unconfirmed launcher cleanup remains retained evidence.
+The new fixed owner's native retirement, whole recovery-profile qualification,
+ordinary public strict installation, main, deployment and release acceptance
+remain unestablished. Inventory classifications remain unchanged.
 
 PR253 is normally merged into dev at384a623c, source tree9e04fa2e, after all
 six required core checks, specification validation, independent exact source

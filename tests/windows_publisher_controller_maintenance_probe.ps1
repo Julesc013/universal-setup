@@ -111,6 +111,13 @@ function Invoke-ControllerOwnedUninstall {
         throw 'Installed publisher unexpectedly lost its protected executable'
     }
     $result['live_binary_retirement_refusal']=Read-BoundedDiagnostic $errorFile 4096
+    $errorFile=Join-Path $root 'owned-live-retirement-error.txt'
+    & $ServiceControlBinary --retire-owned $service 2>$errorFile|Out-Null
+    if($LASTEXITCODE -eq 0 -or -not (Get-Service $service -ErrorAction SilentlyContinue) -or
+        -not (Test-Path -LiteralPath $installedServiceBinary -PathType Leaf)) {
+        throw 'Owned retirement accepted an installation with live payload'
+    }
+    $result['live_owned_retirement_refusal']=Read-BoundedDiagnostic $errorFile 4096
     $afterRefusals=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
     if(($before.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne
         ($afterRefusals.independent.rows|ConvertTo-Json -Depth 64 -Compress)) {
@@ -287,4 +294,40 @@ function Invoke-ControllerOwnedUninstall {
     }
     $result.status='owned_uninstall_observed_retirement_pending'
     return $result
+}
+
+# Called only after the independent uninstall checks and service-end ACL check.
+# This fixture observation supplies no authority to the administrative command.
+function Invoke-ControllerOwnedRetirement {
+    if(-not $AdmittedTarget -or -not $ControllerApply -or -not $script:clientCleanupConfirmed -or
+        $receipt.owned_uninstall.status -cne 'owned_uninstall_observed_retirement_pending' -or
+        $receipt.owned_uninstall.cases.Count -ne 2 -or
+        $receipt.owned_uninstall.cases[-1].status -cne 'observed_completed' -or
+        (Get-Service $service).Status -ne 'Stopped') {
+        throw 'Owned retirement requires the completed independently observed uninstall'
+    }
+    $baseline=$receipt.owned_uninstall.cases[-1].after.independent.rows
+    $errorFile=Join-Path $root 'owned-retirement-error.txt'
+    $retired=& $ServiceControlBinary --retire-owned $service 2>$errorFile
+    if($LASTEXITCODE -ne 0) {
+        $receipt['product_retirement_failure']=Read-BoundedDiagnostic $errorFile 16384
+        throw 'Owned publisher retirement incomplete; retain its actual state for revalidation'
+    }
+    $reply=$retired|ConvertFrom-Json
+    if($reply.schema -cne 'usk.publisher_service_control.v1' -or $reply.status -cne 'owned_retired' -or
+        $reply.service -cne $service -or (Get-Service $service -ErrorAction SilentlyContinue) -or
+        (Test-Path -LiteralPath $installedServiceBinary)) {
+        throw 'Owned retirement lacks matching completion and independent service/image absence'
+    }
+    Assert-OwnedVolume
+    $after=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+    if(($baseline|ConvertTo-Json -Depth 64 -Compress) -cne
+        ($after.independent.rows|ConvertTo-Json -Depth 64 -Compress)) {
+        throw 'Owned retirement changed retained lifecycle evidence'
+    }
+    $receipt['product_owned_retirement']=$reply
+    $receipt['protected_service_binary_removed']=$true
+    $receipt.owned_uninstall['retirement_observed']=$true
+    $receipt.owned_uninstall['after_retirement']=$after
+    $receipt.owned_uninstall.status='owned_uninstall_and_retirement_observed'
 }

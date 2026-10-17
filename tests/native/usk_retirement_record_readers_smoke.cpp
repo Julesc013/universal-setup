@@ -5,6 +5,11 @@
 #include "usk_completed_maintenance_records_internal.h"
 #include "usk_owned_retirement_lease_history_internal.h"
 #include "usk_install_lease.h"
+#if defined(_WIN32)
+#include "usk_owned_publisher_retirement_internal.h"
+#include "usk_owned_retirement_object_history_internal.h"
+#include "usk_sha256.h"
+#endif
 #include "usk_maintenance_recovery_internal.h"
 #include <array>
 #include "usk_audit_repository.h"
@@ -17,6 +22,7 @@
 #include <fstream>
 #include <iostream>
 #include <optional>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -289,10 +295,268 @@ void creator_records() {
     refuses([&] { (void)parse(std::string(16u * 1024u * 1024u + 1u, ' '), bindings); });
 }
 }
+#if defined(_WIN32)
+usk::platform::windows::PublisherHandleObservation historical_object(const usk::json::Value& v) {
+    using namespace usk::platform::windows;
+    PublisherHandleObservation o{};
+    o.file_id=v.at("file_id").as_string();o.native_name=fs::u8path(v.at("native_name").as_string()).wstring();
+    o.attributes=static_cast<std::uint32_t>(v.at("attributes").as_unsigned());
+    o.reparse_tag=static_cast<std::uint32_t>(v.at("reparse_tag").as_unsigned());
+    o.link_count=static_cast<std::uint32_t>(v.at("link_count").as_unsigned());
+    o.case_sensitive=v.at("case_sensitive").as_boolean();o.owner_sid=v.at("owner_sid").as_string();
+    o.dacl_protected=v.at("dacl_protected").as_boolean();
+    for(const auto& ace:v.at("dacl_aces").as_array())
+        o.dacl_aces.push_back({static_cast<std::uint8_t>(ace.at("type").as_unsigned()),
+            static_cast<std::uint8_t>(ace.at("flags").as_unsigned()),
+            static_cast<std::uint32_t>(ace.at("access_mask").as_unsigned()),ace.at("sid").as_string()});
+    return o;
+}
+std::string historical_raw_sha(const std::string& text) {
+    usk::base::Sha256 hash;
+    hash.update(reinterpret_cast<const unsigned char*>(text.data()),text.size());return hash.finish();
+}
+void historical_boundary_controls(const usk::lifecycle::detail::OwnedPublisherRetirementHistory& history,
+    const std::wstring& service)
+{
+    using usk::json::Value;using namespace usk::lifecycle::detail;
+    using usk::platform::windows::PublisherRetirementRecord;
+    std::map<std::wstring,const PublisherRetirementRecord*> records;
+    for(const auto& record:history.records) records.emplace(record.relative_path,&record);
+    const auto& snapshot=*records.at(L"publication\\journal\\lab-reviewed-plan.json");
+    const auto& prepared=*records.at(L"publication\\journal\\lab-prepared-evidence.json");
+    const auto& visible=*records.at(L"publication\\journal\\lab-visible-evidence.json");
+    const auto& completion=*records.at(L"publication\\state\\lab-installed-state.json");
+    const auto consumer=usk::json::parse(snapshot.bytes).at("consumer_read_sid").as_string();
+    const auto sid=history.registration.at("service_sid").as_string();
+    const auto bad_initial=[&](Value wrong) {
+        auto adjusted=usk::json::parse(completion.bytes);
+        const auto changed=usk::json::canonical(wrong)+"\n";
+        adjusted.as_object().at("visible_record_sha256")=Value(historical_raw_sha(changed));
+        refuses([&]{(void)decode_owned_retirement_install_history(snapshot.bytes,prepared.bytes,changed,
+            usk::json::canonical(adjusted)+"\n",service,sid,consumer);});
+    };
+    auto wrong=usk::json::parse(visible.bytes);
+    wrong.as_object().at("prepared_record_sha256")=Value(std::string(64,'0'));bad_initial(wrong);
+    wrong=usk::json::parse(visible.bytes);
+    wrong.as_object().at("source_file_id")=usk::json::parse(prepared.bytes).at("destination_parent_file_id");bad_initial(wrong);
+    // Retained original x64 calls must not acquire the current reader's ABI.
+    // This default fixture's positive route runs under both x86 and x64 CTest.
+    for(const auto header_bytes:{16u,20u,32u}) {
+        wrong=usk::json::parse(visible.bytes);
+        auto& call=wrong.as_object().at("rename_call");
+        call.as_object().at("information_bytes")=Value(static_cast<std::uint64_t>(header_bytes)+
+            call.at("file_name_bytes").as_unsigned());bad_initial(wrong);
+    }
+    wrong=usk::json::parse(visible.bytes);
+    wrong.as_object().at("execution_phases").as_array()[0].as_object().at("execution")
+        .as_object().at("platform").as_object().at("process_arch")=Value("x86");bad_initial(wrong);
+
+    const auto original_entry=std::find_if(records.begin(),records.end(),[](const auto& entry) {
+        return entry.first.find(L".native-maintenance-original.json")!=std::wstring::npos &&
+            usk::json::parse(entry.second->bytes).at("operation").as_string()=="repair";
+    });
+    require(original_entry!=records.end());
+    auto base=original_entry->first;
+    base.resize(base.size()-std::wstring(L".native-maintenance-original.json").size());
+    const auto& journal=*records.at(base+L".journal.json");
+    const auto document=usk::json::parse(journal.bytes);
+    usk::transaction::TransactionSpec spec;
+    spec.transaction_id=document.at("transaction_id").as_string();spec.plan_id=document.at("plan_id").as_string();
+    spec.plan_digest=document.at("plan_digest").as_string();spec.operation="repair";
+    for(const auto& root:document.at("roots").as_array()) {
+        const auto path=fs::u8path(root.at("root").as_string());const auto role=root.at("role").as_string();
+        if(role=="target") spec.target_root=path;
+        if(role=="staging") spec.staging_parent=path.parent_path();
+        if(role=="setup_state") spec.state_root=path;
+        if(role=="audit") spec.audit_root=path;
+    }
+    const auto completed=usk::transaction::TransactionSession::decode_completed_history(spec,journal.bytes);
+    const auto effects_path=base+L".maintenance";
+    usk::transaction::MaintenanceEffectRecordReader reader(spec,history.directories.at(effects_path).journal_identity,
+        completed.stream.source_digest,
+        static_cast<std::size_t>(std::count_if(records.begin(),records.end(),[&](const auto& item) {
+            return fs::path(item.first).parent_path()==fs::path(effects_path);
+        })),true);
+    std::vector<Value> custody;
+    const PublisherRetirementRecord* prefix=nullptr;
+    for(const auto& entry:records) {
+        const auto directory=fs::path(entry.first).parent_path();
+        if(directory==fs::path(effects_path)) reader.consume(fs::path(entry.first).filename().u8string(),entry.second->bytes);
+        if(directory==fs::path(base+L".native-maintenance-custody")) custody.push_back(usk::json::parse(entry.second->bytes));
+        if(directory==fs::path(base+L".native-maintenance-snapshots")) prefix=entry.second;
+    }
+    require(prefix!=nullptr && !custody.empty());
+    const auto effects=reader.finish();
+    using usk::transaction::TransactionSession;
+    TransactionSession::require_completed_transition_extension_bytes(spec,prefix->bytes,prefix->sha256,journal.bytes,journal.sha256);
+    refuses([&]{TransactionSession::require_completed_transition_extension_bytes(spec,prefix->bytes+" ",prefix->sha256,journal.bytes,journal.sha256);});
+    refuses([&]{TransactionSession::require_completed_transition_extension_bytes(spec,prefix->bytes,prefix->sha256,journal.bytes+" ",journal.sha256);});
+    auto changed_prefix=usk::json::parse(prefix->bytes);
+    changed_prefix.as_object().at("plan_id")=Value("plan.unrelated");
+    const auto changed_text=usk::json::canonical(changed_prefix);
+    refuses([&]{TransactionSession::require_completed_transition_extension_bytes(spec,changed_text,
+        historical_raw_sha(changed_text),journal.bytes,journal.sha256);});
+    const auto original=usk::json::parse(original_entry->second->bytes);
+    const auto created=usk::json::parse(records.at(base+L".native-maintenance-created.json")->bytes);
+    const auto artifact=usk::json::parse(records.at(base+L".maintenance-plan.json")->bytes);
+    const auto root_id=usk::json::parse(completion.bytes).at("visible_root_file_id").as_string();
+    const auto replay=[&](const Value& o,const Value& c,const std::vector<Value>& chain) {
+        require_owned_retirement_object_history(spec,o,c,artifact,completed.stream,effects,chain,consumer,sid,root_id,"verified");
+    };
+    replay(original,created,custody);
+    auto bad_original=original;
+    auto file=std::find_if(bad_original.as_object().at("original_objects").as_array().begin(),
+        bad_original.as_object().at("original_objects").as_array().end(),[](const Value& item){return item.at("type").as_string()=="file";});
+    require(file!=bad_original.as_object().at("original_objects").as_array().end());
+    file->as_object().at("object").as_object().at("native_name")=Value("\\publication\\destination\\another-root\\file");
+    refuses([&]{replay(bad_original,created,custody);});
+    bad_original=original;
+    file=std::find_if(bad_original.as_object().at("original_objects").as_array().begin(),
+        bad_original.as_object().at("original_objects").as_array().end(),[](const Value& item){return item.at("type").as_string()=="file";});
+    file->as_object().at("parent")=created.at("target_parent");
+    refuses([&]{replay(bad_original,created,custody);});
+    auto bad_created=created;bad_created.as_object().at("created_objects").as_array().pop_back();
+    refuses([&]{replay(original,bad_created,custody);});
+    auto bad_custody=custody;
+    auto grant=std::find_if(bad_custody.begin(),bad_custody.end(),[](const Value& v){return v.at("kind").as_string()=="consumer_read_grant";});
+    require(grant!=bad_custody.end());
+    grant->as_object().at("details").as_object().at("parent")=created.at("target_parent");
+    refuses([&]{replay(original,created,bad_custody);});
+    bad_custody=custody;
+    grant=std::find_if(bad_custody.begin(),bad_custody.end(),[](const Value& v){return v.at("kind").as_string()=="consumer_read_grant";});
+    auto& details=grant->as_object().at("details").as_object();
+    details.at("before").as_object().at("file_id")=original.at("installed_root").at("file_id");
+    details.at("after").as_object().at("file_id")=original.at("installed_root").at("file_id");
+    details.at("native_identity")=original.at("installed_root_journal_identity");
+    refuses([&]{replay(original,created,bad_custody);});
+    // Reseal the complete custody chain so these discriminate the domain
+    // binding, rather than failing only the outer raw-byte/hash-chain checks.
+    for(unsigned variant=0;variant<2u;++variant) {
+        auto bad=history;
+        std::vector<usk::platform::windows::PublisherRetirementRecord*> chain;
+        for(auto& record:bad.records)
+            if(fs::path(record.relative_path).parent_path()==fs::path(base+L".native-maintenance-custody")) chain.push_back(&record);
+        std::sort(chain.begin(),chain.end(),[](const auto* a,const auto* b){return a->relative_path<b->relative_path;});
+        const auto unrelated=std::find_if(bad.records.begin(),bad.records.end(),[](const auto& record) {
+            return record.relative_path.find(L"-active.json")!=std::wstring::npos &&
+                usk::json::parse(record.bytes).at("operation").as_string()=="install_local";
+        });
+        require(unrelated!=bad.records.end());
+        const auto prior=std::find_if(bad.records.begin(),bad.records.end(),[&](const auto& record) {
+            return fs::path(record.relative_path).parent_path().filename()==fs::path("installed") &&
+                usk::json::parse(record.bytes).at("transaction_id").as_string()==usk::json::parse(snapshot.bytes).at("transaction_id").as_string();
+        });
+        require(prior!=bad.records.end());
+        bool changed=false;std::string previous;
+        for(auto* record:chain) {
+            auto value=usk::json::parse(record->bytes);
+            value.as_object().at("previous_record_sha256")=previous.empty()?Value{}:Value(previous);
+            if(variant==0u && !changed) {
+                value.as_object().at("writer_lease_ownership")=usk::json::parse(unrelated->bytes);changed=true;
+            } else if(variant==1u && value.at("kind").as_string()=="created_metadata" && !changed) {
+                const auto intent=value.at("pending_intent_sequence").as_unsigned();
+                const auto effect=std::find_if(effects.completed.begin(),effects.completed.end(),
+                    [&](const auto& e){return e.intent_sequence==intent;});
+                require(effect!=effects.completed.end());
+                if(effect->kind=="write_installed") {
+                    auto& data=value.as_object().at("details").as_object();
+                    const auto setup=fs::u8path(usk::json::parse(snapshot.bytes).at("setup_root").as_string()).filename();
+                    data.at("setup_relative_path")=Value(fs::path(prior->relative_path).lexically_relative(setup).generic_u8string());
+                    data.at("object")=usk::platform::windows::publisher_handle_observation_json(prior->object);
+                    data.at("parent")=usk::platform::windows::publisher_handle_observation_json(
+                        history.directories.at(fs::path(prior->relative_path).parent_path().wstring()).object);
+                    data.at("size_bytes")=Value(static_cast<std::uint64_t>(prior->bytes.size()));data.at("sha256")=Value(prior->sha256);
+                    changed=true;
+                }
+            }
+            record->bytes=usk::json::canonical(value)+"\n";record->sha256=historical_raw_sha(record->bytes);previous=record->sha256;
+        }
+        require(changed);
+        refuses([&]{(void)validate_owned_publisher_retirement_history(bad,service);});
+    }
+}
+void owned_retirement_history_controls(const fs::path& path) {
+
+    using usk::json::Value;
+    using namespace usk::lifecycle::detail;
+    usk::json::ParseLimits limits;limits.max_bytes=16u*1024u*1024u;limits.max_values=2000000;
+    const auto input=usk::json::parse(read_text(path),limits);
+    OwnedPublisherRetirementHistory history;
+    history.registration=input.at("registration");history.volume_root=fs::u8path(input.at("volume_root").as_string()).wstring();
+    const auto service=fs::u8path(input.at("service_name").as_string()).wstring();
+    for(const auto& value:input.at("records").as_array()) {
+        usk::platform::windows::PublisherRetirementRecord record{};
+        record.relative_path=fs::u8path(value.at("path").as_string()).wstring();record.object=historical_object(value.at("object"));
+        record.bytes=value.at("text").as_string();record.sha256=value.at("sha256").as_string();
+        history.records.push_back(std::move(record));
+    }
+    for(const auto& value:input.at("directories").as_array()) {
+        usk::platform::windows::PublisherRetirementDirectoryMetadata directory{};
+        directory.object=historical_object(value.at("object"));
+        directory.lease_root_identity=value.at("lease_root_identity");directory.journal_identity=value.at("journal_identity").as_string();
+        require(history.directories.emplace(fs::u8path(value.at("path").as_string()).wstring(),std::move(directory)).second);
+    }
+    const auto selected=validate_owned_publisher_retirement_history(history,service);
+    historical_boundary_controls(history,service);
+    require(selected.installation_ids.size()==1u && !selected.historical_holders.empty() &&
+        !selected.reviewed_volume_paths.empty());
+    // Exercise the actual native custody's generic relative-path projection.
+    // Native observations/bytes are identical; only lookup separators differ.
+    auto native=history;
+    for(auto& record:native.records)
+        std::replace(record.relative_path.begin(),record.relative_path.end(),L'\\',L'/');
+    decltype(native.directories) native_directories;
+    for(const auto& directory:native.directories) {
+        auto name=directory.first;std::replace(name.begin(),name.end(),L'\\',L'/');
+        require(native_directories.emplace(name,directory.second).second);
+    }
+    native.directories=std::move(native_directories);
+    const auto native_selected=validate_owned_publisher_retirement_history(native,service);
+    require(native_selected.installation_ids==selected.installation_ids &&
+        native_selected.reviewed_volume_paths==selected.reviewed_volume_paths &&
+        usk::json::equal_values(Value(Value::Array(native_selected.historical_holders)),
+            Value(Value::Array(selected.historical_holders))));
+    auto alias=native;alias.records.push_back(history.records.front());
+    refuses([&]{(void)validate_owned_publisher_retirement_history(alias,service);});
+    alias=native;
+    const auto directory_alias=std::find_if(history.directories.begin(),history.directories.end(),
+        [](const auto& entry){return entry.first.find(L'\\')!=std::wstring::npos;});
+    require(directory_alias!=history.directories.end() && alias.directories.emplace(*directory_alias).second);
+    refuses([&]{(void)validate_owned_publisher_retirement_history(alias,service);});
+    auto bad=history;bad.volume_root=L"invalid";
+    refuses([&]{(void)validate_owned_publisher_retirement_history(bad,service);});
+    bad=history;bad.records.push_back(history.records.front());
+    refuses([&]{(void)validate_owned_publisher_retirement_history(bad,service);});
+    bad=history;bad.directories.emplace(L"unexplained-owned-root",history.directories.begin()->second);
+    refuses([&]{(void)validate_owned_publisher_retirement_history(bad,service);});
+    bad=history;bad.records.front().bytes+=" ";
+    refuses([&]{(void)validate_owned_publisher_retirement_history(bad,service);});
+    for(const auto* suffix:{L"lab-prepared-evidence.json",L"lab-visible-evidence.json",L"lab-installed-state.json",
+            L".native-maintenance-original.json",L".native-maintenance-created.json",L"-roots.json",
+            L"-active.json",L".event.json"}) {
+        bad=history;
+        const auto found=std::find_if(bad.records.begin(),bad.records.end(),[&](const auto& record){
+            const std::wstring wanted(suffix);
+            return record.relative_path.size()>=wanted.size() &&
+                record.relative_path.compare(record.relative_path.size()-wanted.size(),wanted.size(),wanted)==0;});
+        require(found!=bad.records.end());bad.records.erase(found);
+        refuses([&]{(void)validate_owned_publisher_retirement_history(bad,service);});
+    }
+    std::cout<<"owned retirement metadata history: "<<selected.installation_ids.size()
+        <<" installations, "<<selected.historical_holders.size()<<" historical holders; no native authority\n";
+}
+#endif
 int main(int argc, char** argv) {
     try {
         creator_records();
         retirement_lease_controls();
+#if defined(_WIN32)
+        if(argc==1) owned_retirement_history_controls(fs::path(USK_SOURCE_DIR)/
+            "tests/fixtures/setup/publisher-owned-uninstall-retirement-b6f4f28.v1.json");
+        if(argc==3 && std::string(argv[1])=="--owned-retirement-history") {
+            owned_retirement_history_controls(fs::u8path(argv[2]));return 0;
+        }
+#endif
         if (argc == 3 && std::string(argv[1]) == "--retirement-lease-history") {
             const auto input = usk::json::parse(read_text(argv[2]));
             require(input.as_object().size() == 4);
