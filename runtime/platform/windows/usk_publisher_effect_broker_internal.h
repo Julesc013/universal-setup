@@ -11,6 +11,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <vector>
 
 namespace usk::lifecycle::detail { class NativeMaintenanceRecordByteRead; class NativeMaintenanceContext; }
@@ -103,6 +104,19 @@ public:
 private:
     DWORD error_;
     std::exception_ptr primary_;
+};
+
+// Initial native installation-original lookup refused before the broker can
+// answer the child's first admission readback. Constructible only by that
+// broker constructor after confirmed query and record-worker closure. This
+// is not a terminal: the host must still confirm child/job and volume closure
+// before projecting its existing stale-plan refusal. Later lookup failures
+// cannot create this classification.
+class PublisherOriginalInstallationPreflightRefused final : public std::runtime_error {
+private:
+    friend class PublisherEffectBrokerReadback;
+    PublisherOriginalInstallationPreflightRefused() : std::runtime_error(
+        "original installation intent absent before initial broker admission") {}
 };
 
 // Read-only native object observer. The ID is only a query selector under the

@@ -775,6 +775,10 @@ std::string listed_file_id(const PublisherDirectoryEntry& entry, const Value& vo
     for (const auto byte : entry.file_id) { id += digits[byte >> 4]; id += digits[byte & 15]; }
     return id;
 }
+class OriginalRecoveryIntentAbsent final : public std::runtime_error {
+public:
+    OriginalRecoveryIntentAbsent() : std::runtime_error("broker original protected intent is absent") {}
+};
 PublisherDirectoryEntry original_intent_child(HANDLE parent, const std::wstring& name) {
     std::optional<PublisherDirectoryEntry> found;
     for (const auto& entry : observe_publisher_directory_entries(parent)) {
@@ -783,7 +787,7 @@ PublisherDirectoryEntry original_intent_child(HANDLE parent, const std::wstring&
             found = entry;
         }
     }
-    require(found.has_value(), "broker original protected intent is absent");
+    if (!found) throw OriginalRecoveryIntentAbsent();
     return *found;
 }
 }
@@ -1591,8 +1595,24 @@ PublisherEffectBrokerReadback::PublisherEffectBrokerReadback(const RegisteredPub
         if (state_->installation_recovery) require_publisher_effect_original_installation_selection(
             state_->recovery_baseline, usk::json::parse(state_->request), state_->fresh().profile());
     } catch (...) {
-        if (!state_->stop_record_queries()) (void)state_.release();
-        throw;
+        const auto original = std::current_exception();
+        bool initial_installation_absence = false;
+        try { std::rethrow_exception(original); }
+        catch (const OriginalRecoveryIntentAbsent&) {
+            initial_installation_absence = state_->installation_recovery;
+        } catch (...) {}
+        // Construction sends no admission packet. Only this exact initial
+        // native absence, with every query/worker closed, can be narrowed.
+        // The same absence during a later bracket remains an ordinary failure.
+        if (!state_->stop_record_queries()) {
+            (void)state_.release();
+            if (initial_installation_absence)
+                std::throw_with_nested(std::runtime_error(
+                    "broker record query worker closure is unknown after initial original lookup"));
+        } else if (initial_installation_absence) {
+            throw PublisherOriginalInstallationPreflightRefused();
+        }
+        std::rethrow_exception(original);
     }
 }
 PublisherEffectBrokerReadback::~PublisherEffectBrokerReadback() {
