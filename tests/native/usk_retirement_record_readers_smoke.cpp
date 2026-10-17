@@ -3,6 +3,8 @@
 #include "usk_lifecycle.h"
 #include "usk_maintenance_creator_records_internal.h"
 #include "usk_completed_maintenance_records_internal.h"
+#include "usk_owned_retirement_lease_history_internal.h"
+#include "usk_install_lease.h"
 #include "usk_maintenance_recovery_internal.h"
 #include <array>
 #include "usk_audit_repository.h"
@@ -14,6 +16,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -45,6 +48,96 @@ struct Fixture {
     ~Fixture() { std::error_code ignored; fs::remove_all(root, ignored); }
 };
 struct Record { std::string name, text; };
+
+void retirement_lease_controls() {
+    using usk::json::Value;
+    using namespace usk::transaction;
+    using usk::lifecycle::detail::decode_owned_retirement_lease_history;
+    const Value root(Value::Object{{"file_id", Value(std::string(32, 'a'))}, {"volume_serial", Value("123")}});
+    const Value holder(Value::Object{{"process_id", Value(std::uint64_t{101})},
+        {"process_creation_time", Value("00000000000000aa")}});
+    const std::string id = "install.lease-history", a(64, 'a'), b(64, 'b'), c(64, 'c');
+    const auto active = [&](const std::optional<Value>& previous, const std::string& operation,
+            const std::string& operation_id, const std::string& attempt, const std::string& revision,
+            const std::string& binding = std::string(64, 'd')) {
+        return derive_install_lease_ownership(previous,
+            {id, operation, operation_id, attempt, revision, true, binding}, root, holder, revision,
+            InstallLeasePreviousHolder::ended);
+    };
+    const auto complete = [&](const Value& value, const std::string& revision, bool handoff = false) {
+        return finish_install_lease_ownership(value, root, holder, revision, handoff);
+    };
+    const auto first = active({}, "install_local", "op.install", "attempt.1", a);
+    const auto installed = complete(first, b);
+    const auto reentry = active(installed, "install_local", "op.install", "attempt.2", b);
+    const auto rebound = complete(reentry, b);
+    const auto repair = active(rebound, "repair", "op.repair", "attempt.3", b);
+    const auto repaired = complete(repair, c);
+    const std::vector<Value> history{first, installed, reentry, rebound, repair, repaired};
+    const auto result = decode_owned_retirement_lease_history(history, id, root, c);
+    require(result.size() == 3 && !result[0].repeated_completion && result[1].repeated_completion &&
+        !result[2].repeated_completion && usk::json::equal_values(result[0].original_active, first) &&
+        usk::json::equal_values(result[1].completed, rebound));
+    // The existing immutable-operation selector intentionally still refuses
+    // this reuse. This ledger reader is a separate metadata check, not replay.
+    refuses([&] { (void)select_completed_install_lease_history(history, first); });
+    const auto inspect = [&](const std::vector<Value>& values) {
+        return decode_owned_retirement_lease_history(values, id, root,
+            values.back().at("result_state_revision").type() == Value::Type::string ?
+                values.back().at("result_state_revision").as_string() : c);
+    };
+    require(inspect({first, installed}).size() == 1);
+    refuses([&] { (void)decode_owned_retirement_lease_history({}, id, root, c); });
+    refuses([&] { (void)decode_owned_retirement_lease_history(history, "other.install", root, c); });
+    auto wrong_root = root; wrong_root.as_object().at("file_id") = Value(std::string(32, 'b'));
+    refuses([&] { (void)decode_owned_retirement_lease_history(history, id, wrong_root, c); });
+    refuses([&] { (void)decode_owned_retirement_lease_history(history, id, root, b); });
+    refuses([&] { (void)decode_owned_retirement_lease_history(history, id, root, "not-a-revision"); });
+    refuses([&] { (void)inspect({first}); });
+    refuses([&] { (void)inspect({first, complete(first, b, true)}); });
+    refuses([&] { (void)inspect({installed}); });
+    refuses([&] { (void)inspect({first, installed, reentry, complete(reentry, c)}); });
+    const auto changed_context = active(installed, "install_local", "op.install", "attempt.changed", b, a);
+    refuses([&] { (void)inspect({first, installed, changed_context, complete(changed_context, b)}); });
+    const auto changed_role = active(installed, "repair", "op.install", "attempt.role", b);
+    refuses([&] { (void)inspect({first, installed, changed_role, complete(changed_role, b)}); });
+    const auto stale_reentry = active(installed, "install_local", "op.install", "attempt.stale", a);
+    refuses([&] { (void)inspect({first, installed, stale_reentry, complete(stale_reentry, a)}); });
+    const auto moved = active(installed, "move", "op.move", "attempt.move", b);
+    refuses([&] { (void)inspect({first, installed, moved, complete(moved, c)}); });
+    const auto unsupported = active(installed, "update", "op.update", "attempt.update", b);
+    refuses([&] { (void)inspect({first, installed, unsupported, complete(unsupported, c)}); });
+    auto drift = history; drift[3].as_object().at("holder") = Value(Value::Object{
+        {"process_id", Value(std::uint64_t{102})}, {"process_creation_time", Value("00000000000000aa")}});
+    drift[3].as_object().erase("ownership_sha256");
+    drift[3].as_object().emplace("ownership_sha256", Value(usk::json::sha256_canonical(drift[3])));
+    refuses([&] { (void)inspect(drift); });
+    auto gap = history; gap.erase(gap.begin() + 2);
+    refuses([&] { (void)inspect(gap); });
+    // An ended original attempt can continue through a recorded handoff,
+    // but its plain-data completion does not establish actual holder death.
+    const auto pending = active(installed, "repair", "op.interrupted", "attempt.pending", b);
+    const auto handed = complete(pending, b, true);
+    const auto resumed = active(handed, "repair", "op.interrupted", "attempt.resumed", b);
+    const auto recovered = inspect({first, installed, pending, handed, resumed, complete(resumed, c)});
+    require(recovered.size() == 2 && !recovered[1].repeated_completion &&
+        usk::json::equal_values(recovered[1].original_active, pending));
+    const auto ended_resume = active(pending, "repair", "op.interrupted", "attempt.ended-resume", b);
+    const auto ended_recovered = inspect({first, installed, pending, ended_resume, complete(ended_resume, c)});
+    require(ended_recovered.size() == 2 &&
+        usk::json::equal_values(ended_recovered[1].original_active, pending));
+    const auto unfinished = active(rebound, "repair", "op.unfinished", "attempt.unfinished", b);
+    refuses([&] { (void)inspect({first, installed, reentry, rebound, unfinished}); });
+    refuses([&] { (void)decode_owned_retirement_lease_history(std::vector<Value>(4097, first), id, root, b); });
+    std::vector<Value> full{first, installed};
+    for (unsigned i = 1; i < 2048; ++i) {
+        const auto next = active(full.back(), "install_local", "op.install", "capacity." + std::to_string(i), b);
+        full.push_back(next); full.push_back(complete(next, b));
+    }
+    require(full.size() == 4096 && inspect(full).size() == 2048);
+    full.push_back(active(full.back(), "repair", "op.over-capacity", "capacity.extra", b));
+    refuses([&] { (void)decode_owned_retirement_lease_history(full, id, root, b); });
+}
 
 // Collect only the ordinary fixture's historical inputs. Production admission
 // must instead bind every byte/name/directory through its actual native owner.
@@ -199,6 +292,19 @@ void creator_records() {
 int main(int argc, char** argv) {
     try {
         creator_records();
+        retirement_lease_controls();
+        if (argc == 3 && std::string(argv[1]) == "--retirement-lease-history") {
+            const auto input = usk::json::parse(read_text(argv[2]));
+            require(input.as_object().size() == 4);
+            const auto completions = usk::lifecycle::detail::decode_owned_retirement_lease_history(
+                input.at("history").as_array(), input.at("install_id").as_string(),
+                input.at("state_root_identity"), input.at("current_revision").as_string());
+            std::size_t repeated = 0;
+            for (const auto& completion : completions) if (completion.repeated_completion) ++repeated;
+            std::cout << "retained lease metadata: " << completions.size() << " completions, " << repeated
+                << " repeated; no native authority\n";
+            return 0;
+        }
         if (argc != 1) {
             // Optional replay of retained record bytes and separately supplied
             // bindings. This exercises metadata only; no native actor is made.

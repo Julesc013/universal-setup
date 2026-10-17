@@ -8,6 +8,31 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
+PR254 is normally merged into dev at709e6364, source tree4a0fda1f, after
+all six required core checks, specification validation, independent exact
+source-composition review and the live gate. Eleven checkpoints PR244-254 were
+integrated on18October2026. Its retained hosted controller now completes both
+fresh unmoved repair and uninstall with matching request-bound public/native
+replies. SYSTEM readback shows retired/pass state and no owned root/descendants.
+Generic publisher retirement still refuses and retains the service and image.
+The latest whole publisher run is still executing; recovery, completed retirement,
+main, deployment and release acceptance are not established.
+
+The next retirement join uses a bounded completed lease-ledger reader. Actual
+retained controller history includes a second completed install generation with
+the original operation ID and unchanged recorded revision, followed by repair.
+The existing immutable-operation selector correctly refuses reuse for its own
+purpose and remains unchanged. The new metadata reader validates each recorded
+transition once, accounts for every operation through completion, binds the
+supplied installation/root/final revision and identifies repeated completions
+only when their operation/context and recorded revisions remain consistent.
+That classification does not establish an absence of intervening native effects.
+Move and other unsupported operation families refuse. The4096record bound,
+unfinished/handoff histories, changed/resealed roles, contexts, holders and
+revisions are tested. Native membership, actual ended PID+birth holders, all
+creator/effect/audit histories and payload absence still need the fixed route.
+No retirement entrypoint or final effect is enabled by this reader.
+
 PR253 is normally merged into dev at384a623c, source tree9e04fa2e, after all
 six required core checks, specification validation, independent exact source
 review and the live branch gate. Ten reviewed checkpoints PR244 through PR253
