@@ -726,8 +726,9 @@ if(USK_BUILD_TESTS)
       target_compile_features(usk_publisher_lab_device_acl PRIVATE cxx_std_17)
       target_link_libraries(usk_publisher_lab_device_acl PRIVATE advapi32 VirtDisk)
       usk_enable_strict_warnings(usk_publisher_lab_device_acl)
-      # Keep the packaged machine-client and non-admin consumer journey in the
-      # normal hosted gate, including actual payload execution and recovery.
+      # These service/consumer journeys are publisher qualification, including
+      # actual payload execution and recovery. CI runs this label separately
+      # from core tests; main requires the complete qualification job.
       if(TARGET usk_machine AND DEFINED ENV{GITHUB_ACTIONS} AND
           "$ENV{RUNNER_ENVIRONMENT}" STREQUAL "github-hosted" AND
           "$ENV{USK_TRUSTED_HOSTED_LAB}" STREQUAL "true")
@@ -745,7 +746,7 @@ if(USK_BUILD_TESTS)
             -ReviewedSource -RegisteredService -ConsumerAccess
             -MachineRequestClient -ReuseRegistration -ProductionConcurrentRights)
         set_tests_properties(usk_machine_registered_candidate_hosted
-          PROPERTIES RUN_SERIAL TRUE TIMEOUT 420)
+          PROPERTIES RUN_SERIAL TRUE TIMEOUT 420 LABELS publisher-qualification)
         add_test(NAME usk_controller_registered_apply_hosted
           COMMAND pwsh -NoProfile -NonInteractive -File
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_lab_probe.ps1"
@@ -758,7 +759,7 @@ if(USK_BUILD_TESTS)
             -ClientBinary "$<TARGET_FILE:usk_publisher_client>"
             -ReviewedSource -RegisteredService -ControllerApply)
         set_tests_properties(usk_controller_registered_apply_hosted
-          PROPERTIES RUN_SERIAL TRUE TIMEOUT 420)
+          PROPERTIES RUN_SERIAL TRUE TIMEOUT 420 LABELS publisher-qualification)
       endif()
     endif()
 
