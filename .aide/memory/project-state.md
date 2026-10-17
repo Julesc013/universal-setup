@@ -11,9 +11,21 @@ The external FacMan task's compact continuation record holds the changing checkp
 PR253 is normally merged into dev at384a623c, source tree9e04fa2e, after all
 six required core checks, specification validation, independent exact source
 review and the live branch gate. Ten reviewed checkpoints PR244 through PR253
-were integrated on18October2026. Its publisher run39059484749/1 remains pending
-at this checkpoint; no qualification is inferred from development integration.
-The former PR252 integration and its red publisher results remain below.
+were integrated on18October2026. Its publisher run39059484749/1 is terminal
+red; all core and specification checks passed. Both fresh maintenance cohorts
+complete, while both genuinely interrupted source-retired repair recoveries
+still exceed120seconds. The diagnostic-enabled synthetic checkout999cc3cf has
+the submitted9e04fa2e source tree; package identities remain separately pinned.
+No main, deployment or release qualification follows from dev integration.
+
+The controller readonly planner now returns a matching successful plan and the
+enrolled repair returns matching successful public/native responses. Its next
+independent gate incorrectly expects the terminal lease predecessor to be the
+same-generation active digest; the protocol preserves the prior-generation
+predecessor in both records. A later check also expects installed rather than
+the repair's verified lifecycle state. These are observed fixture assumptions
+to repair with direct negative controls, not permission to waive the gate.
+Controller uninstall and product retirement were not executed successfully.
 
 The current owned-retirement route work extracts the existing canonical
 original-custody and created-closure record checks into a private metadata
@@ -29,6 +41,22 @@ SHA/length and request/root bindings; replay succeeds and cross-operation
 pairing refuses. These are historical metadata observations, not live native
 entry or completed retirement. Complete domain, namespace, lease, current
 revision and final native effects still need the fixed connected route.
+
+A bounded whole-history byte reader now reuses the existing completed repair
+and uninstall selection: canonical journal and reviewed-plan association,
+complete sealed ordered effects, original/result ownership and installed
+postimages, and a unique matching audit event. It accepts no callback, opens
+no record path and has no live-read fallback. The ordinary readers retain
+their existing native reads and rechecks. Input bounds16MiB/field and64MiB
+aggregate (including names and the separately bounded directory identity) do
+not claim total memory or deadline bounds. Actual fixture repair/uninstall
+enter the byte route while their entire parent directory is withheld; normal
+inspection refuses there. Legacy ownership lookup by installation ID is also
+exercised, with changed effects, plan, state, ownership, audit and bounds
+refusing. An old completed uninstall may retain content: complete sealed
+history is not a retired-target verdict. Native membership, creator, lease,
+holder termination, current revision and fresh payload absence remain separate
+requirements of the still unfinished fixed retirement route.
 
 PR252 is normally merged into dev atd88253dd after all required core checks,
 independent source review and the live merge gate. Nine reviewed checkpoints

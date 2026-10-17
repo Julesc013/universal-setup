@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 #include "usk_lifecycle.h"
 #include "usk_maintenance_creator_records_internal.h"
+#include "usk_completed_maintenance_records_internal.h"
+#include "usk_maintenance_recovery_internal.h"
 #include <array>
 #include "usk_audit_repository.h"
 #include "usk_maintenance_effect_journal.h"
@@ -43,6 +45,81 @@ struct Fixture {
     ~Fixture() { std::error_code ignored; fs::remove_all(root, ignored); }
 };
 struct Record { std::string name, text; };
+
+// Collect only the ordinary fixture's historical inputs. Production admission
+// must instead bind every byte/name/directory through its actual native owner.
+usk::lifecycle::detail::CompletedMaintenanceHistoryBytes completed_bytes(
+    const usk::transaction::TransactionSpec& spec)
+{
+    usk::lifecycle::detail::CompletedMaintenanceHistoryBytes result;
+    const auto history = usk::transaction::TransactionSession::inspect_completed_history(spec);
+    const auto context = usk::json::parse(history.stream.source_context);
+    const auto id = context.at("install_id").as_string();
+    result.transaction = read_text(spec.state_root / "transactions" / (spec.transaction_id + ".journal.json"));
+    const auto directory = spec.state_root / "transactions" / (spec.transaction_id + ".maintenance");
+    result.effect_directory_identity = usk::transaction::observe_directory_identity(directory);
+    const auto collect = [](const fs::path& root) {
+        std::vector<std::pair<std::string, std::string>> result;
+        for (const auto& entry : fs::directory_iterator(root))
+            result.emplace_back(entry.path().filename().string(), read_text(entry.path()));
+        std::sort(result.begin(), result.end());
+        return result;
+    };
+    result.effects = collect(directory);
+    result.reviewed_plan = read_text(spec.state_root / "transactions" / context.at("reviewed_plan_ref").as_string());
+    result.original_installed = read_text(spec.state_root / "installed" /
+        (id + "." + context.at("original_installed_transaction_id").as_string() + ".json"));
+    result.resulting_installed = read_text(spec.state_root / "installed" / (id + "." + spec.transaction_id + ".json"));
+    const auto original = usk::state::decode_installed_record(result.original_installed);
+    const auto installed = usk::state::decode_installed_record(result.resulting_installed);
+    result.original_ownership = read_text(spec.state_root / original.ownership_manifest_ref);
+    result.resulting_ownership = read_text(spec.state_root / installed.ownership_manifest_ref);
+    result.audit = collect(spec.audit_root / "chains" / original.audit_chain_id);
+    return result;
+}
+
+void completed_history_controls(const usk::transaction::TransactionSpec& spec, const fs::path& fixture_root)
+{
+    using usk::lifecycle::detail::decode_completed_maintenance_history;
+    const auto bytes = completed_bytes(spec);
+    const auto live = usk::lifecycle::detail::inspect_completed_maintenance_history(spec);
+    const auto decoded = decode_completed_maintenance_history(spec, bytes);
+    require(decoded.effects_complete && decoded.sealed && !decoded.pending && decoded.next_kind.empty() &&
+        decoded.transaction_snapshot_sha256 == live.transaction_snapshot_sha256 &&
+        decoded.history_digest == live.history_digest);
+    // Positively prove the new route does not reopen even a repository parent.
+    // RAII restores this owned fixture on all failures, leaving no moved tree.
+    struct Withheld {
+        fs::path original, hidden;
+        explicit Withheld(fs::path path) : original(std::move(path)), hidden(original.string() + ".withheld") {
+            fs::rename(original, hidden);
+        }
+        ~Withheld() { std::error_code error; fs::rename(hidden, original, error); }
+    };
+    {
+        Withheld withheld(fixture_root);
+        require(decode_completed_maintenance_history(spec, bytes).effects_complete);
+        refuses([&] { (void)usk::lifecycle::detail::inspect_completed_maintenance_history(spec); });
+    }
+    for (unsigned variant = 0; variant != 11; ++variant) {
+        auto bad = bytes;
+        if (variant == 0) bad.effects.pop_back(); // no final seal
+        if (variant == 1) std::swap(bad.effects[0], bad.effects[1]);
+        if (variant == 2) bad.effects.push_back(bad.effects.back());
+        if (variant == 3) bad.effect_directory_identity = "unbound";
+        if (variant == 4) bad.reviewed_plan += " ";
+        if (variant == 5) bad.original_installed = bytes.resulting_installed;
+        if (variant == 6) bad.resulting_installed = bytes.original_installed;
+        if (variant == 7) bad.audit.pop_back(); // completion event missing
+        if (variant == 8) std::swap(bad.audit[0], bad.audit[1]);
+        if (variant == 9) bad.resulting_ownership += " ";
+        if (variant == 10) bad.transaction = std::string(16u * 1024u * 1024u + 1u, ' ');
+        refuses([&] { (void)decode_completed_maintenance_history(spec, bad); });
+    }
+    auto moved = spec; moved.operation = "move";
+    refuses([&] { (void)decode_completed_maintenance_history(moved, bytes); });
+    std::cout << spec.operation << " complete byte history entered without live paths; metadata only\n";
+}
 // Metadata shape/association controls only. The synthetic historical fields
 // confer no native creator, token, holder, currentness or retirement verdict.
 void creator_records() {
@@ -162,15 +239,40 @@ int main(int argc, char** argv) {
             "2026-10-18T00:00:00Z", target, fixture.roots, recipe, files);
         (void)usk::lifecycle::apply_install(install, install.plan_digest,
             "tx.install", "2026-10-18T00:00:01Z");
+        // An ordinary legacy ownership lookup may name the installation
+        // rather than the manifest ID. Retain the canonical manifest too.
+        auto legacy = usk::state::StateRepository(fixture.roots.state_root).read_installed("install.readers");
+        const auto alias = fixture.roots.state_root / "ownership" / (legacy.install_id + ".json");
+        fs::copy_file(fixture.roots.state_root / legacy.ownership_manifest_ref, alias);
+        legacy.ownership_manifest_ref = "ownership/" + legacy.install_id + ".json";
+        {
+            std::ofstream record(fixture.roots.state_root / "installed" /
+                (legacy.install_id + "." + legacy.transaction_id + ".json"), std::ios::binary | std::ios::trunc);
+            record << usk::state::serialize_installed_state(legacy);
+        }
+        // Exercise the complete repair history too, including an actual
+        // replacement and backup cleanup before uninstalling the same root.
+        {
+            std::ofstream damage(target / "data.bin", std::ios::binary | std::ios::trunc);
+            damage << "damage";
+        }
+        const auto repair = usk::lifecycle::plan_repair(fixture.roots, "install.readers", "plan.repair",
+            "2026-10-18T00:00:02Z", files);
+        (void)usk::lifecycle::apply_repair(repair, repair.plan_digest, "tx.repair", "2026-10-18T00:00:03Z");
+        const usk::transaction::TransactionSpec repair_spec{"tx.repair", repair.plan_id, repair.plan_digest, "repair",
+            fixture.roots.staging_parent, target.parent_path() / ".usk-repair-tx.repair",
+            fixture.roots.state_root, fixture.roots.audit_root};
+        completed_history_controls(repair_spec, fixture.root);
         const auto plan = usk::lifecycle::plan_uninstall(fixture.roots, "install.readers",
-            "plan.uninstall", "2026-10-18T00:00:02Z");
+            "plan.uninstall", "2026-10-18T00:00:04Z");
         const std::string tx = "tx.uninstall";
         const auto removed = usk::lifecycle::apply_uninstall(plan, plan.plan_digest,
-            tx, "2026-10-18T00:00:03Z");
+            tx, "2026-10-18T00:00:05Z");
         require(removed.target_removed && !fs::exists(target));
         const usk::transaction::TransactionSpec spec{tx, plan.plan_id, plan.plan_digest, "uninstall",
             fixture.roots.staging_parent, target.parent_path() / (".usk-uninstall-" + tx),
             fixture.roots.state_root, fixture.roots.audit_root};
+        completed_history_controls(spec, fixture.root);
         const auto journal = spec.state_root / "transactions" / (tx + ".journal.json");
         const auto text = read_text(journal);
         const auto baseline = TransactionSession::inspect_completed_history(spec);
