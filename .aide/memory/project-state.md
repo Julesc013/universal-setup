@@ -8,9 +8,10 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR250 is normally merged into dev at6933fc29 after all required core checks,
-independent source review and the live merge gate. Seven reviewed checkpoints
-PR244 through PR250 were integrated on18October2026; main remainsc048f7.
+PR251 is normally merged into dev at3e0e3dfe after all required core checks,
+independent source review and the live merge gate. Eight reviewed checkpoints
+PR244 through PR251 were integrated on18October2026; main remainsc048f7.
+PR250 was previously integrated at6933fc29.
 Reviewed/core-qualified dev integration is daily; main promotion targets19October
 when its additional publisher and applicable acceptance gates pass.
 PR249 was previously integrated at0aaba4de.
@@ -33,6 +34,13 @@ payload and passing ordinary verification are retained; verification leaves all
 104 native rows unchanged in each cohort. Its actual synthetic build929dfe9c
 has the submitted7da6273/accepteddev6933 source tree. This is not a causal speed
 claim for the allocation repair or unpublished token-buffer experiment.
+The later PR251 run39049401527/1 retains the two fresh maintenance passes,
+but both genuinely interrupted source-retired repair.recover clients again exceed
+the unchanged120second deadline. The untraced client exits5/UNKNOWN; the traced
+client is still alive at the deadline observation. No native terminal or verified
+completed result qualifies either invocation. Earlier PR250 passes do not prove
+reliable recovery across these runs. The PR251 synthetic build7adc63b27bd1
+has the submitted2118e71 source tree; package/build identity remains distinct.
 Both service builds enable diagnostics; comparison with/without WPR does not
 qualify release-default performance. The cohort profile/recovery qualification
 flags remain false, and owned retirement plus the legacy remounted-device route
@@ -50,7 +58,7 @@ Native fault controls cover message construction/propagation and current-request
 fallback formatting. These are not a live registered-service allocation-fault run
 or the unfinished public C SDK factory/transport integration.
 
-The next token-buffer change targets measured repeated capacity queries and
+The integrated PR251 token-buffer change targets measured repeated capacity queries and
 temporary allocation in client_token_facts. It returns a fresh successful native
 content read for each of the same six properties, with fixed aligned1KiB storage
 and the existing64KiB exact-size fallback. The owner cannot move/copy because
@@ -64,6 +72,41 @@ independent two-call reader, allocation denial, >1KiB native fallback, changed
 ModifiedID/privileges and unusable failures. A bounded local helper benchmark is
 separate from full request qualification; no recovery deadline improvement or
 main/release acceptance is established by it.
+
+Connected owned-retirement work has begun with extraction of the existing
+canonical installed-state, ownership and audit-event byte validators. They
+validate bounded metadata for a later fixed native-custody consumer; they do
+not select a current revision, bind filesystem custody or authorize deletion.
+Existing repository readers retain safe opens, exact filenames, ownership joins
+and full chain sequence checks. Ownership parsing releases owned input/tree
+before digest reconstruction, retaining its prior large-manifest memory shape.
+Native tests cover legacy/current LF/CRLF records, canonical and digest refusal,
+byte bounds, and separate refusal for missing ownership or unbound filenames.
+The ownership outer byte bound remains16MiB but its unchanged default JSON
+parser still caps input at4MiB; no16MiB parse-support claim follows. A small CMake
+override admits an explicitly selected test fixture directory under the existing
+output area when long task paths exceed the unchanged Windows path envelope.
+The default test environment remains as before. This changes no product limit.
+The connected history seam now reuses the transaction journal's existing
+metadata predicates for supplied completed bytes, without path opens, replay
+selection or current-state observations. Existing filesystem inspection keeps
+its native path checks and fresh observations. A streaming maintenance-effect
+reader retains exact names/order/source/context/hash/intent/completion checks,
+200002-record/32KiB-record/64MiB-total bounds, and explicit declared-count finish.
+Any consumption/finalization failure permanently prevents a result. Its output
+can still describe an unsealed/pending history; retirement must require a full
+sealed completed operation under independent native custody. Audit byte links
+retain exact chain, name, sequence and predecessor checks. No callback backend,
+authority certificate or new writer is introduced.
+A focused native fixture creates and uninstalls an owned payload, compares path
+and byte history, tests withheld-path independence and contextual refusal,
+ordered/pending/sealed effects, missing/invalid input and sticky failure, and
+audit chain links. This is ordinary filesystem metadata coverage, not live
+privileged retirement or a current-service custody proof.
+
+The privileged retirement custody, journal/effect/lease/complete-namespace proof,
+real owned uninstall connection and final deletion remain unfinished. This is
+implementation preparation, with no installed-target retirement availability.
 
 The held eight-query recovery preview remains unapplied. Independent review finds
 its removed intermediate child/broker/client security observations nonredundant.
@@ -134,6 +177,24 @@ account RID, through the existing acknowledged launcher with a separate profile.
 It retains the account while product authority remains and qualifies the actual
 actor independently before compilation. Product SID policy remains unchanged;
 local fixture controls are not evidence of a successful hosted install.
+The admitted controller fixture now stages real enrolled repair of its damaged
+owned payload, then real enrolled uninstall without a move, before retirement.
+It uses the packaged public client, original installed archive digest, independent
+SYSTEM state/lease/journal/effect/audit and root-removal observations. Readonly
+planning runs in the existing SYSTEM observer with held pinned inputs; named-admin
+enrollment and dispatch retain private metadata ACLs. The actual request finally
+retains its primary error, shared process owner and unconfirmed cleanup barrier
+when termination fails. Local parsing, cleanup fault controls and deterministic
+flat-archive reauthoring pass; hosted execution
+for this increment is not yet qualified. Existing unpublished-only unregister and
+binary retirement remain fail closed for installed metadata; the fixed privileged
+owned-retirement implementation remains unfinished. No lab deletion substitutes
+for product retirement, and no120second request or420second fixture limit changes.
+PR252's first hosted core build rejects partial aggregate initializers in the new
+native record-reader fixture under GCC/Clang missing-field warnings as errors.
+The repair assigns the required fixture fields explicitly and preserves all
+defaults, assertions and strict compiler settings. Original failed logs are
+retained; the complete route remains subject to the repaired head's checks.
 Use the external task checkpoint for exact candidate pins and current results.
 Do not start another campaign, queue or unofficial checkout. Integrate reviewed
 dev checkpoints daily; promote main weekly when its qualification gates pass.

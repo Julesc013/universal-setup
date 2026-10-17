@@ -676,6 +676,10 @@ if(USK_BUILD_TESTS)
       COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_held_capture_context_smoke.ps1")
     set_tests_properties(usk_publisher_held_capture_context_smoke PROPERTIES TIMEOUT 15)
+    add_test(NAME usk_publisher_controller_maintenance_cleanup_smoke
+      COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_controller_maintenance_cleanup_smoke.ps1")
+    set_tests_properties(usk_publisher_controller_maintenance_cleanup_smoke PROPERTIES TIMEOUT 15)
     add_test(NAME usk_publisher_standard_client_cleanup_smoke
       COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_standard_client_cleanup_smoke.ps1")
@@ -977,6 +981,12 @@ if(USK_BUILD_TESTS)
   target_link_libraries(usk_live_evidence_smoke PRIVATE usk_state_static usk_base_static)
   add_test(NAME usk_live_evidence_smoke COMMAND usk_live_evidence_smoke)
 
+  add_executable(usk_retirement_record_readers_smoke tests/native/usk_retirement_record_readers_smoke.cpp)
+  target_compile_features(usk_retirement_record_readers_smoke PRIVATE cxx_std_17)
+  target_link_libraries(usk_retirement_record_readers_smoke PRIVATE usk_lifecycle_static)
+  usk_enable_strict_warnings(usk_retirement_record_readers_smoke)
+  add_test(NAME usk_retirement_record_readers_smoke COMMAND usk_retirement_record_readers_smoke)
+
   add_executable(usk_lifecycle_smoke tests/native/usk_lifecycle_smoke.cpp)
   target_compile_features(usk_lifecycle_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_lifecycle_smoke PRIVATE usk_lifecycle_static)
@@ -1025,10 +1035,14 @@ if(USK_BUILD_TESTS)
   # The campaign task path already carries repository/task identity. Adding
   # build/run identifiers to native fixture paths can exceed the supported
   # Windows path envelope before the behavior under test is reached.
-  if(DEFINED ENV{FACMAN_TASK_ROOT} AND NOT "$ENV{FACMAN_TASK_ROOT}" STREQUAL "")
-    set(USK_TEST_TEMP_ROOT "$ENV{FACMAN_TASK_ROOT}/t")
-  else()
-    set(USK_TEST_TEMP_ROOT "${CMAKE_CURRENT_BINARY_DIR}/test-tmp")
+  # An explicit local root can keep fixtures inside an existing approved output
+  # area when long repository/task names exceed the supported Windows envelope.
+  if(NOT DEFINED USK_TEST_TEMP_ROOT OR "${USK_TEST_TEMP_ROOT}" STREQUAL "")
+    if(DEFINED ENV{FACMAN_TASK_ROOT} AND NOT "$ENV{FACMAN_TASK_ROOT}" STREQUAL "")
+      set(USK_TEST_TEMP_ROOT "$ENV{FACMAN_TASK_ROOT}/t")
+    else()
+      set(USK_TEST_TEMP_ROOT "${CMAKE_CURRENT_BINARY_DIR}/test-tmp")
+    endif()
   endif()
   file(MAKE_DIRECTORY "${USK_TEST_TEMP_ROOT}")
   get_property(USK_NATIVE_TESTS DIRECTORY PROPERTY TESTS)

@@ -1554,18 +1554,26 @@ RecoveryInspection TransactionSession::inspect_recovery(const TransactionSpec& i
     return inspect_recovery_impl(input, true);
 }
 
-RecoveryInspection TransactionSession::inspect_recovery_impl(const TransactionSpec& input, bool observe_payload)
+namespace {
+TransactionSpec normalized_inspection_spec(const TransactionSpec& input)
 {
     TransactionSpec spec = input;
     spec.staging_parent = absolute_normal(spec.staging_parent);
     spec.target_root = absolute_normal(spec.target_root);
     spec.state_root = absolute_normal(spec.state_root);
     spec.audit_root = absolute_normal(spec.audit_root);
+    return spec;
+}
+struct TransactionJournalMetadata {
+    RecoveryInspection inspection;
+    StreamJournal stream;
+    bool retained_stream;
+    bool retained_commit;
+};
+TransactionJournalMetadata decode_transaction_metadata(
+    const TransactionSpec& spec, const std::string& text)
+{
     const fs::path staging = spec.staging_parent / (".usk-stage-" + spec.transaction_id);
-    const fs::path journal = spec.state_root / "transactions" /
-        (spec.transaction_id + ".journal.json");
-    base::require_native_path_capacity(journal, base::NativePathKind::file, "recovery inspection journal");
-    const std::string text = read_bounded_text(journal, 4u * 1024u * 1024u);
     const usk::json::Value document = usk::json::parse(text, {4u * 1024u * 1024u, 64u, 2u * 1024u * 1024u, 1024u * 1024u});
     if (document.at("schema").as_string() != "usk.transaction_journal.v1" ||
         document.at("transaction_id").as_string() != spec.transaction_id ||
@@ -1630,7 +1638,7 @@ RecoveryInspection TransactionSession::inspect_recovery_impl(const TransactionSp
     validate_commit_requirement(document, spec.required_commit_authority);
     const bool retained_stream = retain_stream_cleanup(document);
     const bool retained_commit = retain_commit_cleanup(document);
-    const auto stream = read_stream_journal(document, safe_relative_path);
+    auto stream = read_stream_journal(document, safe_relative_path);
     result.stream_source_digest = stream.source_digest;
     result.stream_source_context = stream.source_context;
     result.publication_root_identity = stream.publication_root_identity;
@@ -1639,6 +1647,34 @@ RecoveryInspection TransactionSession::inspect_recovery_impl(const TransactionSp
     usk::base::Sha256 snapshot_digest;
     snapshot_digest.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
     result.snapshot_sha256 = snapshot_digest.finish();
+    return {std::move(result), std::move(stream), retained_stream, retained_commit};
+}
+} // namespace
+
+CompletedTransactionHistory TransactionSession::decode_completed_history(
+    const TransactionSpec& input, const std::string& text)
+{
+    const auto spec = normalized_inspection_spec(input);
+    auto metadata = decode_transaction_metadata(spec, text);
+    if (metadata.inspection.current_state != "completed")
+        throw std::runtime_error("historical transaction journal is not completed");
+    return {std::move(metadata.inspection.journal_digest), std::move(metadata.inspection.recorded_at),
+        std::move(metadata.inspection.snapshot_sha256), std::move(metadata.stream)};
+}
+
+RecoveryInspection TransactionSession::inspect_recovery_impl(const TransactionSpec& input, bool observe_payload)
+{
+    const auto spec = normalized_inspection_spec(input);
+    const fs::path staging = spec.staging_parent / (".usk-stage-" + spec.transaction_id);
+    const fs::path journal = spec.state_root / "transactions" /
+        (spec.transaction_id + ".journal.json");
+    base::require_native_path_capacity(journal, base::NativePathKind::file, "recovery inspection journal");
+    const std::string text = read_bounded_text(journal, 4u * 1024u * 1024u);
+    auto metadata = decode_transaction_metadata(spec, text);
+    auto result = std::move(metadata.inspection);
+    const auto& stream = metadata.stream;
+    const bool retained_stream = metadata.retained_stream;
+    const bool retained_commit = metadata.retained_commit;
     if (!observe_payload) {
         if (result.current_state != "completed")
             throw std::runtime_error("historical transaction journal is not completed");

@@ -37,6 +37,14 @@ struct AuditEvent : AuditInput {
     std::string previous_event_digest;
 };
 
+// Canonical event metadata only. Complete chain membership, filenames, current
+// namespace/native custody and operation authority must be checked separately.
+AuditEvent decode_audit_event_record(const std::string& text);
+// One metadata link only. The caller must independently prove the complete
+// ordered record set and native directory/record custody.
+AuditEvent decode_audit_chain_record(const std::string& text, const std::string& chain_id,
+    const std::string& record_name, std::uint64_t sequence, const std::string& previous_digest);
+
 class AuditRepository {
 public:
     explicit AuditRepository(std::filesystem::path audit_root);
