@@ -19,10 +19,18 @@ A raw independent39row snapshot was captured, but its full oracle failed on
 an unbound Python invocation before lease validation. Binding Python locally
 also exposed a missing independently measured volume-root identity.
 The integrated repair binds those inputs and preserves actual recovery reply
-variants and strict root/lease checks. Its hosted run failed earlier during
-target admission, before exercising the repair. The native admission stderr
-was missing from the controller receipt; the next increment retains bounded
-native command evidence for admission and enrollment without retrying effects.
+variants and strict root/lease checks. Diagnostic candidate81fb275 in
+CI39030286105 passed target admission and enrollment, then its source-retired
+reentry returned pass/already_visible_bound with client exit0. The subsequent
+independent state equality check failed; the later snapshot was not retained.
+The next increment retains all three existing reentry/stale-request/verify
+snapshots before their unchanged strict comparisons. Their differences remain
+unknown until actual evidence is retained. The legacy machine route still
+refuses its remounted device policy. A separate source correction applies the
+existing fresh-owned-image protection before first attachment to admitted
+controller fixtures, which previously skipped it. This omission is not the
+established cause of earlier admission failures. Local routing/security checks
+and source review pass; hosted qualification remains required.
 Counterfactual replay with a synthetic root is only a validator test,
 not new native evidence. Source-free reentry and genuine retirement remain
 unqualified. The legacy machine route still refuses its remounted device policy.

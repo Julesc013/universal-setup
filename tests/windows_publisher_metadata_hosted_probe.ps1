@@ -2376,6 +2376,7 @@ try {
         $requestClient=$null
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
         $repeat=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+        $receipt.registered_source_free_reentry['independent_readback']=$repeat
         if($repeat.independent.identity -ne 'S-1-5-18' -or -not $repeat.observer_task_removed -or
             ($receipt.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
             ($repeat.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
@@ -2411,6 +2412,7 @@ try {
         $requestClient=$null
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
         $afterStale=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+        $receipt.stale_minimal_recovery_refused['independent_readback']=$afterStale
         if($afterStale.independent.identity -ne 'S-1-5-18' -or -not $afterStale.observer_task_removed -or
             ($repeat.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
             ($afterStale.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
@@ -2495,6 +2497,7 @@ try {
         }
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
         $verifyRows=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
+        $receipt.registered_installed_verify['independent_readback']=$verifyRows
         if($verifyRows.independent.identity -ne 'S-1-5-18' -or -not $verifyRows.observer_task_removed -or
             ($receipt.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
             ($verifyRows.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
