@@ -339,6 +339,17 @@ void historical_boundary_controls(const usk::lifecycle::detail::OwnedPublisherRe
     wrong.as_object().at("prepared_record_sha256")=Value(std::string(64,'0'));bad_initial(wrong);
     wrong=usk::json::parse(visible.bytes);
     wrong.as_object().at("source_file_id")=usk::json::parse(prepared.bytes).at("destination_parent_file_id");bad_initial(wrong);
+    // Retained original x64 calls must not acquire the current reader's ABI.
+    // This default fixture's positive route runs under both x86 and x64 CTest.
+    for(const auto header_bytes:{16u,20u,32u}) {
+        wrong=usk::json::parse(visible.bytes);
+        auto& call=wrong.as_object().at("rename_call");
+        call.as_object().at("information_bytes")=Value(static_cast<std::uint64_t>(header_bytes)+
+            call.at("file_name_bytes").as_unsigned());bad_initial(wrong);
+    }
+    wrong=usk::json::parse(visible.bytes);
+    wrong.as_object().at("execution_phases").as_array()[0].as_object().at("execution")
+        .as_object().at("platform").as_object().at("process_arch")=Value("x86");bad_initial(wrong);
 
     const auto original_entry=std::find_if(records.begin(),records.end(),[](const auto& entry) {
         return entry.first.find(L".native-maintenance-original.json")!=std::wstring::npos &&

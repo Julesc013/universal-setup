@@ -809,6 +809,13 @@ void require_native_descendant_continuity(const usk::json::Value& earlier, const
 
 void require_native_rename_call(const usk::json::Value& call,
     const usk::json::Value& prepared, const usk::json::Value& bound) {
+    // Decode the original call's admitted x64 ABI, independent of this
+    // metadata reader's architecture. Native argument construction is separate.
+    usk::platform::windows::require_publisher_execution_platform(
+        bound.at("execution_phases").as_array().at(0).at("execution").at("platform"));
+    constexpr std::uint64_t retained_x64_rename_info_bytes = 24;
+    static_assert(sizeof(void*) != 8 || sizeof(FILE_RENAME_INFO) == retained_x64_rename_info_bytes,
+        "native x64 rename structure differs from the retained execution profile");
     const auto& component = prepared.at("destination_name").as_string();
     const bool rights_bound = call.at("schema").as_string() == "usk.publisher_bound_rename_call.v2";
     if (call.as_object().size() != (rights_bound ? 21u : 18u) ||
@@ -824,7 +831,7 @@ void require_native_rename_call(const usk::json::Value& call,
         call.at("destination_absence_status").as_unsigned() != 0xc0000034u ||
         call.at("information_class").as_unsigned() != 10 ||
         call.at("file_name_bytes").as_unsigned() != component.size() * sizeof(WCHAR) ||
-        call.at("information_bytes").as_unsigned() != sizeof(FILE_RENAME_INFO) + component.size() * sizeof(WCHAR) ||
+        call.at("information_bytes").as_unsigned() != retained_x64_rename_info_bytes + component.size() * sizeof(WCHAR) ||
         call.at("replace_if_exists").as_boolean() || call.at("native_status").as_unsigned() != 0 ||
         call.at("io_status").as_unsigned() != 0 || call.at("clock").as_string() != "qpc" ||
         (rights_bound && (call.at("source_granted_access").as_unsigned() > 0xffffffffu ||
