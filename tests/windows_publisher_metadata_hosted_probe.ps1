@@ -2806,6 +2806,10 @@ try {
         $receipt['consumer_attempts_unchanged_rows']=$afterAccess.independent.rows
         $receipt['consumer_attempts_observer_removed']=$afterAccess.observer_task_removed
     }
+    if($AdmittedTarget) {
+        . (Join-Path $PSScriptRoot 'windows_publisher_controller_maintenance_probe.ps1')
+        $null=Invoke-ControllerOwnedUninstall
+    }
     if($ReviewedSource) {
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
         if((Get-Service $service).Status -ne 'Stopped') { throw 'Reviewed service remains active during root ACL observation' }

@@ -34,6 +34,13 @@ payload and passing ordinary verification are retained; verification leaves all
 104 native rows unchanged in each cohort. Its actual synthetic build929dfe9c
 has the submitted7da6273/accepteddev6933 source tree. This is not a causal speed
 claim for the allocation repair or unpublished token-buffer experiment.
+The later PR251 run39049401527/1 retains the two fresh maintenance passes,
+but both genuinely interrupted source-retired repair.recover clients again exceed
+the unchanged120second deadline. The untraced client exits5/UNKNOWN; the traced
+client is still alive at the deadline observation. No native terminal or verified
+completed result qualifies either invocation. Earlier PR250 passes do not prove
+reliable recovery across these runs. The PR251 synthetic build7adc63b27bd1
+has the submitted2118e71 source tree; package/build identity remains distinct.
 Both service builds enable diagnostics; comparison with/without WPR does not
 qualify release-default performance. The cohort profile/recovery qualification
 flags remain false, and owned retirement plus the legacy remounted-device route
@@ -170,6 +177,19 @@ account RID, through the existing acknowledged launcher with a separate profile.
 It retains the account while product authority remains and qualifies the actual
 actor independently before compilation. Product SID policy remains unchanged;
 local fixture controls are not evidence of a successful hosted install.
+The admitted controller fixture now stages real enrolled repair of its damaged
+owned payload, then real enrolled uninstall without a move, before retirement.
+It uses the packaged public client, original installed archive digest, independent
+SYSTEM state/lease/journal/effect/audit and root-removal observations. Readonly
+planning runs in the existing SYSTEM observer with held pinned inputs; named-admin
+enrollment and dispatch retain private metadata ACLs. The actual request finally
+retains its primary error, shared process owner and unconfirmed cleanup barrier
+when termination fails. Local parsing, cleanup fault controls and deterministic
+flat-archive reauthoring pass; hosted execution
+for this increment is not yet qualified. Existing unpublished-only unregister and
+binary retirement remain fail closed for installed metadata; the fixed privileged
+owned-retirement implementation remains unfinished. No lab deletion substitutes
+for product retirement, and no120second request or420second fixture limit changes.
 Use the external task checkpoint for exact candidate pins and current results.
 Do not start another campaign, queue or unofficial checkout. Integrate reviewed
 dev checkpoints daily; promote main weekly when its qualification gates pass.

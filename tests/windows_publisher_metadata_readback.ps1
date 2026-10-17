@@ -331,7 +331,8 @@ function Invoke-IndependentMetadataReadback {
         [string]$AbsentPublicationPreservationPrefix='',
         [string]$AbsentPublicationReservationPrefix='',
         [ValidateSet(0,1,2)][int]$AbsentPublicationReservationGeneration=0,
-        [string]$OriginalFailedRequestDiagnosticBinding='')
+        [string]$OriginalFailedRequestDiagnosticBinding='',
+        [string]$MaintenancePlanningBinding='')
     if($DriveRoot -cnotmatch '^[A-Z]:\\$' -or $RunId -cnotmatch '^[0-9a-f]{32}$') {
         throw 'Exact observed volume alias and owned observer identity required'
     }
@@ -373,6 +374,12 @@ function Invoke-IndependentMetadataReadback {
         $OriginalFailedRequestDiagnosticBinding -cnotmatch '^[A-Za-z0-9+/]+={0,2}$')) {
         throw 'Failed-request content diagnostic requires its complete original capture and volume binding'
     }
+    if($MaintenancePlanningBinding -and ($MetadataOnly -or $CallerProcessId -ne 0 -or
+        $ClientCaptureFile -or $ExpectedVolumeRoot -or $OriginalFailedRequestDiagnosticBinding -or
+        $MaintenancePlanningBinding.Length -gt 8192 -or
+        $MaintenancePlanningBinding -cnotmatch '^[A-Za-z0-9+/]+={0,2}$')) {
+        throw 'Readonly maintenance planning requires the bounded standalone owned observer'
+    }
     $name='USK_METADATA_OBSERVER_'+$RunId
     $script=Join-Path $OutputRoot ('metadata-observer-'+$RunId+'.ps1')
     $output=Join-Path $OutputRoot ('metadata-observed-'+$RunId+'.json')
@@ -386,7 +393,8 @@ param([string]$Output,[string]$DriveRoot,[switch]$MetadataOnly,
     [string]$AbsentPublicationPreservationPrefix='',
         [string]$AbsentPublicationReservationPrefix='',
         [ValidateSet(0,1,2)][int]$AbsentPublicationReservationGeneration=0,
-        [string]$OriginalFailedRequestDiagnosticBinding='')
+        [string]$OriginalFailedRequestDiagnosticBinding='',
+        [string]$MaintenancePlanningBinding='')
 $ErrorActionPreference='Stop'
 $global:UskMetadataObserverPhase='initialize_native_types'
 function Test-PublisherHeldCaptureRequestContext([string]$RequestId,[string]$Command) {
@@ -1553,6 +1561,84 @@ if($contentReadFailures.Count) {
  $result['derived_projections']=[ordered]@{status='skipped';
   reason='missing_original_json_body';whole_snapshot_qualified=$false;backup_provenance_qualified=$false}
 }
+if($MaintenancePlanningBinding) {
+ $global:UskMetadataObserverPhase='readonly_maintenance_plan'
+ if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18') {
+  throw 'Maintenance planning observer is not SYSTEM'
+ }
+ $binding=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($MaintenancePlanningBinding))|ConvertFrom-Json
+ if(@($binding.PSObject.Properties).Count -ne 7 -or $binding.schema -cne 'usk.controller_readonly_maintenance_plan.v1') {
+  throw 'Maintenance planning binding differs'
+ }
+ $planningRoot=Join-Path (Split-Path -Parent $Output) 'controller-inputs'
+ $held=[Collections.Generic.List[object]]::new();$planner=$null;$plannerEnded=$false;$planningFailure=$null
+ try {
+  $texts=@{}
+  foreach($role in @('machine','request','context')) {
+   $path=[IO.Path]::GetFullPath([string]$binding.$role)
+   $hashField=$role+'_sha256';$expectedHash=[string]$binding.$hashField
+   $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+   if(-not $path.StartsWith($planningRoot+'\',[StringComparison]::Ordinal) -or
+      $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+      $expectedHash -cnotmatch '^[0-9a-f]{64}$' -or
+      ($role -ceq 'machine' -and (Split-Path -Leaf $path) -cne 'usk_machine.exe')) {
+    throw 'Maintenance planning input escaped its owned fixed role'
+   }
+   $stream=[IO.File]::Open($path,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read);$held.Add($stream)
+   $limit=if($role -ceq 'machine'){256MB}elseif($role -ceq 'request'){1MB}else{16KB}
+   if($stream.Length -eq 0 -or $stream.Length -gt $limit){throw 'Maintenance planning input exceeds its bound'}
+   $hash=[Security.Cryptography.SHA256]::Create()
+   try {$actual=([BitConverter]::ToString($hash.ComputeHash($stream))).Replace('-','').ToLowerInvariant()}
+   finally {$hash.Dispose()}
+   if($actual -cne $expectedHash){throw 'Maintenance planning held input digest differs'}
+   if($role -cne 'machine') {
+    $stream.Position=0
+    $reader=[IO.StreamReader]::new($stream,[Text.UTF8Encoding]::new($false,$true),$false,1024,$true)
+    try {$texts[$role]=$reader.ReadToEnd()|ConvertFrom-Json} finally {$reader.Dispose()}
+   }
+  }
+  $request=$texts.request;$context=$texts.context
+  if(@($request.PSObject.Properties).Count -ne 5 -or $request.schema -cne 'usk.oneshot_request.v1' -or
+     $request.command -cnotin @('repair.plan','uninstall.plan') -or
+     $request.dry_run -isnot [bool] -or -not $request.dry_run -or
+     $request.payload.schema -cne ('usk.'+$request.command.Split('.')[0]+'_plan_request.v1') -or
+     @($context.PSObject.Properties).Count -ne 4 -or $context.schema -cne 'usk.oneshot_context.v1' -or
+     $context.state_root -cne ($DriveRoot+'setup-state') -or $context.authorized_acceptance_root -cne $DriveRoot -or
+     $context.target_policy_activation -cne 'operator_acceptance_candidate') {
+   throw 'Maintenance planning permits only the bound readonly plan and exact roots'
+  }
+  $stdout=$binding.request+'.plan.stdout';$stderr=$binding.request+'.plan.stderr'
+  if((Test-Path -LiteralPath $stdout) -or (Test-Path -LiteralPath $stderr)){throw 'Maintenance planning output already exists'}
+  $planner=Start-Process -FilePath $binding.machine -ArgumentList @('--machine','--request-file',
+      ('"'+$binding.request+'"'),'--context-file',('"'+$binding.context+'"')) -WindowStyle Hidden -PassThru `
+      -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+  if(-not $planner.WaitForExit(30000)){throw 'Readonly maintenance planner exceeded its bound'}
+  $planner.WaitForExit();$plannerEnded=$true
+  $outputFile=Get-Item -LiteralPath $stdout
+  if($planner.ExitCode -ne 0 -or $outputFile.Length -eq 0 -or $outputFile.Length -gt 4MB) {
+   throw 'Readonly maintenance planner did not return a bounded success'
+  }
+  $planText=[IO.File]::ReadAllText($stdout);$plan=$planText|ConvertFrom-Json
+  if($plan.schema -cne 'usk.oneshot_response.v1' -or $plan.request_id -cne $request.request_id -or
+     $plan.status -cne 'ok' -or $plan.result.status -cne 'ok' -or $plan.result.payload.plan_id -cne $request.payload.plan_id) {
+   throw 'Readonly maintenance plan response differs from its held request'
+  }
+  $result['maintenance_plan']=[ordered]@{schema='usk.controller_readonly_maintenance_plan_observation.v1';
+   request_sha256=$binding.request_sha256;context_sha256=$binding.context_sha256;
+   machine_sha256=$binding.machine_sha256;planner_exited=$true;
+   response_sha256=(Get-FileHash -LiteralPath $stdout -Algorithm SHA256).Hash.ToLowerInvariant();response_json=$planText}
+ } catch {$planningFailure=$_} finally {
+  # Attempt all owned closes; retain the original planning failure.
+  try {
+   if($planner -and -not $plannerEnded){$planner.Kill();if(-not $planner.WaitForExit(5000)){throw 'Readonly planner closure is unknown'}}
+  } catch {if(-not $planningFailure){$planningFailure=$_}}
+  try {if($planner){$planner.Dispose()}} catch {if(-not $planningFailure){$planningFailure=$_}}
+  foreach($stream in $held) {
+   try {$stream.Dispose()} catch {if(-not $planningFailure){$planningFailure=$_}}
+  }
+ }
+ if($planningFailure){throw $planningFailure}
+}
 $temporary=$Output+'.pending'
 $global:UskMetadataObserverPhase='publish_closed_success_receipt'
 # Closing all observer-owned token/process duplicates is part of the success
@@ -1595,6 +1681,9 @@ try {
     }
     if($OriginalFailedRequestDiagnosticBinding) {
         $command+=" -OriginalFailedRequestDiagnosticBinding '"+$OriginalFailedRequestDiagnosticBinding+"'"
+    }
+    if($MaintenancePlanningBinding) {
+        $command+=" -MaintenancePlanningBinding '"+$MaintenancePlanningBinding+"'"
     }
     $failureOutput=$output+'.failure.json'
     $failureCommand=@'
