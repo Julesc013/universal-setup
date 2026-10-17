@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import ast
+import itertools
 import unittest
 from pathlib import Path
 
@@ -35,6 +37,61 @@ class NativeCiProofTests(unittest.TestCase):
         self.assertIn("cmake -S . -B build/win32 -A Win32", workflow)
         self.assertIn("cppcheck --project=build/smoke/compile_commands.json", workflow)
         self.assertIn("--parallel 4", workflow)
+
+    def test_independent_maintenance_cohorts_require_build_and_trusted_context(self) -> None:
+        qualification = WORKFLOW.read_text(encoding="utf-8").split(
+            "  publisher-qualification:\n", 1)[1].split("  windows-win32:\n", 1)[0]
+        build = "      - run: cmake --build build/smoke --config Release --parallel\n        id: publisher_build\n"
+        self.assertEqual(qualification.count(build), 1)
+        self.assertLess(qualification.index("id: controller_actor"), qualification.index(build))
+        self.assertNotIn("continue-on-error", qualification)
+
+        def value(node: ast.AST):
+            # Evaluate only the Boolean/string subset used by these four actual
+            # conditions. This is a data test, not a general Actions interpreter.
+            if isinstance(node, ast.Constant) and type(node.value) in (bool, str):
+                return node.value
+            if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+                return not value(node.operand)
+            if isinstance(node, ast.BoolOp) and isinstance(node.op, (ast.And, ast.Or)):
+                values = [value(item) for item in node.values]
+                return all(values) if isinstance(node.op, ast.And) else any(values)
+            if isinstance(node, ast.Compare) and len(node.ops) == 1 and isinstance(node.ops[0], ast.Eq):
+                return value(node.left) == value(node.comparators[0])
+            raise AssertionError("Unsupported cohort condition syntax: " + ast.dump(node))
+
+        cohort_ids = (
+            "fresh_untraced",
+            "observe_standard_account_fresh_repair_move_and_uninstall",
+            "recovery_untraced",
+            "recover_a_genuinely_interrupted_repair_without_its_source_archive",
+        )
+        for identity in cohort_ids:
+            block = qualification.split("        id: " + identity + "\n", 1)[1].split("      - ", 1)[0]
+            condition = next(line.strip()[4:] for line in block.splitlines() if line.strip().startswith("if: "))
+            expression = condition.removeprefix("$" + "{{").removesuffix("}}").strip()
+            self.assertIn("cancelled()", expression)  # Explicit status check prevents implicit success().
+            for cancelled, outcome, windows, pull, same_repo, earlier_failed in itertools.product(
+                (False, True), ("success", "failure", "skipped", "cancelled"),
+                (False, True), (False, True), (False, True), (False, True)
+            ):
+                replacements = {
+                    "cancelled()": cancelled, "success()": not earlier_failed,
+                    "failure()": earlier_failed, "always()": True,
+                    "steps.publisher_build.outcome": outcome,
+                    "runner.os": "Windows" if windows else "Linux",
+                    "github.event_name": "pull_request" if pull else "push",
+                    "github.event.pull_request.head.repo.full_name": "owner/setup" if same_repo else "fork/setup",
+                    "github.repository": "owner/setup",
+                }
+                actual = expression
+                for token, replacement in replacements.items():
+                    actual = actual.replace(token, repr(replacement))
+                actual = actual.replace("&&", " and ").replace("||", " or ").replace("!", "not ").strip()
+                admitted = value(ast.parse(actual, mode="eval").body)
+                expected = not cancelled and outcome == "success" and windows and pull and same_repo
+                with self.subTest(cohort=identity, context=replacements):
+                    self.assertEqual(admitted, expected)
 
     def test_publisher_qualification_does_not_hide_core_ctest_or_skip_main(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")

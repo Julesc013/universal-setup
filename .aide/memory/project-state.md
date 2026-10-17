@@ -19,6 +19,12 @@ before the broker's first admission reply, after confirmed query/worker,
 child/job and volume closure. Later failures remain conservative; hosted
 execution must still qualify the route with the unchanged refusal assertions.
 PR245 previously imported AIDE9605d8e into dev12f9f8c, preserving project state.
+The four fresh and genuinely interrupted maintenance cohorts are independently
+owned runs. Their workflow admission now requires the successful actor-qualified
+build and the admitted same-repository Windows PR context, with cancellation
+respected. An earlier isolated journey failure still fails publisher qualification,
+while these cohorts can retain their own outcomes. Their existing assertions,
+deadlines, producer-bound collectors and main gate remain unchanged.
 Earlier PR244 CI39034031107 retained native install and already-visible source-retired reentry pass,
 with all39 prior rows unchanged and exactly the protected generation2 lease pair
 added. It then stopped at the stale-request assertion before retaining its reply.
