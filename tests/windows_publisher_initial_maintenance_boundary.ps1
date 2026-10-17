@@ -17,6 +17,50 @@ function Get-PublisherInitialOperationPrefix([string]$DriveRoot,[string]$Install
     return $DriveRoot+'installation-operations\install-'+$hashes[0]+'\operation-'+$hashes[1]
 }
 
+# Digest-bearing timestamps are protocol strings. PowerShell 7 otherwise
+# coerces ISO strings to DateTime and later [string] casts use the local culture.
+# Windows PowerShell 5.1 preserves strings without this newer optional parameter.
+function ConvertFrom-PublisherInitialMaintenanceJson([string]$Text) {
+    $options=@{InputObject=$Text;ErrorAction='Stop'}
+    if((Get-Command Microsoft.PowerShell.Utility\ConvertFrom-Json).Parameters.ContainsKey('DateKind')) {
+        $options.DateKind='String'
+    }
+    return Microsoft.PowerShell.Utility\ConvertFrom-Json @options
+}
+
+# Pure data validation only; the caller retains all held-file, original-owner,
+# namespace, pre-staging and live-pair checks before any interruption.
+function Assert-PublisherInitialMaintenanceJournalChain($journal,[string]$tx) {
+    if(@($journal.transitions).Count -ne 4 -or $journal.updated_at -isnot [string] -or
+        $journal.updated_at -cnotmatch '\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z') {
+        throw 'Initial maintenance journal timestamp text or transition count differs'
+    }
+    $phases=@('created','validated','planned','staging')
+    $chain=[Text.StringBuilder]::new()
+    for($i=0;$i -lt 4;$i++) {
+        $transition=$journal.transitions[$i]
+        if($transition.sequence -ne $i -or $transition.to -cne $phases[$i] -or
+            $transition.transition_id -cne ($tx+'.'+$i) -or
+            $transition.durable_before_external_visibility -ne $true -or
+            $transition.recorded_at -isnot [string] -or
+            $transition.recorded_at -cnotmatch '\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\z' -or
+            ($i -eq 0 -and $null -ne $transition.from) -or
+            ($i -gt 0 -and $transition.from -cne $phases[$i-1])) {
+            throw 'Initial maintenance shared snapshot chain differs'
+        }
+        $from=if($i -eq 0){''}else{$phases[$i-1]}
+        [void]$chain.Append($i).Append([char]0).Append($from).Append([char]0).Append($phases[$i]).
+            Append([char]0).Append([string]$transition.recorded_at).Append([char]10)
+    }
+    $sha=[Security.Cryptography.SHA256]::Create()
+    try {$chainSha=([BitConverter]::ToString($sha.ComputeHash([Text.UTF8Encoding]::new($false,$true).
+        GetBytes($chain.ToString())))).Replace('-','').ToLowerInvariant()}
+    finally {$sha.Dispose()}
+    if($journal.journal_digest -cne $chainSha -or $journal.updated_at -cne $journal.transitions[3].recorded_at) {
+        throw 'Initial maintenance shared snapshot digest or final time differs'
+    }
+}
+
 function Invoke-OwnedInitialMaintenanceBoundary($Config,$EffectPair,$Result) {
     $tx=[string]$Config.maintenance_transaction_id
     # The hosted launcher checks its runner environment before scheduling this
@@ -66,7 +110,7 @@ function Invoke-OwnedInitialMaintenanceBoundary($Config,$EffectPair,$Result) {
             finally {$sha.Dispose()}
             $file.Position=0
             $reader=[IO.StreamReader]::new($file,[Text.UTF8Encoding]::new($false,$true),$false,4096,$true)
-            try {$documents[$entry.key]=$reader.ReadToEnd()|ConvertFrom-Json}
+            try {$documents[$entry.key]=ConvertFrom-PublisherInitialMaintenanceJson ($reader.ReadToEnd())}
             finally {$reader.Dispose()}
         }
         $original=$documents.original;$journal=$documents.initial
@@ -130,28 +174,7 @@ function Invoke-OwnedInitialMaintenanceBoundary($Config,$EffectPair,$Result) {
             -not $stream.source_context -or $stream.publication_root_identity) {
             throw 'Initial maintenance shared snapshot window was missed or is malformed'
         }
-        $phases=@('created','validated','planned','staging')
-        $chain=[Text.StringBuilder]::new()
-        for($i=0;$i -lt 4;$i++) {
-            $transition=$journal.transitions[$i]
-            if($transition.sequence -ne $i -or $transition.to -cne $phases[$i] -or
-                $transition.transition_id -cne ($tx+'.'+$i) -or
-                $transition.durable_before_external_visibility -ne $true -or -not $transition.recorded_at -or
-                ($i -eq 0 -and $null -ne $transition.from) -or
-                ($i -gt 0 -and $transition.from -cne $phases[$i-1])) {
-                throw 'Initial maintenance shared snapshot chain differs'
-            }
-            $from=if($i -eq 0){''}else{$phases[$i-1]}
-            [void]$chain.Append($i).Append([char]0).Append($from).Append([char]0).Append($phases[$i]).
-                Append([char]0).Append([string]$transition.recorded_at).Append([char]10)
-        }
-        $sha=[Security.Cryptography.SHA256]::Create()
-        try {$chainSha=([BitConverter]::ToString($sha.ComputeHash([Text.UTF8Encoding]::new($false,$true).
-            GetBytes($chain.ToString())))).Replace('-','').ToLowerInvariant()}
-        finally {$sha.Dispose()}
-        if($journal.journal_digest -cne $chainSha -or $journal.updated_at -cne $journal.transitions[3].recorded_at) {
-            throw 'Initial maintenance shared snapshot digest or final time differs'
-        }
+        Assert-PublisherInitialMaintenanceJournalChain $journal $tx
         if((Test-Path -LiteralPath $stage) -or (Test-Path -LiteralPath $target)) {
             throw 'Initial maintenance staging effect already began; required window missed'
         }
