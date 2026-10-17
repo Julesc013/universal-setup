@@ -11,15 +11,18 @@ The external FacMan task's compact continuation record holds the changing checkp
 PR242 is merged into dev at29c5fe5; main remainsc048f7. All required core
 checks and all57native Windows tests passed on18b972c in CI39024589767.
 The account-marker and SDK scheduling repairs preserve all existing deadlines.
-The preceding f6151c6 experiment in CI39023738487 passed the actual named
-actor identity/cleanup probe. Its controller completed target admission and
-operation enrollment, then the read-only VHD observer returned access denied
-before installation dispatch. The legacy machine route again refused the
-remounted device policy. These are distinct from later skipped producers.
-The next observer change uses a query-only V2 VHD handle, retaining native
-disk, device and service-SID checks. Local compilation/refusal controls do not
-qualify an attached-VHD observation or product installation. Main, deployment
-and release remain unqualified; exact current hosted results stay in the task checkpoint.
+Accepted-dev push CI39025588762 also passed all core/specification jobs;
+publisher qualification was skipped by its push condition.
+Candidate8743ab3 in CI39025902728 passed the actual query-only V2 VHD
+observation and completed the admitted controller's request-bound installation.
+A raw independent39row snapshot was captured, but its full oracle failed on
+an unbound Python invocation before lease validation. Binding Python locally
+also exposed a missing independently measured volume-root identity.
+The next change binds those inputs explicitly and retains strict root/lease
+checks. Counterfactual replay with a synthetic root is only a validator test,
+not new native evidence. Source-free reentry and genuine retirement remain
+unqualified. The legacy machine route still refuses its remounted device policy.
+Main, deployment and release remain unqualified; exact results stay in the task checkpoint.
 
 Continue the connected admitted-target controller/consumer path, source-free
 recovery within120seconds, and genuine owned maintenance/retirement. The next

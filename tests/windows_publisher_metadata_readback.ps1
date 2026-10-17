@@ -131,7 +131,7 @@ function Assert-IndependentMetadataCollisionPrefix {
     }
 }
 function Assert-IndependentMetadataProbe {
-    param($Result,[switch]$AllowPartialConsumerGrant,[switch]$RequireInstallationLease)
+    param($Result,[switch]$AllowPartialConsumerGrant,[switch]$RequireInstallationLease,[string]$PythonBinary='')
     $drive=$Result.volume_drive_root
     if($drive -cnotmatch '^[A-Z]:\\$'){throw 'Exact observed volume drive root required'}
     $visibleRoot=([string]$Result.plan.target.root).Replace('/','\')
@@ -187,8 +187,16 @@ function Assert-IndependentMetadataProbe {
     $leaseFiles=@($publicFiles|Where-Object {$_.path.StartsWith(($drive+'setup-state\state\leases\'),[StringComparison]::Ordinal)})
     $contextFiles=@($Result.independent.rows|Where-Object {$_.path.StartsWith(($drive+'installation-operations\'),[StringComparison]::Ordinal)})
     if($RequireInstallationLease -or $leaseFiles.Count -gt 0 -or $contextFiles.Count -gt 0) {
+        if([string]::IsNullOrWhiteSpace($PythonBinary)){throw 'Independent lease validation requires its explicit Python interpreter'}
+        $observedRoot=[string]$Result.independent.native_volume_root_file_id
+        if($observedRoot -cnotmatch '^[0-9a-f]{16}:[0-9a-f]{32}$' -or
+            $Result.native.protected_anchors.boundary_file_id -cne $observedRoot -or
+            ($Result.independent.volume_boundary -and
+                $Result.independent.volume_boundary.root.file_id -cne $observedRoot)) {
+            throw 'Independent native volume root differs from the installation boundary'
+        }
         $leaseRequest=@{mode='snapshot';rows=$Result.independent.rows;drive=$drive;installed=$installed;
-            volume_root_id=$Result.independent.volume_boundary.root.file_id;allow_active=[bool]$AllowPartialConsumerGrant}
+            volume_root_id=$observedRoot;allow_active=[bool]$AllowPartialConsumerGrant}
         $leaseOutput=$leaseRequest|ConvertTo-Json -Depth 64 -Compress|
             & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -
         if($LASTEXITCODE -ne 0){throw 'Independent installation lease/context closure differs'}
@@ -1221,7 +1229,12 @@ if($MetadataOnly) {
   }
  }
 }
+# Record-only lease checks also need an independently measured root identity.
+# This fact does not replace the separate held-client/device boundary proof.
+$volumeRootFacts=[UskMetadataFacts]::ReadClosure($DriveRoot)
+if(([uint32]$volumeRootFacts[2] -band 0x410) -ne 0x10){throw 'Independent volume root is not an ordinary directory'}
 $result=[ordered]@{schema='usk.publisher.metadata_independent_readback.v1';identity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value;rows=$rows;volume_metadata=$volumeMetadata;
+ native_volume_root_file_id=[string]$volumeRootFacts[0];
  runtime=@{powershell=$PSVersionTable.PSVersion.ToString();clr=[Environment]::Version.ToString()};observed_utc=[DateTime]::UtcNow.ToString('o')}
 if($effectiveRights){$result['effective_right_tokens']=$effectiveRights.TokenFacts}
 if($ExpectedVolumeRoot) {
@@ -1233,7 +1246,8 @@ if($ExpectedVolumeRoot) {
   owner=$raw.Owner.Value;protected=[bool]($raw.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected);
   raw_aces=@($raw.DiscretionaryAcl|ForEach-Object {[ordered]@{type=[int]$_.AceType;flags=[int]$_.AceFlags;access_mask=$_.AccessMask;sid=$_.SecurityIdentifier.Value}})}
  $checked=$effectiveRights.Read($DriveRoot)
- if($checked['file_id'] -cne $root.file_id -or $checked['security'] -cne $root.raw_security) {
+ if($checked['file_id'] -cne $root.file_id -or $checked['security'] -cne $root.raw_security -or
+    $root.file_id -cne $result.native_volume_root_file_id) {
   throw 'Volume-root descriptor differs from independent native boundary'
  }
  $root['effective_rights']=$checked['checks'];$root['effective_right_group_sid']=$checked['group_sid']
