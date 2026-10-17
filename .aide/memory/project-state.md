@@ -51,6 +51,23 @@ pairing refuses. These are historical metadata observations, not live native
 entry or completed retirement. Complete domain, namespace, lease, current
 revision and final native effects still need the fixed connected route.
 
+The native custody owner now has fresh same-handle directory metadata for the
+existing lease128-bit and transaction33-character identity codecs, with exact
+original membership and before/after identity, security and stream checks.
+Private final effects are reserved to the single fixed lifecycle function:
+full original custody revalidation, exact stopped-service deletion and
+confirmed own handle closure, actual SCM absence, full revalidation, disposition
+of the original fully hashed held image, confirmed close and final absence.
+Pending SCM deletion retains the image; an uncertain later disposition/close
+is incomplete and requires fresh revalidation, not an assumed rollback.
+Failed/finished custody cannot be reused. No registration/history is removed.
+The friend lifecycle function and CLI integration remain unimplemented; these
+private effects have not been entered or positively qualified on a native
+target. Construction and observation still cannot select retirement. The
+complete domain/current-state/all-operation/ended-holder/absence join remains
+mandatory before connecting the route; no serialized verdict or callback can
+enable its final effects.
+
 A bounded whole-history byte reader now reuses the existing completed repair
 and uninstall selection: canonical journal and reviewed-plan association,
 complete sealed ordered effects, original/result ownership and installed

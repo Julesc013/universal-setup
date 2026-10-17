@@ -14,6 +14,7 @@
 
 #include "usk_publisher_registration.h"
 #include "usk_publisher_owned_retirement_custody_internal.h"
+#include "usk_publisher_installation_lease.h"
 #include "usk_publisher_controller_request_internal.h"
 #include "usk_publisher_service_readback_internal.h"
 #include "usk_publisher_effect_worker_custody_internal.h"
@@ -2768,6 +2769,7 @@ struct PublisherOwnedRetirementCustody::State {
     DWORD thread = GetCurrentThreadId();
     mutable std::atomic<bool> failed{false};
     bool installations_acquired = false;
+    bool finished = false;
     std::unique_ptr<ServiceControlGuard> control;
     std::unique_ptr<ServiceHandle> manager, service;
     std::unique_ptr<PublisherVolumeOperationGuard> volume_guard;
@@ -2816,7 +2818,7 @@ struct PublisherOwnedRetirementCustody::State {
         // Administrative retirement need not run as that standard-user consumer.
     }
     void require_owner() const {
-        if (failed || thread != GetCurrentThreadId()) {
+        if (thread != GetCurrentThreadId() || failed || finished) {
             failed = true;
             throw std::runtime_error("owned retirement custody is failed or belongs to another thread");
         }
@@ -3225,6 +3227,115 @@ void PublisherOwnedRetirementCustody::require_unchanged() {
     state_->require_owner();
     try { state_->verify(); }
     catch (...) { state_->failed = true; throw; }
+}
+
+
+PublisherRetirementDirectoryMetadata PublisherOwnedRetirementCustody::observe_directory_metadata(
+    const std::wstring& relative_path) {
+    state_->require_owner();
+    try {
+        if (!relative_path.empty() &&
+            std::find(state_->directories.begin(), state_->directories.end(), relative_path) == state_->directories.end())
+            throw std::runtime_error("owned retirement directory is not an exact original member");
+        auto native_name = state_->root_facts.native_name;
+        if (!relative_path.empty()) {
+            if (native_name.empty()) throw std::runtime_error("owned retirement root has no native name");
+            if (native_name.back() != L'\\') native_name.push_back(L'\\');
+            auto suffix = relative_path;
+            std::replace(suffix.begin(), suffix.end(), L'/', L'\\');
+            native_name += suffix;
+        }
+        const State::Node* selected = nullptr;
+        for (const auto& node : state_->nodes) {
+            if (node->directory && node->facts.native_name == native_name) {
+                if (selected) throw std::runtime_error("owned retirement directory identity is ambiguous");
+                selected = node.get();
+            }
+        }
+        if (!selected) throw std::runtime_error("owned retirement original directory custody is unavailable");
+        ScopedControllerPrivilege backup;
+        const auto handle = selected->handle;
+        observe_publisher_noninheritable_handle_flags(handle);
+        require_publisher_stream_shape(handle);
+        const auto before = observe_publisher_directory_handle(handle);
+        require_publisher_object_security_shape(before, state_->service_sid);
+        if (!detail::equal_publisher_handle_observations(selected->facts, before))
+            throw std::runtime_error("owned retirement original directory changed before identity decoding");
+        auto lease_root = observe_publisher_lease_root_identity(handle);
+        BY_HANDLE_FILE_INFORMATION legacy{};
+        if (!GetFileInformationByHandle(handle, &legacy) ||
+            (legacy.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) != FILE_ATTRIBUTE_DIRECTORY)
+            throw std::runtime_error("owned retirement transaction directory identity is unavailable");
+        const auto file_id = (static_cast<std::uint64_t>(legacy.nFileIndexHigh) << 32) | legacy.nFileIndexLow;
+        std::array<char, 34> text{};
+        const auto count = std::snprintf(text.data(), text.size(), "%016llx:%016llx",
+            static_cast<unsigned long long>(legacy.dwVolumeSerialNumber), static_cast<unsigned long long>(file_id));
+        require_publisher_stream_shape(handle);
+        if (count != 33 || !detail::equal_publisher_handle_observations(before,
+                observe_publisher_directory_handle(handle)))
+            throw std::runtime_error("owned retirement original directory changed during identity decoding");
+        state_->require_owner();
+        return {before, std::move(lease_root), std::string(text.data(), 33)};
+    } catch (...) {
+        state_->failed = true; throw;
+    }
+}
+
+void PublisherOwnedRetirementCustody::retire_after_owned_validation() {
+    state_->require_owner();
+    try {
+        if (!state_->installations_acquired || state_->install_ids.empty() ||
+            state_->install_guards.size() != state_->install_ids.size())
+            throw std::runtime_error("owned retirement lacks its complete installation guards");
+        // Construction/getters cannot select this call. Only the single fixed
+        // lifecycle function may reach it after all domain/ended-holder/absence
+        // checks; there is no supplied certificate or successful-cleanup grant.
+        state_->verify();
+        if (state_->service) {
+            state_->require_owner();
+            if (!DeleteService(state_->service->get())) {
+                const auto error = GetLastError();
+                throw std::runtime_error("owned retirement exact service deletion is incomplete; image retained; Win32 " +
+                    std::to_string(error));
+            }
+            // DeleteService marks the existing object. Confirm our own close,
+            // then distinguish real SCM absence from pending external handles.
+            const auto closing = state_->service->release();
+            state_->service.reset();
+            if (!closing || !CloseServiceHandle(closing)) {
+                const auto error = closing ? GetLastError() : ERROR_INVALID_HANDLE;
+                throw std::runtime_error("owned retirement original service handle close is unconfirmed; image retained; Win32 " +
+                    std::to_string(error));
+            }
+        }
+        state_->check_scm(); // Marked-for-delete is not confirmed absence.
+        // Recheck all original records/namespace/native boundaries after SCM
+        // closure and immediately before disposing the original held image.
+        state_->verify();
+        if (state_->image) {
+            state_->require_owner();
+            FILE_DISPOSITION_INFO disposition{};
+            disposition.DeleteFile = TRUE;
+            if (!SetFileInformationByHandle(state_->image->get(), FileDispositionInfo,
+                    &disposition, sizeof(disposition))) {
+                const auto error = GetLastError();
+                throw std::runtime_error("owned retirement original image disposition is unconfirmed; Win32 " +
+                    std::to_string(error));
+            }
+            const auto closing = state_->image->release();
+            state_->image.reset();
+            if (closing == INVALID_HANDLE_VALUE || !CloseHandle(closing)) {
+                const auto error = closing == INVALID_HANDLE_VALUE ? ERROR_INVALID_HANDLE : GetLastError();
+                throw std::runtime_error("owned retirement original image close is unconfirmed; revalidate actual absence; Win32 " +
+                    std::to_string(error));
+            }
+        }
+        // Also covers a fresh, fully revalidated retry with SCM/image absent.
+        state_->verify();
+        state_->finished = true;
+    } catch (...) {
+        state_->failed = true; throw;
+    }
 }
 
 usk::json::Value parse_publisher_reviewed_operation_envelope(
