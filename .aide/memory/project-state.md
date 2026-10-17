@@ -38,13 +38,19 @@ before/read/after observations; the byte route never reopens recorded paths.
 The original error mentioning an archive was a metadata journal reopen through
 the filesystem checker, not evidence of a source-archive dependency.
 
-Fresh hosted repair and unmoved uninstall at the prior submitted source complete
-with matching public/native replies and SYSTEM retired/pass root-absence
-readback. Both genuinely interrupted source-retired recoveries still exceed
-120seconds. Generic retirement retains its original refusal. The new fixed
-owner, reliable source-free recovery, ordinary public strict installation,
-main, deployment and release acceptance are not yet established. Inventory
-classifications remain unchanged.
+Fresh hosted repair and unmoved uninstall have matching public/native replies
+and SYSTEM retired/pass root-absence readback. Retained b6f4f28 recoveries exceeded
+120seconds. The newer accepted e147585 run39067721076/1 completes both genuinely
+interrupted source-retired repair requests within the unchanged public helper
+contract: matching public/native completion, lease generation4-to-5, SYSTEM
+verified state and ordinary verification pass; client/account cleanup is confirmed.
+Its build3cb2b3e2 has accepted dev's0f7a3179 tree. Both cohorts use diagnostics;
+two successful requests establish neither a speedup nor whole-profile reliability.
+The overall publisher job still fails packaged/controller cleanup with generic
+retirement refusing; its unconfirmed launcher cleanup remains retained evidence.
+The new fixed owner's native retirement, whole recovery-profile qualification,
+ordinary public strict installation, main, deployment and release acceptance
+remain unestablished. Inventory classifications remain unchanged.
 
 PR253 is normally merged into dev at384a623c, source tree9e04fa2e, after all
 six required core checks, specification validation, independent exact source
