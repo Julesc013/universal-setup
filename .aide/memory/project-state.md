@@ -10,8 +10,18 @@ The external FacMan task's compact continuation record holds the changing checkp
 
 PR247 is merged into dev at7a7a51a; main remainsc048f7.
 Itsdd12b4b source passed all six required core checks, specification validation,
-independent review and the live merge policy. Publisher qualification remains
-separate in CI39039802715; development integration is not release acceptance.
+independent review and the live merge policy. Publisher qualification in CI39039802715 failed separately; development
+integration is not release acceptance. Its registered controller passed the
+unchanged stale-recovery refusal, installed verification and stale-verify refusal.
+Intentional owned-file damage then returned recovery_required because completed
+nonpassing verification was rejected by the worker terminal grammar. The legacy
+machine route still refuses remounted device policy; service/binary recovery
+authority remains retained. Four independent maintenance cohorts were not
+produced after the earlier journey failed. PR248 independently admits those
+cohorts after the actor-qualified build without waiving any red result.
+The next runtime change binds terminal validation to the actual request and
+retains a completed verification's failed assessment, exact report identity and
+digest. Worker/job/query closure and native fences remain mandatory.
 Earlier PR246 CI39037422797 failed publisher qualification. Its retained
 stale-request observation is client exit3/statusrecovery_required,
 with error 'broker original protected intent is absent'. It does not establish

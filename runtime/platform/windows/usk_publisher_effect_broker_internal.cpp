@@ -1654,9 +1654,12 @@ void require_publisher_effect_failure_diagnostic(const Value& diagnostic) {
         diagnostic.at("message").as_string().find('\0') == std::string::npos,
         "effect worker failure diagnostic is not closed bounded error data");
 }
-void require_publisher_effect_terminal_record(const Value& value, const Value& broker) {
+void require_publisher_effect_terminal_record(const Value& value, const Value& broker,
+    const Value& actual_request) {
     const usk::diagnostics::Scope effect_terminal_validation_diagnostic(usk::diagnostics::Phase::effect_terminal_validation);
     require_publisher_effect_broker_readback_record(broker);
+    require(usk::json::sha256_canonical(actual_request) == broker.at("request_sha256").as_string(),
+        "effect terminal validator lacks its actual request");
     require_closed(value, {"schema", "request_sha256", "status", "response", "error", "error_code",
         "operation_inspection_ref", "effects_may_exist", "definite_preflight_refusal"});
     const auto status = value.at("status").as_string();
@@ -1672,15 +1675,53 @@ void require_publisher_effect_terminal_record(const Value& value, const Value& b
             code == "state_revision_stale" || code == "stale_plan"), "effect terminal request or finite diagnostic grammar differs");
     if (status == "success") {
         const auto& response = value.at("response");
+        const bool verification = actual_request.at("schema").as_string() ==
+            "usk.publisher_installed_verify_request.v1";
         require(error.empty() && code.empty() && inspection.empty() && !before_effects &&
             response.at("schema").as_string() == "usk.publisher_lab_service_observation.v1" &&
-            response.at("status").as_string() == "pass" &&
+            (response.at("status").as_string() == "pass" ||
+                (verification && response.at("status").as_string() == "failed")) &&
             response.at("process_id").as_unsigned() == broker.at("service").at("process_id").as_unsigned() &&
             response.at("service_name").as_string() == broker.at("service").at("service_name").as_string() &&
             response.at("service_sid").as_string() == broker.at("service").at("service_sid").as_string(),
             "effect terminal result differs from the actual SCM/public identity");
         if (response.contains("request_sha256")) require(response.at("request_sha256").as_string() ==
             broker.at("request_sha256").as_string(), "effect terminal result has another actual request");
+        if (verification) {
+            // A completed verification can find damage, warnings or uncertainty.
+            // Keep that assessment failed; terminal success means the engine
+            // returned a bound result, not that the installation is healthy.
+            require_closed(actual_request, {"schema", "request_id", "install_id",
+                "transaction_id", "report_id", "verified_at"});
+            require_closed(response, {"schema", "status", "service_name", "service_sid",
+                "process_id", "request_sha256", "transaction_id", "bound_report_digest", "verify_response"});
+            const auto& command = response.at("verify_response");
+            require_closed(command, {"schema", "status", "error", "payload"});
+            require(command.at("schema").as_string() == "usk.command_response.v1" &&
+                command.at("status").as_string() == "ok" &&
+                command.at("error").type() == Value::Type::null_value &&
+                response.at("transaction_id").as_string() == actual_request.at("transaction_id").as_string(),
+                "effect terminal verification command or transaction differs");
+            const auto& report = command.at("payload");
+            require_closed(report, {"schema", "report_id", "report_digest", "install_id",
+                "installed_state_digest", "ownership_manifest_digest", "status", "verified_at",
+                "directories", "files", "summary", "unknown_paths"});
+            const auto& assessment = report.at("status").as_string();
+            const auto& digest = report.at("report_digest").as_string();
+            require(report.at("schema").as_string() == "usk.verification_report.v1" &&
+                report.at("install_id").as_string() == actual_request.at("install_id").as_string() &&
+                report.at("report_id").as_string() == actual_request.at("report_id").as_string() &&
+                report.at("verified_at").as_string() == actual_request.at("verified_at").as_string() &&
+                (assessment == "pass" || assessment == "fail" || assessment == "warn" || assessment == "unknown") &&
+                response.at("status").as_string() == (assessment == "pass" ? "pass" : "failed") &&
+                hex(digest, 64) && response.at("bound_report_digest").as_string() == digest,
+                "effect terminal verification assessment or report binding differs");
+            auto payload = report.as_object();
+            payload.erase("schema");
+            payload.erase("report_digest");
+            require(usk::json::sha256_canonical(Value(std::move(payload))) == digest,
+                "effect terminal verification bytes differ from the bound report digest");
+        }
     } else require(status == "failure" && !error.empty() && value.at("response").type() == Value::Type::null_value &&
         (!before_effects || code == "stale_plan" || code == "state_revision_stale"), "effect terminal failure projection differs");
 }
@@ -1718,7 +1759,7 @@ std::optional<Value> PublisherEffectBrokerReadback::respond_to_one_packet(DWORD 
                 same(completed.selection(), state.selected_baseline) &&
                 (!(state.maintenance_recovery || state.installation_recovery) || same(state.recovery_current(), state.recovery_baseline)),
                 "broker original native scope changed across terminal selection");
-            require_publisher_effect_terminal_record(request, after);
+            require_publisher_effect_terminal_record(request, after, usk::json::parse(state.request));
             // No further packet or readback may follow the terminal. Native
             // custody remains live for the caller's explicit shutdown proof.
             state.failed = true;

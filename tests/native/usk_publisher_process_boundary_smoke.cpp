@@ -543,17 +543,22 @@ void effect_execution_record_controls() {
         "actual test process architecture differs from native platform observation");
     // Terminal grammar is retained data only. Live native peer/SCM fences
     // and confirmed job/child/I/O closure remain the broker's separate work.
+    const Value terminal_request(Value::Object{{"schema", Value("usk.install_local_apply_request.v1")}});
+    auto terminal_broker = broker;
+    const Value terminal_request_sha(usk::json::sha256_canonical(terminal_request));
+    terminal_broker.as_object().at("request_sha256") = terminal_request_sha;
+    terminal_broker.as_object().at("custody").as_object().at("request_sha256") = terminal_request_sha;
     const Value terminal_response(Value::Object{{"schema", Value("usk.publisher_lab_service_observation.v1")},
         {"status", Value("pass")}, {"service_name", service.at("service_name")}, {"service_sid", service.at("service_sid")},
-        {"process_id", service.at("process_id")}, {"request_sha256", broker.at("request_sha256")}});
+        {"process_id", service.at("process_id")}, {"request_sha256", terminal_broker.at("request_sha256")}});
     const Value terminal(Value::Object{{"schema", Value("usk.publisher_effect_worker_terminal.v1")},
-        {"request_sha256", broker.at("request_sha256")}, {"status", Value("success")}, {"response", terminal_response},
+        {"request_sha256", terminal_broker.at("request_sha256")}, {"status", Value("success")}, {"response", terminal_response},
         {"error", Value("")}, {"error_code", Value("")}, {"operation_inspection_ref", Value("")},
         {"effects_may_exist", Value(true)}, {"definite_preflight_refusal", Value(false)}});
-    require_publisher_effect_terminal_record(terminal, broker);
+    require_publisher_effect_terminal_record(terminal, terminal_broker, terminal_request);
     const auto refuses_terminal = [&](const std::function<void(Value&)>& mutate) {
         auto changed = terminal; mutate(changed); bool refused = false;
-        try { require_publisher_effect_terminal_record(changed, broker); }
+        try { require_publisher_effect_terminal_record(changed, terminal_broker, terminal_request); }
         catch (const std::exception&) { refused = true; }
         check(refused, "synthetic terminal grammar accepted contradictory original identity/result");
     };
@@ -566,14 +571,87 @@ void effect_execution_record_controls() {
     failure.as_object().at("status") = Value("failure"); failure.as_object().at("response") = Value{};
     failure.as_object().at("error") = Value("synthetic stale plan"); failure.as_object().at("error_code") = Value("stale_plan");
     failure.as_object().at("effects_may_exist") = Value(false); failure.as_object().at("definite_preflight_refusal") = Value(true);
-    require_publisher_effect_terminal_record(failure, broker);
+    require_publisher_effect_terminal_record(failure, terminal_broker, terminal_request);
+    const Value verify_request(Value::Object{{"schema", Value("usk.publisher_installed_verify_request.v1")},
+        {"request_id", Value("verify.synthetic")}, {"install_id", Value("install.synthetic")},
+        {"transaction_id", Value("transaction.synthetic")}, {"report_id", Value("report.synthetic")},
+        {"verified_at", Value("2026-10-18T00:00:00Z")}});
+    auto verify_broker = broker;
+    const Value verify_sha(usk::json::sha256_canonical(verify_request));
+    verify_broker.as_object().at("request_sha256") = verify_sha;
+    verify_broker.as_object().at("custody").as_object().at("request_sha256") = verify_sha;
+    const auto bind_report = [](Value& result) {
+        auto& response = result.as_object().at("response");
+        auto& report = response.as_object().at("verify_response").as_object().at("payload");
+        auto payload = report.as_object();
+        payload.erase("schema"); payload.erase("report_digest");
+        const Value digest(usk::json::sha256_canonical(Value(std::move(payload))));
+        report.as_object().insert_or_assign("report_digest", digest);
+        response.as_object().insert_or_assign("bound_report_digest", digest);
+    };
+    const auto completed_verify = [&](const char* assessment) {
+        auto result = terminal;
+        result.as_object().at("request_sha256") = verify_sha;
+        auto& response = result.as_object().at("response");
+        response.as_object().at("request_sha256") = verify_sha;
+        response.as_object().at("status") = Value(std::string(assessment) == "pass" ? "pass" : "failed");
+        response.as_object().emplace("transaction_id", verify_request.at("transaction_id"));
+        Value report(Value::Object{{"schema", Value("usk.verification_report.v1")},
+            {"report_id", verify_request.at("report_id")}, {"install_id", verify_request.at("install_id")},
+            {"verified_at", verify_request.at("verified_at")}, {"status", Value(assessment)},
+            {"installed_state_digest", Value(std::string(64, 'a'))},
+            {"ownership_manifest_digest", Value(std::string(64, 'b'))},
+            {"directories", Value(Value::Array{})}, {"files", Value(Value::Array{})},
+            {"summary", Value(Value::Object{{"missing_files", Value(std::uint64_t{0})},
+                {"modified_files", Value(std::uint64_t{0})}, {"owned_files", Value(std::uint64_t{0})},
+                {"unknown_paths", Value(std::uint64_t{0})}})}, {"unknown_paths", Value(Value::Array{})}});
+        response.as_object().emplace("verify_response", Value(Value::Object{
+            {"schema", Value("usk.command_response.v1")}, {"status", Value("ok")},
+            {"error", Value{}}, {"payload", std::move(report)}}));
+        bind_report(result);
+        return result;
+    };
+    for (const auto* assessment : {"pass", "fail", "warn", "unknown"}) {
+        const auto result = completed_verify(assessment);
+        require_publisher_effect_terminal_record(result, verify_broker, verify_request);
+        check(result.at("response").at("status").as_string() ==
+            (std::string(assessment) == "pass" ? "pass" : "failed"),
+            "completed verification changed its assessment into success");
+    }
+    const auto refuses_verify = [&](const std::function<void(Value&)>& mutate, bool rebind = false) {
+        auto changed = completed_verify("fail"); mutate(changed);
+        if (rebind) bind_report(changed);
+        bool refused = false;
+        try { require_publisher_effect_terminal_record(changed, verify_broker, verify_request); }
+        catch (const std::exception&) { refused = true; }
+        check(refused, "completed verification accepted another request, identity or assessment");
+    };
+    refuses_verify([](Value& v) { v.as_object().at("response").as_object().at("status") = Value("pass"); });
+    refuses_verify([](Value& v) { v.as_object().at("response").as_object().at("process_id") = Value(std::uint64_t{600}); });
+    refuses_verify([](Value& v) { v.as_object().at("response").as_object().at("service_sid") = Value("S-1-5-18"); });
+    refuses_verify([](Value& v) { v.as_object().at("response").as_object().at("request_sha256") = Value(std::string(64, 'a')); });
+    refuses_verify([](Value& v) { v.as_object().at("response").as_object().at("transaction_id") = Value("other"); });
+    refuses_verify([](Value& v) { v.as_object().at("response").as_object().at("bound_report_digest") = Value(std::string(64, 'a')); });
+    refuses_verify([](Value& v) { v.as_object().at("response").as_object().at("verify_response").as_object().at("status") = Value("refused"); });
+    refuses_verify([](Value& v) { v.as_object().at("response").as_object().at("verify_response").as_object().at("error") = Value("failed"); });
+    for (const auto* field : {"install_id", "report_id", "verified_at", "status", "schema"}) {
+        refuses_verify([&](Value& v) { v.as_object().at("response").as_object().at("verify_response").
+            as_object().at("payload").as_object().at(field) = Value("other"); }, true);
+    }
+    refuses_verify([](Value& v) { v.as_object().at("response").as_object().at("verify_response").
+        as_object().at("payload").as_object().at("installed_state_digest") = Value(std::string(64, 'c')); });
+    refuses_terminal([](Value& v) { v.as_object().at("response").as_object().at("status") = Value("failed"); });
+    bool another_actual_request_refused = false;
+    try { require_publisher_effect_terminal_record(completed_verify("fail"), verify_broker, terminal_request); }
+    catch (const std::exception&) { another_actual_request_refused = true; }
+    check(another_actual_request_refused, "terminal validator accepted a request outside its original broker");
     // An original-peer diagnostic is error data, never an assertion about
     // terminal effects, preflight, closure or authority. These are data only.
     const Value diagnostic(Value::Object{{"schema", Value("usk.publisher_effect_worker_failure_diagnostic.v1")},
         {"message", Value("synthetic original child failure")}});
     require_publisher_effect_failure_diagnostic(diagnostic);
     bool diagnostic_not_terminal = false;
-    try { require_publisher_effect_terminal_record(diagnostic, broker); }
+    try { require_publisher_effect_terminal_record(diagnostic, terminal_broker, terminal_request); }
     catch (const std::exception&) { diagnostic_not_terminal = true; }
     check(diagnostic_not_terminal, "child diagnostic promoted to confirmed terminal");
     const auto refuses_diagnostic = [&](const std::function<void(Value&)>& mutate) {
