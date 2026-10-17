@@ -189,8 +189,30 @@ function Assert-IndependentMetadataProbe {
     if($RequireInstallationLease -or $leaseFiles.Count -gt 0 -or $contextFiles.Count -gt 0) {
         if([string]::IsNullOrWhiteSpace($PythonBinary)){throw 'Independent lease validation requires its explicit Python interpreter'}
         $observedRoot=[string]$Result.independent.native_volume_root_file_id
+        $anchors=$Result.native.protected_anchors
+        $recovery=$Result.native.recovery_observation
+        if($null -ne $recovery) {
+            $response=$Result.native.recovery_installed_response
+            if($null -ne $anchors -or $AllowPartialConsumerGrant -or $null -ne $Result.native.apply_response -or
+                $response.status -cne 'ok' -or $response.payload.install_id -cne $installed.install_id -or
+                $response.payload.transaction_id -cne $installed.transaction_id) {
+                throw 'Independent lease validation has a conflicting recovery response'
+            }
+            if($recovery.decision -ceq 'snapshot_only_completed_forward') {
+                $anchors=$recovery.protected_anchors
+                if($null -eq $anchors){throw 'Snapshot-only recovery has no native anchor projection'}
+            } elseif($recovery.decision -cnotin @('already_visible_bound','installed_state_completed_forward') -or
+                $null -ne $recovery.protected_anchors) {
+                throw 'Independent lease validation has an unrecognized recovery observation'
+            }
+            # Prepared recovery reports its decision instead of live anchors.
+            # The real verifier below still joins the measured root to the
+            # independently read original operation context and lease records.
+        } elseif($null -eq $anchors -and -not $AllowPartialConsumerGrant) {
+            throw 'Initial installation has no native anchor projection'
+        }
         if($observedRoot -cnotmatch '^[0-9a-f]{16}:[0-9a-f]{32}$' -or
-            $Result.native.protected_anchors.boundary_file_id -cne $observedRoot -or
+            ($null -ne $anchors -and $anchors.boundary_file_id -cne $observedRoot) -or
             ($Result.independent.volume_boundary -and
                 $Result.independent.volume_boundary.root.file_id -cne $observedRoot)) {
             throw 'Independent native volume root differs from the installation boundary'
