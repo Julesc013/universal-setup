@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import csv
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -19,6 +20,102 @@ def write_json(path: Path, value: dict) -> str:
     data = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
     path.write_bytes(data)
     return hashlib.sha256(data).hexdigest()
+
+
+def verify_fixture_retention(repository: Path, root: Path) -> None:
+    # Execute the fixtures' actual catch/finally blocks. Replace only disk and
+    # process effects: no VHD, mount, service or administrator token is needed.
+    driver = root / "fixture-retention.ps1"
+    driver.write_text(r'''
+param([string]$Repository,[string]$Scratch)
+$ErrorActionPreference='Stop'
+function Read-OuterTry([string]$Name) {
+    $tokens=$null;$errors=$null
+    $ast=[Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $Repository ('tests\'+$Name)),[ref]$tokens,[ref]$errors)
+    if($errors.Count){throw 'Fixture parse failed'}
+    $tries=@($ast.EndBlock.Statements|Where-Object {
+        $_ -is [Management.Automation.Language.TryStatementAst] -and $_.Finally})
+    if(-not $tries.Count){throw 'Fixture outer cleanup is missing'}
+    return $tries[-1]
+}
+function Read-Block($Block) {
+    $source=$Block.Extent.Text
+    return [scriptblock]::Create($source.Substring(1,$source.Length-2))
+}
+function Get-DiskImage([string]$ImagePath,[object]$ErrorAction) {
+    if($ImagePath -cne $vhd){throw 'Unexpected cleanup image'}
+    $script:imageQueries++
+    return [pscustomobject]@{Attached=$true}
+}
+function Dismount-DiskImage([string]$ImagePath,[object]$ErrorAction) {
+    if($ImagePath -cne $vhd){throw 'Unexpected dismount image'}
+    $script:dismountCalls++
+}
+function Remove-Item([string]$LiteralPath,[switch]$Force,[object]$ErrorAction) {
+    if($LiteralPath -cne $vhd){throw 'Unexpected deletion target'}
+    $script:deleteCalls++
+    [IO.File]::Delete($LiteralPath)
+}
+$outer=Read-OuterTry 'windows_publisher_lab_probe.ps1'
+$cleanup=Read-Block $outer.Finally
+$vhd=Join-Path $Scratch 'cleanup-owned-vhd-sentinel.vhdx'
+$out=Join-Path $Scratch 'cleanup-receipt.json'
+$PublicStandardClient=$false;$standardLauncherClosed=$true;$mounted=$true
+$cases=@(
+    @{name='missing';observation=$null;retain=$true},
+    @{name='service';observation=@{service_removed=$false};retain=$true},
+    @{name='binary';observation=@{service_removed=$true;client_cleanup_confirmed=$true};retain=$true},
+    @{name='client';observation=@{service_removed=$true;protected_service_binary_removed=$true};retain=$true},
+    @{name='untyped';observation=@{service_removed='true';protected_service_binary_removed=$true;client_cleanup_confirmed=$true};retain=$true},
+    @{name='refused';observation=@{service_removed=$true;protected_service_binary_removed=$true;client_cleanup_confirmed=$true;retirement_cleanup_failure='refused'};retain=$true},
+    @{name='confirmed';observation=@{service_removed=$true;protected_service_binary_removed=$true;client_cleanup_confirmed=$true};retain=$false},
+    @{name='legacy';observation=$null;retain=$false})
+foreach($case in $cases) {
+    [IO.File]::WriteAllText($vhd,'owned cleanup sentinel')
+    $script:imageQueries=0;$script:dismountCalls=0;$script:deleteCalls=0
+    $AdmittedTarget=$case.name -cne 'legacy';$failure=$null
+    $receipt=[ordered]@{status='fixture_body_passed';service_observation=$case.observation}
+    . $cleanup
+    $retained=Test-Path -LiteralPath $vhd -PathType Leaf
+    if($case.retain) {
+        if(-not $retained -or $script:imageQueries -or $script:dismountCalls -or $script:deleteCalls -or
+            -not $failure -or $receipt.status -cne 'failed') {
+            throw ('Unconfirmed retirement reached VHD cleanup: '+$case.name)
+        }
+    } elseif($retained -or $script:imageQueries -ne 1 -or $script:dismountCalls -ne 1 -or
+        $script:deleteCalls -ne 1 -or $failure) {
+        throw ('Confirmed or legacy cleanup changed: '+$case.name)
+    }
+}
+# The original failure must survive a second exception in real client cleanup.
+function Stop-OwnedPublisherProcessTree($Process) {throw 'synthetic client cleanup failure'}
+$inner=Read-OuterTry 'windows_publisher_metadata_hosted_probe.ps1'
+$primaryCatch=Read-Block $inner.CatchClauses[0].Body
+$innerCleanup=Read-Block $inner.Finally
+$AdmittedTarget=$true;$RegisteredService=$false;$registrationAttempted=$false;$created=$false
+$consumerCreated=$false;$unrelatedAccountCreated=$false;$clientCleanupConfirmed=$true
+$requestClient=[pscustomobject]@{process='owned fixture process'}
+$consumerProcess=$null;$concurrentAttacker=$null;$unrelatedAttacker=$null;$preopenedRootProcess=$null
+$stageObserver=$null;$postrenameObserver=$null
+$observerRoot=Join-Path $Scratch 'nonexistent-observer-root'
+$receipt=[ordered]@{status='pending'};$failure=$null
+try {throw 'synthetic primary request failure'} catch {. $primaryCatch}
+. $innerCleanup
+if($failure -cne 'synthetic primary request failure' -or
+    $receipt.primary_failure -cne $failure -or $receipt.failure -cne $failure -or
+    $receipt.cleanup_failure -cne 'Owned client cleanup failed: synthetic client cleanup failure' -or
+    $receipt.client_cleanup_confirmed -ne $false -or $receipt.status -cne 'failed') {
+    throw 'Client cleanup obscured the primary request failure'
+}
+''', encoding="utf-8")
+    result = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+         "-File", str(driver), "-Repository", str(repository), "-Scratch", str(root)],
+        capture_output=True, text=True, timeout=10, check=False,
+    )
+    if result.returncode != 0:
+        raise AssertionError(f"fixture cleanup containment failed: {result}")
 
 
 def main() -> int:
@@ -96,6 +193,48 @@ def main() -> int:
                                capture_output=True, timeout=10, check=False)
         if after.returncode != 1060:
             raise AssertionError("invalid apply left a service or unknown SCM state")
+        # Run the real fixture entry points with rejected profile combinations.
+        # Fake inputs must remain unopened and no output/VHD may be created.
+        repository = Path(__file__).resolve().parents[2]
+        verify_fixture_retention(repository, root)
+        fixture_environment = dict(os.environ, GITHUB_ACTIONS="false", RUNNER_ENVIRONMENT="local")
+        admitted = ["-AdmittedTarget", "-ControllerApply", "-RegisteredService",
+                    "-ReviewedSource", "-ReuseRegistration"]
+        output = root / "must-not-be-created.json"
+        missing_vhd = root / "must-not-be-created.vhdx"
+        for name in ("windows_publisher_lab_probe.ps1", "windows_publisher_metadata_hosted_probe.ps1"):
+            fixture = repository / "tests" / name
+            inputs = ["-OutputPath", str(output)]
+            if "metadata" in name:
+                inputs += ["-VhdPath", str(missing_vhd), "-VolumeRoot", volume,
+                           "-ServiceBinary", str(executable), "-DeviceAclBinary", str(executable),
+                           "-MachineBinary", str(executable), "-PublicApplyBinary", str(executable)]
+            else:
+                inputs += ["-ServiceControlBinary", str(executable)]
+            combinations = [[flag for flag in admitted if flag != "-ControllerApply"]]
+            combinations += [admitted + [flag] for flag in (
+                "-ConsumerAccess", "-MachineRequestClient", "-InterruptAfterStage", "-NonAdminClient")]
+            for flags in combinations:
+                result = subprocess.run(
+                    ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                     "-File", str(fixture)] + inputs + flags,
+                    capture_output=True, text=True, timeout=10, check=False, env=fixture_environment,
+                )
+                if result.returncode == 0 or "Admitted target currently requires" not in result.stderr:
+                    raise AssertionError(f"unsafe admitted fixture profile reached setup: {name}: {result}")
+                if output.exists() or missing_vhd.exists():
+                    raise AssertionError("rejected fixture profile created output or storage")
+        if len(sys.argv) > 2:
+            observer = Path(sys.argv[2]).resolve(strict=True)
+            result = subprocess.run(
+                [str(observer), "--observe-owned-hosted-vm-vhd-volume", volume, service,
+                 "4294967295", str(missing_vhd), "00000000-0000-0000-0000-000000000000"],
+                capture_output=True, text=True, timeout=10, check=False, env=fixture_environment,
+            )
+            if result.returncode != 2 or "requires a hosted disposable runner" not in result.stderr:
+                raise AssertionError(f"read-only device observer bypassed native hosted admission: {result}")
+            if missing_vhd.exists():
+                raise AssertionError("non-hosted device observer created storage")
     return 0
 
 

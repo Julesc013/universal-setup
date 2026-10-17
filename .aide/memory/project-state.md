@@ -20,6 +20,12 @@ controller increment explicitly opts request-bearing verbs into the existing
 service-admitted dispatcher, retains caller/binary/volume/reviewed-request pins,
 and preserves UNKNOWN across transport-entry exceptions. Native preflight and
 fault controls do not establish a successful hosted installation or cleanup.
+The uninterrupted hosted controller fixture now selects empty-target admission,
+operation enrollment and the registered request adapter. Its device helper only
+observes the admitted policy. Unconfirmed product retirement retains the mounted
+VHD, protected binary and recovery authority; it cannot be replaced by lab deletion.
+The legacy machine/consumer profile and completed-uninstall retirement remain
+unfinished qualification obligations. Both hosted tests remain required for main.
 Use the external task checkpoint for exact candidate pins and current results.
 Do not start another campaign, queue or unofficial checkout. Integrate reviewed
 dev checkpoints daily; promote main weekly when its qualification gates pass.
