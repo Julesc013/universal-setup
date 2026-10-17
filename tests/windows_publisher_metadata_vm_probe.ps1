@@ -195,7 +195,7 @@ $result = Invoke-GuestCommand -ArgumentList `
         observed_utc=[DateTime]::UtcNow.ToString('o')}
 }
 $result | ConvertTo-Json -Depth 32 | Set-Content -LiteralPath $OutputPath -Encoding UTF8
-Assert-IndependentMetadataProbe $result
+Assert-IndependentMetadataProbe $result -PythonBinary (Get-Command python -CommandType Application -ErrorAction Stop).Source
 [ordered]@{status='pass';receipt=$OutputPath;selected_files=@($result.plan.planned_entries|Where-Object entry_type -eq file).Count;
     independently_observed_objects=$result.independent.rows.Count;binary_sha256=$serviceSha} | ConvertTo-Json -Compress
 # The caller owns exact-VM shutdown in an outer finally, including child

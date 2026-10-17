@@ -235,12 +235,19 @@ int wmain(int argc, wchar_t** argv) {
         VIRTUAL_STORAGE_TYPE type{};
         type.DeviceId = VIRTUAL_STORAGE_TYPE_DEVICE_VHDX;
         type.VendorId = VIRTUAL_STORAGE_TYPE_VENDOR_MICROSOFT;
+        // An already permanently attached VHD cannot be reopened through the
+        // legacy GET_INFO-only access mask. Use the query-only V2 interface
+        // for observation, without requesting attachment or detachment rights.
+        OPEN_VIRTUAL_DISK_PARAMETERS query_parameters{};
+        query_parameters.Version = OPEN_VIRTUAL_DISK_VERSION_2;
+        query_parameters.Version2.GetInfoOnly = TRUE;
+        query_parameters.Version2.ReadOnly = TRUE;
         HANDLE raw_vhd = nullptr;
         const DWORD open_error = OpenVirtualDisk(&type, vhd.c_str(),
-            observe_only ? VIRTUAL_DISK_ACCESS_GET_INFO :
+            observe_only ? VIRTUAL_DISK_ACCESS_NONE :
                 (VIRTUAL_DISK_ACCESS_GET_INFO | VIRTUAL_DISK_ACCESS_DETACH),
             OPEN_VIRTUAL_DISK_FLAG_NONE,
-            nullptr, &raw_vhd);
+            observe_only ? &query_parameters : nullptr, &raw_vhd);
         if (open_error != ERROR_SUCCESS || !raw_vhd ||
             raw_vhd == INVALID_HANDLE_VALUE) {
             throw std::runtime_error("owned VHD cannot be opened: " +

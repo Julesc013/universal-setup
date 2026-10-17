@@ -168,6 +168,10 @@ if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted
     throw 'Metadata execution requires the administrative disposable hosted Windows VM'
 }
 $vhd=[IO.Path]::GetFullPath($VhdPath)
+$PythonBinary=(Get-Command python -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
+if(-not [IO.Path]::IsPathRooted($PythonBinary) -or -not [IO.File]::Exists($PythonBinary)) {
+    throw 'Hosted metadata fixture Python interpreter is unavailable'
+}
 $temp=[IO.Path]::GetFullPath($env:RUNNER_TEMP)
 if(-not $vhd.StartsWith($temp+'\',[StringComparison]::OrdinalIgnoreCase) -or
     ((Get-Item -LiteralPath $vhd).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
@@ -1869,7 +1873,7 @@ try {
         $partialWitness=[pscustomobject]@{volume_drive_root=$drive;native=$partial;service_sid=$sid;consumer_sid=$consumerSid;
             independent=$before.independent;observer_task_removed=$before.observer_task_removed;plan=$plan;archive_sha256=$inputs.archive_sha256;
             apply_request=$applyRequest;request=$request.payload}
-        Assert-IndependentMetadataProbe $partialWitness -AllowPartialConsumerGrant
+        Assert-IndependentMetadataProbe $partialWitness -AllowPartialConsumerGrant -PythonBinary $PythonBinary
         $receipt['partial_consumer_grant']=[ordered]@{native=$partial;independent=$before.independent;observer_task_removed=$before.observer_task_removed;granted_objects=$granted.Count}
         $removed=[Collections.Generic.List[string]]::new()
         foreach($path in $sourceInputs) {
@@ -2236,7 +2240,7 @@ try {
     }
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId $id
     $receipt.independent=$readback.independent;$receipt.observer_task_removed=$readback.observer_task_removed
-    Assert-IndependentMetadataProbe ([pscustomobject]$receipt)
+    Assert-IndependentMetadataProbe ([pscustomobject]$receipt) -PythonBinary $PythonBinary
     if($RegisteredService -and $recover) {
         $stagedRoot=$drive+'publication\staging\candidate'
         foreach($row in $before.independent.rows) {
@@ -2655,7 +2659,7 @@ try {
             observer_task_removed=$after.observer_task_removed;plan=$plan;archive_sha256=$inputs.archive_sha256;
             apply_request=$applyRequest;request=$request.payload;consumer_sid=$consumerSid}
         $repeatResult|Add-Member -NotePropertyName consumer_sid -NotePropertyValue $consumerSid -Force
-        Assert-IndependentMetadataProbe $repeatResult
+        Assert-IndependentMetadataProbe $repeatResult -PythonBinary $PythonBinary
         if($after.independent.rows.Count -ne $receipt.independent.rows.Count){throw 'Repeated recovery changed record closure'}
         foreach($row in $receipt.independent.rows) {
             $matching=@($after.independent.rows|Where-Object path -ceq $row.path)

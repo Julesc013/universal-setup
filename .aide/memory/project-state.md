@@ -8,15 +8,21 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR241 is merged into dev atc35b6a9; main remainsc048f7. All required core
-checks passed on submitted7374417 in CI39022433004. Its separate publisher
-job stopped before actor startup: the generated account description exceeded
-Windows'48character limit. Product compilation and dispatch were not reached.
-The preceding legacy machine/device-policy failure remains an open obligation,
-not an executed failure in this run. Main, deployment and release remain unqualified.
-Post-merge CI39023218129 exceeded a preflight PowerShell invocation's10second
-bound while SDK compiler fixtures overlapped. The next change isolates those
-heavy fixtures while preserving every control assertion and deadline.
+PR242 is merged into dev at29c5fe5; main remainsc048f7. All required core
+checks and all57native Windows tests passed on18b972c in CI39024589767.
+The account-marker and SDK scheduling repairs preserve all existing deadlines.
+Accepted-dev push CI39025588762 also passed all core/specification jobs;
+publisher qualification was skipped by its push condition.
+Candidate8743ab3 in CI39025902728 passed the actual query-only V2 VHD
+observation and completed the admitted controller's request-bound installation.
+A raw independent39row snapshot was captured, but its full oracle failed on
+an unbound Python invocation before lease validation. Binding Python locally
+also exposed a missing independently measured volume-root identity.
+The next change binds those inputs explicitly and retains strict root/lease
+checks. Counterfactual replay with a synthetic root is only a validator test,
+not new native evidence. Source-free reentry and genuine retirement remain
+unqualified. The legacy machine route still refuses its remounted device policy.
+Main, deployment and release remain unqualified; exact results stay in the task checkpoint.
 
 Continue the connected admitted-target controller/consumer path, source-free
 recovery within120seconds, and genuine owned maintenance/retirement. The next
@@ -30,11 +36,11 @@ observes the admitted policy. Unconfirmed product retirement retains the mounted
 VHD, protected binary and recovery authority; it cannot be replaced by lab deletion.
 The legacy machine/consumer profile and completed-uninstall retirement remain
 unfinished qualification obligations. Both hosted tests remain required for main.
-The next controller fixture uses a generated elevated admin account with a valid
+The controller fixture uses a generated elevated admin account with a valid
 account RID, through the existing acknowledged launcher with a separate profile.
 It retains the account while product authority remains and qualifies the actual
 actor independently before compilation. Product SID policy remains unchanged;
-local fixture controls are not evidence of a successful hosted actor or install.
+local fixture controls are not evidence of a successful hosted install.
 Use the external task checkpoint for exact candidate pins and current results.
 Do not start another campaign, queue or unofficial checkout. Integrate reviewed
 dev checkpoints daily; promote main weekly when its qualification gates pass.
