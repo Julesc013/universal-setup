@@ -480,7 +480,7 @@ try {
         throw 'file-backed VHD was not created'
     }
 
-    if($PublicInstallation){$receipt['backing_image_provisioning']=Protect-NewOwnedVhdImage $vhd $receipt}
+    if($PublicInstallation -or $AdmittedTarget){$receipt['backing_image_provisioning']=Protect-NewOwnedVhdImage $vhd $receipt}
     Mount-DiskImage -ImagePath $vhd -NoDriveLetter -ErrorAction Stop | Out-Null
     $mounted = $true
     $image = Get-DiskImage -ImagePath $vhd -ErrorAction Stop

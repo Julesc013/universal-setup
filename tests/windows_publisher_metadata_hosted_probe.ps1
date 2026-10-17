@@ -63,6 +63,27 @@ function Read-BoundedDiagnostic([string]$Path,[int]$Limit) {
         return [Text.Encoding]::UTF8.GetString($bytes,0,$count)
     } finally {$stream.Dispose()}
 }
+function Invoke-ObservedPublisherControl {
+    param([ValidateSet('target_admission','installation_enrollment')][string]$Phase,[string[]]$Arguments)
+    $errorPath=Join-Path $root ($Phase+'-'+$id+'.stderr.txt')
+    $attempt=[ordered]@{phase=$Phase;service=$service;native_exit_code=$null;
+        stderr_observed_bytes=$null;stderr_prefix_limit_bytes=16384;stderr_prefix=$null;capture_failure=$null}
+    $receipt.control_attempts.Add($attempt)
+    # Clear the previous invocation's exit code before this command can run.
+    # Neither an exception nor missing diagnostics establishes a native outcome.
+    $global:LASTEXITCODE=$null
+    try {$output=@(& $ServiceControlBinary @Arguments 2>$errorPath)}
+    finally {
+        $attempt.native_exit_code=$global:LASTEXITCODE
+        try {
+            if(Test-Path -LiteralPath $errorPath -PathType Leaf) {
+                $attempt.stderr_observed_bytes=(Get-Item -LiteralPath $errorPath).Length
+                $attempt.stderr_prefix=Read-BoundedDiagnostic $errorPath 16384
+            }
+        } catch {$attempt.capture_failure=$_.Exception.Message.Substring(0,[Math]::Min(1024,$_.Exception.Message.Length))}
+    }
+    [pscustomobject]@{native_exit_code=$attempt.native_exit_code;output=$output}
+}
 if(([int][bool]$InterruptAfterVisibleRecord+[int][bool]$InterruptAfterRename+[int][bool]$InterruptBeforePublish+[int][bool]$InterruptAfterStage) -gt 1){throw 'Select one interruption window'}
 if($InterruptDuringConsumerAccess -and (-not $ConsumerAccess -or $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)){throw 'Consumer interruption requires its exclusive consumer profile'}
 if($ConsumerAccess -and (-not $ClientBinary -or -not $PayloadBinary)){throw 'Consumer profile requires client and actual executable'}
@@ -491,7 +512,8 @@ $receipt=[ordered]@{schema='usk.publisher.metadata_vm_probe.v1';status='not_run'
     service_sid=$null;binary_sha256=(Get-FileHash -LiteralPath $ServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant();
     machine_sha256=(Get-FileHash -LiteralPath $MachineBinary -Algorithm SHA256).Hash.ToLowerInvariant();
     archive_sha256=$null;strip_prefix='pkg';request=$null;plan=$null;native=$null;independent=$null;
-    observer_task_removed=$false;service_removed=$false;failure=$null;power_loss_test=$false}
+    observer_task_removed=$false;service_removed=$false;failure=$null;power_loss_test=$false;
+    control_attempts=[Collections.Generic.List[object]]::new()}
 $created=$false
 $registrationAttempted=$false
 $expectedRegisteredCommand=''
@@ -1124,17 +1146,20 @@ try {
         # Provision only the still-empty, exactly owned target. No lab ACL
         # writer substitutes for the product's retained admission protocol.
         Assert-OwnedVolume
-        $admitted=& $ServiceControlBinary --provision-target $service --confirm-empty-volume
-        if($LASTEXITCODE -ne 0){throw 'Product target admission did not complete'}
+        $admissionAttempt=Invoke-ObservedPublisherControl -Phase target_admission `
+            -Arguments @('--provision-target',$service,'--confirm-empty-volume')
+        if($admissionAttempt.native_exit_code -ne 0){throw 'Product target admission did not complete'}
+        $admitted=$admissionAttempt.output
         $admission=($admitted -join "`n")|ConvertFrom-Json
         if($admission.schema -cne 'usk.publisher_service_control.v1' -or
             $admission.status -cne 'target_admitted' -or $admission.service -cne $service) {
             throw 'Product target admission response differs'
         }
         $receipt['target_admission']=$admission
-        $enrolled=& $ServiceControlBinary --enroll-reviewed-operation $service $envelope `
-            $receipt.envelope_sha256 $binding.apply_file
-        if($LASTEXITCODE -ne 0){throw 'Product reviewed installation enrollment did not complete'}
+        $enrollmentAttempt=Invoke-ObservedPublisherControl -Phase installation_enrollment `
+            -Arguments @('--enroll-reviewed-operation',$service,$envelope,$receipt.envelope_sha256,$binding.apply_file)
+        if($enrollmentAttempt.native_exit_code -ne 0){throw 'Product reviewed installation enrollment did not complete'}
+        $enrolled=$enrollmentAttempt.output
         $enrollment=($enrolled -join "`n")|ConvertFrom-Json
         if($enrollment.schema -cne 'usk.publisher_service_control.v1' -or
             $enrollment.status -cne 'reviewed_operation_enrolled' -or $enrollment.service -cne $service) {
@@ -2351,12 +2376,10 @@ try {
         $requestClient=$null
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
         $repeat=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
-        if($repeat.independent.identity -ne 'S-1-5-18' -or -not $repeat.observer_task_removed -or
-            ($receipt.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
-            ($repeat.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
-            throw 'Registered source-free reentry changed independently observed installed rows'
-        }
-        $receipt.registered_source_free_reentry['unchanged_independent_rows']=@($repeat.independent.rows).Count
+        $receipt.registered_source_free_reentry['independent_readback']=$repeat
+        $receipt.registered_source_free_reentry['lease_transition']=Assert-IndependentLeaseTransition -Result $receipt -Before $readback -After $repeat -InstalledState $installedResponse.payload -Mode append -PythonBinary $PythonBinary
+        $receipt.registered_source_free_reentry['unchanged_independent_rows']=@($readback.independent.rows).Count
+        $receipt.registered_source_free_reentry['appended_ownership_rows']=(@($repeat.independent.rows).Count - @($readback.independent.rows).Count)
         $staleRecovery=[ordered]@{
             schema='usk.publisher_recovery_request.v1'
             request_id='recover.stale.'+$id
@@ -2386,11 +2409,8 @@ try {
         $requestClient=$null
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
         $afterStale=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
-        if($afterStale.independent.identity -ne 'S-1-5-18' -or -not $afterStale.observer_task_removed -or
-            ($repeat.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
-            ($afterStale.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
-            throw 'Changed minimal recovery request altered installed state'
-        }
+        $receipt.stale_minimal_recovery_refused['independent_readback']=$afterStale
+        $receipt.stale_minimal_recovery_refused['lease_transition']=Assert-IndependentLeaseTransition -Result $receipt -Before $repeat -After $afterStale -InstalledState $installedResponse.payload -Mode readonly -PythonBinary $PythonBinary
     }
     if($RegisteredService -and -not $InterruptAfterStage) {
         # The ordinary packaged client asks the restricted service to verify
@@ -2470,11 +2490,8 @@ try {
         }
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
         $verifyRows=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
-        if($verifyRows.independent.identity -ne 'S-1-5-18' -or -not $verifyRows.observer_task_removed -or
-            ($receipt.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
-            ($verifyRows.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
-            throw 'Read-only verification changed independently observed installed rows'
-        }
+        $receipt.registered_installed_verify['independent_readback']=$verifyRows
+        $receipt.registered_installed_verify['lease_transition']=Assert-IndependentLeaseTransition -Result $receipt -Before $afterStale -After $verifyRows -InstalledState $installedResponse.payload -Mode readonly -PythonBinary $PythonBinary
         $receipt.registered_installed_verify['unchanged_independent_rows']=@($verifyRows.independent.rows).Count
         if(-not $HostileRights) {
             $damageEntries=@($plan.planned_entries|Where-Object {
