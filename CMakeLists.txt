@@ -194,6 +194,7 @@ set_target_properties(usk_state_static PROPERTIES POSITION_INDEPENDENT_CODE ON)
 add_library(usk_lifecycle_static STATIC
   runtime/setup/lifecycle/usk_lifecycle.cpp
   runtime/setup/lifecycle/usk_install_restart.cpp
+  runtime/setup/lifecycle/usk_maintenance_creator_records_internal.cpp
   runtime/setup/lifecycle/usk_public_lifecycle.cpp
 )
 target_compile_features(usk_lifecycle_static PUBLIC cxx_std_17)
@@ -243,6 +244,7 @@ set(USK_CORE_SOURCES
   runtime/setup/kernel/usk_api.c
   runtime/setup/lifecycle/usk_lifecycle.cpp
   runtime/setup/lifecycle/usk_install_restart.cpp
+  runtime/setup/lifecycle/usk_maintenance_creator_records_internal.cpp
   runtime/setup/lifecycle/usk_public_lifecycle.cpp
   runtime/setup/package/usk_archive_inspect.cpp
   runtime/setup/policy/usk_target_inspect.cpp

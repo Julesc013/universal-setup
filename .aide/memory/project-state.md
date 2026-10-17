@@ -8,6 +8,28 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
+PR253 is normally merged into dev at384a623c, source tree9e04fa2e, after all
+six required core checks, specification validation, independent exact source
+review and the live branch gate. Ten reviewed checkpoints PR244 through PR253
+were integrated on18October2026. Its publisher run39059484749/1 remains pending
+at this checkpoint; no qualification is inferred from development integration.
+The former PR252 integration and its red publisher results remain below.
+
+The current owned-retirement route work extracts the existing canonical
+original-custody and created-closure record checks into a private metadata
+reader. The service recovery reader consumes that decoder while retaining its
+actual native record reads, child provenance checks, current lease/holder
+lineage and creator checks in their existing order. The same16MiB document and
+two-million-value bounds remain. Parsing and matching supplied record bindings
+grant no native custody, currentness, effect or retirement authority. Direct
+metadata controls cover supported record families, closed/canonical bytes,
+bounds, transaction/plan/context/original/lease mismatches and changed provenance.
+Separately retained PR252 repair/uninstall bytes match their native-observed
+SHA/length and request/root bindings; replay succeeds and cross-operation
+pairing refuses. These are historical metadata observations, not live native
+entry or completed retirement. Complete domain, namespace, lease, current
+revision and final native effects still need the fixed connected route.
+
 PR252 is normally merged into dev atd88253dd after all required core checks,
 independent source review and the live merge gate. Nine reviewed checkpoints
 PR244 through PR252 were integrated on18October2026; main remainsc048f7.

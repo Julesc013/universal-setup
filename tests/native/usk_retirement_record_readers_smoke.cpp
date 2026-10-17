@@ -1,6 +1,8 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
 #include "usk_lifecycle.h"
+#include "usk_maintenance_creator_records_internal.h"
+#include <array>
 #include "usk_audit_repository.h"
 #include "usk_maintenance_effect_journal.h"
 #include "usk_transaction_session.h"
@@ -41,9 +43,103 @@ struct Fixture {
     ~Fixture() { std::error_code ignored; fs::remove_all(root, ignored); }
 };
 struct Record { std::string name, text; };
+// Metadata shape/association controls only. The synthetic historical fields
+// confer no native creator, token, holder, currentness or retirement verdict.
+void creator_records() {
+    using usk::json::Value;
+    using usk::lifecycle::detail::decode_maintenance_original_custody_record;
+    using usk::lifecycle::detail::decode_maintenance_created_closure_record;
+    using usk::lifecycle::detail::require_maintenance_created_closure_binding;
+    const std::array<std::string, 5> bindings{
+        "tx.original", std::string(64, 'a'), std::string(64, 'b'),
+        std::string(64, 'c'), std::string(64, 'd')};
+    const auto text = [](const Value& value) { return usk::json::canonical(value) + "\n"; };
+    Value original(Value::Object{});
+    for (const auto* key : {"schema", "transaction_id", "operation", "plan_digest",
+            "original_context_sha256", "original_lease_ownership", "worker_security", "process_boundary",
+            "registration_sha256", "authenticated_client", "original_consumer_completion",
+            "installed_root", "installed_root_journal_identity", "original_objects"})
+        original.as_object().emplace(key, Value());
+    original.as_object().at("schema") = Value("usk.publisher.maintenance_original_custody.v2");
+    const auto decoded = decode_maintenance_original_custody_record(text(original));
+    require(usk::json::equal_values(decoded, original));
+    for (const char* schema : {"usk.publisher.maintenance_original_custody.v3",
+            "usk.publisher.maintenance_original_custody.v4"}) {
+        auto child = original;
+        child.as_object().at("schema") = Value(schema);
+        child.as_object().emplace("broker_readback", Value(Value::Object{}));
+        require(usk::json::equal_values(decode_maintenance_original_custody_record(text(child)), child));
+        child.as_object().erase("broker_readback");
+        refuses([&] { (void)decode_maintenance_original_custody_record(text(child)); });
+    }
+    for (unsigned variant = 0; variant != 5; ++variant) {
+        auto bad = original;
+        if (variant == 0) bad.as_object().emplace("unknown", Value(true));
+        if (variant == 1) bad.as_object().erase("installed_root");
+        if (variant == 2) bad.as_object().at("schema") = Value("usk.publisher.maintenance_original_custody.v1");
+        if (variant == 3) bad.as_object().at("schema") = Value("usk.publisher.maintenance_original_custody.v5");
+        if (variant == 4) bad.as_object().emplace("broker_readback", Value(Value::Object{}));
+        refuses([&] { (void)decode_maintenance_original_custody_record(text(bad)); });
+    }
+    refuses([&] { (void)decode_maintenance_original_custody_record(text(original) + " "); });
+    refuses([&] { (void)decode_maintenance_original_custody_record(usk::json::canonical(original)); });
+    refuses([&] { (void)decode_maintenance_original_custody_record(std::string(16u * 1024u * 1024u + 1u, ' ')); });
+    Value created(Value::Object{});
+    for (const auto* key : {"schema", "transaction_id", "plan_digest", "original_context_sha256",
+            "original_admission_sha256", "lease_ownership_sha256", "transaction_snapshot_sha256",
+            "source_context", "worker_security", "process_boundary", "registration_sha256",
+            "authenticated_client", "root", "root_parent", "target_parent", "root_native_identity", "created_objects"})
+        created.as_object().emplace(key, Value());
+    created.as_object().at("schema") = Value("usk.publisher.maintenance_created_closure.v2");
+    const std::array<const char*, 5> fields{"transaction_id", "plan_digest", "original_context_sha256",
+        "original_admission_sha256", "lease_ownership_sha256"};
+    for (std::size_t i = 0; i < bindings.size(); ++i) created.as_object().at(fields[i]) = Value(bindings[i]);
+    const auto parse = [&](const std::string& bytes, const std::array<std::string, 5>& expected) {
+        auto value = decode_maintenance_created_closure_record(bytes, expected[0], expected[1]);
+        require_maintenance_created_closure_binding(value, decoded, expected[2], expected[3], expected[4]);
+        return value;
+    };
+    require(usk::json::equal_values(parse(text(created), bindings), created));
+    for (std::size_t i = 0; i < bindings.size(); ++i) {
+        auto wrong = bindings; wrong[i] = "different";
+        refuses([&] { (void)parse(text(created), wrong); });
+    }
+    for (const auto* key : {"worker_security", "process_boundary", "registration_sha256", "authenticated_client"}) {
+        auto bad = created; bad.as_object().at(key) = Value("different");
+        refuses([&] { (void)parse(text(bad), bindings); });
+    }
+    for (unsigned variant = 0; variant != 3; ++variant) {
+        auto bad = created;
+        if (variant == 0) bad.as_object().emplace("unknown", Value(true));
+        if (variant == 1) bad.as_object().erase("root");
+        if (variant == 2) bad.as_object().at("schema") = Value("usk.publisher.maintenance_created_closure.v1");
+        refuses([&] { (void)parse(text(bad), bindings); });
+    }
+    refuses([&] { (void)parse(text(created) + " ", bindings); });
+    refuses([&] { (void)parse(std::string(16u * 1024u * 1024u + 1u, ' '), bindings); });
 }
-int main() {
+}
+int main(int argc, char** argv) {
     try {
+        creator_records();
+        if (argc != 1) {
+            // Optional replay of retained record bytes and separately supplied
+            // bindings. This exercises metadata only; no native actor is made.
+            require(argc == 5 && std::string(argv[1]) == "--creator-records");
+            using usk::lifecycle::detail::decode_maintenance_original_custody_record;
+            using usk::lifecycle::detail::decode_maintenance_created_closure_record;
+            using usk::lifecycle::detail::require_maintenance_created_closure_binding;
+            const auto original = decode_maintenance_original_custody_record(read_text(argv[2]));
+            const auto bindings = usk::json::parse(read_text(argv[4]));
+            const auto created = decode_maintenance_created_closure_record(read_text(argv[3]),
+                bindings.at("transaction_id").as_string(), bindings.at("plan_digest").as_string());
+            require_maintenance_created_closure_binding(created, original,
+                bindings.at("original_context_sha256").as_string(),
+                bindings.at("original_admission_sha256").as_string(),
+                bindings.at("lease_ownership_sha256").as_string());
+            std::cout << "retained creator metadata matches supplied bindings; no native authority\n";
+            return 0;
+        }
         using usk::transaction::TransactionSession;
         using usk::transaction::MaintenanceEffectJournal;
         using usk::transaction::MaintenanceEffectRecordReader;

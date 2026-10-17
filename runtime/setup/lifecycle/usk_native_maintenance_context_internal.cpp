@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "usk_diagnostic_metrics.h"
 #include "usk_native_maintenance_context_internal.h"
+#include "usk_maintenance_creator_records_internal.h"
 #if defined(_WIN32)
 #include "usk_publisher_anchor_create.h"
 #include "usk_publisher_bound_rename.h"
@@ -429,14 +430,10 @@ struct NativeMaintenanceContext::Impl {
         const auto transactions = spec.state_root / "transactions";
         saved.original_text = read_restoration_record(transactions /
             (spec.transaction_id + ".native-maintenance-original.json"), 16u * 1024u * 1024u);
-        const auto original_schema = json::parse(saved.original_text, custody_parse_limits(16u * 1024u * 1024u)).at("schema").as_string();
+        saved.original = decode_maintenance_original_custody_record(saved.original_text);
+        const auto original_schema = saved.original.at("schema").as_string();
         const bool child_original = original_schema == "usk.publisher.maintenance_original_custody.v3" ||
             original_schema == "usk.publisher.maintenance_original_custody.v4";
-        std::set<std::string> original_fields{"schema", "transaction_id", "operation", "plan_digest",
-            "original_context_sha256", "original_lease_ownership", "worker_security", "process_boundary",
-            "registration_sha256", "authenticated_client", "original_consumer_completion", "installed_root", "installed_root_journal_identity", "original_objects"};
-        if (child_original) original_fields.insert("broker_readback");
-        saved.original = closed_record(saved.original_text, original_fields, 16u * 1024u * 1024u);
         const auto& original = saved.original;
         if ((!child_original && original.at("schema").as_string() != "usk.publisher.maintenance_original_custody.v2") ||
             original.at("transaction_id").as_string() != spec.transaction_id ||
@@ -459,20 +456,12 @@ struct NativeMaintenanceContext::Impl {
         const auto original_sha = raw_digest(saved.original_text), old_lease_sha = json::sha256_canonical(old_lease);
         saved.created_text = read_restoration_record(transactions /
             (spec.transaction_id + ".native-maintenance-created.json"), 16u * 1024u * 1024u);
-        saved.created = closed_record(saved.created_text, {"schema", "transaction_id", "plan_digest", "original_context_sha256",
-            "original_admission_sha256", "lease_ownership_sha256", "transaction_snapshot_sha256", "source_context",
-            "worker_security", "process_boundary", "registration_sha256", "authenticated_client", "root", "root_parent",
-            "target_parent", "root_native_identity", "created_objects"}, 16u * 1024u * 1024u);
-        if (saved.created.at("schema").as_string() != "usk.publisher.maintenance_created_closure.v2" ||
-            saved.created.at("transaction_id").as_string() != spec.transaction_id ||
-            saved.created.at("plan_digest").as_string() != spec.plan_digest ||
-            saved.created.at("original_context_sha256").as_string() != original_context.lease_binding_sha256() ||
-            saved.created.at("original_admission_sha256").as_string() != original_sha ||
-            saved.created.at("lease_ownership_sha256").as_string() != old_lease_sha)
-            throw std::runtime_error("native maintenance created closure lost its actual original admission");
-        for (const auto* name : {"worker_security", "process_boundary", "registration_sha256", "authenticated_client"})
-            if (!equal(saved.created.at(name), original.at(name)))
-                throw std::runtime_error("native maintenance created closure changed its original provenance");
+        saved.created = decode_maintenance_created_closure_record(saved.created_text,
+            spec.transaction_id, spec.plan_digest);
+        // Preserve the actual native context recheck after canonical/schema/
+        // transaction/plan checks, before accepting its remaining bindings.
+        require_maintenance_created_closure_binding(saved.created, original,
+            original_context.lease_binding_sha256(), original_sha, old_lease_sha);
         const auto current = transaction::TransactionSession::inspect_recovery(spec);
         const auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest, true);
         if (current.stream_source_context != saved.created.at("source_context").as_string() ||
