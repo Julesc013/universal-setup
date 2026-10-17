@@ -1,0 +1,215 @@
+schema_version: aide.route-profiles.v0
+registry_id: q17-advisory-route-profiles
+status: advisory_metadata_only
+route_profiles:
+  - task_class: deterministic_format_or_count
+    preferred_route_class: no_model_tool
+    fallback_route_class: human_review
+    required_quality_gates:
+      - validation_if_changed
+    required_context:
+      - exact_file_ref_or_command
+    review_required: false
+    escalation_conditions:
+      - destructive_change
+      - forbidden_path
+    non_goals:
+      - model_call
+      - provider_call
+  - task_class: compact_task_generation
+    preferred_route_class: no_model_tool
+    fallback_route_class: local_small
+    required_quality_gates:
+      - token_budget_required_for_prompt_surfaces
+      - verifier_required_for_checkable_work
+    required_context:
+      - latest_task_packet
+      - project_state
+    review_required: false
+    escalation_conditions:
+      - packet_over_budget
+      - missing_context
+    non_goals:
+      - full_history_prompt
+  - task_class: context_indexing
+    preferred_route_class: no_model_tool
+    fallback_route_class: local_small
+    required_quality_gates:
+      - context_artifacts_validate
+      - no_raw_content_in_maps
+    required_context:
+      - repo_snapshot
+      - ignore_policy
+    review_required: false
+    escalation_conditions:
+      - ignored_path_inlined
+      - stale_artifact
+    non_goals:
+      - embeddings
+      - vector_database
+  - task_class: verifier_check
+    preferred_route_class: no_model_tool
+    fallback_route_class: human_review
+    required_quality_gates:
+      - verifier_required_for_checkable_work
+    required_context:
+      - verification_policy
+      - task_packet
+    review_required: false
+    escalation_conditions:
+      - verifier_fail
+      - secret_risk
+    non_goals:
+      - LLM_as_judge
+  - task_class: evidence_review_packet
+    preferred_route_class: frontier
+    fallback_route_class: human_review
+    required_quality_gates:
+      - evidence_packet_required_for_review
+      - verifier_required_for_checkable_work
+      - token_budget_required_for_prompt_surfaces
+    required_context:
+      - latest_review_packet
+      - verification_report
+    review_required: true
+    escalation_conditions:
+      - missing_evidence
+      - review_packet_incomplete
+    non_goals:
+      - full_repo_review
+  - task_class: bounded_docs_update
+    preferred_route_class: local_strong
+    fallback_route_class: cheap_remote
+    required_quality_gates:
+      - verifier_required_for_checkable_work
+      - validation_if_changed
+    required_context:
+      - compact_task_packet
+      - exact_refs
+    review_required: true
+    escalation_conditions:
+      - governance_policy_change
+      - unclear_acceptance
+    non_goals:
+      - broad_architecture_rewrite
+  - task_class: bounded_code_patch
+    preferred_route_class: local_strong
+    fallback_route_class: cheap_remote
+    required_quality_gates:
+      - tests_required_where_available
+      - verifier_required_for_checkable_work
+      - golden_tasks_required_for_token_optimization
+    required_context:
+      - repo_map
+      - test_map
+      - exact_refs
+    review_required: true
+    escalation_conditions:
+      - failing_tests
+      - security_sensitive
+      - destructive_change
+    non_goals:
+      - unbounded_refactor
+  - task_class: failing_test_repair
+    preferred_route_class: local_strong
+    fallback_route_class: frontier
+    required_quality_gates:
+      - failing_test_reproduced
+      - verifier_required_for_checkable_work
+    required_context:
+      - test_map
+      - failing_command
+    review_required: true
+    escalation_conditions:
+      - unclear_failure
+      - broad_behavioral_change
+    non_goals:
+      - unverified_fix
+  - task_class: architecture_decision
+    preferred_route_class: frontier
+    fallback_route_class: human_review
+    required_quality_gates:
+      - evidence_packet_required_for_review
+      - hard_floor_applies
+    required_context:
+      - decision_record
+      - compact_context_packet
+    review_required: true
+    escalation_conditions:
+      - governance_policy_change
+      - high_stakes_review
+    non_goals:
+      - automatic_decision
+  - task_class: security_review
+    preferred_route_class: frontier
+    fallback_route_class: human_review
+    required_quality_gates:
+      - evidence_packet_required_for_review
+      - hard_floor_applies
+    required_context:
+      - verifier_report
+      - exact_refs
+    review_required: true
+    escalation_conditions:
+      - secret_risk
+      - credential_exposure
+    non_goals:
+      - automated_approval
+  - task_class: self_modification
+    preferred_route_class: human_review
+    fallback_route_class: frontier
+    required_quality_gates:
+      - explicit_queue_review
+      - hard_floor_applies
+    required_context:
+      - policy_refs
+      - rollback_plan
+    review_required: true
+    escalation_conditions:
+      - automatic_mutation_requested
+    non_goals:
+      - autonomous_loop
+  - task_class: final_promotion_review
+    preferred_route_class: frontier
+    fallback_route_class: human_review
+    required_quality_gates:
+      - verifier_required_for_checkable_work
+      - golden_tasks_required_for_token_optimization
+      - evidence_packet_required_for_review
+    required_context:
+      - review_packet
+      - token_summary
+      - golden_report
+    review_required: true
+    escalation_conditions:
+      - missing_validation
+      - quality_gate_fail
+    non_goals:
+      - rubber_stamp
+  - task_class: maintenance_suggestion
+    preferred_route_class: no_model_tool
+    fallback_route_class: local_small
+    required_quality_gates:
+      - outcome_controller_signal
+      - validation_if_changed
+    required_context:
+      - latest_recommendations
+    review_required: false
+    escalation_conditions:
+      - automatic_policy_mutation
+      - governance_policy_change
+    non_goals:
+      - automatic_application
+  - task_class: unknown
+    preferred_route_class: frontier
+    fallback_route_class: human_review
+    required_quality_gates:
+      - clarify_acceptance
+      - evidence_packet_required_for_review
+    required_context:
+      - compact_task_packet
+    review_required: true
+    escalation_conditions:
+      - uncertainty
+    non_goals:
+      - cheap_guessing

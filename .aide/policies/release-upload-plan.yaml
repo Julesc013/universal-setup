@@ -1,0 +1,35 @@
+schema_version: aide.release-upload-plan-policy.v0
+policy_id: aide-release-upload-plan-v0
+status: active
+purpose: >
+  Define the local upload-plan record produced by Q48 without performing any
+  upload.
+mode:
+  - preview_only
+  - no_upload
+  - no_network
+  - no_github_api_call
+fields:
+  - asset path
+  - asset kind
+  - size
+  - sha256
+  - required
+  - publish_candidate
+  - upload_order
+  - notes
+  - validation status
+upload_order_policy:
+  - archives first
+  - checksums second
+  - manifest and install notes third
+  - changelog and release-note previews fourth
+  - validation and provenance support files last
+blocked_actions:
+  - create_git_tag
+  - push_git_tag
+  - create_github_release
+  - upload_release_asset
+  - publish_package
+  - mutate_branch
+  - call_network

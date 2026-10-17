@@ -1,0 +1,140 @@
+schema_version: aide.file-classification-policy.v0
+policy_id: aide-file-classification-v0
+status: active
+purpose: >
+  Classify tracked files using deterministic path, extension, and marker
+  heuristics. Classification is evidence for review, not a semantic judgment.
+priority_order:
+  - local_forbidden_paths
+  - generated_or_evidence_paths
+  - policy_schema_contract_paths
+  - test_paths
+  - doc_paths
+  - template_paths
+  - archive_paths
+  - tool_paths
+  - metadata_paths
+  - source_extensions
+  - fixture_paths
+  - unknown
+local_forbidden_paths:
+  - .aide.local/**
+  - .env
+  - secrets/**
+  - "**/*secret*"
+generated_or_evidence_paths:
+  evidence:
+    - .aide/queue/**
+    - .aide/reports/**
+    - .aide/verification/latest-*
+    - .aide/changelog/*.preview.*
+    - .aide/changelog/latest-*
+    - .aide/changelog/malformed-commits.md
+    - .aide/github/latest-*
+    - .aide/github/*advisory.*
+    - .aide/github/*plan.*
+  generated:
+    - .aide/export/**
+    - .aide/intake/latest-*
+    - .aide/git/workflow-detection.*
+    - .aide/git/latest-helper-plan.*
+    - .aide/git/aide-dev-main-plan.*
+    - .aide/context/latest-*
+    - .aide/context/repo-snapshot.json
+    - .aide/context/repo-map.*
+    - .aide/context/test-map.json
+    - .aide/context/context-index.json
+    - .aide/release/dist/**
+    - .aide/release/latest-*
+    - .aide/release/github-release-*
+    - .aide/repo/file-inventory.json
+    - .aide/repo/ownership-map.json
+    - .aide/repo/dependency-map.json
+    - .aide/repo/test-map.json
+    - .aide/repo/doc-link-map.json
+    - .aide/repo/generated-map.json
+    - .aide/repo/orphan-candidates.json
+    - .aide/repo/latest-repo-intelligence.md
+policy_paths:
+  - .aide/policies/**
+schema_paths:
+  - "**/*.schema.json"
+  - .aide/repo/*.schema.json
+contract_paths:
+  - contracts/**
+  - .aide/profile.yaml
+  - .aide/toolchain.lock
+test_paths:
+  - tests/**
+  - test/**
+  - core/*/tests/**
+  - .aide/scripts/tests/**
+  - "**/test_*.py"
+  - "**/*_test.py"
+doc_paths:
+  - README.md
+  - AGENTS.md
+  - DOCUMENTATION.md
+  - IMPLEMENT.md
+  - PLANS.md
+  - ROADMAP.md
+  - docs/**
+  - "**/*.md"
+  - "**/*.rst"
+template_paths:
+  - "**/*.template"
+  - "**/*.template.*"
+  - "**/templates/**"
+archive_paths:
+  - archive/**
+  - archives/**
+  - "**/*.zip"
+  - "**/*.tar"
+  - "**/*.gz"
+  - "**/*.tgz"
+tool_paths:
+  - scripts/**
+  - .aide/scripts/**
+  - .aide/hooks/**
+  - tools/**
+metadata_paths:
+  - .gitignore
+  - .gitattributes
+  - "**/*.json"
+  - "**/*.jsonl"
+  - "**/*.lock"
+  - "**/*.toml"
+  - "**/*.yaml"
+  - "**/*.yml"
+source_extensions:
+  - .py
+  - .js
+  - .ts
+  - .cs
+  - .cpp
+  - .c
+  - .h
+  - .rs
+  - .go
+  - .java
+fixture_paths:
+  - fixtures/**
+  - "**/fixtures/**"
+  - .aide/evals/golden-tasks/**
+status_rules:
+  active: manual source, policy, schema, contract, tool, or doc paths not otherwise generated.
+  generated: known generated output paths or files with generated markers.
+  evidence_only: queue evidence, reports, previews, and review artifacts.
+  template_only: template files and template directories.
+  metadata: structured configuration and machine-readable metadata files.
+  local_only: local state paths if they are ever seen in tracked files.
+  archived: archive paths or archive file extensions.
+  unknown: no deterministic rule matched.
+exportable_hint_rules:
+  portable_candidate: policies, schemas, portable docs, tests, and command code.
+  source_specific: generated outputs, queue evidence, source repo context, Git reports, GitHub reports, changelog previews.
+  do_not_export: .aide.local, .env, secrets, raw logs, local traces, credentials.
+non_goals:
+  - no semantic content classification
+  - no deletion recommendation
+  - no file move recommendation

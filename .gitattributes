@@ -13,5 +13,16 @@
 *.toml text eol=lf
 *.yaml text eol=lf
 *.yml text eol=lf
+*.wprp text eol=lf
 CMakeLists.txt text eol=lf
 LICENSE text eol=lf
+
+# Preserve upstream portable-pack bytes bound by the import receipt.
+/.aide/** -text
+/.aide.local.example/** -text
+/docs/reference/** -text
+/external/aide/LICENSE -text
+/external/aide/NOTICE -text
+
+# Recognize the upstream guide's CRLF endings without changing receipt-bound bytes.
+/docs/reference/aide-lite-test-runner.md whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol

@@ -178,8 +178,13 @@ void require_capability_observation(const Value& value, const std::string& reque
     }
 }
 
-void require_service_capability_observation(const Value& response, const std::string& request_id, bool scoped_profile)
+void require_service_capability_observation(const Value& response, const std::string& request_id, unsigned protocol_version)
 {
+    if (protocol_version != 2 && protocol_version != 3 && protocol_version != 4 && protocol_version != 5)
+        throw std::runtime_error("service capability protocol differs");
+    const bool scoped_profile = protocol_version != 2;
+    const bool child_profile = protocol_version >= 4;
+    const bool retirement_profile = protocol_version == 5;
     if (response.as_object().size() != 8 ||
         response.at("schema").as_string() != "usk.publisher_service_capability_observation.v1" ||
         response.at("status").as_string() != "observed" ||
@@ -189,15 +194,24 @@ void require_service_capability_observation(const Value& response, const std::st
     const auto& effects=value.at("effects").as_array();
     const auto& platform=value.at("platform");
     bool qualified = false;
+    bool available = false;
     if (scoped_profile) {
         const auto& bounds = value.at("qualification_bounds");
         const auto& sdk = platform.at("sdk_version").as_string();
-        if (bounds.as_object().size() != 4 ||
-            bounds.at("phase_schema").as_string() != "usk.publisher.lab_phase_evidence.v9" ||
-            bounds.at("execution_schema").as_string() != "usk.publisher_execution_observation.v6" ||
+        if (bounds.as_object().size() != (retirement_profile ? 9u : child_profile ? 8u : 4u) ||
+            bounds.at("phase_schema").as_string() != (retirement_profile ? "usk.publisher.lab_phase_evidence.v11" : child_profile ? "usk.publisher.lab_phase_evidence.v10" : "usk.publisher.lab_phase_evidence.v9") ||
+            bounds.at("execution_schema").as_string() != (retirement_profile ? "usk.publisher_execution_observation.v8" : child_profile ? "usk.publisher_execution_observation.v7" : "usk.publisher_execution_observation.v6") ||
             bounds.at("sdk_version").as_string() != "10.0.26100.0" ||
-            bounds.at("qualified_windows_build").as_unsigned() != 20348 || sdk.size() > 32)
+            bounds.at(child_profile ? "candidate_windows_build" : "qualified_windows_build").as_unsigned() != 20348 || sdk.size() > 32)
             throw std::runtime_error("scoped publisher qualification bounds differ");
+        if (retirement_profile && bounds.at("worker_security_schema").as_string() != "usk.publisher_worker_security.v2")
+            throw std::runtime_error("scoped publisher native retirement bounds differ");
+        if (child_profile &&
+            (bounds.at("creation_schema").as_string() != (retirement_profile ? "usk.publisher.creation_observation.v5" : "usk.publisher.creation_observation.v4") ||
+             bounds.at("original_custody_schema").as_string() != (retirement_profile ? "usk.publisher.maintenance_original_custody.v4" : "usk.publisher.maintenance_original_custody.v3") ||
+             bounds.at("process_loss_schema").as_string() != "usk.publisher.production_rename_observer.v2" ||
+             bounds.at("active_contention_schema").as_string() != "usk.publisher_active_install_contention_probe.v2"))
+            throw std::runtime_error("owned child capability source bounds differ");
         if (!sdk.empty()) {
             std::size_t separators = 0;
             bool component = false;
@@ -213,23 +227,28 @@ void require_service_capability_observation(const Value& response, const std::st
             }
             if (!component || separators != 3) throw std::runtime_error("scoped publisher SDK differs");
         }
-        qualified = platform.at("windows_build").as_unsigned() == 20348 && sdk == "10.0.26100.0";
+        available = platform.at("windows_build").as_unsigned() == 20348 && sdk == "10.0.26100.0";
+        // Retained V3 has its original semantics. Current V4 compatibility
+        // alone cannot promote the new child path to qualified support.
+        qualified = !child_profile && available;
     }
     if (value.as_object().size() != (scoped_profile ? 22u : 21u) ||
-        value.at("schema").as_string() != (scoped_profile ? "usk.publisher_capability.v3" : "usk.publisher_capability.v2") ||
+        value.at("schema").as_string() != (retirement_profile ? "usk.publisher_capability.v5" : child_profile ? "usk.publisher_capability.v4" : scoped_profile ? "usk.publisher_capability.v3" : "usk.publisher_capability.v2") ||
         value.at("request_id").as_string() != request_id ||
         value.at("provider_id").as_string() != "windows_nt_x64_local_ntfs_service_sid_noreplace_v1" ||
         value.at("implementation").as_string() != "partial" ||
-        value.at("realization").as_string() != "restricted_service" || value.at("availability").as_boolean() != qualified ||
+        value.at("realization").as_string() != "restricted_service" || value.at("availability").as_boolean() != available ||
         value.at("required_privilege").as_string() != "none_for_registered_caller" ||
         value.at("permission").as_string() != "registered_caller_observed" ||
         value.at("authority").as_string() != "not_granted_by_discovery" ||
         value.at("qualification").as_string() != (qualified ? "qualified_for_scope" : "incomplete") ||
-        value.at("qualification_scope").as_string() != (scoped_profile ?
+        value.at("qualification_scope").as_string() != (retirement_profile ?
+            "registered_public_apply_v11_owned_child_native_retirement_process_restart_replay_verify" : child_profile ?
+            "registered_public_apply_v10_owned_child_process_restart_replay_verify" : scoped_profile ?
             "registered_public_apply_v9_process_restart_replay_verify" : "service_admitted_target_observation") ||
         value.at("binding_provenance").as_string() != "retained_controller_admission_and_current_disk_identity" ||
-        value.at("support").as_string() != (qualified ? "supported_for_scope" : "unsupported") ||
-        value.at("recovery_ceiling").as_string() != (scoped_profile ? "source_free_process_restart_v9" : "candidate_source_free_restart") ||
+        value.at("support").as_string() != (child_profile && available ? "candidate_for_scope" : qualified ? "supported_for_scope" : "unsupported") ||
+        value.at("recovery_ceiling").as_string() != (retirement_profile ? "candidate_source_free_process_restart_v11" : child_profile ? "candidate_source_free_process_restart_v10" : scoped_profile ? "source_free_process_restart_v9" : "candidate_source_free_restart") ||
         value.at("power_loss_qualified").as_boolean() ||
         !value.at("revalidation_required_before_effects").as_boolean() ||
         value.at("execution_lease_held").as_boolean() || value.at("service_state").as_unsigned() != 4 ||
@@ -299,7 +318,8 @@ bool initial_command(const std::string& command)
 {
     return command == "command_graph.inspect" || command == "command_graph.inspect_v2" ||
         command == "policy.inspect" || command == "diagnostics.report" ||
-        command == "install_local.inspect" || command == "install_local.plan";
+        command == "install_local.inspect" || command == "install_local.plan" ||
+        command == "repair.plan" || command == "move.plan" || command == "uninstall.plan";
 }
 
 } // namespace
@@ -366,7 +386,9 @@ OneShotResult run_one_shot(const std::string& request_json,
             input.at("payload").type() != Value::Type::object) {
             return failure(request_id, "invalid_request");
         }
-        if ((command == "install_local.plan") != (context_config != nullptr)) {
+        const bool configured_plan = command == "install_local.plan" || command == "repair.plan" ||
+            command == "move.plan" || command == "uninstall.plan";
+        if (configured_plan != (context_config != nullptr)) {
             return failure(request_id, "context_mismatch");
         }
         if (context_config != nullptr && !valid_context(*context_config)) {
@@ -465,11 +487,21 @@ static OneShotResult run_publisher_request(const std::string& request_json,
         } else if (command == "install_local.recover") {
             expected_schema = "usk.publisher_recovery_request.v1";
             response_field = "recovery_installed_response";
+        } else if (!retain_observation && (command == "repair.apply" || command == "move.apply" ||
+                command == "uninstall.apply")) {
+            expected_schema = "usk." + command.substr(0, command.find('.')) + "_apply_request.v1";
+            response_field = "apply_response";
+        } else if (!retain_observation && (command == "repair.recover" || command == "move.recover" ||
+                command == "uninstall.recover")) {
+            expected_schema = "usk.publisher_maintenance_recovery_request.v1";
+            response_field = "recovery_response";
         } else if (command == "publisher.inspect" && !retain_observation) {
             expected_schema = "usk.publisher_capability_request.v1";
         } else if (command == "publisher.observe") {
-            expected_schema = input.at("payload").at("schema").as_string() == "usk.publisher_capability_request.v3" ?
-                "usk.publisher_capability_request.v3" : "usk.publisher_capability_request.v2";
+            const auto& schema = input.at("payload").at("schema").as_string();
+            expected_schema = schema == "usk.publisher_capability_request.v5" ? schema :
+                schema == "usk.publisher_capability_request.v4" ? schema :
+                schema == "usk.publisher_capability_request.v3" ? schema : "usk.publisher_capability_request.v2";
         } else {
             return failure(request_id, "command_unavailable");
         }
@@ -479,6 +511,10 @@ static OneShotResult run_publisher_request(const std::string& request_json,
             input.at("payload").at("schema").as_string() != expected_schema)
             return failure(request_id, "invalid_request");
         submitted = input.at("payload");
+        if (response_field == "recovery_response" && (submitted.as_object().size() != 4 ||
+            submitted.at("operation").as_string() != command.substr(0, command.find('.')) ||
+            !safe_id(submitted.at("install_id").as_string()) || !safe_id(submitted.at("transaction_id").as_string())))
+            return failure(request_id, "invalid_request");
         if ((inspection || command == "publisher.observe") && (submitted.as_object().size() != 2 ||
             submitted.at("request_id").as_string() != request_id))
             return failure(request_id, "invalid_request");
@@ -512,7 +548,9 @@ static OneShotResult run_publisher_request(const std::string& request_json,
             limits.max_string_bytes=4096;
             const auto response=usk::json::parse(raw,limits);
             require_service_capability_observation(response,request_id,
-                submitted.at("schema").as_string() == "usk.publisher_capability_request.v3");
+                submitted.at("schema").as_string() == "usk.publisher_capability_request.v5" ? 5u :
+                submitted.at("schema").as_string() == "usk.publisher_capability_request.v4" ? 4u :
+                submitted.at("schema").as_string() == "usk.publisher_capability_request.v3" ? 3u : 2u);
             return candidate_outcome(request_id,"ok",
                 retain_observation ? response : response.at("capability_observation"),nullptr,0);
         } catch (const usk::base::EffectRequestNotDispatched&) {
@@ -562,6 +600,37 @@ static OneShotResult run_publisher_request(const std::string& request_json,
                         payload.at("verified_at").as_string() != submitted.at("verified_at").as_string() ||
                         payload.at("report_digest").as_string() != observed.at("bound_report_digest").as_string())
                         throw std::runtime_error("publisher verification binding differs");
+                } else if (candidate_command == "repair.apply" || candidate_command == "move.apply" ||
+                    candidate_command == "uninstall.apply" || response_field == "recovery_response") {
+                    const auto operation = candidate_command.substr(0, candidate_command.find('.'));
+                    const bool recovery = response_field == "recovery_response";
+                    const auto install_id = recovery ? submitted.at("install_id").as_string() :
+                        submitted.at("plan_request").at("install_id").as_string();
+                    auto digest_body = payload;
+                    digest_body.as_object().erase("report_digest");
+                    const auto report_status = payload.at("status").as_string();
+                    const bool completed = recovery ? report_status == "completed" : operation == "move" ? report_status == "new_committed_old_retained" :
+                        (report_status == "completed" || (operation == "uninstall" && report_status == "retained_foreign_content"));
+                    if (observed.as_object().size() != 12 || !completed ||
+                        observed.at("request_sha256").as_string() != usk::json::sha256_canonical(submitted) ||
+                        observed.at("operation").as_string() != operation ||
+                        observed.at("install_id").as_string() != install_id ||
+                        observed.at("transaction_id").as_string() != submitted.at("transaction_id").as_string() ||
+                        payload.at("schema").as_string() != (recovery ? "usk.maintenance_recovery_report.v1" : "usk." + operation + "_report.v1") ||
+                        payload.at("install_id").as_string() != install_id ||
+                        payload.at("transaction_id").as_string() != submitted.at("transaction_id").as_string() ||
+                        (!recovery && payload.at("plan_id").as_string() != submitted.at("plan_request").at("plan_id").as_string()) ||
+                        payload.at("report_id").as_string() != (recovery ? "recovery." : "") + operation + "." + submitted.at("transaction_id").as_string() ||
+                        payload.at("report_digest").as_string() != usk::json::sha256_canonical(digest_body) ||
+                        (!recovery && payload.at("completed_at").as_string() != submitted.at("applied_at").as_string()))
+                        throw std::runtime_error("publisher maintenance binding differs");
+                    if (recovery && (payload.as_object().size() != 13 || payload.at("operation").as_string() != operation ||
+                        !safe_id(payload.at("plan_id").as_string()) || payload.at("recorded_at").as_string().empty() ||
+                        !lower_hex(payload.at("plan_digest").as_string(), 64) ||
+                        !lower_hex(payload.at("transaction_snapshot_sha256").as_string(), 64) ||
+                        !lower_hex(payload.at("effect_history_sha256").as_string(), 64) ||
+                        !lower_hex(payload.at("source_digest").as_string(), 64)))
+                        throw std::runtime_error("publisher maintenance recovery original result differs");
                 } else {
                     const std::string install_id = candidate_command == "install_local.apply" ?
                         submitted.at("plan_request").at("install_id").as_string() :

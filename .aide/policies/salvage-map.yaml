@@ -1,0 +1,61 @@
+schema_version: aide.salvage-map-policy.v0
+policy_id: aide.salvage-map.v0
+status: active
+purpose: >
+  Define deterministic, local, candidate-only salvage planning for files or
+  embedded material that may need future preservation, wrapping, extraction,
+  conversion, archival review, shim planning, alias planning, or reclassification.
+operating_mode:
+  - deterministic_local
+  - no_model_calls
+  - no_provider_calls
+  - no_network_calls
+  - candidate_only
+  - dry_run_first
+  - no_apply_in_q42
+  - no_file_moves
+  - no_file_deletes
+  - no_reference_rewrites
+fates:
+  - keep
+  - wrap
+  - adapt
+  - extract
+  - convert
+  - archive
+  - drop_candidate
+  - shim
+  - alias
+  - unknown
+salvage_entry_statuses:
+  - candidate
+  - needs_review
+  - blocked
+  - rejected
+  - superseded
+  - future_approved
+  - future_applied
+required_fields:
+  - source_path
+  - item_description
+  - recommended_fate
+  - target_hint
+  - reason
+  - preservation_notes
+  - validators_required
+  - review_required
+explicit_rule:
+  drop_candidate_is_not_delete_approval: true
+safety_rules:
+  archive_is_not_applied_move: true
+  shim_is_not_created: true
+  alias_is_not_applied: true
+  candidate_is_approval: false
+  apply_allowed_default: false
+non_goals:
+  - no salvage extraction
+  - no_salvage_extraction
+  - no deletion
+  - no archive move
+  - no shim creation
+  - no alias application

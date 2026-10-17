@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.path-aliases.schema.v0",
+  "type": "object",
+  "required": [
+    "alias_id",
+    "old_path",
+    "new_path",
+    "schema_version",
+    "generated_by",
+    "source_commit",
+    "alias_plan_id",
+    "status",
+    "valid_from",
+    "retire_after",
+    "consumers",
+    "source_inputs",
+    "aliases",
+    "warnings",
+    "validation",
+    "no_apply"
+  ],
+  "properties": {
+    "alias_id": {"type": "string"},
+    "old_path": {"type": "string"},
+    "new_path": {"type": "string"},
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "alias_plan_id": {"type": "string"},
+    "status": {"type": "string"},
+    "valid_from": {"type": "string"},
+    "retire_after": {"type": "string"},
+    "consumers": {"type": "array"},
+    "source_inputs": {"type": "array"},
+    "aliases": {"type": "array"},
+    "warnings": {"type": "array"},
+    "validation": {"type": "array"},
+    "no_apply": {"const": true}
+  }
+}

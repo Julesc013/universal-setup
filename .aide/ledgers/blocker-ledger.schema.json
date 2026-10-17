@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aide.ledgers.blocker-ledger.v0",
+  "title": "AIDE Blocker Ledger",
+  "type": "object",
+  "required": ["schema_version", "ledger_id", "append_only", "records"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "aide.blocker-ledger.v0" },
+    "ledger_id": { "type": "string" },
+    "append_only": { "type": "boolean", "const": true },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["record_id", "blocker_id", "workunit_id", "class", "severity", "status", "evidence_refs", "recorded_at", "example"],
+        "properties": {
+          "record_id": { "type": "string" },
+          "blocker_id": { "type": "string" },
+          "workunit_id": { "type": "string" },
+          "class": { "type": "string" },
+          "severity": { "type": "string" },
+          "status": { "type": "string" },
+          "evidence_refs": { "type": "array", "items": { "type": "string" } },
+          "recorded_at": { "type": "string" },
+          "example": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

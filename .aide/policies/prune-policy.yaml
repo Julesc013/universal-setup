@@ -1,0 +1,55 @@
+schema_version: aide.prune-policy.v0
+policy_id: aide-git-prune-policy-v0
+status: active
+purpose: >
+  Define safe branch pruning posture for future helpers. Q28 never deletes
+  branches and records dry-run policy only.
+principles:
+  - prune only after ancestor containment
+  - protected branches never prune
+  - dry-run by default
+  - no branch deletion in Q28
+local_branch_prune_rules:
+  eligible_roles:
+    - task
+    - subtask
+    - review
+    - quarantine
+  required_containment_targets:
+    - dev
+    - main
+  required_checks:
+    - git merge-base --is-ancestor <branch> <target>
+    - branch role not protected
+    - no unpushed unique work
+    - evidence recorded
+remote_branch_prune_rules:
+  default: not_allowed_in_q28
+  future_requirement:
+    - explicit command flag
+    - containment proof
+    - remote-tracking confirmation
+    - review evidence
+branch_age_hints:
+  task: consider after contained and inactive for 7 days
+  review: consider after review closure
+  hotfix: retain until backmerged to all targets
+  release: retain while release line is maintained
+protected_branches_never_prune:
+  - main
+  - dev
+  - release/*
+  - gh-pages
+release_hotfix_retention:
+  release: retain while public/stable line exists
+  hotfix: retain until contained in main/dev/release as required
+evidence_required:
+  - branch role
+  - containment target
+  - merge-base result
+  - local/remote tracking status
+  - prune rationale
+q28_behavior:
+  dry_run_by_default: true
+  branch_deletion: false
+  remote_deletion: false

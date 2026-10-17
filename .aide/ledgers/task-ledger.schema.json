@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aide.ledgers.task-ledger.v0",
+  "title": "AIDE Task Ledger",
+  "type": "object",
+  "required": ["schema_version", "ledger_id", "append_only", "records"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "aide.task-ledger.v0" },
+    "ledger_id": { "type": "string" },
+    "append_only": { "type": "boolean", "const": true },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["record_id", "workunit_id", "lifecycle_state", "attempt_refs", "evidence_refs", "recorded_at", "example"],
+        "properties": {
+          "record_id": { "type": "string" },
+          "workunit_id": { "type": "string" },
+          "lifecycle_state": { "type": "string" },
+          "attempt_refs": { "type": "array", "items": { "type": "string" } },
+          "evidence_refs": { "type": "array", "items": { "type": "string" } },
+          "recorded_at": { "type": "string" },
+          "example": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

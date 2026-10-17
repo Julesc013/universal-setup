@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Transaction Evidence",
+  "type": "object",
+  "required": ["schema_version", "evidence_id", "transaction_id", "evidence_class", "refs", "validation_commands", "result", "no_apply_boundary"],
+  "properties": {
+    "schema_version": {"const": "aide.transaction-evidence.v0"},
+    "evidence_id": {"type": "string"},
+    "transaction_id": {"type": "string"},
+    "evidence_class": {"type": "string"},
+    "refs": {"type": "array", "items": {"type": "string"}},
+    "validation_commands": {"type": "array", "items": {"type": "string"}},
+    "result": {"enum": ["PASS", "WARN", "FAIL", "BLOCKED"]},
+    "no_apply_boundary": {"type": "object"}
+  },
+  "additionalProperties": true
+}

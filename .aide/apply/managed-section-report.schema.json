@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Managed Section Report",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "report_id",
+    "mode",
+    "files_inspected",
+    "sections_found",
+    "sections_patched_in_fixture",
+    "conflicts",
+    "manual_content_preservation",
+    "rollback_evidence",
+    "no_real_apply_boundary",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {"const": "aide.managed-section-report.v0"},
+    "report_id": {"type": "string"},
+    "mode": {"type": "string"},
+    "files_inspected": {"type": "array", "items": {"type": "string"}},
+    "sections_found": {"type": "array", "items": {"type": "object"}},
+    "sections_patched_in_fixture": {"type": "array", "items": {"type": "object"}},
+    "conflicts": {"type": "array", "items": {"type": "object"}},
+    "manual_content_preservation": {"type": "object"},
+    "rollback_evidence": {"type": "object"},
+    "no_real_apply_boundary": {"type": "object"},
+    "status": {"type": "string"}
+  },
+  "additionalProperties": true
+}

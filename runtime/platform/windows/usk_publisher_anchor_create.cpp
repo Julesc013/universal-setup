@@ -40,9 +40,9 @@ bool valid_component(const std::wstring& name) {
 static HANDLE create_relative_with_descriptor(
     HANDLE parent, const std::wstring& name,
     const std::vector<unsigned char>& security_descriptor, bool directory,
-    bool generated_anchor) {
+    bool generated_anchor, const PublisherMaintenanceNames* maintenance_names = nullptr) {
     if (!parent || parent == INVALID_HANDLE_VALUE ||
-        !(generated_anchor ? valid_component(name) : is_publisher_canonical_component(name)) ||
+        !(generated_anchor ? valid_component(name) : is_publisher_admitted_component(parent, name, maintenance_names)) ||
         security_descriptor.empty() ||
         !IsValidSecurityDescriptor(const_cast<unsigned char*>(security_descriptor.data()))) {
         throw std::runtime_error("publisher anchor creation has invalid bound inputs");
@@ -138,8 +138,8 @@ HANDLE create_record_directory_relative_with_descriptor(
 
 HANDLE create_staged_directory_relative_with_descriptor(
     HANDLE parent, const std::wstring& name,
-    const std::vector<unsigned char>& security_descriptor) {
-    return create_relative_with_descriptor(parent, name, security_descriptor, true, false);
+    const std::vector<unsigned char>& security_descriptor, const PublisherMaintenanceNames* maintenance_names) {
+    return create_relative_with_descriptor(parent, name, security_descriptor, true, false, maintenance_names);
 }
 
 HANDLE create_file_relative_with_descriptor(

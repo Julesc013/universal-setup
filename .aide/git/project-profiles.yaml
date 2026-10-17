@@ -1,0 +1,107 @@
+schema_version: aide.git-project-profiles.v0
+profiles:
+  aide:
+    default_workflow_model: trunk_with_dev_integration
+    canonical_branch: main
+    integration_branch_recommendation: dev allowed for shareable integration, not canonical truth
+    release_branch_recommendation: only after public/stable release line exists
+    branch_prefixes:
+      task: [task/, codex/, aide/, fix/, repair/]
+      review: [review/, quarantine/]
+      release: [release/]
+      hotfix: [hotfix/]
+    versioning_hints: SemVer for contracts, tools, and exported pack compatibility
+    promotion_gates: full validation, commit checks, changelog preview, review packet
+    notes: strict trunk plus optional dev integration; no full GitFlow by default
+  eureka:
+    default_workflow_model: trunk_with_dev_integration
+    canonical_branch: main
+    integration_branch_recommendation: dev as integration/quarantine for waves
+    release_branch_recommendation: defer until production release line exists
+    branch_prefixes:
+      task: [task/, codex/, fix/]
+      review: [review/, quarantine/]
+      release: [release/]
+      hotfix: [hotfix/]
+    versioning_hints: production-reality gates before main
+    promotion_gates: architecture boundaries, product validation, AIDE evidence, review
+    notes: AIDE supports workflow, but Eureka product truth remains in Eureka contracts/runtime docs
+  dominium:
+    default_workflow_model: trunk_with_dev_integration_with_release_lines_when_shipped
+    canonical_branch: main
+    integration_branch_recommendation: dev useful for multi-machine/game-content integration
+    release_branch_recommendation: justified for shipped builds, content, and save compatibility
+    branch_prefixes:
+      task: [task/, codex/, fix/]
+      review: [review/, quarantine/]
+      release: [release/]
+      hotfix: [hotfix/]
+    versioning_hints: preserve save/content compatibility records
+    promotion_gates: build validation, save compatibility, content review, changelog
+    notes: release branches are more likely justified than in AIDE before public release
+  website:
+    default_workflow_model: github_flow_or_trunk_without_dev
+    canonical_branch: main
+    integration_branch_recommendation: dev usually unnecessary unless multiple agents need staging
+    release_branch_recommendation: not default
+    branch_prefixes:
+      task: [task/, fix/]
+      review: [review/]
+      release: [release/]
+      hotfix: [hotfix/]
+      deploy: [gh-pages]
+    versioning_hints: deployment artifacts should be generated, not hand-edited
+    promotion_gates: preview build, link/check validation, deploy provenance
+    notes: gh-pages only if deployment mode requires it
+  native_client:
+    default_workflow_model: trunk_with_dev_integration
+    canonical_branch: main
+    integration_branch_recommendation: dev useful for cross-platform integration
+    release_branch_recommendation: useful after binary distribution begins
+    branch_prefixes:
+      task: [task/, fix/]
+      review: [review/]
+      release: [release/]
+      hotfix: [hotfix/]
+    versioning_hints: binary compatibility and installer/updater metadata matter
+    promotion_gates: platform smoke tests, packaging checks, review
+    notes: release branches become justified when shipped client versions need maintenance
+  connector_heavy_repo:
+    default_workflow_model: trunk_with_dev_integration
+    canonical_branch: main
+    integration_branch_recommendation: dev recommended for connector wave quarantine
+    release_branch_recommendation: only for supported connector API versions
+    branch_prefixes:
+      task: [task/, connector/, fix/]
+      review: [review/, quarantine/]
+      release: [release/]
+      hotfix: [hotfix/]
+    versioning_hints: connector capability matrix and credentials boundaries
+    promotion_gates: offline fixtures, no-secret checks, compatibility tests
+    notes: never use live provider/API calls as default branch detection evidence
+  data_snapshot_repo:
+    default_workflow_model: trunk_without_dev_or_review_branches
+    canonical_branch: main
+    integration_branch_recommendation: dev usually unnecessary
+    release_branch_recommendation: snapshot tags or release branches only if retention policy requires
+    branch_prefixes:
+      task: [task/, fix/]
+      review: [review/]
+      release: [release/]
+      hotfix: [hotfix/]
+    versioning_hints: provenance and snapshot immutability matter more than dev branch
+    promotion_gates: provenance, checksum, no-secret validation
+    notes: avoid long-lived integration if snapshots are append-only
+  unknown_repo:
+    default_workflow_model: conservative_unknown
+    canonical_branch: main if present
+    integration_branch_recommendation: inspect before assuming dev
+    release_branch_recommendation: inspect release evidence before using
+    branch_prefixes:
+      task: [task/, codex/, aide/, fix/, repair/]
+      review: [review/, quarantine/]
+      release: [release/]
+      hotfix: [hotfix/]
+    versioning_hints: do not infer release policy from branch names alone
+    promotion_gates: inspect repo docs, tests, and queue state first
+    notes: unknown role must be conservative and report-only

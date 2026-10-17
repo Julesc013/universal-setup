@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AIDE Tool Wrap Plan",
+  "type": "object",
+  "required": [
+    "plan_id",
+    "source_tool",
+    "target_aide_command_hint",
+    "capability_family",
+    "wrapper_status",
+    "input_contract_hint",
+    "output_contract_hint",
+    "validation_plan",
+    "risks",
+    "evidence_required",
+    "execution_allowed",
+    "no_apply"
+  ],
+  "properties": {
+    "plan_id": {"type": "string"},
+    "source_tool": {"type": "string"},
+    "target_aide_command_hint": {"type": "string"},
+    "capability_family": {"type": "string"},
+    "wrapper_status": {"type": "string"},
+    "input_contract_hint": {"type": "string"},
+    "output_contract_hint": {"type": "string"},
+    "validation_plan": {"type": "array", "items": {"type": "string"}},
+    "risks": {"type": "array", "items": {"type": "string"}},
+    "evidence_required": {"type": "array", "items": {"type": "string"}},
+    "execution_allowed": {"type": "boolean"},
+    "no_apply": {"type": "boolean"}
+  }
+}

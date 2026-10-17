@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aide.tasks.blocker.v0",
+  "title": "AIDE Blocker",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "blocker_id",
+    "workunit_id",
+    "class",
+    "severity",
+    "description",
+    "evidence_refs",
+    "affected_paths",
+    "created_by_attempt",
+    "suggested_resolution",
+    "required_human_decision",
+    "repairable",
+    "unsafe",
+    "status"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "aide.blocker.v0" },
+    "blocker_id": { "type": "string", "minLength": 1 },
+    "workunit_id": { "type": "string", "minLength": 1 },
+    "class": {
+      "type": "string",
+      "enum": [
+        "missing_prerequisite",
+        "test_failure",
+        "merge_conflict",
+        "missing_implementation",
+        "docs_overclaim",
+        "schema_mismatch",
+        "tool_unavailable",
+        "dependency_unavailable",
+        "security_destructive_risk",
+        "ambiguous_product_decision",
+        "validation_runtime_exceeded",
+        "source_state_conflict",
+        "target_pack_drift",
+        "promotion_gate_failed",
+        "capability_reality_mismatch",
+        "unknown"
+      ]
+    },
+    "severity": { "type": "string", "enum": ["low", "medium", "high", "critical", "unsafe", "unknown"] },
+    "description": { "type": "string" },
+    "evidence_refs": { "type": "array", "items": { "type": "string" } },
+    "affected_paths": { "type": "array", "items": { "type": "string" } },
+    "created_by_attempt": { "type": "string" },
+    "suggested_resolution": { "type": "string" },
+    "required_human_decision": { "type": "boolean" },
+    "repairable": { "type": "boolean" },
+    "unsafe": { "type": "boolean" },
+    "status": { "type": "string", "enum": ["open", "repair_queued", "resolved", "deferred", "quarantined", "superseded"] }
+  },
+  "additionalProperties": false
+}

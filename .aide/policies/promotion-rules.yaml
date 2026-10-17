@@ -1,0 +1,179 @@
+schema_version: aide.promotion-rules-policy.v0
+policy_id: aide-promotion-rules-v0
+status: active
+purpose: >
+  Define report-only promotion gates for future merge/land/promote helpers.
+  Q28 records rules only and never performs branch mutation.
+rules:
+  task_to_dev:
+    source_role: task
+    target_role: integration
+    required_clean_state: current branch clean or explicitly understood
+    required_sync_state: target branch fast-forwarded before merge
+    required_validation:
+      - local validation pass
+      - task-specific tests pass or warnings classified
+    required_evidence:
+      - task evidence exists
+      - changed-files.md
+      - validation.md
+      - remaining-risks.md
+    required_commit_checks:
+      - commit check --latest
+      - commit check --range task-base..HEAD when feasible
+    allowed_merge_methods:
+      - fast-forward
+      - no-ff merge with reviewed evidence
+      - squash only with preserved structured body
+    disallowed_conditions:
+      - dirty unclassified worktree
+      - missing task evidence
+      - failed commit check
+      - target branch missing
+      - direct push without explicit later helper policy
+    post_promotion_actions:
+      - rerun integration validation
+      - update task status or review evidence
+    rollback_notes: revert on dev or restore from task branch; do not rewrite shared history
+  dev_to_main:
+    source_role: integration
+    target_role: canonical
+    required_clean_state: dev and main clean or explicitly understood
+    required_sync_state: main and dev up to date before promotion decision
+    required_validation:
+      - full validation suite pass or warnings classified
+      - changelog preview generated
+      - no unreviewed generated artifacts
+    required_evidence:
+      - dev review packet exists
+      - explicit promotion evidence
+      - no unresolved blocked queue items marked required
+    required_commit_checks:
+      - commit check --range main..dev
+    allowed_merge_methods:
+      - fast-forward
+      - reviewed merge commit
+    disallowed_conditions:
+      - unreviewed generated artifacts
+      - blocked required queue item
+      - failed validation gate
+      - dev treated as canonical release truth
+    post_promotion_actions:
+      - regenerate changelog preview
+      - record promotion evidence
+      - sync dev from main if policy requires
+    rollback_notes: revert on main through reviewed hotfix/revert path
+  main_to_release:
+    source_role: canonical
+    target_role: release
+    required_clean_state: clean canonical branch
+    required_sync_state: release branch created or updated by explicit later helper only
+    required_validation:
+      - release validation gate
+    required_evidence:
+      - release-line rationale
+      - release notes
+    required_commit_checks:
+      - commit check --range last-release..main
+    allowed_merge_methods:
+      - branch from main
+      - fast-forward update
+    disallowed_conditions:
+      - no maintained release line
+      - missing release evidence
+    post_promotion_actions:
+      - document release line
+    rollback_notes: release-line repair through hotfix policy
+  hotfix_to_main:
+    source_role: hotfix
+    target_role: canonical
+    required_clean_state: clean or emergency state classified
+    required_sync_state: target ancestry inspected
+    required_validation:
+      - focused hotfix validation
+      - regression check where feasible
+    required_evidence:
+      - urgency rationale
+      - validation
+      - backmerge plan
+    required_commit_checks:
+      - commit check --latest
+    allowed_merge_methods:
+      - fast-forward
+      - reviewed merge commit
+      - cherry-pick with evidence
+    disallowed_conditions:
+      - missing backmerge plan
+      - failed focused validation
+    post_promotion_actions:
+      - backmerge/cherry-pick to dev
+      - update release branch if required
+    rollback_notes: revert with hotfix evidence
+  hotfix_to_release:
+    source_role: hotfix
+    target_role: release
+    required_clean_state: clean or emergency state classified
+    required_sync_state: release branch ancestry inspected
+    required_validation:
+      - release-line focused validation
+    required_evidence:
+      - affected release line
+      - validation
+      - backmerge plan
+    required_commit_checks:
+      - commit check --latest
+    allowed_merge_methods:
+      - cherry-pick
+      - reviewed merge commit
+    disallowed_conditions:
+      - release line absent
+      - missing containment/backmerge evidence
+    post_promotion_actions:
+      - record release-line repair
+    rollback_notes: release-line revert or follow-up hotfix
+  release_to_main_backmerge:
+    source_role: release
+    target_role: canonical
+    required_clean_state: clean release branch
+    required_sync_state: main ancestry inspected
+    required_validation:
+      - release backmerge validation
+    required_evidence:
+      - release fix list
+      - conflict resolution evidence
+    required_commit_checks:
+      - commit check --range main..release
+    allowed_merge_methods:
+      - cherry-pick
+      - reviewed merge commit
+    disallowed_conditions:
+      - unreviewed release-only changes
+    post_promotion_actions:
+      - sync dev as required
+    rollback_notes: revert on main with release evidence
+  generated_deploy_branch:
+    source_role: canonical
+    target_role: deploy
+    required_clean_state: generated artifacts clean
+    required_sync_state: deployment source matches reviewed commit
+    required_validation:
+      - deployment artifact validation
+    required_evidence:
+      - generated provenance
+      - deployment mode
+    required_commit_checks:
+      - not applicable for generated-only branch unless commits are source-authored
+    allowed_merge_methods:
+      - generated publish only by future explicit policy
+    disallowed_conditions:
+      - hand edits on gh-pages
+      - source truth stored only on deploy branch
+    post_promotion_actions:
+      - record deployment artifact provenance
+    rollback_notes: republish previous generated artifact by explicit future policy
+q28_boundaries:
+  mutates_branches: false
+  mutates_remotes: false
+  implements_helpers: false
+  github_api_mutation: false
+  note: no GitHub API mutation in Q28

@@ -1,0 +1,34 @@
+{
+  "schema_version": "aide.file-quality-record.schema.v0",
+  "type": "object",
+  "required": [
+    "path",
+    "kind",
+    "status",
+    "owner",
+    "quality_level",
+    "dimensions",
+    "docs_refs",
+    "test_refs",
+    "dependency_refs",
+    "warnings",
+    "exemptions",
+    "recommended_next_action",
+    "evidence_refs"
+  ],
+  "properties": {
+    "path": { "type": "string" },
+    "kind": { "type": "string" },
+    "status": { "type": "string" },
+    "owner": { "type": "string" },
+    "quality_level": { "type": "string" },
+    "dimensions": { "type": "object" },
+    "docs_refs": { "type": "array" },
+    "test_refs": { "type": "array" },
+    "dependency_refs": { "type": "array" },
+    "warnings": { "type": "array" },
+    "exemptions": { "type": "array" },
+    "recommended_next_action": { "type": "string" },
+    "evidence_refs": { "type": "array" }
+  }
+}

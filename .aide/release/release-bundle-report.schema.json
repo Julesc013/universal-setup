@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Release Bundle Report",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "bundle_id",
+    "artifact_count",
+    "archive_count",
+    "validation_result",
+    "publication_status",
+    "preview_only"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "bundle_id": {"type": "string"},
+    "artifact_count": {"type": "integer"},
+    "archive_count": {"type": "integer"},
+    "validation_result": {"type": "string"},
+    "publication_status": {"type": "string"},
+    "preview_only": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

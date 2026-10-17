@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.ownership-ledger.schema.v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "target_repo",
+    "generated_by",
+    "records",
+    "source_pack_ref",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "target_repo": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "records": {"type": "array"},
+    "source_pack_ref": {"type": "object"},
+    "no_apply": {"const": true}
+  }
+}

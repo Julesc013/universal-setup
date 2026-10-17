@@ -1,0 +1,25 @@
+schema_version: aide.validation-promotion-gates-policy.v0
+policy_id: aide.validation-promotion-gates.v0
+status: active-pending-review
+mode: report_only
+
+gates:
+  normal_post_task:
+    required: [T0, T1]
+    not_normal_post_task: [T3]
+  larger_task:
+    required: [T0, T1, relevant_T2]
+  checkpoint:
+    required: [T0, T1, relevant_T2, T3]
+  promotion:
+    required: [T0, T1, relevant_T2, T3]
+  release:
+    required: [T0, T1, relevant_T2, T3]
+
+rules:
+  T3: full_promotion_suite
+  T3_not_normal_post_task: true
+  full_discovery_handoff_allowed: true
+  promotion_evidence_blocked_when_t3_missing_or_stale: true
+  no_target_execution_in_cross_repo_audits: true
+

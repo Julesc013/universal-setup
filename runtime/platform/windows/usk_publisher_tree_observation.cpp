@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_tree_observation.h"
+#include "usk_publisher_effect_execution_internal.h"
 
 #if defined(_WIN32)
 #include "usk_publisher_directory_entries.h"
@@ -454,8 +455,16 @@ PublisherTreeObservation observe_publisher_tree(HANDLE root, bool backup_observa
     return result;
 }
 
-usk::json::Value observe_publisher_authenticated_descendant_access(HANDLE root,
-    const PublisherTreeObservation& bound, const PublisherRequestChannel& request,
+namespace {
+usk::json::Value authenticated_descendant_object_access(const PublisherRequestChannel& request, HANDLE object) {
+    return request.observe_authenticated_object_access(object);
+}
+usk::json::Value authenticated_descendant_object_access(PublisherEffectExecutionOwner& owner, HANDLE object) {
+    return owner.authenticated_object_access(object);
+}
+template<class NativeRequest>
+usk::json::Value observe_authenticated_descendant_access(HANDLE root,
+    const PublisherTreeObservation& bound, NativeRequest& request,
     const usk::json::Value& client) {
     using usk::json::Value;
     constexpr std::size_t maximum_entries = 200000;
@@ -470,7 +479,7 @@ usk::json::Value observe_publisher_authenticated_descendant_access(HANDLE root,
             throw std::runtime_error("authenticated descendant root binding changed");
     };
     require_root();
-    const auto root_access = request.observe_authenticated_object_access(root);
+    const auto root_access = authenticated_descendant_object_access(request, root);
     if (usk::json::canonical(root_access.at("client")) != usk::json::canonical(client) ||
         usk::json::canonical(root_access.at("native_object")) != usk::json::canonical(root_json))
         throw std::runtime_error("authenticated descendant request/root binding differs");
@@ -512,7 +521,7 @@ usk::json::Value observe_publisher_authenticated_descendant_access(HANDLE root,
                 throw std::runtime_error("authenticated descendant closure has an extra entry");
             const auto& entry = *found->second;
             OwnedHandle held(open_publisher_listed_child(directory, child));
-            auto access = request.observe_authenticated_object_access(held.get());
+            auto access = authenticated_descendant_object_access(request, held.get());
             const auto object = publisher_handle_observation_json(entry.object);
             if (usk::json::canonical(access.at("client")) != usk::json::canonical(client) ||
                 usk::json::canonical(access.at("native_object")) != usk::json::canonical(object) ||
@@ -557,6 +566,17 @@ usk::json::Value observe_publisher_authenticated_descendant_access(HANDLE root,
     return Value(Value::Object{{"schema", Value("usk.publisher_authenticated_descendant_access.v1")},
         {"scope", Value("fresh_held_descriptors_for_bound_tree_no_content_rehash")},
         {"client_sha256", Value(usk::json::sha256_canonical(client))}, {"objects", Value(std::move(rows))}});
+}
+} // namespace
+usk::json::Value observe_publisher_authenticated_descendant_access(HANDLE root,
+    const PublisherTreeObservation& bound, const PublisherRequestChannel& request,
+    const usk::json::Value& client) {
+    return observe_authenticated_descendant_access(root, bound, request, client);
+}
+usk::json::Value observe_publisher_authenticated_descendant_access(HANDLE root,
+    const PublisherTreeObservation& bound, PublisherEffectExecutionOwner& owner,
+    const usk::json::Value& client) {
+    return observe_authenticated_descendant_access(root, bound, owner, client);
 }
 
 void require_publisher_tree_exact_file_closure(
@@ -697,6 +717,30 @@ void require_publisher_object_security_shape(
     require_protected_object_shape(object, service_sid);
 }
 
+PublisherHandleObservation publisher_consumer_read_object_projection(
+    const PublisherHandleObservation& observed, const std::string& service_sid,
+    const std::string& consumer_sid, bool require_grant) {
+    require_canonical_service_sid(service_sid);
+    require_publisher_consumer_sid(consumer_sid);
+    auto object = observed;
+    if (object.dacl_aces.size() == 3) {
+        const auto reader_position = std::find_if(object.dacl_aces.begin(),
+            object.dacl_aces.end(), [&](const auto& ace) { return ace.sid == consumer_sid; });
+        if (reader_position == object.dacl_aces.end() || reader_position == object.dacl_aces.begin()) {
+            throw std::runtime_error("visible payload consumer ACE is absent or precedes SYSTEM");
+        }
+        const auto& reader = *reader_position;
+        if (reader.type != ACCESS_ALLOWED_ACE_TYPE || reader.flags != 0 ||
+            reader.access_mask != publisher_consumer_read_access_mask() || reader.sid != consumer_sid) {
+            throw std::runtime_error("visible payload consumer ACE differs from durable policy");
+        }
+        object.dacl_aces.erase(reader_position);
+    } else if (require_grant) {
+        throw std::runtime_error("visible payload consumer access is incomplete");
+    }
+    require_protected_object_shape(object, service_sid);
+    return object;
+}
 PublisherTreeObservation publisher_consumer_read_projection(
     const PublisherTreeObservation& tree, const std::string& service_sid,
     const std::string& consumer_sid, bool require_every_grant) {
@@ -704,24 +748,7 @@ PublisherTreeObservation publisher_consumer_read_projection(
     require_publisher_consumer_sid(consumer_sid);
     auto result = tree;
     const auto project = [&](PublisherHandleObservation& object) {
-        if (object.dacl_aces.size() == 3) {
-            const auto reader_position = std::find_if(object.dacl_aces.begin(),
-                object.dacl_aces.end(), [&](const auto& ace) { return ace.sid == consumer_sid; });
-            if (reader_position == object.dacl_aces.end() ||
-                reader_position == object.dacl_aces.begin()) {
-                throw std::runtime_error("visible payload consumer ACE is absent or precedes SYSTEM");
-            }
-            const auto& reader = *reader_position;
-            if (reader.type != ACCESS_ALLOWED_ACE_TYPE || reader.flags != 0 ||
-                reader.access_mask != publisher_consumer_read_access_mask() ||
-                reader.sid != consumer_sid) {
-                throw std::runtime_error("visible payload consumer ACE differs from durable policy");
-            }
-            object.dacl_aces.erase(reader_position);
-        } else if (require_every_grant) {
-            throw std::runtime_error("visible payload consumer access is incomplete");
-        }
-        require_protected_object_shape(object, service_sid);
+        object = publisher_consumer_read_object_projection(object, service_sid, consumer_sid, require_every_grant);
     };
     project(result.root);
     for (auto& entry : result.descendants) project(entry.object);

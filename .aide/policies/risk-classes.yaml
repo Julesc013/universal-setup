@@ -1,0 +1,106 @@
+schema_version: aide.risk-classes-policy.v0
+policy_id: aide-risk-classes-v0
+status: active
+purpose: >
+  Provide deterministic risk hints for prompt normalization. Elevated risk
+  must create a gate, split, blocker, or audit-only recommendation.
+classes:
+  low:
+    phrases:
+      - inspect
+      - report
+      - docs
+      - status
+      - validate
+    examples:
+      - "check Q36 status"
+  medium:
+    phrases:
+      - implement
+      - fix
+      - repair
+      - test
+      - update
+    examples:
+      - "repair failing test"
+  high:
+    phrases:
+      - clean up
+      - restructure
+      - migrate
+      - move
+      - production
+      - provider
+      - model
+      - Gateway
+    examples:
+      - "clean up the repo"
+  destructive:
+    phrases:
+      - delete
+      - remove all
+      - rewrite
+      - move all
+      - force
+      - wipe
+      - purge
+    examples:
+      - "delete old XStack stuff"
+  security:
+    phrases:
+      - secrets
+      - credentials
+      - api key
+      - password
+      - token
+    examples:
+      - "rotate credentials"
+  governance:
+    phrases:
+      - policy
+      - governance
+      - review gate
+      - queue
+      - workunit
+    examples:
+      - "change review gates"
+  release:
+    phrases:
+      - publish
+      - release
+      - tag
+      - GitHub Release
+      - production
+    examples:
+      - "publish a release"
+  external_side_effect:
+    phrases:
+      - push
+      - GitHub API
+      - workflow
+      - install into
+      - Dominium
+      - Eureka
+      - target repo
+      - network
+    examples:
+      - "install AIDE into Dominium"
+  unknown:
+    phrases:
+      - next
+      - continue
+      - do it
+      - make better
+    examples:
+      - "continue"
+elevation_rules:
+  destructive_overrides_other_risk: true
+  release_prompt_sets_release_risk: true
+  install_target_prompt_sets_external_side_effect: true
+  security_terms_set_security_risk: true
+  vague_prompt_sets_unknown_or_low_until_queue_state_is_inspected: true
+safe_response:
+  destructive: block or refactor_gate before direct mutation
+  release: block until release gates, tags, and assets are approved
+  external_side_effect: preflight only; no target mutation
+  high: split or audit before implementation

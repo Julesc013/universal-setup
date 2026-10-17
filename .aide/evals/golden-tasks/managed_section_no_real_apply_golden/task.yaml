@@ -1,0 +1,6 @@
+schema_version: aide.golden-task.v0
+id: managed_section_no_real_apply_golden
+title: Managed Section No Real Apply Golden
+status: active
+task_type: golden_task
+runner: .aide/scripts/aide_lite.py eval run --task managed_section_no_real_apply_golden

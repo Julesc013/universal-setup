@@ -1,0 +1,32 @@
+schema_version: aide.docs-consistency-policy.v0
+policy_id: q38-docs-consistency-v0
+status: active
+purpose: >
+  Define deterministic documentation consistency warnings from Q37 doc-link
+  maps and file inventory records.
+operating_mode:
+  deterministic_local: true
+  advisory_only: true
+  no_model_calls: true
+  no_provider_calls: true
+  no_network_calls: true
+warnings:
+  stale_path_reference:
+    level: warn
+    rule: Markdown links and inline path references that do not resolve are stale_candidate warnings.
+  missing_doc_candidate:
+    level: warn
+    rule: Active source/tool/policy/contract/schema files without doc refs may be missing_doc_candidate.
+  public_policy_tool_contract_doc_candidate:
+    level: warn
+    rule: Public policies, tools, schemas, and contracts should have discoverable documentation or an exemption.
+  generated_docs_evidence_boundary:
+    level: exempt_or_warn
+    rule: Generated docs and evidence are evidence unless explicitly promoted by policy.
+candidate_language_required: true
+deletion_recommendations_allowed: false
+non_goals:
+  - no automatic documentation edits
+  - no stale-link repair
+  - no source movement
+  - no deletion advice

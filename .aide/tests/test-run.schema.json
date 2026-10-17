@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "command": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "mode": {"type": "string"},
+    "schema_version": {"type": "string"},
+    "tier": {"enum": ["T0", "T1", "T2", "T3"], "type": "string"}
+  },
+  "required": ["schema_version", "generated_by", "command", "tier", "mode"],
+  "type": "object"
+}
+

@@ -1,0 +1,255 @@
+schema_version: aide.branch-roles-policy.v0
+policy_id: aide-branch-roles-v0
+status: active
+purpose: >
+  Define branch roles so AIDE agents can reason about current repository state
+  before editing while avoiding branch mutation in Q28.
+roles:
+  canonical:
+    purpose: accepted source of truth for reviewed work and release tags
+    examples:
+      - main
+    allowed_bases:
+      - none
+    allowed_targets:
+      - release/*
+      - hotfix/*
+    remote_tracking_policy: remote required where repository has a remote
+    validation_required: full local validation and review evidence before promotion
+    promotion_target: none
+    pruning_policy: protected_never_prune
+    force_push_policy: forbidden
+    deletion_policy: forbidden
+    evidence_required:
+      - reviewed integration/release/hotfix path
+      - changelog preview
+      - validation evidence
+    aide_behavior: discourage direct edits except explicitly scoped emergency repair
+  integration:
+    purpose: shareable latest work for machines and agents, not release truth
+    examples:
+      - dev
+    allowed_bases:
+      - main
+      - task/*
+      - codex/*
+      - aide/*
+      - fix/*
+      - repair/*
+    allowed_targets:
+      - main
+    remote_tracking_policy: remote branch allowed and recommended for multi-machine work
+    validation_required: local validation and task evidence before landing work
+    promotion_target: main
+    pruning_policy: protected_never_prune
+    force_push_policy: forbidden
+    deletion_policy: forbidden
+    evidence_required:
+      - task evidence
+      - integration validation
+      - review gate before main
+    aide_behavior: allow direct edits only for integration repair or explicitly scoped work
+  task:
+    purpose: short-lived bounded WorkUnit branch
+    examples:
+      - task/q28-git-workflow-policy
+      - codex/q27-commit-discipline
+      - aide/q25-pack-repair
+      - fix/pack-status
+      - repair/import-scope
+    allowed_bases:
+      - main
+      - dev
+    allowed_targets:
+      - dev
+      - main
+    remote_tracking_policy: local by default, remote only when shared or resumable
+    validation_required: task-local validation, evidence, and commit checks
+    promotion_target: dev
+    pruning_policy: prune only after contained in dev or main
+    force_push_policy: discouraged; forbidden after shared unless explicitly reviewed
+    deletion_policy: allowed only after containment proof
+    evidence_required:
+      - changed files
+      - validation
+      - remaining risks
+    aide_behavior: normal non-trivial work should happen here
+  subtask:
+    purpose: narrower child of a bounded task branch
+    examples:
+      - task/q28-docs
+      - codex/q28-tests
+    allowed_bases:
+      - task/*
+      - dev
+    allowed_targets:
+      - task/*
+      - dev
+    remote_tracking_policy: local by default
+    validation_required: focused validation before integration into parent task
+    promotion_target: parent task branch or dev
+    pruning_policy: prune after contained in parent or integration target
+    force_push_policy: local-only allowed with care, shared forbidden without review
+    deletion_policy: allowed after containment proof
+    evidence_required:
+      - subtask validation
+      - parent task reference
+    aide_behavior: treat as bounded work and report parent relationship
+  review:
+    purpose: review branch for gated evaluation or staged inspection
+    examples:
+      - review/q28
+    allowed_bases:
+      - dev
+      - task/*
+    allowed_targets:
+      - dev
+      - main
+    remote_tracking_policy: remote allowed when reviewer needs access
+    validation_required: review packet and evidence
+    promotion_target: dev or main by explicit policy
+    pruning_policy: prune after review outcome and containment
+    force_push_policy: forbidden after review starts
+    deletion_policy: allowed after review closure and containment
+    evidence_required:
+      - review packet
+      - review decision
+    aide_behavior: inspect and report, do not treat as canonical truth
+  quarantine:
+    purpose: isolate risky or unreviewed integration work
+    examples:
+      - quarantine/wave-1
+    allowed_bases:
+      - dev
+      - task/*
+    allowed_targets:
+      - dev
+    remote_tracking_policy: remote allowed for shared review
+    validation_required: explicit risk classification before leaving quarantine
+    promotion_target: dev
+    pruning_policy: prune after containment or explicit discard decision
+    force_push_policy: forbidden unless local-only and unshared
+    deletion_policy: requires explicit evidence
+    evidence_required:
+      - risk notes
+      - validation or discard rationale
+    aide_behavior: conservative; recommend inspection before edits
+  release:
+    purpose: maintained release line for public/stable versions
+    examples:
+      - release/1.0
+    allowed_bases:
+      - main
+    allowed_targets:
+      - main
+      - hotfix/*
+    remote_tracking_policy: remote expected when release line exists
+    validation_required: full release-line validation
+    promotion_target: main by backmerge policy
+    pruning_policy: retained while release line is maintained
+    force_push_policy: forbidden
+    deletion_policy: restricted and requires release-retirement evidence
+    evidence_required:
+      - release-line rationale
+      - validation
+      - changelog/release notes
+    aide_behavior: no default use for AIDE/Eureka until a real release line exists
+  hotfix:
+    purpose: urgent repair path for accepted release/canonical truth
+    examples:
+      - hotfix/1.0.1
+    allowed_bases:
+      - main
+      - release/*
+    allowed_targets:
+      - main
+      - dev
+      - release/*
+    remote_tracking_policy: remote allowed when shared hotfix review is required
+    validation_required: focused repair validation plus backmerge plan
+    promotion_target: main and relevant release/dev targets
+    pruning_policy: prune only after contained in all required targets
+    force_push_policy: forbidden after shared
+    deletion_policy: allowed after containment proof
+    evidence_required:
+      - urgency rationale
+      - validation
+      - backmerge evidence
+    aide_behavior: urgent but still evidence-gated
+  deploy:
+    purpose: generated deployment branch, not hand-edited source truth
+    examples:
+      - gh-pages
+    allowed_bases:
+      - generated artifact pipeline
+    allowed_targets:
+      - hosting provider
+    remote_tracking_policy: remote usually required by deployment mode
+    validation_required: deployment artifact validation
+    promotion_target: none
+    pruning_policy: protected while deployment uses it
+    force_push_policy: generated pipeline only, not manual
+    deletion_policy: restricted by deployment mode
+    evidence_required:
+      - deployment mode
+      - generation provenance
+    aide_behavior: report deploy role and discourage hand edits
+  unknown:
+    purpose: conservative fallback when role cannot be inferred
+    examples:
+      - experimental
+      - weird
+    allowed_bases:
+      - unknown
+    allowed_targets:
+      - none without inspection
+    remote_tracking_policy: inspect before trusting
+    validation_required: branch role must be resolved or explicitly accepted
+    promotion_target: none
+    pruning_policy: never prune automatically
+    force_push_policy: forbidden by default
+    deletion_policy: forbidden by default
+    evidence_required:
+      - manual classification
+      - branch ancestry report
+    aide_behavior: block mutation recommendations and inspect
+branch_name_rules:
+  main:
+    role: canonical
+    protected: true
+    no_force_push: true
+    no_deletion: true
+    promotion_sources:
+      - reviewed integration
+      - reviewed release
+      - reviewed hotfix
+    release_tags_usually_point_here: true
+  dev:
+    role: integration
+    protected: true
+    shareable_latest_work: true
+    canonical_release_truth: false
+    note: dev is integration and not canonical release truth
+    merges_from_task_branches: true
+    promotes_to_main_only_through_review_gate: true
+    remote_branch_allowed: true
+  task/*:
+    role: task
+    short_lived: true
+    local_by_default: true
+    remote_only_if_shared_or_resumable: true
+    default_target: dev
+    delete_only_after_contained_in_dev_or_main: true
+  release/*:
+    role: release
+    long_lived_only_for_public_or_stable_releases: true
+    explicit_fix_policy_required: true
+    default_use_for_aide_or_eureka_before_release_line: false
+  hotfix/*:
+    role: hotfix
+    urgent_repair: true
+    must_backmerge_to_required_targets: true
+  gh-pages:
+    role: deploy
+    generated_deploy_branch_only: true
+    no_hand_edits: true

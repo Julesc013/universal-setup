@@ -1,0 +1,6 @@
+schema_version: aide.golden-task.v0
+id: impacted_test_plan_report_only_golden
+title: Impacted Test Plan Report Only Golden
+status: active
+description: Verify impacted-test planning emits a plan, not proof or execution.
+

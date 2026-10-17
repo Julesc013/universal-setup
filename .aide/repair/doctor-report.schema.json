@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.doctor-report.schema.v0",
+  "type": "object",
+  "required": ["schema_version", "generated_by", "source_commit", "doctor_status", "repair_recommended", "latest_repair_plan_ref", "blocking_issues", "warnings", "next_action", "no_apply"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "doctor_status": {"type": "string"},
+    "repair_recommended": {"type": "boolean"},
+    "latest_repair_plan_ref": {"type": "string"},
+    "blocking_issues": {"type": "array"},
+    "warnings": {"type": "array"},
+    "next_action": {"type": "string"},
+    "no_apply": {"const": true}
+  }
+}

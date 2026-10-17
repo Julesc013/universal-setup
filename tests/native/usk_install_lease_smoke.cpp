@@ -110,6 +110,32 @@ int main()
     const auto completed = finish_install_lease_ownership(second, root, holder_b, revision_c, false);
     changed = {"org.example.setup", "repair", "operation.2", "attempt.c", revision_c, false, std::string(64, 'e')};
     const auto third = derive_install_lease_ownership(completed, changed, root, holder_b, revision_c);
+    // Closed history association only; these synthetic records create no
+    // protected native membership, actual ended holder or replay authority.
+    const std::vector<Value> history{first, handed_off, second, completed, third};
+    const auto old_result = select_completed_install_lease_history(history, first);
+    const auto recovered_result = select_completed_install_lease_history(history, second);
+    if (!old_result || !recovered_result ||
+        usk::json::canonical(*old_result) != usk::json::canonical(completed) ||
+        usk::json::canonical(*recovered_result) != usk::json::canonical(completed) ||
+        select_completed_install_lease_history({first, handed_off, second}, first)) return 17;
+    Value changed_original = first;
+    changed_original.as_object().at("operation_context_sha256") = Value(std::string(64, 'f'));
+    changed_original = reseal(std::move(changed_original));
+    if (!refuses<InstallLeaseStale>([&] { (void)select_completed_install_lease_history(history, changed_original); }) ||
+        !refuses<InstallLeaseStale>([&] { (void)select_completed_install_lease_history({first, handed_off, second, completed}, third); }) ||
+        !refuses<InstallLeaseStale>([&] { (void)select_completed_install_lease_history(history, completed); }) ||
+        !refuses<std::runtime_error>([&] { (void)select_completed_install_lease_history({first, second, handed_off, completed}, first); }))
+        return 18;
+    const auto third_completed = finish_install_lease_ownership(third, root, holder_b, revision_c, false);
+    auto repeated_operation = request;
+    repeated_operation.attempt_id = "attempt.after-completion";
+    repeated_operation.expected_state_revision = revision_c;
+    repeated_operation.operation_context_sha256 = std::string(64, 'f');
+    const auto repeated = derive_install_lease_ownership(third_completed, repeated_operation, root, holder_b, revision_c);
+    if (!refuses<InstallLeaseStale>([&] {
+            (void)select_completed_install_lease_history({first, handed_off, second, completed, third, third_completed, repeated}, first);
+        })) return 19;
     if (third.at("generation").as_unsigned() != 3 ||
         !refuses<InstallLeaseStale>([&] {
             require_install_lease_fence(second, completed, root, holder_b);

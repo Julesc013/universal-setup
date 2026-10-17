@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "source_commit",
+    "target_root",
+    "ownership_ledger_refs",
+    "install_plan_refs",
+    "upgrade_plan_refs",
+    "current_state_summary",
+    "missing_evidence",
+    "warnings",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "target_root": {"type": "string"},
+    "ownership_ledger_refs": {"type": "array"},
+    "install_plan_refs": {"type": "array"},
+    "upgrade_plan_refs": {"type": "array"},
+    "current_state_summary": {"type": "object"},
+    "missing_evidence": {"type": "array"},
+    "warnings": {"type": "array"},
+    "no_apply": {"type": "boolean"}
+  }
+}
+

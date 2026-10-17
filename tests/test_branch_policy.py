@@ -119,6 +119,16 @@ def valid_closeout() -> dict:
     return observation
 
 
+def valid_promotion() -> dict:
+    observation = valid_merge()
+    observation.update(base_ref="main", head_ref="dev")
+    observation["required_check_policy"]["names"] = branch_policy_check.required_status_checks("main")
+    qualification = copy.deepcopy(observation["required_checks"][0])
+    qualification["name"] = "publisher-qualification"
+    observation["required_checks"].append(qualification)
+    return observation
+
+
 class BranchPolicyTests(unittest.TestCase):
     def test_canonical_policy_and_campaign_are_valid(self) -> None:
         self.assertEqual(branch_policy_check.check(), [])
@@ -139,10 +149,116 @@ class BranchPolicyTests(unittest.TestCase):
         self.assertEqual(branch_policy_check.merge_admission_errors(observation), [])
 
     def test_declared_dev_to_main_promotion_is_admitted(self) -> None:
+        self.assertEqual(branch_policy_check.merge_admission_errors(valid_promotion()), [])
+
+    def test_main_requires_a_successful_exact_head_publisher_check(self) -> None:
+        for field, value in (("status", "IN_PROGRESS"), ("conclusion", "FAILURE"),
+                             ("conclusion", "SKIPPED"), ("conclusion", "NEUTRAL"),
+                             ("head_oid", BASE), ("integration_id", 1)):
+            with self.subTest(field=field, value=value):
+                observation = valid_promotion()
+                observation["required_checks"][-1][field] = value
+                self.assertTrue(branch_policy_check.merge_admission_errors(observation))
+        observation = valid_promotion()
+        observation["required_checks"].pop()
+        self.assertTrue(branch_policy_check.merge_admission_errors(observation))
+
+    def test_unstable_dev_still_requires_every_core_check_to_succeed(self) -> None:
         observation = valid_merge()
-        observation["head_ref"] = "dev"
-        observation["base_ref"] = "main"
+        observation["merge_state_status"] = "UNSTABLE"
         self.assertEqual(branch_policy_check.merge_admission_errors(observation), [])
+        observation["required_checks"][0]["conclusion"] = "FAILURE"
+        self.assertTrue(branch_policy_check.merge_admission_errors(observation))
+        for state in ("UNSTABLE", "BLOCKED", "BEHIND", "UNKNOWN"):
+            promotion = valid_promotion()
+            promotion["merge_state_status"] = state
+            self.assertTrue(branch_policy_check.merge_admission_errors(promotion))
+        for state in ("BLOCKED", "BEHIND", "UNKNOWN"):
+            observation = valid_merge()
+            observation["merge_state_status"] = state
+            self.assertTrue(branch_policy_check.merge_admission_errors(observation))
+        observation = valid_promotion()
+        observation["required_check_policy"]["names"] = branch_policy_check.REQUIRED_STATUS_CHECKS
+        self.assertTrue(branch_policy_check.merge_admission_errors(observation))
+
+    def test_live_main_supplement_is_enforced_without_relaxing_the_common_rule(self) -> None:
+        def rule(rule_id: int, names: list[str]) -> dict:
+            return {"type": "required_status_checks", "ruleset_id": rule_id,
+                    "parameters": {"strict_required_status_checks_policy": True,
+                                   "required_status_checks": [
+                                       {"context": name, "integration_id": branch_policy_check.GITHUB_ACTIONS_INTEGRATION_ID}
+                                       for name in names]}}
+        common = rule(branch_policy_check.GITHUB_RULESET_ID, branch_policy_check.REQUIRED_STATUS_CHECKS)
+        supplement = rule(999, ["publisher-qualification"])
+        self.assertEqual(branch_policy_check._live_required_checks([common], "dev"),
+                         branch_policy_check.REQUIRED_STATUS_CHECKS)
+        self.assertEqual(branch_policy_check._live_required_checks([supplement, common], "main"),
+                         branch_policy_check.required_status_checks("main"))
+        invalid = [[common], [supplement], [common, supplement, supplement],
+                   [common, rule(999, ["unrelated"])]]
+        for field, value in (("strict_required_status_checks_policy", False),
+                             ("required_status_checks", [{"context": "publisher-qualification", "integration_id": 1}])):
+            changed = copy.deepcopy(supplement)
+            changed["parameters"][field] = value
+            invalid.append([common, changed])
+        for rules in invalid:
+            with self.subTest(rules=rules), self.assertRaises(RuntimeError):
+                branch_policy_check._live_required_checks(rules, "main")
+        with self.assertRaises(RuntimeError):
+            branch_policy_check._live_required_checks([common, supplement], "dev")
+
+    def test_collector_keeps_failed_qualification_optional_only_for_dev(self) -> None:
+        for base_ref in ("dev", "main"):
+            observation = valid_promotion() if base_ref == "main" else valid_merge()
+            rules = [{"type": "required_status_checks", "ruleset_id": branch_policy_check.GITHUB_RULESET_ID,
+                      "parameters": {"strict_required_status_checks_policy": True,
+                                     "required_status_checks": [
+                                         {"context": name, "integration_id": branch_policy_check.GITHUB_ACTIONS_INTEGRATION_ID}
+                                         for name in branch_policy_check.REQUIRED_STATUS_CHECKS]}},
+                     {"type": "pull_request", "parameters": {
+                         "required_approving_review_count": 0, "required_review_thread_resolution": True}}]
+            if base_ref == "main":
+                supplement = copy.deepcopy(rules[0])
+                supplement["ruleset_id"] = 999
+                supplement["parameters"]["required_status_checks"] = [
+                    {"context": "publisher-qualification", "integration_id": branch_policy_check.GITHUB_ACTIONS_INTEGRATION_ID}]
+                rules.append(supplement)
+            runs = [{"name": name, "status": "completed", "conclusion": "success", "head_sha": HEAD,
+                     "app": {"id": branch_policy_check.GITHUB_ACTIONS_INTEGRATION_ID},
+                     "details_url": "https://github.com/Julesc013/universal-setup/actions/runs/1/job/2"}
+                    for name in branch_policy_check.required_status_checks("main")]
+            runs[-1]["conclusion"] = "failure"
+
+            def github(arguments: list[str]) -> dict | list:
+                endpoint = arguments[0]
+                if endpoint.endswith("/pulls/62"):
+                    return {"base": {"ref": base_ref, "sha": BASE, "repo": {"full_name": "Julesc013/universal-setup"}},
+                            "head": {"ref": observation["head_ref"], "sha": HEAD, "repo": {"full_name": "Julesc013/universal-setup"}},
+                            "user": {"login": "Julesc013"}, "state": "open", "draft": False,
+                            "mergeable": True, "mergeable_state": "unstable" if base_ref == "dev" else "clean"}
+                if "/rules/branches/" in endpoint:
+                    return rules
+                if endpoint.endswith("/check-runs"):
+                    return {"check_runs": runs}
+                if endpoint == "graphql":
+                    return {"data": {"repository": {"pullRequest": {"reviewThreads": {
+                        "nodes": [], "pageInfo": {"hasNextPage": False}}}}}}
+                if endpoint == "user":
+                    return {"login": "Julesc013"}
+                if "/git/ref/heads/" in endpoint:
+                    return {"object": {"type": "commit", "sha": HEAD if endpoint.endswith(observation["head_ref"]) else BASE}}
+                self.fail("unexpected GitHub API request: " + endpoint)
+
+            with self.subTest(base_ref=base_ref), patch.object(branch_policy_check, "_gh_json", side_effect=github), patch.object(
+                branch_policy_check, "_review_from_github", return_value=observation["technical_review"],
+            ):
+                actual = branch_policy_check.collect_github_merge_observation(
+                    "Julesc013/universal-setup", 62, HEAD, BASE, {})
+            errors = branch_policy_check.merge_admission_errors(actual)
+            if base_ref == "main":
+                self.assertIn("required check is not successful: publisher-qualification", errors)
+            else:
+                self.assertEqual(errors, [])
 
     def test_normal_routes_require_a_null_closeout_proof(self) -> None:
         observation = valid_merge()

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "evidence_refs": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "exception_id": {
+      "type": "string"
+    },
+    "owner": {
+      "type": "string"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "retirement_condition": {
+      "type": "string"
+    },
+    "review_required": {
+      "type": "boolean"
+    },
+    "root": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "exception_id",
+    "root",
+    "reason",
+    "status",
+    "owner",
+    "retirement_condition",
+    "evidence_refs"
+  ],
+  "type": "object"
+}

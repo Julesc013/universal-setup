@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.reference-rewrite-plan.schema.v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "plan_id",
+    "generated_by",
+    "source_commit",
+    "status",
+    "source_inputs",
+    "entries",
+    "warnings",
+    "validation",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "plan_id": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "status": {"type": "string"},
+    "source_inputs": {"type": "array"},
+    "entries": {"type": "array"},
+    "warnings": {"type": "array"},
+    "validation": {"type": "array"},
+    "no_apply": {"const": true}
+  }
+}

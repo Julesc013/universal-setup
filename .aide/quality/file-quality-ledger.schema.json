@@ -1,0 +1,23 @@
+{
+  "schema_version": "aide.file-quality-ledger.schema.v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "source_commit",
+    "source_repo_intelligence",
+    "summary",
+    "records"
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "generated_by": { "type": "string" },
+    "source_commit": { "type": "string" },
+    "source_repo_intelligence": { "type": "object" },
+    "summary": { "type": "object" },
+    "records": {
+      "type": "array",
+      "items": { "$ref": "file-quality-record.schema.json" }
+    }
+  }
+}

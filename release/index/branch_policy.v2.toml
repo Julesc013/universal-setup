@@ -3,7 +3,7 @@
 
 schema = "universal.repository_branch_policy.v2"
 repository = "universal-setup"
-reviewed_on = "2026-09-22"
+reviewed_on = "2026-10-17"
 status = "active"
 campaign_authority = "release/index/campaign_authority.v1.toml"
 
@@ -26,6 +26,14 @@ merge_bypass = false
 immutable_release_tags = true
 maximum_completed_unpromoted_work_units = 1
 consumer_pins_may_reference_dev = false
+
+[integration_cadence]
+active_development_dev_interval_days = 1
+qualified_main_interval_days = 7
+dev_requires_core_checks = true
+dev_may_retain_incomplete_publisher_qualification = true
+main_requires_publisher_qualification = true
+missed_target_requires_blocker_and_next_action = true
 
 [synchronization]
 after_dev_promotion = "zero_content_normal_pull_request_main_to_dev_closeout"
@@ -63,6 +71,7 @@ strict_required_status_checks = true
 github_ruleset_id = 20445004
 github_actions_integration_id = 15368
 required_status_checks = ["native-windows", "native-windows-win32", "native-linux", "native-macos", "sanitizer", "fuzz-smoke"]
+main_additional_status_checks = ["publisher-qualification"]
 unresolved_threads_allowed = false
 draft_allowed = false
 mergeable_required = true

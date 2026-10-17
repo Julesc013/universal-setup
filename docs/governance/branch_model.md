@@ -9,7 +9,7 @@ historical record.
 | Ref | Role |
 | --- | --- |
 | `main` | Stable, canonical, releasable provider source |
-| `dev` | Green integration train, returned to containing `main` by closeout |
+| `dev` | Reviewed development checkpoints with passing required core checks; contains `main` after closeout |
 | `task/*` | One bounded WorkUnit based on an exact recorded `dev` SHA |
 | `hotfix/*` | Emergency correction based on `main`; reconciliation is separately reviewed |
 | tags | Releases created only from accepted `main` |
@@ -18,6 +18,25 @@ Normal work follows `task/* -> dev -> consumer canary -> main`. A completed
 provider WorkUnit must not accumulate on `dev` behind more than one other
 completed-but-unpromoted WorkUnit. Product-only changes do not create provider
 commits or broaden Setup authority.
+
+Integrate reviewed development checkpoints into `dev` at least daily during
+active development. Target a qualified `dev -> main` promotion at least weekly.
+These are integration targets, not permission to bypass a failed required gate;
+record a missed target's concrete blocker and next action.
+
+Both branches require `native-windows`, `native-windows-win32`, `native-linux`,
+`native-macos`, `sanitizer` and `fuzz-smoke`, under the existing strict common
+ruleset. `main` additionally requires the strict `publisher-qualification`
+check from GitHub Actions. The local merge collector requires successful
+exact-head results; skipped, neutral, failed or pending qualification does not
+admit a main promotion. The main-only supplement leaves the common protection
+unchanged.
+
+`dev` may contain explicitly unfinished publisher work while that separate
+qualification is red. Preserve its failures and deployment limits in the PR
+and current project status. The core Windows job runs CTest independently;
+publisher qualification builds and identifies its own diagnostic binaries in
+an isolated hosted job. A core pass is not publisher or release acceptance.
 
 The only `main -> dev` route is the narrow zero-content normal-PR closeout
 after a normal `dev -> main` promotion. It is admitted only when the live
@@ -34,7 +53,7 @@ request. No provider merge directly changes a consumer revision.
 `main` and `dev` are protected from force pushes, deletion, bypasses, and
 direct writes. A normal GitHub PR merge is not a direct protected push. Under
 the active campaign authority, the merge executor may be the PR author after
-an exact-head, exact-base, green-check gate and a separately identified
+an exact-head, exact-base, successful required-check gate and a separately identified
 technical review context pass. An agent review is recorded as agent review; it
 is never presented as a human or GitHub approval.
 

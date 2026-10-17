@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.repair-observation.schema.v0",
+  "type": "object",
+  "required": ["schema_version", "generated_by", "source_commit", "target_root", "observed_inputs", "validation_summary", "install_state_summary", "detected_issues", "warnings", "no_apply"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "target_root": {"type": "string"},
+    "observed_inputs": {"type": "object"},
+    "validation_summary": {"type": "object"},
+    "install_state_summary": {"type": "object"},
+    "detected_issues": {"type": "array"},
+    "warnings": {"type": "array"},
+    "no_apply": {"const": true}
+  }
+}

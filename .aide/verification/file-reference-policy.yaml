@@ -1,0 +1,25 @@
+schema_version: aide.file-reference-policy.v0
+policy_id: q12.file-reference.v0
+status: active-pending-review
+purpose: Validate conservative repo-local file references in task, context, and evidence packets.
+accepted_reference_forms:
+  - path
+  - path#Lstart-Lend
+disallowed_reference_forms:
+  - absolute machine paths
+  - external URLs unless explicitly allowed by a future reviewed phase
+validation_rules:
+  path_must_be_repo_relative: true
+  path_must_exist_unless_marked_future_or_deferred: true
+  line_ranges_must_use: path#Lstart-Lend
+  line_ranges_must_be_within_text_file_line_count_where_feasible: true
+  binary_files_do_not_support_line_ranges: true
+conservative_parser:
+  only_extracts_refs_inside_backticks_or_markdown_links: true
+  ignores_ordinary_words_with_slashes: true
+future_or_deferred_markers:
+  - future
+  - deferred
+  - planned
+  - optional
+current_limitation: Q12 validates refs and line ranges but does not extract large excerpts.

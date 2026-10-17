@@ -1,0 +1,73 @@
+schema_version: aide.intent-examples.v0
+purpose: Deterministic examples for AIDE Intent Compiler v0.
+examples:
+  - id: vague_next
+    prompt: "next"
+    expected_task_class: context
+    expected_risk_class: low
+    expected_sizing_class: audit_only
+    expected_safe_to_execute: true
+    expected_next_action_contains: inspect latest task
+  - id: overbroad_fix_everything
+    prompt: "fix everything"
+    expected_task_class: repair
+    expected_risk_class: high
+    expected_sizing_class: split_required
+    expected_safe_to_execute: false
+    expected_next_action_contains: smallest failing validation
+  - id: refactor_cleanup
+    prompt: "clean up the repo"
+    expected_task_class: refactor
+    expected_risk_class: high
+    expected_sizing_class: split_required
+    expected_safe_to_execute: false
+    expected_next_action_contains: inventory
+  - id: destructive_delete_xstack
+    prompt: "delete old XStack stuff"
+    expected_task_class: refactor
+    expected_risk_class: destructive
+    expected_sizing_class: blocked
+    expected_safe_to_execute: false
+    expected_next_action_contains: reject direct deletion
+  - id: git_merge_dev_main
+    prompt: "merge dev to main"
+    expected_task_class: git
+    expected_risk_class: release
+    expected_sizing_class: blocked
+    expected_safe_to_execute: false
+    expected_next_action_contains: branch plan
+  - id: release_publish
+    prompt: "publish a release"
+    expected_task_class: release
+    expected_risk_class: release
+    expected_sizing_class: blocked
+    expected_safe_to_execute: false
+    expected_next_action_contains: release gates
+  - id: install_dominium
+    prompt: "install AIDE into Dominium"
+    expected_task_class: install
+    expected_risk_class: external_side_effect
+    expected_sizing_class: two_shot
+    expected_safe_to_execute: false
+    expected_next_action_contains: preflight
+  - id: production_ready
+    prompt: "make it production ready"
+    expected_task_class: audit
+    expected_risk_class: release
+    expected_sizing_class: split_required
+    expected_safe_to_execute: false
+    expected_next_action_contains: readiness audit
+  - id: repair_test
+    prompt: "repair failing test"
+    expected_task_class: repair
+    expected_risk_class: medium
+    expected_sizing_class: one_shot
+    expected_safe_to_execute: true
+    expected_next_action_contains: targeted failing test
+  - id: move_all_roots
+    prompt: "move all roots into clean layout"
+    expected_task_class: refactor
+    expected_risk_class: destructive
+    expected_sizing_class: split_required
+    expected_safe_to_execute: false
+    expected_next_action_contains: root inventory

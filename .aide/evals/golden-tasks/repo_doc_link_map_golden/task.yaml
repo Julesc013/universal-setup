@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: repo_doc_link_map_golden
+title: Repo Doc Link Map Golden
+status: active
+description: Verify Q37 doc link map reports stale candidates conservatively.
+runner: .aide/scripts/aide_lite.py eval run --task repo_doc_link_map_golden
+quality_dimensions:
+  - doc_link_map
+  - stale_candidate_language
+  - no_deletion_advice

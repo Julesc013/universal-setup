@@ -1,0 +1,98 @@
+schema_version: aide.model-providers.v0
+registry_id: q17-advisory-provider-families
+status: advisory_metadata_only
+live_calls_allowed_in_q17: false
+q20_provider_catalog: .aide/providers/provider-catalog.yaml
+live_calls_allowed_in_q20: false
+provider_families:
+  - provider_id: deterministic_tools
+    provider_class: deterministic
+    status: available_by_configuration
+    privacy_class: local
+    credentials_required: false
+    live_calls_allowed_in_q17: false
+    notes: Repo-local scripts, tests, and structural checks; preferred when work is deterministic.
+  - provider_id: human
+    provider_class: human
+    status: available_by_configuration
+    privacy_class: human
+    credentials_required: false
+    live_calls_allowed_in_q17: false
+    notes: Human judgment or explicit review gate for hard-floor and safety-sensitive work.
+  - provider_id: local_ollama
+    provider_class: local_model
+    status: planned
+    privacy_class: local
+    credentials_required: false
+    live_calls_allowed_in_q17: false
+    notes: Advisory placeholder only; Q17 does not install, probe, or call local models.
+  - provider_id: local_lm_studio
+    provider_class: local_model
+    status: planned
+    privacy_class: local
+    credentials_required: false
+    live_calls_allowed_in_q17: false
+    notes: Advisory placeholder only; Q17 does not install, probe, or call local models.
+  - provider_id: local_llama_cpp
+    provider_class: local_model
+    status: planned
+    privacy_class: local
+    credentials_required: false
+    live_calls_allowed_in_q17: false
+    notes: Advisory placeholder only; Q17 does not install, probe, or call local models.
+  - provider_id: local_vllm
+    provider_class: local_model
+    status: planned
+    privacy_class: local
+    credentials_required: false
+    live_calls_allowed_in_q17: false
+    notes: Advisory placeholder only; Q17 does not install, probe, or call local models.
+  - provider_id: local_sglang
+    provider_class: local_model
+    status: planned
+    privacy_class: local
+    credentials_required: false
+    live_calls_allowed_in_q17: false
+    notes: Advisory placeholder only; Q17 does not install, probe, or call local models.
+  - provider_id: openai
+    provider_class: remote_model
+    status: planned
+    privacy_class: remote
+    credentials_required: true
+    live_calls_allowed_in_q17: false
+    notes: Advisory family metadata only; no endpoint, key, or live call is configured here.
+  - provider_id: anthropic
+    provider_class: remote_model
+    status: planned
+    privacy_class: remote
+    credentials_required: true
+    live_calls_allowed_in_q17: false
+    notes: Advisory family metadata only; no endpoint, key, or live call is configured here.
+  - provider_id: google_gemini
+    provider_class: remote_model
+    status: planned
+    privacy_class: remote
+    credentials_required: true
+    live_calls_allowed_in_q17: false
+    notes: Advisory family metadata only; no endpoint, key, or live call is configured here.
+  - provider_id: deepseek
+    provider_class: remote_model
+    status: planned
+    privacy_class: remote
+    credentials_required: true
+    live_calls_allowed_in_q17: false
+    notes: Advisory family metadata only; no endpoint, key, or live call is configured here.
+  - provider_id: openrouter
+    provider_class: aggregator
+    status: planned
+    privacy_class: remote
+    credentials_required: true
+    live_calls_allowed_in_q17: false
+    notes: Advisory family metadata only; no endpoint, key, route, or live call is configured here.
+  - provider_id: other_remote_provider
+    provider_class: remote_model
+    status: deferred
+    privacy_class: unknown
+    credentials_required: true
+    live_calls_allowed_in_q17: false
+    notes: Deferred advisory bucket for future reviewed provider metadata.

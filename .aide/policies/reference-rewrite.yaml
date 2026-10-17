@@ -1,0 +1,37 @@
+schema_version: aide.reference-rewrite-policy.v0
+policy_id: aide.reference-rewrite.v0
+status: active
+purpose: >
+  Define candidate reference rewrite planning from repo intelligence and map
+  evidence without rewriting source, docs, config, imports, or generated outputs.
+operating_mode:
+  - deterministic_local
+  - no_model_calls
+  - no_provider_calls
+  - no_network_calls
+  - candidate_only
+  - dry_run_first
+  - no_reference_rewrite_application_in_q42
+reference_scan_sources:
+  - markdown links
+  - inline path references
+  - import references
+  - script/config references
+  - generated maps
+rewrite_plan_statuses:
+  - candidate
+  - needs_review
+  - blocked
+  - rejected
+  - future_applied
+safety_rules:
+  apply_allowed_default: false
+  current_rewrites_are_target_truth: false
+  active_rewrite_allowed_in_q42: false
+  unknown_reference_confidence_blocks_apply: true
+non_goals:
+  - no rewrite application in Q42
+  - no source rewrite
+  - no doc rewrite
+  - no config rewrite
+  - no import rewrite

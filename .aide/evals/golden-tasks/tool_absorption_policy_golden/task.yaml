@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: tool_absorption_policy_golden
+title: Tool Absorption Policy Golden
+status: active
+objective: Verify Q41 tool absorption policies define deterministic preservation and no-execution anchors.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task tool_absorption_policy_golden
+no_model_calls: true
+no_network_calls: true

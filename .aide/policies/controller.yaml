@@ -1,0 +1,75 @@
+schema_version: aide.controller-policy.v0
+policy_id: q16-outcome-controller-v0
+status: active-pending-review
+purpose: >
+  Define deterministic repo-local advisory outcome analysis for AIDE. The
+  controller may read token, verification, review, context, eval, validation,
+  and queue evidence signals and produce reports or recommendations, but it
+  must not mutate prompts, policies, routes, provider settings, runtime
+  behavior, or source files automatically.
+operating_mode:
+  - advisory_only
+allowed_inputs:
+  - token_ledger
+  - token_savings_summary
+  - verification_report
+  - review_packet
+  - golden_task_report
+  - validation_output
+  - queue_evidence
+  - context_artifact_status
+allowed_outputs:
+  - outcome_ledger_records
+  - outcome_report
+  - optimization_suggestions
+  - blocker_recommendations
+forbidden_behaviors:
+  - automatic_prompt_mutation
+  - automatic_policy_mutation
+  - automatic_route_mutation
+  - automatic_file_rewrite_outside_controller_outputs
+  - provider_calls
+  - model_calls
+  - network_calls
+  - autonomous_loop
+failure_classes:
+  - context_missing
+  - packet_too_large
+  - token_budget_exceeded
+  - token_regression
+  - adapter_drift
+  - verifier_gap
+  - verifier_fail
+  - review_packet_incomplete
+  - golden_task_fail
+  - unclear_acceptance
+  - validation_failure
+  - policy_violation
+  - stale_artifact
+  - missing_evidence
+  - secret_risk
+  - unknown
+recommendation_requirements:
+  - expected_benefit
+  - evidence_source
+  - rollback_condition
+  - next_action
+  - risk_level
+promotion_rule:
+  suggestions_do_not_apply_themselves: true
+  implementation_requires_future_queue_item: true
+  golden_tasks_required_before_promotion: true
+storage_policy:
+  raw_prompt_storage_default: false
+  raw_response_storage_default: false
+  committed_controller_outputs_allowed: deterministic_metadata_and_reports
+  secrets_forbidden: true
+non_goals:
+  - no_gateway
+  - no_provider_calls
+  - no_model_calls
+  - no_network_calls
+  - no_autonomous_loop
+  - no_automatic_prompt_optimizer
+  - no_automatic_policy_rewrite
+  - no_automatic_route_rewrite

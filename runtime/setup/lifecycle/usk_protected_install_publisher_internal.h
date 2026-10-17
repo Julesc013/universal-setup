@@ -8,9 +8,12 @@
 #include <exception>
 #include <functional>
 #include <optional>
+namespace usk::transaction { struct TransactionSpec; }
 namespace usk::platform::windows {
+class PublisherMaintenanceNames;
 class PublisherRequestChannel;
 class RegisteredPublisherAdmission;
+class PublisherEffectExecutionOwner;
 // Private candidate host configuration. This is not a public SDK capability.
 // Live SCM/token and held-volume observations precede any execution. The lab
 // hook provisions its independently admitted disposable boundary only; apply
@@ -41,6 +44,10 @@ struct CandidatePublisherConfiguration {
     // Its authenticated identification token never enters configuration JSON.
     const PublisherRequestChannel* authenticated_request=nullptr;
     const RegisteredPublisherAdmission* registered_admission=nullptr;
+    // Actual original child owner; mutually exclusive with the SCM admission,
+    // request channel and disposable-boundary hook. It supplies fresh native
+    // readbacks, never a JSON/provider activation or transferred file handle.
+    PublisherEffectExecutionOwner* effect_execution=nullptr;
     std::function<void(HANDLE,const std::string&)> prepare_disposable_boundary;
 };
 class StaleReviewedInstallRequest final : public std::runtime_error {
@@ -48,6 +55,12 @@ public:
     StaleReviewedInstallRequest() : std::runtime_error(
         "reviewed install reentry differs from durable plan and source") {}
     explicit StaleReviewedInstallRequest(const std::string& reason) : std::runtime_error(reason) {}
+};
+// Classification of an actual public preflight exception retained by the
+// private maintenance call before its preparation hook; never response JSON.
+class StaleReviewedMaintenanceRequest final : public std::runtime_error {
+public:
+    explicit StaleReviewedMaintenanceRequest(const std::string& reason) : std::runtime_error(reason) {}
 };
 // Constructed only when the engine's read-only native revision preflight
 // raises the actual typed mismatch before apply entry. Later mismatches keep
@@ -62,6 +75,12 @@ std::string execute_candidate_restricted_publisher(
 void require_candidate_publisher_execution_records(
     const usk::json::Value& prepared, const usk::json::Value& visible,
     const std::wstring& service_name, const std::string& service_sid);
+// Read-only proof from the actual original protected completion records and
+// immutable completed public metadata. Available only inside the registered
+// engine; it observes no current payload and grants no mutation capability.
+usk::json::Value observe_candidate_original_consumer_install(HANDLE volume,
+    const std::wstring& volume_root, const std::wstring& service_name,
+    const PublisherMaintenanceNames& maintenance_names);
 }
 namespace usk::lifecycle {
 class ProtectedApplyEffectsRetained final : public std::runtime_error {
@@ -86,6 +105,11 @@ void require_candidate_bootstrap_source(const usk::json::Value& snapshot);
 // operation-scoped context. Only the concrete live service engine creates it.
 std::optional<InstallResult> apply_in_candidate_publisher_context(
     const InstallPlan&, const std::string& transaction_id, const std::string& applied_at);
+// Called after the ordinary typed maintenance plan has passed its complete
+// preflight, immediately before the first journal. Only the concrete active
+// engine can install the private continuation; public JSON cannot create it.
+void prepare_in_candidate_maintenance_context(const usk::transaction::TransactionSpec&,
+    const usk::state::InstalledState&, const usk::json::Value& reviewed_plan);
 }
 #endif
 #endif

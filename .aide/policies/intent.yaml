@@ -1,0 +1,102 @@
+schema_version: aide.intent-policy.v0
+policy_id: aide-intent-compiler-policy-v0
+status: active
+purpose: >
+  Define AIDE's deterministic local Intent Compiler v0. Raw prompts are not
+  executed directly; they are compiled into reviewable intent packets and
+  WorkUnit drafts that cite repo state, reject unsafe interpretations, and
+  choose the smallest safe next action.
+operating_mode:
+  deterministic_local: true
+  no_model_calls: true
+  no_provider_calls: true
+  no_network_calls: true
+  compile_only: true
+  no_task_execution: true
+input_classes:
+  - raw_prompt
+  - queued_task_id
+  - latest_task_packet
+  - repeated_prompt
+  - out_of_order_prompt
+  - vague_prompt
+  - overbroad_prompt
+  - unsafe_prompt
+  - target_repo_prompt
+output_classes:
+  - intent_packet
+  - workunit_draft
+  - split_recommendation
+  - blocker_report
+  - noop_recommendation
+task_classes:
+  - audit
+  - repair
+  - docs
+  - test
+  - implementation
+  - refactor
+  - release
+  - install
+  - upgrade
+  - rollback
+  - git
+  - github
+  - adapter
+  - context
+  - evidence
+  - unknown
+risk_classes:
+  - low
+  - medium
+  - high
+  - destructive
+  - security
+  - governance
+  - release
+  - external_side_effect
+  - unknown
+sizing_classes:
+  - one_shot
+  - two_shot
+  - refactor_gate
+  - live_test_gate
+  - audit_only
+  - split_required
+  - blocked
+source_priority:
+  - repo_policy
+  - queue_state
+  - latest_task_packet
+  - branch_state
+  - evidence
+  - user_prompt
+  - chat_memory
+normalization_rules:
+  - repo_state_first
+  - vague_prompt_selects_smallest_safe_action
+  - overbroad_prompt_splits
+  - unsafe_prompt_blocks
+  - repeated_prompt_checks_noop_or_resume
+  - out_of_order_prompt_checks_dependencies
+  - product_claim_requires_behavior_proof
+  - control_audit_task_declares_no_product_behavior
+non_goals:
+  - no model calls
+  - no semantic inference beyond deterministic heuristics
+  - no task execution
+  - no branch mutation
+  - no target repo mutation
+storage_rules:
+  raw_prompt_hash: required
+  raw_prompt_excerpt: bounded
+  raw_long_prompt_body_storage: false
+  raw_response_storage: false
+  prompt_log_storage: false
+default_safe_next_actions:
+  vague_prompt: inspect latest task and queue state before inventing work
+  overbroad_prompt: create an audit or inventory WorkUnit before implementation
+  unsafe_prompt: block or require reviewed gate before mutation
+  repeated_prompt: run no-op or recovery inspection before editing
+  out_of_order_prompt: inspect dependency and queue status before proceeding
+  target_repo_prompt: compile target preflight only; do not mutate target repo

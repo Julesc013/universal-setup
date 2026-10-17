@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: test_coverage_map_golden
+title: Test Coverage Map Golden
+status: active
+objective: Verify Q38 test coverage reports expose detected tests, likely targets, and missing-test candidates.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task test_coverage_map_golden
+no_model_calls: true
+no_network_calls: true

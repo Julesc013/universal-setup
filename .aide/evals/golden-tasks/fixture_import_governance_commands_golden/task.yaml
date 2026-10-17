@@ -1,0 +1,9 @@
+schema_version: aide.golden-task.v0
+id: fixture_import_governance_commands_golden
+title: Fixture Import Governance Commands Golden
+status: active
+description: Verify safe fixture import receives governance files and can run portable commit, task, and Git policy commands without auto-installing hooks.
+quality_dimensions:
+  - fixture_import
+  - governance_commands
+  - hook_opt_in

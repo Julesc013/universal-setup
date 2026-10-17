@@ -1,0 +1,14 @@
+schema_version: aide.test-impact-map.template.v0
+template_only: true
+rules:
+  - path_prefix: .aide/
+    tier: T1
+    test_roots: [.aide/scripts/tests]
+  - path_prefix: core/harness/
+    tier: T2
+    test_roots: [core/harness/tests]
+fallback:
+  unknown_mapping: true
+  tier: T2
+  proof_status: plan_not_proof
+

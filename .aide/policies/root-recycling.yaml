@@ -1,0 +1,100 @@
+schema_version: aide.root-recycling-policy.v0
+policy_id: aide-root-recycling-v0
+status: active
+purpose: >
+  Define AIDE's deterministic root recycling framework for inventorying,
+  classifying, risk-reviewing, and planning top-level root cleanup before any
+  future move, delete, rewrite, salvage, alias, or target-repo mutation.
+
+operating_mode:
+  deterministic_local: true
+  no_model_calls: true
+  no_provider_calls: true
+  no_network_calls: true
+  dry_run_first: true
+  inventory_only_by_default: true
+  no_apply_in_q40: true
+  no_file_moves: true
+  no_file_deletes: true
+  no_reference_rewrites: true
+  no_target_repo_mutation: true
+
+root_recycling_sequence:
+  - inventory
+  - classify
+  - plan
+  - review
+  - future_salvage_map
+  - future_move_map
+  - future_alias_plan
+  - future_apply
+  - future_validate
+  - future_retire_exception
+
+root_statuses:
+  - canonical
+  - acceptable
+  - transitional
+  - mixed
+  - generated
+  - local_only
+  - archive
+  - review_required
+  - unknown
+
+root_fates:
+  - keep
+  - wrap
+  - adapt
+  - extract
+  - convert
+  - archive
+  - drop_candidate
+  - shim
+  - alias
+  - unknown
+
+root_risk_classes:
+  - low
+  - medium
+  - high
+  - critical
+  - identity_sensitive
+  - build_sensitive
+  - authority_sensitive
+  - generated_sensitive
+  - unknown
+
+safety_rules:
+  drop_candidate_is_deletion_approval: false
+  safe_to_delete_classification_allowed: false
+  archive_is_applied_move: false
+  shim_is_created_in_q40: false
+  alias_is_applied_in_q40: false
+  root_retirement_in_q40: false
+  require_future_review_before_mutation: true
+
+source_inputs:
+  - .aide/repo/file-inventory.json
+  - .aide/reports/file-quality-ledger.json
+  - .aide/refactors/latest-refactor-readiness.md
+  - .aide/policies/refactor-safety.yaml
+
+output_artifacts:
+  - .aide/roots/latest-root-inventory.json
+  - .aide/roots/latest-root-inventory.md
+  - .aide/roots/latest-root-classification.json
+  - .aide/roots/latest-root-classification.md
+  - .aide/roots/latest-root-recycling-plan.json
+  - .aide/roots/latest-root-recycling-plan.md
+  - .aide/roots/root-exceptions.json
+  - .aide/roots/root-risk-summary.md
+
+non_goals:
+  - no moves
+  - no deletes
+  - no source rewrite
+  - no target mutation
+  - no root retirement in Q40
+  - no tool absorption
+  - no current move-map or salvage-map application

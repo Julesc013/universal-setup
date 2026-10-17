@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: salvage_map_schema_golden
+title: Salvage Map Schema Golden
+status: active
+objective: Verify Q39 salvage-map schema exists and uses preservation candidate language.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task salvage_map_schema_golden
+no_model_calls: true
+no_network_calls: true

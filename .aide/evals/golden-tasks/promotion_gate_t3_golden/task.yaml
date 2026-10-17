@@ -1,0 +1,6 @@
+schema_version: aide.golden-task.v0
+id: promotion_gate_t3_golden
+title: Promotion Gate T3 Golden
+status: active
+description: Verify T3 remains a checkpoint, promotion, and release gate distinct from normal post-task validation.
+

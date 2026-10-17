@@ -1,0 +1,54 @@
+schema_version: aide.branch-protection-policy.v0
+policy_id: aide.branch-protection.v0
+status: active
+purpose: >
+  Define desired branch protection posture for future GitHub configuration.
+  Q35 reports this posture only and applies nothing.
+rules:
+  main:
+    role: canonical
+    protect: true
+    require_reviews: true
+    require_status_checks: true
+    no_force_push: true
+    no_delete_protected_branches: true
+    promotion_source: reviewed dev, release, or hotfix path
+  dev:
+    role: integration
+    canonical_truth: false
+    protect: true
+    require_reviews: false
+    require_status_checks: true
+    no_force_push: true
+    no_delete_protected_branches: true
+    promotion_target: main through review gate
+  release/*:
+    role: release
+    protect: true
+    require_reviews: true
+    require_status_checks: true
+    no_force_push: true
+    no_delete_protected_branches: true
+  hotfix/*:
+    role: hotfix
+    protect: true
+    require_reviews: true
+    require_status_checks: true
+    no_force_push: true
+    no_delete_protected_branches: false
+  gh-pages:
+    role: deploy
+    protect: true
+    generated_only: true
+    hand_edits_allowed: false
+application_policy:
+  q35_applies_rules: false
+  github_api_mutation: false
+  workflow_file_written: false
+  branch_mutation: false
+  later_apply_requires_reviewed_queue_item: true
+non_goals:
+  - no GitHub API mutation
+  - no branch protection write
+  - no branch mutation
+  - no workflow installation

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Ownership Boundary",
+  "type": "object",
+  "required": ["schema_version", "boundary_id", "path", "owner", "ownership_state", "allowed_operations", "review_required"],
+  "properties": {
+    "schema_version": {"const": "aide.ownership-boundary.v0"},
+    "boundary_id": {"type": "string"},
+    "path": {"type": "string"},
+    "owner": {"type": "string"},
+    "ownership_state": {"enum": ["owned", "shared", "generated", "unknown", "blocked"]},
+    "allowed_operations": {"type": "array", "items": {"type": "string"}},
+    "review_required": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

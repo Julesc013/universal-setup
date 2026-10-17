@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: roots_no_apply_golden
+title: Roots No Apply Golden
+status: active
+objective: Verify Q40 roots outputs never enable apply, moves, deletes, or rewrites.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task roots_no_apply_golden
+no_model_calls: true
+no_network_calls: true

@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: github_ci_advisory_golden
+title: GitHub CI Advisory Golden
+status: active
+description: Verify Q35 CI gate advisory remains report-only.
+runner: .aide/scripts/aide_lite.py eval run --task github_ci_advisory_golden
+quality_dimensions:
+  - ci_gates
+  - report_only
+  - no_workflow_installation

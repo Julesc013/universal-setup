@@ -18,6 +18,7 @@
 #include <string>
 
 namespace usk::platform::windows {
+class PublisherMaintenanceNames;
 
 // A failed or unconfirmed native call may already have changed the namespace.
 // Its caller must retain both handles and enter recovery, never retry blindly.
@@ -57,7 +58,8 @@ PublisherBoundRenameObservation probe_publisher_bound_rename_no_replace(
     const std::wstring& destination_component,
     const PublisherHandleObservation& expected_staged_root,
     const PublisherHandleObservation& expected_destination_parent,
-    const std::function<void()>& after_absence_check = {});
+    const std::function<void()>& after_absence_check = {},
+    const PublisherMaintenanceNames* maintenance_names = nullptr);
 
 } // namespace usk::platform::windows
 #endif

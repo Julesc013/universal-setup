@@ -27,6 +27,7 @@ REQUIRED_STATUS_CHECKS = [
     "sanitizer", "fuzz-smoke",
 ]
 GITHUB_RULESET_ID = 20445004
+MAIN_QUALIFICATION_CHECKS = ["publisher-qualification"]
 GITHUB_ACTIONS_INTEGRATION_ID = 15368
 ASSOCIATED_PROMOTION_PR_PAGE_SIZE = 100
 MAX_ASSOCIATED_PROMOTION_PR_PAGES = 3
@@ -56,6 +57,14 @@ EXPECTED_POLICY = {
         "immutable_release_tags": True,
         "maximum_completed_unpromoted_work_units": 1,
         "consumer_pins_may_reference_dev": False,
+    },
+    "integration_cadence": {
+        "active_development_dev_interval_days": 1,
+        "qualified_main_interval_days": 7,
+        "dev_requires_core_checks": True,
+        "dev_may_retain_incomplete_publisher_qualification": True,
+        "main_requires_publisher_qualification": True,
+        "missed_target_requires_blocker_and_next_action": True,
     },
     "synchronization": {
         "after_dev_promotion": "zero_content_normal_pull_request_main_to_dev_closeout",
@@ -93,6 +102,7 @@ EXPECTED_POLICY = {
         "github_ruleset_id": GITHUB_RULESET_ID,
         "github_actions_integration_id": GITHUB_ACTIONS_INTEGRATION_ID,
         "required_status_checks": REQUIRED_STATUS_CHECKS,
+        "main_additional_status_checks": MAIN_QUALIFICATION_CHECKS,
         "unresolved_threads_allowed": False,
         "draft_allowed": False,
         "mergeable_required": True,
@@ -364,8 +374,12 @@ def merge_admission_errors(observation: dict[str, Any]) -> list[str]:
         errors.append("pull request must be open and non-draft")
     if observation.get("mergeable") is not True:
         errors.append("pull request must be mergeable")
-    if observation.get("merge_state_status") != "CLEAN":
-        errors.append("GitHub merge state must be CLEAN")
+    # GitHub may label an otherwise mergeable development checkpoint UNSTABLE
+    # when the optional publisher job fails. Exact required-check validation
+    # below remains mandatory; BLOCKED, BEHIND and unknown states still refuse.
+    allowed_states = {"CLEAN", "UNSTABLE"} if base_ref == "dev" else {"CLEAN"}
+    if observation.get("merge_state_status") not in allowed_states:
+        errors.append("GitHub merge state is not admitted for the target branch")
     if observation.get("merge_method") != "normal_pull_request":
         errors.append("normal pull-request merge path is required")
     for field, message in (
@@ -377,12 +391,13 @@ def merge_admission_errors(observation: dict[str, Any]) -> list[str]:
             errors.append(message)
     if observation.get("unresolved_threads") != 0:
         errors.append("all review threads must be resolved")
+    required_names = required_status_checks(base_ref)
     check_policy = observation.get("required_check_policy")
     expected_check_policy = {
         "ruleset_id": GITHUB_RULESET_ID,
         "strict": True,
         "integration_id": GITHUB_ACTIONS_INTEGRATION_ID,
-        "names": REQUIRED_STATUS_CHECKS,
+        "names": required_names,
     }
     if check_policy != expected_check_policy:
         errors.append("required-check policy differs from the live pinned GitHub ruleset")
@@ -391,7 +406,7 @@ def merge_admission_errors(observation: dict[str, Any]) -> list[str]:
         errors.append("required checks are missing")
     else:
         names = [check.get("name") for check in checks if isinstance(check, dict)]
-        if set(names) != set(REQUIRED_STATUS_CHECKS):
+        if set(names) != set(required_names):
             errors.append("required check observations do not exactly cover the pinned set")
         for check in checks:
             if not isinstance(check, dict) or set(check) != {
@@ -597,6 +612,35 @@ def _collect_closeout_proof(repository: str, head_oid: str, base_oid: str) -> di
     }
 
 
+def required_status_checks(base_ref: str) -> list[str]:
+    return REQUIRED_STATUS_CHECKS + (MAIN_QUALIFICATION_CHECKS if base_ref == "main" else [])
+
+
+def _live_required_checks(rules: list[dict[str, Any]], base_ref: str) -> list[str]:
+    """Retain the pinned common rule and require a strict main-only supplement.
+
+    The supplement's numeric ID is assigned by GitHub. Its actual enforcement
+    is checked from the live base-branch rules rather than a locally asserted ID.
+    Unknown additional check rules fail closed instead of being ignored.
+    """
+    check_rules = [item for item in rules if item.get("type") == "required_status_checks"]
+    baseline = [item for item in check_rules if item.get("ruleset_id") == GITHUB_RULESET_ID]
+    expected = required_status_checks(base_ref)
+    if len(baseline) != 1 or len(check_rules) != (2 if base_ref == "main" else 1):
+        raise RuntimeError("live required-check rules differ from the pinned policy")
+    for rule in check_rules:
+        parameters = rule.get("parameters", {})
+        checks = parameters.get("required_status_checks", [])
+        names = [item.get("context") for item in checks]
+        integrations = {item.get("integration_id") for item in checks}
+        wanted = REQUIRED_STATUS_CHECKS if rule is baseline[0] else MAIN_QUALIFICATION_CHECKS
+        if (type(rule.get("ruleset_id")) is not int or rule["ruleset_id"] <= 0 or
+                parameters.get("strict_required_status_checks_policy") is not True or
+                names != wanted or integrations != {GITHUB_ACTIONS_INTEGRATION_ID}):
+            raise RuntimeError("live required-check rules differ from the pinned policy")
+    return expected
+
+
 def collect_github_merge_observation(
     repository: str, pull_request: int, expected_head: str, expected_base: str,
     review_receipt: dict[str, Any],
@@ -605,19 +649,10 @@ def collect_github_merge_observation(
         raise RuntimeError("repository is outside the canonical policy")
     pr = _gh_json([f"repos/{repository}/pulls/{pull_request}"])
     rules = _gh_json([f"repos/{repository}/rules/branches/{pr['base']['ref']}"])
-    check_rule = next((item for item in rules if item.get("type") == "required_status_checks"), None)
     pull_rule = next((item for item in rules if item.get("type") == "pull_request"), None)
-    if check_rule is None or pull_rule is None:
+    if pull_rule is None:
         raise RuntimeError("live branch rules do not contain required checks and pull-request gates")
-    parameters = check_rule.get("parameters", {})
-    live_checks = parameters.get("required_status_checks", [])
-    live_names = [item.get("context") for item in live_checks]
-    live_integrations = {item.get("integration_id") for item in live_checks}
-    if (check_rule.get("ruleset_id") != GITHUB_RULESET_ID or
-            parameters.get("strict_required_status_checks_policy") is not True or
-            live_names != REQUIRED_STATUS_CHECKS or
-            live_integrations != {GITHUB_ACTIONS_INTEGRATION_ID}):
-        raise RuntimeError("live required-check rules differ from the pinned policy")
+    required_names = _live_required_checks(rules, pr['base']['ref'])
     pull_parameters = pull_rule.get("parameters", {})
     if (pull_parameters.get("required_approving_review_count") != 0 or
             pull_parameters.get("required_review_thread_resolution") is not True):
@@ -639,7 +674,7 @@ def collect_github_merge_observation(
     ])
     runs = check_data.get("check_runs", [])
     bound_checks = []
-    for name in REQUIRED_STATUS_CHECKS:
+    for name in required_names:
         # A context name is only trustworthy when every exact-head producer of
         # that name is acceptable.  In particular, do not hide a competing
         # producer by filtering it out before merge_admission_errors can check
@@ -701,7 +736,7 @@ def collect_github_merge_observation(
             "ruleset_id": GITHUB_RULESET_ID,
             "strict": True,
             "integration_id": GITHUB_ACTIONS_INTEGRATION_ID,
-            "names": REQUIRED_STATUS_CHECKS,
+            "names": required_names,
         },
         "required_checks": bound_checks,
         "technical_review": review,

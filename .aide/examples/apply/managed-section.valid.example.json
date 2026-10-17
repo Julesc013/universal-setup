@@ -1,0 +1,32 @@
+{
+  "schema_version": "aide.managed-section-operation.v0",
+  "example": true,
+  "operation_id": "op-managed-section-valid-fixture",
+  "path": ".aide/examples/apply/managed-section-fixtures/valid_input.md",
+  "section_name": "aide-fixture-section",
+  "section_id": "aide-fixture-section",
+  "marker_family": "AIDE-GENERATED",
+  "start_marker": "<!-- AIDE-GENERATED:BEGIN section=aide-fixture-section -->",
+  "end_marker": "<!-- AIDE-GENERATED:END section=aide-fixture-section -->",
+  "marker_begin": "<!-- AIDE-GENERATED:BEGIN section=aide-fixture-section -->",
+  "marker_end": "<!-- AIDE-GENERATED:END section=aide-fixture-section -->",
+  "start_line": 5,
+  "end_line": 9,
+  "existing_section_hash": "sha256:example-existing",
+  "new_section_hash": "sha256:example-new",
+  "manual_prefix_hash": "sha256:example-prefix",
+  "manual_suffix_hash": "sha256:example-suffix",
+  "manual_content_preserved": true,
+  "marker_status": "valid",
+  "conflict_status": "none",
+  "allowed": true,
+  "blocked_reason": "",
+  "preimage_ref": "preimage-managed-section-valid-fixture",
+  "postimage_ref": "postimage-managed-section-valid-fixture",
+  "rollback_ref": "rollback-managed-section-valid-fixture",
+  "evidence_refs": [
+    ".aide/reports/managed-section-fixture-validation.md"
+  ],
+  "no_real_apply_boundary": true,
+  "real_repo_apply_allowed": false
+}

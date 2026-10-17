@@ -10,6 +10,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace usk::transaction {
 
@@ -61,6 +62,13 @@ usk::json::Value finish_install_lease_ownership(
     const usk::json::Value& observed_holder,
     const std::string& observed_state_revision,
     bool handoff);
+
+// Bounded closed data history only. The native reader independently proves
+// protected records, root identity and exact membership under its OS guard.
+// A result is an old completed record, never current health or effect authority.
+std::optional<usk::json::Value> select_completed_install_lease_history(
+    const std::vector<usk::json::Value>& history,
+    const usk::json::Value& original_active);
 
 } // namespace usk::transaction
 #endif

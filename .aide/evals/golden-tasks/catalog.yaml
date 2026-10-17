@@ -1,0 +1,1357 @@
+schema_version: aide.golden-tasks-catalog.v0
+catalog_id: q15-golden-tasks-v0
+status: active-pending-review
+purpose: Deterministic repo-local quality gates for AIDE token-saving workflow artifacts.
+runner: .aide/scripts/aide_lite.py eval run
+tasks:
+  - id: compact-task-packet-required-sections
+    title: Compact Task Packet Required Sections
+    status: active
+    description: Verify latest task packet keeps required sections, forbids full-history prompts, and includes an approximate token estimate.
+    quality_dimensions:
+      - required_sections
+      - forbidden_content_absent
+      - token_budget_status
+  - id: context-packet-no-full-repo-dump
+    title: Context Packet No Full Repo Dump
+    status: active
+    description: Verify latest context packet references repo-map, test-map, and context-index without inlining source files or ignored path contents.
+    quality_dimensions:
+      - references_present
+      - forbidden_content_absent
+      - deterministic_output
+  - id: verifier-detects-bad-evidence
+    title: Verifier Detects Bad Evidence
+    status: active
+    description: Verify malformed evidence fixtures produce verifier warnings or errors instead of being accepted silently.
+    quality_dimensions:
+      - verifier_passes
+      - evidence_present
+  - id: review-packet-evidence-only
+    title: Review Packet Evidence Only
+    status: active
+    description: Verify latest review packet references task, context, verifier, and evidence outputs and requests a bounded decision without requiring full chat history.
+    quality_dimensions:
+      - references_present
+      - required_sections
+      - forbidden_content_absent
+  - id: token-ledger-budget-check
+    title: Token Ledger Budget Check
+    status: active
+    description: Verify token ledger/report metadata exists, records compact surfaces, includes budget status, and stores no raw prompts or responses.
+    quality_dimensions:
+      - token_budget_status
+      - evidence_present
+      - forbidden_content_absent
+  - id: adapter-managed-section-determinism
+    title: Adapter Managed Section Determinism
+    status: active
+    description: Verify managed AGENTS guidance can be rendered deterministically without deleting manual content outside generated markers.
+    quality_dimensions:
+      - deterministic_output
+      - references_present
+  - id: commit_message_standard_golden
+    title: Commit Message Standard Golden
+    status: active
+    description: Verify structured commit messages pass and malformed/vague messages fail deterministically.
+    quality_dimensions:
+      - deterministic_output
+      - policy_anchors
+      - changelog_ready
+  - id: task_resumption_standard_golden
+    title: Task Resumption Standard Golden
+    status: active
+    description: Verify repeated, partial, and out-of-order task resumption policy anchors exist.
+    quality_dimensions:
+      - policy_anchors
+      - evidence_present
+      - repo_state_first
+  - id: workunit_idempotency_golden
+    title: WorkUnit Idempotency Golden
+    status: active
+    description: Verify WorkUnit states and no-op behavior are defined and fixture-detectable.
+    quality_dimensions:
+      - idempotency
+      - deterministic_output
+      - recovery_policy
+  - id: changelog_preview_golden
+    title: Changelog Preview Golden
+    status: active
+    description: Verify changelog preview grouping and malformed commit reporting.
+    quality_dimensions:
+      - changelog_ready
+      - malformed_input_reporting
+      - no_release_publishing
+  - id: release_notes_preview_golden
+    title: Release Notes Preview Golden
+    status: active
+    description: Verify release-note previews include highlights, validation, risks, follow-up, and preview-only caveats.
+    quality_dimensions:
+      - release_notes_preview
+      - validation_summary
+      - no_release_publishing
+  - id: malformed_commit_reporting_golden
+    title: Malformed Commit Reporting Golden
+    status: active
+    description: Verify legacy and malformed commits are reported without rewriting history and merge commits are handled conservatively.
+    quality_dimensions:
+      - malformed_input_reporting
+      - history_preservation
+      - deterministic_output
+  - id: changelog_json_shape_golden
+    title: Changelog JSON Shape Golden
+    status: active
+    description: Verify changelog and release-note preview JSON fixtures contain required machine-readable fields.
+    quality_dimensions:
+      - json_shape
+      - deterministic_output
+      - preview_only
+  - id: git_workflow_policy_golden
+    title: Git Workflow Policy Golden
+    status: active
+    description: Verify Q28 Git workflow policy files define main/dev/task/release/hotfix conventions and report-only detection anchors.
+    quality_dimensions:
+      - policy_anchors
+      - branch_workflow
+      - no_mutation
+  - id: branch_role_detection_golden
+    title: Branch Role Detection Golden
+    status: active
+    description: Verify deterministic branch role classification and conservative unknown-role behavior.
+    quality_dimensions:
+      - deterministic_output
+      - branch_roles
+      - conservative_fallback
+  - id: promotion_rules_golden
+    title: Promotion Rules Golden
+    status: active
+    description: Verify task-to-dev and dev-to-main promotion gates exist without implementing merge helpers.
+    quality_dimensions:
+      - promotion_gates
+      - review_required
+      - no_mutation
+  - id: sync_policy_golden
+    title: Sync Policy Golden
+    status: active
+    description: Verify multi-machine sync policy requires explicit branch decisions and no implicit merge/rebase.
+    quality_dimensions:
+      - sync_safety
+      - report_only
+      - branch_roles
+  - id: prune_policy_golden
+    title: Prune Policy Golden
+    status: active
+    description: Verify pruning requires ancestor containment, protects long-lived roles, and remains dry-run/report-only in Q28.
+    quality_dimensions:
+      - prune_guard
+      - containment_required
+      - protected_roles
+  - id: git_helper_policy_golden
+    title: Git Helper Policy Golden
+    status: active
+    description: Verify Q29 helper policy, command docs, dry-run default, protected roles, and generated helper-plan artifacts.
+    quality_dimensions:
+      - policy_anchors
+      - branch_helper
+      - no_mutation
+  - id: git_land_plan_golden
+    title: Git Land Plan Golden
+    status: active
+    description: Verify land helper dry-run planning, no-ff merge command documentation, and fixture-only apply boundary.
+    quality_dimensions:
+      - land_plan
+      - dry_run_default
+      - no_remote_mutation
+  - id: git_promote_plan_golden
+    title: Git Promote Plan Golden
+    status: active
+    description: Verify promote helper review gates, dry-run planning, and dev-to-main promotion policy linkage.
+    quality_dimensions:
+      - promote_plan
+      - review_required
+      - branch_roles
+  - id: git_prune_guard_golden
+    title: Git Prune Guard Golden
+    status: active
+    description: Verify prune helper requires ancestor containment and refuses protected branch roles.
+    quality_dimensions:
+      - prune_guard
+      - containment_required
+      - protected_roles
+  - id: git_live_repo_no_mutation_golden
+    title: Git Live Repo No Mutation Golden
+    status: active
+    description: Verify generated helper plans and docs keep live AIDE repo mutation disabled by default.
+    quality_dimensions:
+      - no_live_mutation
+      - dry_run_default
+      - force_push_forbidden
+  - id: export_pack_commit_policy_inclusion_golden
+    title: Export Pack Commit Policy Inclusion Golden
+    status: active
+    description: Verify the portable pack or imported target contains commit discipline and changelog support.
+    quality_dimensions:
+      - export_inclusion
+      - commit_discipline
+      - changelog_ready
+  - id: export_pack_task_recovery_inclusion_golden
+    title: Export Pack Task Recovery Inclusion Golden
+    status: active
+    description: Verify the portable pack or imported target contains task resumption, WorkUnit, and recovery support.
+    quality_dimensions:
+      - export_inclusion
+      - workunit_recovery
+      - repo_state_first
+  - id: export_pack_git_policy_inclusion_golden
+    title: Export Pack Git Policy Inclusion Golden
+    status: active
+    description: Verify the portable pack or imported target contains generic Git workflow and helper support.
+    quality_dimensions:
+      - export_inclusion
+      - branch_workflow
+      - dry_run_default
+  - id: export_pack_excludes_source_branch_state_golden
+    title: Export Pack Excludes Source Branch State Golden
+    status: active
+    description: Verify source-specific branch detection, helper plans, and generated previews are excluded from target truth.
+    quality_dimensions:
+      - export_exclusion
+      - source_state_boundary
+      - no_stale_branch_truth
+  - id: fixture_import_governance_commands_golden
+    title: Fixture Import Governance Commands Golden
+    status: active
+    description: Verify safe fixture import receives governance files and can run commit, task, and Git commands without hook auto-installation.
+    quality_dimensions:
+      - fixture_import
+      - governance_commands
+      - hook_opt_in
+  - id: github_protection_policy_golden
+    title: GitHub Protection Policy Golden
+    status: active
+    description: Verify Q35 GitHub protection policy is advisory-only and does not apply GitHub settings.
+    quality_dimensions:
+      - policy_anchors
+      - branch_protection
+      - no_mutation
+  - id: github_ci_advisory_golden
+    title: GitHub CI Advisory Golden
+    status: active
+    description: Verify Q35 CI gate advisory lists validation gates without installing workflow files.
+    quality_dimensions:
+      - ci_gates
+      - report_only
+      - no_workflow_installation
+  - id: github_report_only_golden
+    title: GitHub Report Only Golden
+    status: active
+    description: Verify Q35 generated reports keep GitHub API, workflow, branch, tag, release, provider, model, and network mutation disabled.
+    quality_dimensions:
+      - no_mutation
+      - report_only
+      - deterministic_output
+  - id: github_export_inclusion_golden
+    title: GitHub Export Inclusion Golden
+    status: active
+    description: Verify Q35 portable policy/docs export while generated advisory reports remain source-local.
+    quality_dimensions:
+      - export_inclusion
+      - source_state_boundary
+      - target_safety
+  - id: intent_compile_vague_prompt_golden
+    title: Intent Compile Vague Prompt Golden
+    status: active
+    description: Verify vague prompts compile to queue/context inspection without product work.
+    quality_dimensions:
+      - prompt_normalization
+      - no_raw_intent_execution
+      - deterministic_output
+  - id: intent_compile_overbroad_prompt_golden
+    title: Intent Compile Overbroad Prompt Golden
+    status: active
+    description: Verify overbroad prompts become split recommendations.
+    quality_dimensions:
+      - split_required
+      - prompt_normalization
+      - deterministic_output
+  - id: intent_compile_destructive_prompt_golden
+    title: Intent Compile Destructive Prompt Golden
+    status: active
+    description: Verify destructive prompts block or gate direct mutation.
+    quality_dimensions:
+      - destructive_guard
+      - no_raw_intent_execution
+      - deterministic_output
+  - id: intent_compile_git_prompt_golden
+    title: Intent Compile Git Prompt Golden
+    status: active
+    description: Verify Git promotion prompts require branch policy and review evidence.
+    quality_dimensions:
+      - branch_workflow
+      - promotion_gates
+      - no_mutation
+  - id: intent_compile_install_prompt_golden
+    title: Intent Compile Install Prompt Golden
+    status: active
+    description: Verify target install prompts become preflight and preservation WorkUnits.
+    quality_dimensions:
+      - target_safety
+      - preflight_required
+      - no_target_mutation
+  - id: workunit_sizing_policy_golden
+    title: WorkUnit Sizing Policy Golden
+    status: active
+    description: Verify WorkUnit sizing classes and split gates are defined.
+    quality_dimensions:
+      - workunit_sizing
+      - policy_anchors
+      - split_required
+  - id: intent_packet_schema_golden
+    title: Intent Packet Schema Golden
+    status: active
+    description: Verify intent packet and WorkUnit draft schema shape, bounded excerpts, and no-call storage rules.
+    quality_dimensions:
+      - json_shape
+      - raw_prompt_storage_boundary
+      - no_provider_model_network_calls
+  - id: repo_inventory_schema_golden
+    title: Repo Inventory Schema Golden
+    status: active
+    description: Verify Q37 file inventory schema and required output fields.
+    quality_dimensions:
+      - repo_inventory
+      - json_shape
+      - deterministic_output
+  - id: file_classification_policy_golden
+    title: File Classification Policy Golden
+    status: active
+    description: Verify Q37 file classification policy and known AIDE file classes.
+    quality_dimensions:
+      - file_classification
+      - policy_anchors
+      - deterministic_output
+  - id: repo_ownership_map_golden
+    title: Repo Ownership Map Golden
+    status: active
+    description: Verify Q37 ownership map includes AIDE control-plane and harness owners.
+    quality_dimensions:
+      - ownership_map
+      - repo_grounding
+      - deterministic_output
+  - id: repo_dependency_map_golden
+    title: Repo Dependency Map Golden
+    status: active
+    description: Verify Q37 dependency map detects local Python imports without execution.
+    quality_dimensions:
+      - dependency_map
+      - no_code_execution
+      - deterministic_output
+  - id: repo_doc_link_map_golden
+    title: Repo Doc Link Map Golden
+    status: active
+    description: Verify Q37 doc link map reports stale candidates conservatively.
+    quality_dimensions:
+      - doc_link_map
+      - stale_candidate_language
+      - no_deletion_advice
+  - id: repo_intelligence_no_local_state_golden
+    title: Repo Intelligence No Local State Golden
+    status: active
+    description: Verify Q37 excludes .aide.local and flags local state if inspected.
+    quality_dimensions:
+      - local_state_boundary
+      - no_secret_storage
+      - source_state_boundary
+  - id: repo_explain_file_golden
+    title: Repo Explain File Golden
+    status: active
+    description: Verify Q37 explain-file data works for the stable AIDE Lite command file.
+    quality_dimensions:
+      - explain_file
+      - ownership_map
+      - test_map
+  - id: file_quality_policy_golden
+    title: File Quality Policy Golden
+    status: active
+    description: Verify Q38 file quality policies define deterministic advisory-only measurement anchors.
+    quality_dimensions:
+      - policy_anchors
+      - no_mutation
+      - no_deletion_advice
+  - id: file_quality_ledger_schema_golden
+    title: File Quality Ledger Schema Golden
+    status: active
+    description: Verify Q38 quality schemas and ledger record shape.
+    quality_dimensions:
+      - json_shape
+      - evidence_present
+      - deterministic_output
+  - id: quality_ledger_generation_golden
+    title: Quality Ledger Generation Golden
+    status: active
+    description: Verify file quality ledger generation from repo intelligence outputs.
+    quality_dimensions:
+      - deterministic_output
+      - warning_candidates
+      - no_provider_calls
+  - id: docs_consistency_report_golden
+    title: Docs Consistency Report Golden
+    status: active
+    description: Verify docs consistency report candidates and caveats.
+    quality_dimensions:
+      - stale_path_candidates
+      - missing_doc_candidates
+      - candidate_language
+  - id: test_coverage_map_golden
+    title: Test Coverage Map Golden
+    status: active
+    description: Verify test coverage map candidates and caveats.
+    quality_dimensions:
+      - test_map
+      - missing_test_candidates
+      - candidate_language
+  - id: reuse_modularity_report_golden
+    title: Reuse Modularity Report Golden
+    status: active
+    description: Verify reuse/modularity reports are candidate-only.
+    quality_dimensions:
+      - reuse_candidates
+      - no_extraction
+      - candidate_language
+  - id: quality_no_delete_recommendation_golden
+    title: Quality No Delete Recommendation Golden
+    status: active
+    description: Verify Q38 warnings never become deletion advice.
+    quality_dimensions:
+      - no_deletion_advice
+      - candidate_language
+      - safety_boundary
+  - id: refactor_policy_golden
+    title: Refactor Policy Golden
+    status: active
+    description: Verify Q39 refactor policies define deterministic dry-run and no-apply planning anchors.
+    quality_dimensions:
+      - policy_anchors
+      - no_apply
+      - no_mutation
+  - id: migration_policy_golden
+    title: Migration Policy Golden
+    status: active
+    description: Verify Q39 migration stages, states, compatibility rules, and no mandatory migration boundary.
+    quality_dimensions:
+      - migration_policy
+      - compatibility_preservation
+      - no_apply
+  - id: refactor_plan_schema_golden
+    title: Refactor Plan Schema Golden
+    status: active
+    description: Verify Q39 refactor plan and operation schemas plus the no-apply example plan.
+    quality_dimensions:
+      - json_shape
+      - no_apply
+      - rollback_notes
+  - id: move_map_schema_golden
+    title: Move Map Schema Golden
+    status: active
+    description: Verify Q39 move-map schema exists and remains dry-run/no-apply.
+    quality_dimensions:
+      - schema_shape
+      - no_apply
+      - future_refactor_control
+  - id: salvage_map_schema_golden
+    title: Salvage Map Schema Golden
+    status: active
+    description: Verify Q39 salvage-map schema exists and uses preservation candidate language.
+    quality_dimensions:
+      - schema_shape
+      - preservation
+      - no_apply
+  - id: path_alias_schema_golden
+    title: Path Alias Schema Golden
+    status: active
+    description: Verify Q39 path-alias schema exists and remains planning-only.
+    quality_dimensions:
+      - schema_shape
+      - path_aliases
+      - no_apply
+  - id: migration_ledger_schema_golden
+    title: Migration Ledger Schema Golden
+    status: active
+    description: Verify Q39 migration-ledger schema exists for future dry-run and reviewed apply records.
+    quality_dimensions:
+      - schema_shape
+      - migration_ledger
+      - rollback_notes
+  - id: refactor_no_apply_golden
+    title: Refactor No Apply Golden
+    status: active
+    description: Verify Q39 dry-run plans never enable apply, deletion approval, moves, deletes, or rewrites.
+    quality_dimensions:
+      - no_apply
+      - no_deletion_approval
+      - no_file_mutation
+  - id: root_recycling_policy_golden
+    title: Root Recycling Policy Golden
+    status: active
+    description: Verify Q40 root recycling policies define deterministic dry-run and no-apply anchors.
+    quality_dimensions:
+      - policy_anchors
+      - no_apply
+      - no_root_mutation
+  - id: root_inventory_schema_golden
+    title: Root Inventory Schema Golden
+    status: active
+    description: Verify Q40 root inventory schema and generated inventory shape.
+    quality_dimensions:
+      - schema_shape
+      - root_inventory
+      - no_apply
+  - id: root_record_schema_golden
+    title: Root Record Schema Golden
+    status: active
+    description: Verify Q40 root record schema fields for root status and risk review.
+    quality_dimensions:
+      - schema_shape
+      - root_status
+      - root_risk
+  - id: root_file_classification_schema_golden
+    title: Root File Classification Schema Golden
+    status: active
+    description: Verify Q40 per-file root classification schema and no-apply fate output.
+    quality_dimensions:
+      - schema_shape
+      - file_fates
+      - no_apply
+  - id: root_recycling_plan_schema_golden
+    title: Root Recycling Plan Schema Golden
+    status: active
+    description: Verify Q40 root recycling plan schema and dry-run plan output.
+    quality_dimensions:
+      - schema_shape
+      - no_apply
+      - future_maps_required
+  - id: root_exception_schema_golden
+    title: Root Exception Schema Golden
+    status: active
+    description: Verify Q40 root exception records include retirement conditions.
+    quality_dimensions:
+      - schema_shape
+      - exception_retirement
+      - review_gate
+  - id: roots_no_apply_golden
+    title: Roots No Apply Golden
+    status: active
+    description: Verify Q40 roots outputs never enable apply, moves, deletes, or rewrites.
+    quality_dimensions:
+      - no_apply
+      - no_file_mutation
+      - no_reference_rewrite
+  - id: root_fate_no_delete_approval_golden
+    title: Root Fate No Delete Approval Golden
+    status: active
+    description: Verify Q40 drop_candidate and root fates are not deletion approval.
+    quality_dimensions:
+      - no_deletion_approval
+      - candidate_language
+      - root_fates
+  - id: tool_absorption_policy_golden
+    title: Tool Absorption Policy Golden
+    status: active
+    description: Verify Q41 tool absorption policies define deterministic preservation and no-execution anchors.
+    quality_dimensions:
+      - policy_anchors
+      - no_execution
+      - preservation
+  - id: tool_inventory_schema_golden
+    title: Tool Inventory Schema Golden
+    status: active
+    description: Verify Q41 tool inventory schema and generated inventory shape.
+    quality_dimensions:
+      - schema_shape
+      - tool_inventory
+      - no_apply
+  - id: tool_record_schema_golden
+    title: Tool Record Schema Golden
+    status: active
+    description: Verify Q41 tool record schema fields for capability, risk, fate, and no-execution state.
+    quality_dimensions:
+      - schema_shape
+      - capability_map
+      - no_execution
+  - id: tool_wrap_plan_schema_golden
+    title: Tool Wrap Plan Schema Golden
+    status: active
+    description: Verify Q41 wrap-plan schema and no-execution wrapper plan output.
+    quality_dimensions:
+      - schema_shape
+      - wrap_plan
+      - no_execution
+  - id: tool_adapter_map_schema_golden
+    title: Tool Adapter Map Schema Golden
+    status: active
+    description: Verify Q41 adapter-map schema and advisory mapping output.
+    quality_dimensions:
+      - schema_shape
+      - adapter_map
+      - no_apply
+  - id: tools_no_execution_golden
+    title: Tools No Execution Golden
+    status: active
+    description: Verify Q41 tool outputs never enable unknown execution, apply, rename, deletion, or migration.
+    quality_dimensions:
+      - no_execution
+      - no_apply
+      - no_tool_mutation
+  - id: tool_fate_no_delete_approval_golden
+    title: Tool Fate No Delete Approval Golden
+    status: active
+    description: Verify Q41 drop_candidate and wrap fates are not deletion or execution approval.
+    quality_dimensions:
+      - no_deletion_approval
+      - no_execution
+      - tool_fates
+  - id: move_map_policy_golden
+    title: Move Map Policy Golden
+    status: active
+    description: Verify Q42 move-map policy and candidate-only no-apply map shape.
+    quality_dimensions:
+      - policy_anchors
+      - no_apply
+      - no_file_mutation
+  - id: salvage_map_policy_golden
+    title: Salvage Map Policy Golden
+    status: active
+    description: Verify Q42 salvage-map policy and preservation candidate shape.
+    quality_dimensions:
+      - policy_anchors
+      - preservation
+      - no_deletion_approval
+  - id: path_alias_policy_golden
+    title: Path Alias Policy Golden
+    status: active
+    description: Verify Q42 path-alias policy and no-apply alias planning shape.
+    quality_dimensions:
+      - policy_anchors
+      - path_aliases
+      - no_apply
+  - id: reference_rewrite_plan_golden
+    title: Reference Rewrite Plan Golden
+    status: active
+    description: Verify Q42 reference rewrite plans are candidate-only and do not apply rewrites.
+    quality_dimensions:
+      - reference_rewrite_plan
+      - no_reference_rewrite
+      - no_apply
+  - id: migration_ledger_policy_golden
+    title: Migration Ledger Policy Golden
+    status: active
+    description: Verify Q42 migration ledger policy and draft event shape.
+    quality_dimensions:
+      - migration_ledger
+      - draft_only
+      - rollback_future
+  - id: refactor_map_no_apply_golden
+    title: Refactor Map No Apply Golden
+    status: active
+    description: Verify Q42 map outputs never enable apply, moves, deletes, aliases, shims, or rewrites.
+    quality_dimensions:
+      - no_apply
+      - no_file_mutation
+      - no_reference_rewrite
+  - id: drop_candidate_not_delete_approval_golden
+    title: Drop Candidate Not Delete Approval Golden
+    status: active
+    description: Verify Q42 drop_candidate language is never treated as deletion approval.
+    quality_dimensions:
+      - no_deletion_approval
+      - candidate_language
+      - preservation
+  - id: install_policy_golden
+    title: Install Policy Golden
+    status: active
+    description: Verify Q43 install policy anchors and no-apply install posture.
+    quality_dimensions:
+      - policy_anchors
+      - no_apply
+      - no_target_mutation
+  - id: install_preservation_policy_golden
+    title: Install Preservation Policy Golden
+    status: active
+    description: Verify Q43 target-state preservation and source-state skip rules.
+    quality_dimensions:
+      - preservation
+      - no_source_state_leak
+      - no_secret_install
+  - id: install_plan_schema_golden
+    title: Install Plan Schema Golden
+    status: active
+    description: Verify Q43 install plan schema and no-apply plan shape.
+    quality_dimensions:
+      - schema_shape
+      - install_plan
+      - no_apply
+  - id: install_ownership_ledger_schema_golden
+    title: Install Ownership Ledger Schema Golden
+    status: active
+    description: Verify Q43 ownership ledger schema and no-apply ownership records.
+    quality_dimensions:
+      - schema_shape
+      - ownership_ledger
+      - preservation
+  - id: install_conflict_report_schema_golden
+    title: Install Conflict Report Schema Golden
+    status: active
+    description: Verify Q43 conflict report schema and no-apply conflict records.
+    quality_dimensions:
+      - schema_shape
+      - conflict_report
+      - no_apply
+  - id: install_no_apply_golden
+    title: Install No Apply Golden
+    status: active
+    description: Verify Q43 install outputs never enable apply, overwrite, or automatic migration.
+    quality_dimensions:
+      - no_apply
+      - no_overwrite
+      - no_automatic_migration
+  - id: install_preserves_target_state_golden
+    title: Install Preserves Target State Golden
+    status: active
+    description: Verify Q43 preserves target memory, queue, evidence, docs, tools, and manual content.
+    quality_dimensions:
+      - target_state_preservation
+      - managed_sections
+      - no_overwrite
+  - id: install_no_source_state_leak_golden
+    title: Install No Source State Leak Golden
+    status: active
+    description: Verify Q43 skips source-generated, local, and secret-like state as install truth.
+    quality_dimensions:
+      - no_source_state_leak
+      - local_state_boundary
+      - no_secret_install
+  - id: repair_policy_golden
+    title: Repair Policy Golden
+    status: active
+    description: Verify Q44 repair policy anchors and preservation-first no-apply posture.
+    quality_dimensions:
+      - policy_anchors
+      - no_apply
+      - preservation
+  - id: repair_classes_golden
+    title: Repair Classes Golden
+    status: active
+    description: Verify Q44 repair classes, future apply gates, and local/secret blockers.
+    quality_dimensions:
+      - repair_classes
+      - safety_gates
+      - no_automatic_repair
+  - id: repair_plan_schema_golden
+    title: Repair Plan Schema Golden
+    status: active
+    description: Verify Q44 repair plan schema and generated no-apply plan shape.
+    quality_dimensions:
+      - schema_shape
+      - repair_plan
+      - no_apply
+  - id: repair_dry_run_schema_golden
+    title: Repair Dry Run Schema Golden
+    status: active
+    description: Verify Q44 dry-run schema and no-apply dry-run shape.
+    quality_dimensions:
+      - schema_shape
+      - dry_run
+      - no_apply
+  - id: repair_doctor_schema_golden
+    title: Repair Doctor Schema Golden
+    status: active
+    description: Verify Q44 doctor report schema and advisory-only doctor output.
+    quality_dimensions:
+      - schema_shape
+      - doctor_advisory
+      - no_apply
+  - id: repair_no_apply_golden
+    title: Repair No Apply Golden
+    status: active
+    description: Verify Q44 repair outputs never enable apply, overwrite, delete, or automatic migration.
+    quality_dimensions:
+      - no_apply
+      - no_overwrite
+      - no_delete
+  - id: repair_preserves_target_state_golden
+    title: Repair Preserves Target State Golden
+    status: active
+    description: Verify Q44 repair plans preserve target-specific state by default.
+    quality_dimensions:
+      - target_state_preservation
+      - no_overwrite
+      - no_delete
+  - id: repair_blocks_local_state_and_secrets_golden
+    title: Repair Blocks Local State And Secrets Golden
+    status: active
+    description: Verify Q44 local-state and secret-like repair findings are block/manual-review only.
+    quality_dimensions:
+      - local_state_boundary
+      - secret_safety
+      - manual_review
+  - id: upgrade_policy_golden
+    title: Upgrade Policy Golden
+    status: active
+    description: Verify Q45 upgrade policy anchors and preservation-first no-apply posture.
+    quality_dimensions:
+      - policy_anchors
+      - no_apply
+      - preservation
+  - id: upgrade_compatibility_policy_golden
+    title: Upgrade Compatibility Policy Golden
+    status: active
+    description: Verify Q45 compatibility dimensions and future-gated migration levels.
+    quality_dimensions:
+      - compatibility
+      - migration_gate
+      - no_apply
+  - id: upgrade_plan_schema_golden
+    title: Upgrade Plan Schema Golden
+    status: active
+    description: Verify Q45 upgrade plan schema and generated no-apply plan shape.
+    quality_dimensions:
+      - schema_shape
+      - upgrade_plan
+      - no_apply
+  - id: upgrade_dry_run_schema_golden
+    title: Upgrade Dry Run Schema Golden
+    status: active
+    description: Verify Q45 dry-run schema and no-apply dry-run shape.
+    quality_dimensions:
+      - schema_shape
+      - dry_run
+      - no_apply
+  - id: upgrade_preserves_target_state_golden
+    title: Upgrade Preserves Target State Golden
+    status: active
+    description: Verify Q45 preserves target memory, queue, evidence, golden tasks, generated outputs, and manual content.
+    quality_dimensions:
+      - target_state_preservation
+      - no_overwrite
+      - no_delete
+  - id: upgrade_no_apply_golden
+    title: Upgrade No Apply Golden
+    status: active
+    description: Verify Q45 upgrade outputs never enable apply, overwrite, delete, or automatic migration.
+    quality_dimensions:
+      - no_apply
+      - no_overwrite
+      - no_delete
+  - id: upgrade_no_source_state_leak_golden
+    title: Upgrade No Source State Leak Golden
+    status: active
+    description: Verify Q45 skips source-generated, local, and secret-like state as upgrade truth.
+    quality_dimensions:
+      - no_source_state_leak
+      - local_state_boundary
+      - secret_safety
+  - id: upgrade_mandatory_migration_gate_golden
+    title: Upgrade Mandatory Migration Gate Golden
+    status: active
+    description: Verify Q45 mandatory migrations are future-gated, evidenced, non-automatic, and no-apply.
+    quality_dimensions:
+      - mandatory_migration
+      - no_automatic_migration
+      - no_apply
+  - id: rollback_policy_golden
+    title: Rollback Policy Golden
+    status: active
+    description: Verify Q46 rollback policy anchors and preservation-first no-apply posture.
+    quality_dimensions:
+      - policy_anchors
+      - no_apply
+      - preservation
+  - id: rollback_plan_schema_golden
+    title: Rollback Plan Schema Golden
+    status: active
+    description: Verify Q46 rollback plan schema and generated no-apply plan shape.
+    quality_dimensions:
+      - schema_shape
+      - rollback_plan
+      - no_apply
+  - id: rollback_no_apply_golden
+    title: Rollback No Apply Golden
+    status: active
+    description: Verify Q46 rollback outputs never enable apply, overwrite, delete, or managed-section removal.
+    quality_dimensions:
+      - no_apply
+      - no_overwrite
+      - no_delete
+  - id: uninstall_policy_golden
+    title: Uninstall Policy Golden
+    status: active
+    description: Verify Q46 uninstall policy anchors and no-blanket-delete posture.
+    quality_dimensions:
+      - policy_anchors
+      - no_apply
+      - no_blanket_delete
+  - id: uninstall_plan_schema_golden
+    title: Uninstall Plan Schema Golden
+    status: active
+    description: Verify Q46 uninstall plan schema and generated no-apply plan shape.
+    quality_dimensions:
+      - schema_shape
+      - uninstall_plan
+      - no_apply
+  - id: uninstall_no_apply_golden
+    title: Uninstall No Apply Golden
+    status: active
+    description: Verify Q46 uninstall outputs never enable apply, delete, or managed-section removal.
+    quality_dimensions:
+      - no_apply
+      - no_delete
+      - no_managed_section_removal
+  - id: uninstall_preserves_target_state_golden
+    title: Uninstall Preserves Target State Golden
+    status: active
+    description: Verify Q46 uninstall preserves target memory, queue, evidence, golden tasks, manual content, tools, local state, and unknown ownership.
+    quality_dimensions:
+      - target_state_preservation
+      - manual_review
+      - local_state_boundary
+  - id: uninstall_no_blanket_aide_delete_golden
+    title: Uninstall No Blanket AIDE Delete Golden
+    status: active
+    description: Verify Q46 uninstall never plans blanket .aide deletion.
+    quality_dimensions:
+      - no_blanket_delete
+      - ownership_required
+      - no_apply
+  - id: release_bundle_policy_golden
+    title: Release Bundle Policy Golden
+    status: active
+    description: Verify Q47 release policies and local-only no-publish posture.
+    quality_dimensions:
+      - policy_anchors
+      - local_only
+      - no_publish
+  - id: release_manifest_schema_golden
+    title: Release Manifest Schema Golden
+    status: active
+    description: Verify Q47 release manifest schema shape.
+    quality_dimensions:
+      - schema_shape
+      - release_manifest
+      - no_publish
+  - id: release_asset_schema_golden
+    title: Release Asset Schema Golden
+    status: active
+    description: Verify Q47 release asset schema shape.
+    quality_dimensions:
+      - schema_shape
+      - release_assets
+      - checksum_metadata
+  - id: release_archive_generation_golden
+    title: Release Archive Generation Golden
+    status: active
+    description: Verify Q47 local zip and tar.gz archives are generated and fixture-valid.
+    quality_dimensions:
+      - archive_generation
+      - fixture_validation
+      - no_publish
+  - id: release_checksum_validation_golden
+    title: Release Checksum Validation Golden
+    status: active
+    description: Verify Q47 release checksums validate.
+    quality_dimensions:
+      - checksums
+      - artifact_integrity
+      - no_publish
+  - id: release_fixture_extraction_golden
+    title: Release Fixture Extraction Golden
+    status: active
+    description: Verify Q47 archive extraction validation and required pack files.
+    quality_dimensions:
+      - fixture_extraction
+      - archive_contents
+      - no_target_install
+  - id: release_no_publish_golden
+    title: Release No Publish Golden
+    status: active
+    description: Verify Q47 creates local preview artifacts only and no publish action.
+    quality_dimensions:
+      - no_publish
+      - no_tag
+      - no_upload
+  - id: release_forbidden_paths_excluded_golden
+    title: Release Forbidden Paths Excluded Golden
+    status: active
+    description: Verify Q47 archives exclude forbidden paths and source-local state.
+    quality_dimensions:
+      - forbidden_path_exclusion
+      - local_state_boundary
+      - secret_safety
+  - id: github_release_draft_policy_golden
+    title: GitHub Release Draft Policy Golden
+    status: active
+    description: Verify Q48 release draft policy anchors and publication boundary.
+    quality_dimensions:
+      - policy_anchors
+      - no_publish
+      - publication_boundary
+  - id: github_release_draft_schema_golden
+    title: GitHub Release Draft Schema Golden
+    status: active
+    description: Verify Q48 GitHub release draft schema shape.
+    quality_dimensions:
+      - schema_shape
+      - release_draft
+      - no_publish
+  - id: github_release_asset_schema_golden
+    title: GitHub Release Asset Schema Golden
+    status: active
+    description: Verify Q48 GitHub release asset schema shape.
+    quality_dimensions:
+      - schema_shape
+      - release_assets
+      - checksum_metadata
+  - id: github_release_upload_plan_golden
+    title: GitHub Release Upload Plan Golden
+    status: active
+    description: Verify Q48 upload plan schema and no-upload posture.
+    quality_dimensions:
+      - upload_plan
+      - no_upload
+      - no_publish
+  - id: github_release_checklist_golden
+    title: GitHub Release Checklist Golden
+    status: active
+    description: Verify Q48 publication checklist schema and manual review coverage.
+    quality_dimensions:
+      - checklist
+      - manual_review
+      - publication_boundary
+  - id: github_release_no_publish_golden
+    title: GitHub Release No Publish Golden
+    status: active
+    description: Verify Q48 generated release draft outputs remain local-only and unpublished.
+    quality_dimensions:
+      - no_publish
+      - no_tag
+      - no_upload
+  - id: github_release_assets_have_checksums_golden
+    title: GitHub Release Assets Have Checksums Golden
+    status: active
+    description: Verify Q48 release draft assets include matching checksums.
+    quality_dimensions:
+      - checksums
+      - artifact_integrity
+      - release_assets
+  - id: full_discovery_handoff_no_run_golden
+    title: Full Discovery Handoff No Run Golden
+    status: active
+    description: Verify full-discovery handoff is report-only and waits for external execution.
+    quality_dimensions:
+      - report_only
+      - no_target_execution
+      - promotion_gates
+  - id: impacted_test_plan_report_only_golden
+    title: Impacted Test Plan Report Only Golden
+    status: active
+    description: Verify impacted-test planning emits commands and warnings without running tests.
+    quality_dimensions:
+      - impacted_tests
+      - report_only
+      - deterministic_output
+  - id: no_skip_to_pass_golden
+    title: No Skip To Pass Golden
+    status: active
+    description: Verify test deletion and skip-to-pass shortcuts are forbidden.
+    quality_dimensions:
+      - no_skip_to_pass
+      - preservation
+      - validation_integrity
+  - id: promotion_gate_t3_golden
+    title: Promotion Gate T3 Golden
+    status: active
+    description: Verify T3 remains a promotion, checkpoint, and release gate.
+    quality_dimensions:
+      - promotion_gates
+      - t3_full_suite
+      - no_default_full_discovery
+  - id: target_validator_preservation_golden
+    title: Target Validator Preservation Golden
+    status: active
+    description: Verify target validators and manifests are preserved.
+    quality_dimensions:
+      - target_safety
+      - preservation
+      - no_target_mutation
+  - id: test_summary_schema_golden
+    title: Test Summary Schema Golden
+    status: active
+    description: Verify compact test summaries pass and raw-log payloads fail.
+    quality_dimensions:
+      - schema_shape
+      - compact_summary
+      - raw_log_boundary
+  - id: test_telemetry_export_golden
+    title: Test Telemetry Export Golden
+    status: active
+    description: Verify validation tier and telemetry contracts are portable/exported.
+    quality_dimensions:
+      - export_inclusion
+      - telemetry_contracts
+      - target_safety
+  - id: test_tier_policy_golden
+    title: Test Tier Policy Golden
+    status: active
+    description: Verify T0/T1/T2/T3 policy, schemas, and examples exist.
+    quality_dimensions:
+      - policy_anchors
+      - validation_tiers
+      - report_only
+  - id: task_os_schema_presence_golden
+    title: Task OS Schema Presence Golden
+    status: active
+    description: Verify X-OS-00 Task OS schemas, ledger schemas, and example records exist and parse.
+    quality_dimensions:
+      - schema_shape
+      - task_os
+      - deterministic_output
+  - id: task_os_lifecycle_policy_golden
+    title: Task OS Lifecycle Policy Golden
+    status: active
+    description: Verify lifecycle states, transition anchors, and promotion boundary rules exist.
+    quality_dimensions:
+      - policy_anchors
+      - lifecycle_states
+      - review_required
+  - id: task_os_blocker_policy_golden
+    title: Task OS Blocker Policy Golden
+    status: active
+    description: Verify blocker classes, severities, and repair conversion policy exist.
+    quality_dimensions:
+      - blocker_classes
+      - repair_mapping
+      - safety_boundary
+  - id: task_os_no_apply_boundary_golden
+    title: Task OS No Apply Boundary Golden
+    status: active
+    description: Verify X-OS-00 docs and policies do not introduce apply, branch, promotion, target, provider, network, or release behavior.
+    quality_dimensions:
+      - no_apply
+      - no_branch_mutation
+      - no_target_mutation
+  - id: task_os_capability_reality_policy_golden
+    title: Task OS Capability Reality Policy Golden
+    status: active
+    description: Verify capability states and proof rules prevent docs, fixtures, drafts, and dry-runs from being treated as live behavior.
+    quality_dimensions:
+      - capability_reality
+      - proof_boundaries
+      - no_overclaim
+  - id: task_os_example_records_golden
+    title: Task OS Example Records Golden
+    status: active
+    description: Verify Task OS examples are marked as examples and do not claim actual repo history.
+    quality_dimensions:
+      - example_records
+      - source_state_boundary
+      - deterministic_output
+  - id: task_os_command_surface_golden
+    title: Task OS Command Surface Golden
+    status: active
+    description: Verify X-OS-01 report-only Task OS commands are registered.
+    quality_dimensions:
+      - command_surface
+      - report_only
+      - task_os
+  - id: task_os_task_status_report_golden
+    title: Task OS Task Status Report Golden
+    status: active
+    description: Verify task status and classification reports are generated with no-apply boundaries.
+    quality_dimensions:
+      - task_status
+      - classification
+      - no_apply
+  - id: task_os_repair_requeue_resume_plan_golden
+    title: Task OS Repair Requeue Resume Plan Golden
+    status: active
+    description: Verify repair, requeue, and resume plans remain planning-only.
+    quality_dimensions:
+      - repair_plan
+      - requeue_plan
+      - resume_plan
+      - no_apply
+  - id: task_os_blocker_classification_golden
+    title: Task OS Blocker Classification Golden
+    status: active
+    description: Verify blocker status and classification reports are typed and no-apply.
+    quality_dimensions:
+      - blockers
+      - classification
+      - repair_boundary
+  - id: task_os_wave_checkpoint_plan_golden
+    title: Task OS Wave Checkpoint Plan Golden
+    status: active
+    description: Verify wave and checkpoint status/plan reports stay report-only.
+    quality_dimensions:
+      - wave_plan
+      - checkpoint_plan
+      - no_branch_mutation
+  - id: task_os_report_only_no_apply_golden
+    title: Task OS Report Only No Apply Golden
+    status: active
+    description: Verify all X-OS-01 command reports preserve no-apply and no-call boundaries.
+    quality_dimensions:
+      - no_apply
+      - no_target_mutation
+      - no_provider_calls
+  - id: capability_seed_presence_golden
+    title: Capability Seed Presence Golden
+    status: active
+    description: Verify X-OS-02 capability seeds, schemas, states, modifiers, and required files exist.
+    quality_dimensions:
+      - capability_reality
+      - schema_shape
+      - policy_anchors
+  - id: capability_command_surface_golden
+    title: Capability Command Surface Golden
+    status: active
+    description: Verify X-OS-02 report-only capability commands are registered.
+    quality_dimensions:
+      - command_surface
+      - report_only
+      - no_call
+  - id: capability_ledger_generation_golden
+    title: Capability Ledger Generation Golden
+    status: active
+    description: Verify capability scan and ledger reports classify all reality states conservatively.
+    quality_dimensions:
+      - ledger_generation
+      - capability_reality
+      - deterministic_output
+  - id: capability_overclaim_report_golden
+    title: Capability Overclaim Report Golden
+    status: active
+    description: Verify capability overclaim reporting is typed, conservative, and report-only.
+    quality_dimensions:
+      - no_overclaim
+      - report_only
+      - safety_boundary
+  - id: capability_no_apply_boundary_golden
+    title: Capability No Apply Boundary Golden
+    status: active
+    description: Verify X-OS-02 capability outputs do not apply, mutate targets, mutate branches, publish releases, or call providers/models/network.
+    quality_dimensions:
+      - no_apply
+      - no_target_mutation
+      - no_provider_calls
+  - id: capability_export_pack_inclusion_golden
+    title: Capability Export Pack Inclusion Golden
+    status: active
+    description: Verify capability contracts are included in portable export-pack source scope.
+    quality_dimensions:
+      - export_inclusion
+      - source_state_boundary
+      - target_safety
+  - id: transaction_schema_presence_golden
+    title: Transaction Schema Presence Golden
+    status: active
+    description: Verify AIDE-APPLY-00 transaction schemas and examples exist and parse.
+    quality_dimensions:
+      - schema_shape
+      - transaction_model
+      - deterministic_output
+  - id: transaction_policy_boundary_golden
+    title: Transaction Policy Boundary Golden
+    status: active
+    description: Verify transaction policies define phases, operation classes, safety gates, and no-real-apply boundaries.
+    quality_dimensions:
+      - policy_anchors
+      - no_apply
+      - safety_gates
+  - id: transaction_fixture_plan_golden
+    title: Transaction Fixture Plan Golden
+    status: active
+    description: Verify fixture-only transaction planning emits deterministic no-apply reports.
+    quality_dimensions:
+      - fixture_only
+      - deterministic_output
+      - no_apply
+  - id: transaction_fixture_verify_golden
+    title: Transaction Fixture Verify Golden
+    status: active
+    description: Verify fixture-only transaction verification checks gates, rollback records, and fixture scoping.
+    quality_dimensions:
+      - fixture_verification
+      - rollback_record
+      - no_apply
+  - id: transaction_no_real_apply_golden
+    title: Transaction No Real Apply Golden
+    status: active
+    description: Verify transaction commands and reports do not enable real repository apply behavior.
+    quality_dimensions:
+      - no_real_apply
+      - no_target_mutation
+      - no_provider_calls
+  - id: transaction_export_pack_inclusion_golden
+    title: Transaction Export Pack Inclusion Golden
+    status: active
+    description: Verify transaction contracts are included in portable export-pack source scope.
+    quality_dimensions:
+      - export_inclusion
+      - source_state_boundary
+      - target_safety
+  - id: managed_section_schema_presence_golden
+    title: Managed Section Schema Presence Golden
+    status: active
+    description: Verify AIDE-APPLY-01 managed-section schemas and examples exist and parse.
+    quality_dimensions:
+      - schema_shape
+      - managed_sections
+      - deterministic_output
+  - id: managed_section_marker_policy_golden
+    title: Managed Section Marker Policy Golden
+    status: active
+    description: Verify marker policy blocks ambiguous markers and preserves manual content.
+    quality_dimensions:
+      - marker_policy
+      - manual_content_preservation
+      - no_apply
+  - id: managed_section_fixture_patch_golden
+    title: Managed Section Fixture Patch Golden
+    status: active
+    description: Verify fixture-only managed-section planning emits deterministic no-apply reports.
+    quality_dimensions:
+      - fixture_only
+      - deterministic_output
+      - no_apply
+  - id: managed_section_manual_content_preservation_golden
+    title: Managed Section Manual Content Preservation Golden
+    status: active
+    description: Verify fixture patching preserves manual content outside managed markers exactly.
+    quality_dimensions:
+      - manual_content_preservation
+      - fixture_verification
+      - deterministic_output
+  - id: managed_section_conflict_detection_golden
+    title: Managed Section Conflict Detection Golden
+    status: active
+    description: Verify missing, duplicate, nested, and malformed marker conflicts block patching.
+    quality_dimensions:
+      - conflict_detection
+      - safety_boundary
+      - no_apply
+  - id: managed_section_no_real_apply_golden
+    title: Managed Section No Real Apply Golden
+    status: active
+    description: Verify managed-section commands and reports do not expose active apply behavior.
+    quality_dimensions:
+      - no_real_apply
+      - no_target_mutation
+      - no_provider_calls
+  - id: managed_section_export_pack_inclusion_golden
+    title: Managed Section Export Pack Inclusion Golden
+    status: active
+    description: Verify managed-section contracts are included in portable export-pack source scope.
+    quality_dimensions:
+      - export_inclusion
+      - source_state_boundary
+      - target_safety

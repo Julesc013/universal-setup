@@ -1,0 +1,60 @@
+schema_version: aide.root-fates-policy.v0
+policy_id: aide-root-fates-v0
+status: active
+purpose: >
+  Define per-file fate vocabulary for dry-run root recycling plans.
+
+fates:
+  keep:
+    meaning: File appears to remain in its current role unless future evidence says otherwise.
+    mutation_in_q40: false
+    future_review_required: false
+  wrap:
+    meaning: File may need a future compatibility wrapper around existing behavior.
+    mutation_in_q40: false
+    future_review_required: true
+  adapt:
+    meaning: File may need future adapter work to fit a canonical surface.
+    mutation_in_q40: false
+    future_review_required: true
+  extract:
+    meaning: File may contain reusable content that requires a future salvage map before extraction.
+    mutation_in_q40: false
+    future_review_required: true
+  convert:
+    meaning: File may require future format conversion under a reviewed migration plan.
+    mutation_in_q40: false
+    future_review_required: true
+  archive:
+    meaning: File may be a future archive candidate, but no move is applied in Q40.
+    mutation_in_q40: false
+    future_review_required: true
+    archive_is_applied_move: false
+  drop_candidate:
+    meaning: File may need future removal review, but this is not deletion approval.
+    mutation_in_q40: false
+    future_review_required: true
+    deletion_approval: false
+    drop_candidate_is_deletion_approval: false
+  shim:
+    meaning: Future compatibility shim may be required, but no shim is created in Q40.
+    mutation_in_q40: false
+    future_review_required: true
+    shim_created_in_q40: false
+  alias:
+    meaning: Future path alias may be required, but no alias is applied in Q40.
+    mutation_in_q40: false
+    future_review_required: true
+    alias_applied_in_q40: false
+  unknown:
+    meaning: Insufficient deterministic evidence; future inventory or review is required.
+    mutation_in_q40: false
+    future_review_required: true
+
+rules:
+  every_fate_needs_evidence: true
+  every_mutating_future_fate_needs_review: true
+  no_file_move_from_fate: true
+  no_file_delete_from_fate: true
+  no_reference_rewrite_from_fate: true
+  drop_candidate_is_not_safe_to_delete: true

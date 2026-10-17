@@ -1,0 +1,48 @@
+schema_version: aide.test-tiers-policy.v0
+policy_id: aide.validation-tiers.v0
+status: active-pending-review
+mode: portable_report_only
+
+tiers:
+  T0:
+    name: smoke_syntax_policy_architecture
+    purpose: Fast checks for syntax, policy anchors, architecture boundaries, and no-call posture.
+    normal_post_task: true
+    promotion_gate: false
+  T1:
+    name: impacted_tests
+    purpose: Changed-path-driven tests selected by impacted-test planning.
+    normal_post_task: true
+    promotion_gate: false
+  T2:
+    name: component_integration
+    purpose: Component and integration suites relevant to larger changes.
+    normal_post_task: false
+    promotion_gate: conditional
+  T3:
+    name: full_promotion_suite
+    purpose: Full discovery for checkpoint, promotion, and release gates.
+    normal_post_task: false
+    promotion_gate: true
+
+defaults:
+  normal_post_task:
+    required_tiers: [T0, T1]
+    excludes_default_full_discovery: true
+  larger_task:
+    required_tiers: [T0, T1]
+    include_relevant_t2: true
+  checkpoint_promotion_release:
+    required_tiers: [T0, T1, relevant_T2, T3]
+    full_discovery_required: true
+
+rules:
+  no_skip_to_pass: true
+  must_not_delete_tests: true
+  skip_to_make_green_forbidden: true
+  target_specific_preservation: true
+  must_not_overwrite_target_manifests: true
+  no_target_execution_in_cross_repo_audits: true
+  full_suite_is_t3_not_normal_default: true
+  report_only_until_target_adoption: true
+

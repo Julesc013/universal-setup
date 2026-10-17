@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aide.tasks.repair-task.v0",
+  "title": "AIDE RepairTask",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "repair_task_id",
+    "source_blocker_id",
+    "source_workunit_id",
+    "repair_class",
+    "scope",
+    "allowed_paths",
+    "forbidden_paths",
+    "max_attempts",
+    "max_repair_depth",
+    "validation_required",
+    "evidence_required",
+    "expected_outcome",
+    "unsafe_boundary",
+    "status"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "aide.repair-task.v0" },
+    "repair_task_id": { "type": "string", "minLength": 1 },
+    "source_blocker_id": { "type": "string" },
+    "source_workunit_id": { "type": "string" },
+    "repair_class": {
+      "type": "string",
+      "enum": [
+        "prerequisite",
+        "test_repair",
+        "conflict_resolution",
+        "implementation_completion",
+        "docs_code_conformance",
+        "schema_alignment",
+        "tool_alternative",
+        "dependency_isolation",
+        "safety_quarantine",
+        "decision_request",
+        "validation_runtime_split",
+        "unknown"
+      ]
+    },
+    "scope": { "type": "string" },
+    "allowed_paths": { "type": "array", "items": { "type": "string" } },
+    "forbidden_paths": { "type": "array", "items": { "type": "string" } },
+    "max_attempts": { "type": "integer", "minimum": 0 },
+    "max_repair_depth": { "type": "integer", "minimum": 0 },
+    "validation_required": { "type": "array", "items": { "type": "string" } },
+    "evidence_required": { "type": "array", "items": { "type": "string" } },
+    "expected_outcome": { "type": "string" },
+    "unsafe_boundary": { "type": "boolean" },
+    "status": { "type": "string", "enum": ["proposed", "ready", "running", "done_local", "blocked", "quarantined", "superseded"] }
+  },
+  "additionalProperties": false
+}

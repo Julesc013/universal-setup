@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_transaction_session.h"
+#include "usk_native_maintenance_transaction_internal.h"
 #include "usk_json.h"
+#include "usk_sha256.h"
 
 #include <chrono>
 #include <filesystem>
@@ -88,6 +90,96 @@ bool throws(const std::function<void()>& operation)
         return true;
     }
     return false;
+}
+
+int original_transition_extension(Fixture& fixture, bool commit_supported)
+{
+    const auto spec = fixture.spec("original-transition-prefix");
+    TransactionSession session(spec, [](const std::string& state, const std::string& point) {
+        if (state == "committing" && point == "after_journal") throw std::runtime_error("retain original committing anchor");
+    });
+    session.stage_file("payload.txt", bytes("original"));
+    session.mark_staged(); session.mark_verified();
+    if (!throws([&] { session.commit_effect(); }) || session.current_state() != "committing") return 191;
+    const auto original_text = read_text(session.journal_path());
+    const auto original = TransactionSession::inspect_recovery(spec);
+    TransactionSession::require_recovery_transition_extension(spec, original_text,
+        original.snapshot_sha256, original.snapshot_sha256);
+    if (!throws([&] { TransactionSession::require_completed_transition_extension(spec, original_text,
+            original.snapshot_sha256, original.snapshot_sha256); }) ||
+        read_text(session.journal_path()) != original_text ||
+        read_text(session.staging_root()/"payload.txt") != "original") return 195;
+    session.mark_recovery_required();
+    const auto current = TransactionSession::inspect_recovery(spec);
+    TransactionSession::require_recovery_transition_extension(spec, original_text,
+        original.snapshot_sha256, current.snapshot_sha256);
+    if (!throws([&] { TransactionSession::require_recovery_transition_extension(spec, original_text,
+            original.snapshot_sha256, original.snapshot_sha256); })) return 192;
+    const auto hash = [](const std::string& text) {
+        usk::base::Sha256 digest;
+        digest.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        return digest.finish();
+    };
+    for (const int change : {0, 1, 2}) {
+        auto altered = usk::json::parse(original_text);
+        if (change == 1) altered.as_object().at("transitions").as_array().front().as_object()["recorded_at"] =
+            usk::json::Value("changed-original-transition");
+        else if (change == 2) altered.as_object()["journal_digest"] = usk::json::Value(std::string(64, '0'));
+        else altered.as_object()["created_at"] = usk::json::Value("changed-original-creation");
+        const auto text = usk::json::canonical(altered);
+        if (!throws([&] { TransactionSession::require_recovery_transition_extension(spec, text,
+                hash(text), current.snapshot_sha256); })) return 193;
+    }
+    // Even a structurally inspectable current journal must preserve immutable
+    // fields and its derived recovery presentation; no hash adoption.
+    const auto current_text = read_text(session.journal_path());
+    for (const bool change_immutable : {false, true}) {
+        auto altered = usk::json::parse(current_text);
+        if (change_immutable) altered.as_object()["created_at"] = usk::json::Value("changed-current-creation");
+        else altered.as_object().at("recovery").as_object()["required"] = usk::json::Value(false);
+        { std::ofstream output(session.journal_path(), std::ios::binary | std::ios::trunc);
+          output << usk::json::canonical(altered); }
+        const auto modified = TransactionSession::inspect_recovery(spec);
+        const bool refused = throws([&] { TransactionSession::require_recovery_transition_extension(spec,
+            original_text, original.snapshot_sha256, modified.snapshot_sha256); });
+        { std::ofstream output(session.journal_path(), std::ios::binary | std::ios::trunc); output << current_text; }
+        if (!refused) return 194;
+    }
+    if (commit_supported) {
+        const auto visible_spec = fixture.spec("visible-transition-prefix");
+        TransactionSession visible(visible_spec);
+        visible.stage_file("payload.txt", bytes("visible"));
+        visible.mark_staged(); visible.mark_verified(); visible.commit_effect();
+        const auto anchor = TransactionSession::inspect_recovery(visible_spec);
+        const auto anchor_text = read_text(visible.journal_path());
+        visible.mark_recovery_required(); visible.resume_committing(); visible.mark_committed(); visible.mark_completed();
+        TransactionSession::require_recovery_transition_extension(visible_spec, anchor_text,
+            anchor.snapshot_sha256, TransactionSession::inspect_recovery(visible_spec).snapshot_sha256);
+        const auto completed = TransactionSession::inspect_completed_history(visible_spec);
+        const auto completed_text = read_text(visible.journal_path());
+        TransactionSession::require_completed_transition_extension(visible_spec, anchor_text,
+            anchor.snapshot_sha256, completed.snapshot_sha256);
+        if (!throws([&] { TransactionSession::require_completed_transition_extension(visible_spec, anchor_text,
+                anchor.snapshot_sha256, anchor.snapshot_sha256); }) ||
+            read_text(visible.journal_path()) != completed_text) return 196;
+#if !defined(_WIN32)
+        // Completed metadata provenance does not reopen or select actions from
+        // a substituted payload path. The service must separately hold and
+        // verify the genuine root; this metadata helper grants no such proof.
+        auto retained = visible_spec.target_root; retained += "-retained";
+        fs::rename(visible_spec.target_root, retained);
+        fs::create_directory_symlink(retained, visible_spec.target_root);
+        TransactionSession::require_completed_transition_extension(visible_spec, anchor_text,
+            anchor.snapshot_sha256, completed.snapshot_sha256);
+        const bool live_refused = throws([&] { TransactionSession::require_recovery_transition_extension(
+            visible_spec, anchor_text, anchor.snapshot_sha256, completed.snapshot_sha256); });
+        const bool unchanged = read_text(visible.journal_path()) == completed_text &&
+            read_text(retained/"payload.txt") == "visible";
+        fs::remove(visible_spec.target_root); fs::rename(retained, visible_spec.target_root);
+        if (!live_refused || !unchanged) return 197;
+#endif
+    }
+    return 0;
 }
 
 int happy_path(Fixture& fixture, bool& commit_supported)
@@ -288,6 +380,37 @@ int fault_after_transition(Fixture& fixture, const std::string& state, int ordin
     return 0;
 }
 
+int commit_refusal_preserves_primary_error(Fixture& fixture)
+{
+    for (const bool refuse_recovery_record : {false, true}) {
+        const auto spec = fixture.spec(refuse_recovery_record ? "commit-primary-record-refused" : "commit-primary-recorded");
+        bool recovery_attempted = false;
+        TransactionSession session(spec, [&](const std::string& state, const std::string& point) {
+            if (state == "recovery_required" && point == "before_journal") {
+                recovery_attempted = true;
+                if (refuse_recovery_record) throw std::runtime_error("secondary recovery record refusal");
+            }
+        });
+        session.stage_file("payload.txt", bytes("original"));
+        session.mark_staged(); session.mark_verified();
+        // Change only this fixture's staged closure after verification. The
+        // primary preparation refusal must survive a second record refusal.
+        std::ofstream(session.staging_root() / "foreign.txt", std::ios::binary) << "foreign";
+        std::string primary;
+        try { session.commit_effect(); }
+        catch (const std::runtime_error& error) { primary = error.what(); }
+        if (primary != "commit refuses linked, unsupported, or unrecorded content" || !recovery_attempted) return 202;
+        const auto retained = TransactionSession::inspect_recovery(spec);
+        if (retained.current_state != (refuse_recovery_record ? "verified" : "recovery_required") ||
+            retained.available_actions != std::vector<std::string>{"retain_for_operator"} ||
+            !retained.staging_exists || retained.target_exists ||
+            read_text(session.staging_root() / "payload.txt") != "original" ||
+            read_text(session.staging_root() / "foreign.txt") != "foreign" ||
+            !throws([&] { session.rollback(); })) return 203;
+    }
+    return 0;
+}
+
 int fault_after_commit_effect(Fixture& fixture)
 {
     TransactionSpec spec = fixture.spec("fault-after-commit-effect");
@@ -470,18 +593,146 @@ int initial_stream_binding_before_effects(Fixture& fixture)
     return 0;
 }
 
+#if defined(_WIN32)
+int cumulative_native_initial_binding(Fixture& fixture)
+{
+    using Value = usk::json::Value;
+    using usk::transaction::detail::require_native_maintenance_journal_binding;
+    const std::string context = "{\"schema\":\"test.initial_stream_source.v1\"}";
+    const auto source = usk::json::sha256_canonical(usk::json::parse(context));
+    const auto rehash_chain = [](Value& document) {
+        std::string chain;
+        for (const auto& row : document.at("transitions").as_array()) {
+            chain += std::to_string(row.at("sequence").as_unsigned()); chain += '\0';
+            if (row.at("from").type() != Value::Type::null_value) chain += row.at("from").as_string();
+            chain += '\0'; chain += row.at("to").as_string(); chain += '\0';
+            chain += row.at("recorded_at").as_string(); chain += '\n';
+        }
+        usk::base::Sha256 digest;
+        digest.update(reinterpret_cast<const unsigned char*>(chain.data()), chain.size());
+        document.as_object().at("journal_digest") = Value(digest.finish());
+    };
+    for (const std::string operation : {"repair", "move", "uninstall"}) {
+        auto spec = fixture.spec("cumulative-initial-" + operation);
+        spec.operation = operation;
+        // Ordinary phase injection yields the same four-entry pre-staging
+        // snapshot without constructing or impersonating a native owner.
+        if (!throws([&] {
+            TransactionSession::begin_streaming(spec, source, context,
+                [](const std::string& phase, const std::string& point) {
+                    if (phase == "staging" && point == "after_journal")
+                        throw std::runtime_error("retain cumulative pre-staging intent");
+                });
+        })) return 204;
+        const auto path = spec.state_root / "transactions" / (spec.transaction_id + ".journal.json");
+        auto cumulative = usk::json::parse(read_text(path));
+        cumulative.as_object().at("recovery_metadata").as_object().emplace("commit_cleanup_policy", Value("retain_only"));
+        const auto text = usk::json::canonical(cumulative);
+        require_native_maintenance_journal_binding(spec, path, text, {}, true);
+        const std::vector<std::function<void(Value&)>> changes{
+            [](Value& v) { v.as_object().at("transitions").as_array().pop_back(); v.as_object().at("current_state") = Value("planned"); },
+            [](Value& v) { v.as_object().at("transitions").as_array().push_back(v.at("transitions").as_array().back()); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[1].as_object().at("sequence") = Value(std::uint64_t{0}); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[1].as_object().at("from") = Value("planned"); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[2].as_object().at("to") = Value("verified"); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[3].as_object().at("transition_id") = Value("foreign.3"); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[0].as_object().at("from") = Value(""); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[2].as_object().at("durable_before_external_visibility") = Value(false); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[3].as_object().at("recorded_at") = Value(""); v.as_object().at("updated_at") = Value(""); },
+            [](Value& v) { v.as_object().at("updated_at") = Value("different"); },
+            [](Value& v) { v.as_object().at("recovery_metadata").as_object().at("staging_identity") = Value("0000000000000000:0000000000000001"); },
+            [](Value& v) { v.as_object().at("recovery_metadata").as_object().at("commit_cleanup_policy") = Value("delete"); },
+            [](Value& v) { v.as_object().at("recovery_metadata").as_object().erase("stream_journal"); },
+            [](Value& v) { v.as_object().at("recovery_metadata").as_object().at("stream_journal").as_object().at("source_context") = Value("{}"); },
+        };
+        for (const auto& change : changes) {
+            auto altered = cumulative;
+            change(altered);
+            rehash_chain(altered); // Shape must refuse even with a valid chain digest.
+            if (!throws([&] { require_native_maintenance_journal_binding(spec, path,
+                usk::json::canonical(altered), {}, true); })) return 205;
+        }
+        auto corrupt_digest = cumulative;
+        corrupt_digest.as_object().at("journal_digest") = Value(std::string(64, '0'));
+        if (!throws([&] { require_native_maintenance_journal_binding(spec, path,
+            usk::json::canonical(corrupt_digest), {}, true); })) return 206;
+        // An interruption at the shared initial snapshot leaves all intent
+        // inspectable, no staging effect, and retain-only recovery metadata.
+        { std::ofstream output(path, std::ios::binary | std::ios::trunc); output << text; }
+        const auto observed = TransactionSession::inspect_recovery(spec);
+        if (observed.current_state != "staging" || observed.staging_exists || observed.target_exists ||
+            observed.stream_source_context != context || observed.stream_source_digest != source ||
+            observed.commit_started || observed.commit_confirmed ||
+            usk::transaction::detail::observe_current_native_maintenance_file(path)) return 207;
+    }
+    return 0;
+}
+#endif
+
 int main()
 {
     Fixture fixture;
+#if defined(_WIN32)
+    // Real ordinary sessions produce these journals. The internal validator
+    // only checks data binding; these controls activate no native owner.
+    using usk::transaction::detail::require_native_maintenance_journal_binding;
+    for (const std::string operation : {"repair", "move", "uninstall"}) {
+        auto spec = fixture.spec("journal-binding-" + operation);
+        spec.operation = operation;
+        std::string initial;
+        TransactionSession session(spec, [&](const std::string& state, const std::string& point) {
+            if (state == "created" && point == "after_journal")
+                initial = read_text(spec.state_root / "transactions" / (spec.transaction_id + ".journal.json"));
+        });
+        require_native_maintenance_journal_binding(spec, session.journal_path(), initial, {}, true);
+        usk::base::Sha256 digest;
+        digest.update(reinterpret_cast<const unsigned char*>(initial.data()), initial.size());
+        const auto predecessor = digest.finish();
+        const auto later = read_text(session.journal_path());
+        require_native_maintenance_journal_binding(spec, session.journal_path(), later, predecessor, false);
+        if (!throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path(), later, {}, true); }) ||
+            !throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path(), initial, predecessor, true); }) ||
+            !throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path(), later, {}, false); }) ||
+            !throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path(), later, "unbound", false); }) ||
+            !throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path().parent_path() / "other.json", later, predecessor, false); }))
+            return 201;
+        using Value = usk::json::Value;
+        const std::vector<std::function<void(Value&)>> changes{
+            [](Value& v) { v.as_object().at("transaction_id") = Value("another.transaction"); },
+            [](Value& v) { v.as_object().at("plan_id") = Value("another.plan"); },
+            [](Value& v) { v.as_object().at("plan_digest") = Value(std::string(64, '0')); },
+            [](Value& v) { v.as_object().at("operation") = Value("install_local"); },
+            [](Value& v) { v.as_object().at("roots").as_array().front().as_object().at("root") = Value("C:/unrelated"); },
+            [](Value& v) { v.as_object().at("roots").as_array().push_back(v.at("roots").as_array().front()); },
+            [](Value& v) { v.as_object().at("current_state") = Value("completed"); },
+            [](Value& v) { v.as_object().at("transitions").as_array().clear(); },
+            [](Value& v) { v.as_object().at("transitions").as_array().front().as_object().at("sequence") = Value(std::uint64_t{1}); },
+            [](Value& v) { v.as_object().at("transitions").as_array().front().as_object().at("from") = Value("created"); },
+        };
+        for (const auto& change : changes) {
+            auto altered = usk::json::parse(initial);
+            change(altered);
+            if (!throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path(),
+                usk::json::canonical(altered), {}, true); })) return 202;
+        }
+        if (read_text(session.journal_path()) != later ||
+            usk::transaction::detail::observe_current_native_maintenance_file(session.journal_path())) return 203;
+    }
+#endif
+#if defined(_WIN32)
+    if (int result = cumulative_native_initial_binding(fixture)) return result;
+#endif
     if (int result = initial_stream_binding_before_effects(fixture)) return result;
     bool commit_supported = false;
     if (int result = happy_path(fixture, commit_supported)) return result;
+    if (int result = original_transition_extension(fixture, commit_supported)) return result;
     if (int result = no_clobber(fixture)) return result;
     if (int result = rollback(fixture)) return result;
     if (int result = rollback_retains_foreign_content(fixture)) return result;
     if (int result = staging_substitution(fixture)) return result;
     if (int result = target_ancestor_replacement(fixture)) return result;
     if (int result = partial_write_recovery(fixture)) return result;
+    if (int result = commit_refusal_preserves_primary_error(fixture)) return result;
 
     std::vector<std::string> states = {
         "created", "validated", "planned", "staging", "staged",

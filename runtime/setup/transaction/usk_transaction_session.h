@@ -16,6 +16,9 @@
 #include <vector>
 
 namespace usk::transaction {
+#if defined(_WIN32)
+namespace detail { struct NativeMaintenanceTransactionOperations; }
+#endif
 
 class NoReplaceCommitUnavailable final : public std::runtime_error {
 public:
@@ -62,7 +65,17 @@ struct RecoveryInspection {
     bool staging_exists = false;
     bool target_exists = false;
     bool commit_started = false;
+    bool commit_confirmed = false;
     std::vector<std::string> available_actions;
+};
+
+// Historical metadata only. No current namespace facts, recovery actions or
+// mutation authority are inferred from an already completed journal.
+struct CompletedTransactionHistory {
+    std::string journal_digest;
+    std::string recorded_at;
+    std::string snapshot_sha256;
+    StreamJournal stream;
 };
 
 class TransactionSession {
@@ -109,6 +122,29 @@ public:
         const std::string& source_digest,
         FaultInjector injector = {});
     static RecoveryInspection inspect_recovery(const TransactionSpec& spec);
+    static CompletedTransactionHistory inspect_completed_history(const TransactionSpec& spec);
+    // Read-only comparison with bytes retained before an owned effect. Allows
+    // only an unchanged immutable journal and its exact original transition
+    // prefix plus valid finalization transitions. This confers no effect,
+    // creator, lease or completion authority.
+    static void require_recovery_transition_extension(const TransactionSpec& spec,
+        const std::string& original_text, const std::string& original_snapshot_sha256,
+        const std::string& expected_current_snapshot_sha256);
+    // Completed-only metadata comparison. Does not inspect payload paths or
+    // select recovery actions; native creator/root custody is a separate proof.
+    static void require_completed_transition_extension(const TransactionSpec& spec,
+        const std::string& original_text, const std::string& original_snapshot_sha256,
+        const std::string& expected_current_snapshot_sha256);
+    // Read-only complete stream observations from that exact validated
+    // snapshot, including original creation-handle output identities.
+    static StreamJournal inspect_recovery_stream(const TransactionSpec& spec,
+        const std::string& expected_snapshot_sha256);
+    // Metadata-only finalization after the operation owner has verified and
+    // sealed the complete original maintenance effect history. No payload or
+    // pathname cleanup is performed; the required commit scope still applies.
+    static RecoveryInspection finalize_maintenance(const TransactionSpec& spec,
+        const std::string& expected_snapshot_sha256, const std::string& expected_history_digest,
+        FaultInjector injector = {});
     static std::unique_ptr<TransactionSession> resume_finalization(
         const TransactionSpec& spec,
         FaultInjector injector = {});
@@ -117,6 +153,20 @@ public:
         FaultInjector injector = {});
 
 private:
+    static RecoveryInspection inspect_recovery_impl(const TransactionSpec& spec, bool observe_payload);
+    static void require_transition_extension_impl(const TransactionSpec& spec,
+        const std::string& original_text, const std::string& original_snapshot_sha256,
+        const std::string& expected_current_snapshot_sha256, bool completed_history);
+#if defined(_WIN32)
+    const detail::NativeMaintenanceTransactionOperations* require_native_owner() const;
+    // Select only this session's original private scope. This is not fresh
+    // authority; use solely to dispatch to callbacks that perform their own
+    // native fences, retaining the standalone require_native_owner checks.
+    const detail::NativeMaintenanceTransactionOperations* native_owner_binding() const;
+    void persist_native_initial_transitions();
+    bool native_origin_ = false;
+    std::weak_ptr<const void> native_origin_binding_;
+#endif
     struct Transition {
         std::uint64_t sequence = 0;
         std::string from;
@@ -135,11 +185,12 @@ private:
     void verify_staging_identity() const;
     void create_staging_root();
     void persist_snapshot();
+    void persist_journal(std::uint64_t sequence, bool first);
     void verify_recorded_staging_closure() const;
     CommitClosureObservation observe_staged_commit_closure() const;
     void remove_recorded_staging_closure();
     std::string render_journal() const;
-    enum class ResumeMode { none, finalization, rollback };
+    enum class ResumeMode { none, finalization, rollback, maintenance_finalization };
     TransactionSession(TransactionSpec spec, FaultInjector injector, ResumeMode resume_mode,
         StreamJournal stream_journal = {});
 
@@ -152,11 +203,13 @@ private:
     std::string staging_identity_;
     bool retain_stream_cleanup_ = false;
     bool retain_commit_cleanup_ = false;
+    bool maintenance_finalization_ = false;
     CommitClosureObservation verified_closure_;
     StreamJournal stream_journal_;
     std::string staging_parent_identity_;
     std::string target_parent_identity_;
     std::string journal_directory_identity_;
+    std::string persisted_journal_sha256_;
     std::vector<Transition> transitions_;
     std::vector<StagedFile> staged_files_;
 };

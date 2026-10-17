@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+task_id: prune_policy_golden
+title: Prune Policy Golden
+status: active
+purpose: Check prune policy requires containment proof and protects canonical/integration/release/deploy roles.
+input_refs:
+  - .aide/policies/prune-policy.yaml
+  - .aide/git/prune-policy.md
+acceptance_ref: .aide/evals/golden-tasks/prune_policy_golden/acceptance.md
+expected_result: PASS

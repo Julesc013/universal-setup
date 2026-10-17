@@ -1,0 +1,9 @@
+id: upgrade_policy_golden
+title: Upgrade Policy Golden
+status: active
+task_type: golden_task
+runner: aide_lite
+command: py -3 .aide/scripts/aide_lite.py eval run --task upgrade_policy_golden
+expected_result: PASS
+no_provider_calls: true
+no_network_calls: true

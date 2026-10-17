@@ -1,0 +1,24 @@
+schema_version: aide.reuse-modularity-policy.v0
+policy_id: q38-reuse-modularity-v0
+status: active
+purpose: >
+  Define deterministic candidate-only reuse and modularity warnings from file
+  hashes, filenames, and repeated helper names.
+operating_mode:
+  deterministic_local: true
+  advisory_only: true
+  no_model_calls: true
+  no_provider_calls: true
+  no_network_calls: true
+candidate_sources:
+  duplicate_hash_candidates: true
+  similar_filename_candidates: true
+  repeated_helper_name_candidates: true
+candidate_only_status: true
+no_extraction_action_in_q38: true
+deletion_recommendations_allowed: false
+non_goals:
+  - no source edits
+  - no helper extraction
+  - no deduplication
+  - no deletion advice

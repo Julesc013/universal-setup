@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.path-alias-entry.schema.v0",
+  "type": "object",
+  "required": [
+    "alias_id",
+    "old_path",
+    "new_path",
+    "alias_type",
+    "status",
+    "owner",
+    "reason",
+    "consumers",
+    "validation",
+    "created_in",
+    "retire_after",
+    "apply_allowed"
+  ],
+  "properties": {
+    "alias_id": {"type": "string"},
+    "old_path": {"type": "string"},
+    "new_path": {"type": "string"},
+    "alias_type": {"type": "string"},
+    "status": {"type": "string"},
+    "owner": {"type": "string"},
+    "reason": {"type": "string"},
+    "consumers": {"type": "array"},
+    "validation": {"type": "array"},
+    "created_in": {"type": "string"},
+    "retire_after": {"type": "string"},
+    "apply_allowed": {"const": false}
+  }
+}

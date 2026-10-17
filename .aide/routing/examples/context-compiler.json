@@ -1,0 +1,7 @@
+{
+  "example_id": "context-compiler",
+  "task_text": "Run snapshot, index, and context for the current repo",
+  "expected_task_class": "context_indexing",
+  "expected_route_class": "no_model_tool",
+  "reason": "Context compilation is deterministic repo-local metadata generation."
+}

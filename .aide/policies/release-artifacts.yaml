@@ -1,0 +1,63 @@
+schema_version: aide.release-artifacts-policy.v0
+policy_id: aide-release-artifacts-v0
+status: active
+purpose: >
+  Define local release artifact classes for AIDE Lite bundles and keep release
+  outputs inspectable, checksummed, and separate from publication.
+artifact_types:
+  zip_archive:
+    extension: .zip
+    required: true
+    archive_root: aide-lite-pack-v0/
+  tar_gz_archive:
+    extension: .tar.gz
+    required: true
+    archive_root: aide-lite-pack-v0/
+  manifest:
+    required: true
+    path: .aide/release/dist/manifest.yaml
+  checksums:
+    required: true
+    path: .aide/release/dist/aide-lite-pack-v0.checksums.json
+  sha256sums_text:
+    required: true
+    path: .aide/release/dist/SHA256SUMS.txt
+  install_notes:
+    required: true
+    path: .aide/release/dist/install.md
+  changelog_preview_copy:
+    required: true
+    path: .aide/release/dist/CHANGELOG.preview.md
+  release_notes_preview_copy:
+    required: true
+    path: .aide/release/dist/RELEASE_NOTES.preview.md
+  validation_report:
+    required: true
+    paths:
+      - .aide/release/dist/release-validation.json
+      - .aide/release/dist/release-validation.md
+  provenance_report:
+    required: true
+    path: .aide/release/dist/release-provenance.json
+  asset_index:
+    required: true
+    path: .aide/release/dist/release-assets.json
+archive_required_files:
+  - manifest.yaml
+  - checksums.json
+  - import-policy.yaml
+  - install.md
+  - export-report.md
+  - files/.aide/scripts/aide_lite.py
+forbidden_archive_paths:
+  - .git/
+  - .aide.local/
+  - .env
+  - secrets/
+  - raw prompt logs
+  - raw response logs
+  - provider credentials
+target_truth_boundary:
+  source_generated_release_outputs: excluded_from_export_pack
+  archives_are_downloadable_local_artifacts: true
+  archives_are_not_public_release_publication: true

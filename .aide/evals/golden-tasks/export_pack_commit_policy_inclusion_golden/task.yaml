@@ -1,0 +1,9 @@
+schema_version: aide.golden-task.v0
+id: export_pack_commit_policy_inclusion_golden
+title: Export Pack Commit Policy Inclusion Golden
+status: active
+description: Verify the portable pack or imported target contains commit-message policy, hook/template support, changelog preview support, and AIDE Lite command support.
+quality_dimensions:
+  - export_inclusion
+  - commit_discipline
+  - changelog_ready

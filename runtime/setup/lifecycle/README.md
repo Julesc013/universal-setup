@@ -45,6 +45,75 @@ existing no-replace target commit and retain the loser.
 
 ## Reviewed post-commit finalization
 
+Repair, move and uninstall now bind an `usk.maintenance_source_context.v1`
+document in the first durable transaction journal, before staging creation.
+It records the original immutable installed-state transaction and digest,
+ownership manifest, reviewed plan and policy, applied time, operation target,
+and native observations of the installed and setup roots. No-follow installed-root
+status checks refuse linked, wrong-type and indeterminate observations; a genuinely
+missing root can retain a null identity with its observed parent. Reopening the original
+installed snapshot does not require the source archive. These observations
+remain recovery inputs rather than mutation or pathname cleanup authority;
+the stream journal retains incomplete effects for inspection. Operation-specific
+effect replay and public maintenance finalization are still incomplete.
+
+New contexts also bind the raw SHA-256 and filename of a create-only
+`usk.maintenance_reviewed_plan.v1` record in the transaction directory. Its
+8 MiB bound covers the exact reviewed action list and original owned-object
+observations, including native identity/hash/size or safely observed absence.
+The first transaction context declares this record before staging creation;
+the record is written before payload staging or any maintenance effect.
+Interrupted metadata creation can leave the declared record unavailable and
+must retain/refuse. Source-free reads validate the exact bytes, plan digest,
+original immutable installed/ownership basis and closed bounded fields.
+Archive readers and payload bytes are excluded. Legacy contexts remain
+inspectable but cannot supply a missing full plan. These observations confer
+no current revision, native custody or whole-operation recovery authority.
+
+Maintenance also appends create-only `usk.maintenance_effect_record.v1` records
+under the original transaction's `.maintenance` directory. The first record binds
+that same source context and the journal directory observation. Each publication,
+backup, replacement, removal and metadata write has an intent before the effect
+and a completion afterward; the digest chain is sealed after operation cleanup.
+An interruption between the two records leaves an unresolved intent, including
+when the effect happened. Repair retains its original backup when replacement
+publication is uncertain rather than attempting an unrecorded compensating rename.
+Source-free inspection validates the closed record format, chain and context,
+with a 32 KiB record bound, a 64 MiB journal bound and at most 200,002 records.
+These are observations of the existing internal maintenance routines. They do
+not authenticate a writable journal, establish held native payload authority,
+or enable public maintenance replay. The registered maintenance route and
+operation-specific recovery remain unfinished.
+
+The internal source-free reconciler reopens the original immutable installed
+snapshot and compares a pending effect with current native identity, hash and
+size observations, or the exact ownership, installed-state or audit input.
+It distinguishes compatible before/after states from indeterminate observations;
+a missing leaf reached through an unsafe or indeterminate parent is not absence.
+Audit inspection is bounded to 256 events and larger histories stay indeterminate.
+Record resumption requires the exact inspected history digest, refuses sealed
+histories, and appends to the original context and sequence. It changes neither
+the transaction state nor payload objects. These comparisons do not prove the
+actor or grant effect completion: the registered resumer still needs current
+native custody, revision, operation and worker fences before completing or
+executing an effect. Whole maintenance recovery and public routing remain WIP.
+
+New installed-state intents retain a bounded revision postimage, and audit
+intents retain the bounded canonical input. Read-only reconstructors join these
+with the original immutable installed snapshot and ownership rather than
+choosing new metadata during replay. Legacy hash-only intents remain readable;
+they cannot supply a missing installed-state or audit write.
+
+The internal pending-effect executor requires an operation-owned backend that
+retains native custody and checks its revision, generation and worker fences.
+It has no pathname fallback. It pins the transaction and effect history around
+the effect and completion record, requires a durable commit-start transition,
+refuses rolled-back or terminal transactions,
+and retains an unresolved intent after an uncertain effect. Resolving one
+intent neither resumes nor completes the whole transaction. Ordinary fixture
+backends exercise this orchestration; a registered native maintenance backend
+and its hosted runtime qualification remain unfinished.
+
 `recovery.inspect`, `recovery.plan`, and `recovery.apply` can complete the
 post-commit install-local window only after a caller has reviewed the exact
 recovery plan. `recovery.apply` accepts `selected_action: "finalize"` only for

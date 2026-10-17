@@ -3,6 +3,10 @@
 
 #include "usk_one_shot.h"
 #include "usk_product_info.h"
+#if defined(USK_QUALIFICATION_DIAGNOSTICS)
+#include "usk_qualification_trace_internal.h"
+#include "usk_diagnostic_metrics.h"
+#endif
 
 #include <filesystem>
 #include <fstream>
@@ -161,6 +165,10 @@ int candidate_service_request()
 
 int main(int argc, char** argv)
 {
+#if defined(USK_QUALIFICATION_DIAGNOSTICS)
+    const usk::platform::windows::QualificationTrace qualification_trace;
+    const usk::diagnostics::Scope diagnostic(usk::diagnostics::Phase::machine_request);
+#endif
 #ifdef _WIN32
     if (argc >= 2 && std::string(argv[1]) == "--candidate-service") {
         return candidate_service_request();

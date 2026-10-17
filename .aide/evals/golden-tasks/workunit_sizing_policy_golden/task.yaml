@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: workunit_sizing_policy_golden
+title: WorkUnit Sizing Policy Golden
+status: active
+description: Verify WorkUnit sizing classes and split gates are defined.
+runner: .aide/scripts/aide_lite.py eval run --task workunit_sizing_policy_golden
+quality_dimensions:
+  - workunit_sizing
+  - policy_anchors
+  - split_required

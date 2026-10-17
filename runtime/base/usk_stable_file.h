@@ -10,6 +10,11 @@
 #include <string>
 #include <vector>
 
+#if defined(_WIN32)
+#include <memory>
+#include <mutex>
+#endif
+
 namespace usk::base {
 
 struct StableFileIdentity {
@@ -34,6 +39,10 @@ public:
     void read_into(std::uint64_t offset, unsigned char* output, std::size_t size) const;
     std::string sha256_hex() const;
     void verify_unchanged() const;
+#if defined(_WIN32)
+    // Held-handle qualification only; no digest, path or authorization cache.
+    void require_local_ntfs() const;
+#endif
 
 private:
     void read_exact(std::uint64_t offset, unsigned char* output, std::size_t size) const;
@@ -41,6 +50,11 @@ private:
     std::filesystem::path path_;
     std::intptr_t native_handle_ = -1;
     StableFileIdentity identity_;
+#if defined(_WIN32)
+    struct HashProvider;
+    mutable std::once_flag hash_provider_once_;
+    mutable std::unique_ptr<HashProvider> hash_provider_;
+#endif
 };
 
 } // namespace usk::base

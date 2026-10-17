@@ -5,8 +5,12 @@
 #define USK_JSON_H
 
 #include <cstdint>
+#include <functional>
 #include <map>
+#include <memory>
 #include <string>
+#include <string_view>
+#include <variant>
 #include <vector>
 
 namespace usk::json {
@@ -15,7 +19,7 @@ class Value {
 public:
     enum class Type { null_value, boolean, unsigned_integer, string, array, object };
     using Array = std::vector<Value>;
-    using Object = std::map<std::string, Value>;
+    using Object = std::map<std::string, Value, std::less<>>;
 
     Value() = default;
     explicit Value(bool value);
@@ -24,8 +28,12 @@ public:
     explicit Value(const char* value);
     explicit Value(Array value);
     explicit Value(Object value);
+    Value(const Value&);
+    Value(Value&&) noexcept;
+    Value& operator=(const Value&);
+    Value& operator=(Value&&) noexcept;
 
-    Type type() const noexcept { return type_; }
+    Type type() const noexcept { return static_cast<Type>(storage_.index()); }
     bool as_boolean() const;
     std::uint64_t as_unsigned() const;
     const std::string& as_string() const;
@@ -35,14 +43,22 @@ public:
     Object& as_object();
     const Value& at(const std::string& key) const;
     bool contains(const std::string& key) const;
+    // Borrowed lookup keeps the existing owned-string entry points. No key is
+    // retained; successful lookup and contains need no temporary allocation.
+    const Value& at(std::string_view key) const;
+    bool contains(std::string_view key) const;
+    const Value& at(const char* key) const { return at(std::string_view(key)); }
+    bool contains(const char* key) const { return contains(std::string_view(key)); }
 
 private:
-    Type type_ = Type::null_value;
-    bool boolean_ = false;
-    std::uint64_t unsigned_ = 0;
-    std::string string_;
-    Array array_;
-    Object object_;
+    // Alternatives follow Type exactly. Only the active owned value is live;
+    // copying a scalar need not construct/copy empty string/vector/map members.
+    // map's move construction may allocate an empty sentinel on some STLs.
+    // An exclusive pointer transfers the active object without that allocation;
+    // copy construction explicitly clones it rather than sharing proof trees.
+    using OwnedObject = std::unique_ptr<Object>;
+    using Storage = std::variant<std::monostate, bool, std::uint64_t, std::string, Array, OwnedObject>;
+    Storage storage_;
 };
 
 struct ParseLimits {
@@ -52,8 +68,26 @@ struct ParseLimits {
     std::size_t max_string_bytes = 1024u * 1024u;
 };
 
+// Ephemeral fields for encoding an object without copying its value subtrees.
+// The caller keeps every referenced value alive through the synchronous call.
+using CanonicalObjectView = std::map<std::string, std::reference_wrapper<const Value>>;
+
 Value parse(const std::string& text, const ParseLimits& limits = {});
 std::string canonical(const Value& value);
+std::string canonical_object(const CanonicalObjectView& fields);
+// Exactly the acceptance of parse(canonical_object(fields), limits), without
+// materializing another encoding or decoded tree. Keys are unique by construction.
+void require_canonical_object_parse_limits(const CanonicalObjectView& fields, const ParseLimits& limits);
+// Same full validation, returning the object's exact encoded size without an
+// encoding allocation. Referenced values live through this synchronous call.
+std::size_t require_canonical_object_encoded_size(const CanonicalObjectView& fields, const ParseLimits& limits);
+// Validate the full borrowed object under the same parser limits and return
+// the selected root value's exact encoded bytes, excluding its key/colon.
+// The selected member must exist; no value or authorization result is cached.
+std::size_t require_canonical_object_member_parse_limits(const CanonicalObjectView& fields,
+    const ParseLimits& limits, const std::string& selected);
+// Exact value equality, equivalent to comparing the canonical encodings.
+bool equal_values(const Value& left, const Value& right);
 std::string sha256_canonical(const Value& value);
 
 } // namespace usk::json

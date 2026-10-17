@@ -1,0 +1,10 @@
+id: task_os_schema_presence_golden
+title: Task OS Schema Presence Golden
+status: active
+objective: Verify X-OS-00 Task OS schema and example surfaces exist and parse.
+quality_dimensions:
+  - schema_shape
+  - task_os
+  - deterministic_output
+runner: .aide/scripts/aide_lite.py eval run --task task_os_schema_presence_golden
+no_call: true

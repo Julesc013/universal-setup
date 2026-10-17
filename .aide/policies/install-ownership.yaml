@@ -1,0 +1,39 @@
+schema_version: aide.install-ownership-policy.v0
+policy_id: aide.install-ownership.v0
+status: active
+purpose: >
+  Classify ownership for installed, preserved, generated, manual, local-only,
+  source-pack, and unknown install-related files.
+ownership_classes:
+  - installed_file
+  - managed_section
+  - generated_target_artifact
+  - preserved_target_artifact
+  - external_manual_artifact
+  - local_only_artifact
+  - source_pack_artifact
+  - unknown
+rules:
+  installed_file:
+    preserve_existing_target: true
+    overwrite_allowed_default: false
+  managed_section:
+    update_requires_future_apply: true
+    preserve_manual_outside_markers: true
+  generated_target_artifact:
+    target_truth_only_after_local_generation: true
+    import_from_source_pack_default: false
+  local_only_artifact:
+    install_candidate: false
+  source_pack_artifact:
+    portable_only: true
+ledger_required_fields:
+  - path
+  - ownership_class
+  - source
+  - installed_by
+  - managed_section
+  - preserve
+  - target_specific
+  - local_only
+  - evidence_refs

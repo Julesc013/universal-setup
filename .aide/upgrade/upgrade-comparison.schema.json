@@ -1,0 +1,31 @@
+{
+  "type": "object",
+  "required": [
+    "schema_version",
+    "current_install_ref",
+    "source_pack_ref",
+    "differences",
+    "added_files",
+    "changed_portable_files",
+    "preserved_target_files",
+    "skipped_source_state",
+    "conflicts",
+    "migrations_required",
+    "compatibility_summary",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "current_install_ref": {"type": "string"},
+    "source_pack_ref": {"type": "string"},
+    "differences": {"type": "array"},
+    "added_files": {"type": "array"},
+    "changed_portable_files": {"type": "array"},
+    "preserved_target_files": {"type": "array"},
+    "skipped_source_state": {"type": "array"},
+    "conflicts": {"type": "array"},
+    "migrations_required": {"type": "array"},
+    "compatibility_summary": {"type": "object"},
+    "no_apply": {"type": "boolean"}
+  }
+}

@@ -1,0 +1,35 @@
+schema_version: q21.import-policy.v0
+policy_id: aide.import-target.v0
+status: template
+purpose: >
+  Guide AIDE Lite Pack imports into target repositories while preserving target
+  manual content and requiring target-specific initialization.
+allowed_import_roots:
+  - .aide/
+  - .aide.local.example/
+  - AGENTS.md
+  - .gitignore
+conflict_policy:
+  existing_files: report_conflict_unless_template_or_managed_section
+  agents_manual_content: preserve
+  existing_aide_queue: do_not_overwrite
+  existing_generated_context: do_not_overwrite
+target_initialization_required:
+  - fill target profile template
+  - fill target project state template
+  - run doctor
+  - run snapshot
+  - run index
+  - run pack
+safety_rules:
+  no_source_repo_queue_history: true
+  no_source_repo_generated_context: true
+  no_source_repo_reports: true
+  no_source_repo_memory: true
+  no_local_state_copy: true
+  no_secrets: true
+  raw_prompt_storage_default: false
+  raw_response_storage_default: false
+  provider_calls: false
+  model_calls: false
+  network_calls: false

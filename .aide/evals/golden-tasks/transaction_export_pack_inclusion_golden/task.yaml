@@ -1,0 +1,6 @@
+schema_version: aide.golden-task.v0
+id: transaction_export_pack_inclusion_golden
+title: Transaction Export Pack Inclusion Golden
+status: active
+task_type: golden_task
+runner: .aide/scripts/aide_lite.py eval run --task transaction_export_pack_inclusion_golden

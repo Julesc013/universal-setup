@@ -1,0 +1,111 @@
+schema_version: aide.repair-classes-policy.v0
+policy_id: aide.repair-classes.v0
+status: active
+purpose: Define first-pass repair classes and review requirements for Q44 repair planning.
+common_rules:
+  preserve_by_default: true
+  future_apply_allowed: explicit_future_phase_only
+  validation_required: true
+  evidence_required: true
+  rollback_note_required_if_future_apply: true
+repair_classes:
+  missing_portable_file:
+    detection_hints: [portable file absent from target but present in source pack]
+    risk_class: medium
+    default_action: restore_missing_portable_future
+  stale_portable_file:
+    detection_hints: [target portable file differs from source pack checksum or source reference]
+    risk_class: medium
+    default_action: refresh_stale_portable_future
+  stale_policy:
+    detection_hints: [policy schema_version or required anchor mismatch]
+    risk_class: medium
+    default_action: refresh_stale_portable_future
+  stale_script:
+    detection_hints: [AIDE Lite script differs from source pack reference]
+    risk_class: high
+    default_action: refresh_stale_portable_future
+  stale_command_catalog:
+    detection_hints: [command catalog lacks current command anchors]
+    risk_class: medium
+    default_action: refresh_stale_portable_future
+  missing_hook_template:
+    detection_hints: [`.aide/hooks/commit-msg` absent where pack expects it]
+    risk_class: low
+    default_action: restore_missing_portable_future
+  malformed_managed_section:
+    detection_hints: [AIDE managed-section begin/end markers are unbalanced or malformed]
+    risk_class: high
+    default_action: manual_review_required
+  missing_generated_context:
+    detection_hints: [latest task/context/review packet missing]
+    risk_class: low
+    default_action: recreate_generated_future
+  stale_generated_context:
+    detection_hints: [latest generated context predates source commit or validation state]
+    risk_class: low
+    default_action: recreate_generated_future
+  invalid_task_packet:
+    detection_hints: [latest task packet missing required sections or exceeds budget]
+    risk_class: medium
+    default_action: recreate_generated_future
+  invalid_review_packet:
+    detection_hints: [latest review packet missing evidence or validation references]
+    risk_class: medium
+    default_action: recreate_generated_future
+  missing_target_memory:
+    detection_hints: [target `.aide/memory/**` missing or template absent]
+    risk_class: medium
+    default_action: manual_review_required
+  missing_target_queue:
+    detection_hints: [target `.aide/queue/**` missing]
+    risk_class: high
+    default_action: manual_review_required
+  invalid_queue_status:
+    detection_hints: [queue status missing status field or malformed state]
+    risk_class: medium
+    default_action: manual_review_required
+  missing_golden_task_catalog:
+    detection_hints: [golden task catalog missing]
+    risk_class: medium
+    default_action: restore_missing_portable_future
+  stale_golden_task_catalog:
+    detection_hints: [catalog lacks required Q44 repair golden tasks]
+    risk_class: medium
+    default_action: refresh_stale_portable_future
+  invalid_pack_checksum:
+    detection_hints: [pack-status checksum validation fails]
+    risk_class: high
+    default_action: manual_review_required
+  stale_pack_provenance:
+    detection_hints: [pack provenance is stale or dirty source recorded]
+    risk_class: medium
+    default_action: manual_review_required
+  source_state_contamination:
+    detection_hints: [source-generated latest reports copied into target install scope]
+    risk_class: high
+    default_action: quarantine_source_state_future
+  tracked_local_state:
+    detection_hints: [tracked `.aide.local/**` or `.env`]
+    risk_class: critical
+    default_action: blocked
+  secret_like_file:
+    detection_hints: [tracked secret-like path or credential-like file]
+    risk_class: critical
+    default_action: blocked
+  unsupported_schema_version:
+    detection_hints: [unsupported or old schema_version blocks validation]
+    risk_class: high
+    default_action: manual_review_required
+  ambiguous_ownership:
+    detection_hints: [install ownership ledger or conflict report cannot choose source/target owner]
+    risk_class: high
+    default_action: manual_review_required
+  target_specific_conflict:
+    detection_hints: [target-specific memory, queue, evidence, docs, or tools conflict with source pack]
+    risk_class: medium
+    default_action: preserve
+  unknown:
+    detection_hints: [insufficient deterministic evidence]
+    risk_class: unknown
+    default_action: manual_review_required

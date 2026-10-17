@@ -1,0 +1,16 @@
+{
+  "schema": "universal_setup.aide_development_tooling.v1",
+  "source_repository": "Julesc013/aide",
+  "source_main": "6f2abc4cd69e0d94f86a00495cb8feeebe20398a",
+  "export_source": "a17cf4b3dbec5caa236c62ee2fa23b31aa09c8fc",
+  "spdx_license_expression": "Apache-2.0",
+  "runtime_dependency": false,
+  "receipt": ".aide/install/aide-lite-pack-v0.receipt.json",
+  "receipt_sha256": "97e13947e5a77b71a5d51d9dfc7f91477a43fbb72974041a2c01c4d54e241cf6",
+  "managed_records": 819,
+  "managed_files": 818,
+  "licenses": {
+    "LICENSE": "4dc06d89797867a708e238be9df8c67f9c6395a29f783b00b009cdf80a0bf9c5",
+    "NOTICE": "2246ed3f6738e9a9175648ecb6fdc6fc0423b96e4a2db7e6a8c70727c4ca9950"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "source_commit",
+    "target_root",
+    "ownership_summary",
+    "portable_aide_files",
+    "target_specific_files",
+    "generated_target_state",
+    "manual_content",
+    "existing_tools",
+    "unknown_ownership",
+    "warnings",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "target_root": {"type": "string"},
+    "ownership_summary": {"type": "object"},
+    "portable_aide_files": {"type": "array"},
+    "target_specific_files": {"type": "array"},
+    "generated_target_state": {"type": "array"},
+    "manual_content": {"type": "array"},
+    "existing_tools": {"type": "array"},
+    "unknown_ownership": {"type": "array"},
+    "warnings": {"type": "array"},
+    "no_apply": {"type": "boolean"}
+  }
+}
+

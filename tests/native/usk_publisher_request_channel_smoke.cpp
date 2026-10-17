@@ -1,12 +1,16 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
 #include "usk_publisher_request_channel.h"
+#include "usk_publisher_authenticated_client_internal.h"
+#include "usk_publisher_registration.h"
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_tree_observation.h"
 #include "usk_effect_dispatch.h"
+#include "usk_json.h"
 #if defined(_WIN32)
 #include <sddl.h>
 #include <atomic>
+#include <array>
 #include <exception>
 #include <filesystem>
 #include <iostream>
@@ -20,6 +24,80 @@ template<class Action> void refuses(Action action) {
     bool refused=false;
     try { action(); } catch (const std::exception&) { refused=true; }
     require(refused,"required refusal absent");
+}
+// Independent old wire-shaped projection: do not call the production projector
+// to decide whether two typed values should compare equal.
+usk::json::Value legacy_client_json(
+    const usk::platform::windows::detail::AuthenticatedClientObservation& captured) {
+    using usk::json::Value;
+    Value::Array groups, restricted, privileges;
+    for (const auto& entry : captured.groups)
+        groups.emplace_back(Value::Object{{"sid", Value(entry.first)}, {"attributes", Value(entry.second)}});
+    for (const auto& entry : captured.restricted_sids)
+        restricted.emplace_back(Value::Object{{"sid", Value(entry.first)}, {"attributes", Value(entry.second)}});
+    for (const auto& entry : captured.privileges)
+        privileges.emplace_back(Value::Object{{"luid", Value(entry.first)}, {"attributes", Value(entry.second)}});
+    return Value(Value::Object{
+        {"schema", Value("usk.publisher_authenticated_client_observation.v1")},
+        {"scope", Value("held_authenticated_identification_token")},
+        {"captured_process_id", Value(captured.process_id)}, {"user_sid", Value(captured.user_sid)},
+        {"token_type", Value(captured.token_type)}, {"impersonation_level", Value(captured.impersonation_level)},
+        {"token_id", Value(captured.token_id)}, {"authentication_id", Value(captured.authentication_id)},
+        {"modified_id", Value(captured.modified_id)}, {"groups", Value(std::move(groups))},
+        {"restricted_sids", Value(std::move(restricted))}, {"privileges", Value(std::move(privileges))}});
+}
+void test_authenticated_client_fact_equality() {
+    using namespace usk::platform::windows::detail;
+    using usk::json::equal_values;
+    AuthenticatedClientObservation baseline;
+    baseline.process_id = 17; baseline.user_sid = "S-1-5-18";
+    baseline.token_type = 2; baseline.impersonation_level = 1;
+    baseline.token_id = 0x8000000000000001ull;
+    baseline.authentication_id = 0x4000000000000002ull; baseline.modified_id = 7;
+    baseline.groups = {{"S-1-5-18", 2}, {"S-1-5-32-545", 4}};
+    baseline.restricted_sids = {{"S-1-5-12", 8}, {"S-1-5-13", 16}};
+    baseline.privileges = {{0x8000000000000001ull, 3}, {2, 4}};
+    const auto check = [&](const auto& a, const auto& b, bool expected) {
+        const auto old_a = legacy_client_json(a), old_b = legacy_client_json(b);
+        require(equal_values(old_a, old_b) == expected, "legacy client oracle control differs");
+        require(equal_authenticated_client_observations(a, b) == expected &&
+            equal_authenticated_client_observations(b, a) == expected,
+            "typed authenticated client equality lost a legacy field or order");
+        require(equal_values(authenticated_client_observation_json(a), old_a) &&
+            equal_values(authenticated_client_observation_json(b), old_b),
+            "completed authenticated client projection differs from legacy wire fields");
+    };
+    check(baseline, baseline, true);
+    const std::array<std::uint64_t AuthenticatedClientObservation::*, 6> scalars{{
+        &AuthenticatedClientObservation::process_id, &AuthenticatedClientObservation::token_type,
+        &AuthenticatedClientObservation::impersonation_level, &AuthenticatedClientObservation::token_id,
+        &AuthenticatedClientObservation::authentication_id, &AuthenticatedClientObservation::modified_id}};
+    for (const auto member : scalars) {
+        auto changed = baseline; changed.*member ^= 1; check(baseline, changed, false);
+    }
+    auto changed = baseline; changed.user_sid = "S-1-5-19"; check(baseline, changed, false);
+    changed = baseline; changed.user_sid.push_back('\0'); check(baseline, changed, false);
+    const std::array<AuthenticatedClientObservation::Groups AuthenticatedClientObservation::*, 2> lists{{
+        &AuthenticatedClientObservation::groups, &AuthenticatedClientObservation::restricted_sids}};
+    for (const auto member : lists) {
+        for (std::size_t index = 0; index != 2; ++index) {
+            changed = baseline; (changed.*member)[index].first += "0"; check(baseline, changed, false);
+            changed = baseline; (changed.*member)[index].second ^= 1; check(baseline, changed, false);
+        }
+        changed = baseline; (changed.*member).pop_back(); check(baseline, changed, false);
+        changed = baseline; (changed.*member).push_back((changed.*member).front()); check(baseline, changed, false);
+        changed = baseline; std::swap((changed.*member)[0], (changed.*member)[1]); check(baseline, changed, false);
+        changed = baseline; (changed.*member).clear(); check(baseline, changed, false);
+    }
+    for (std::size_t index = 0; index != baseline.privileges.size(); ++index) {
+        changed = baseline; changed.privileges[index].first ^= 1; check(baseline, changed, false);
+        changed = baseline; changed.privileges[index].second ^= 1; check(baseline, changed, false);
+    }
+    changed = baseline; changed.privileges.pop_back(); check(baseline, changed, false);
+    changed = baseline; changed.privileges.push_back(changed.privileges.front()); check(baseline, changed, false);
+    changed = baseline; std::swap(changed.privileges[0], changed.privileges[1]); check(baseline, changed, false);
+    changed = baseline; changed.privileges.clear(); check(baseline, changed, false);
+    check(AuthenticatedClientObservation{}, AuthenticatedClientObservation{}, true);
 }
 std::string replaced(std::string source, const std::string& from, const std::string& to) {
     const auto position = source.find(from);
@@ -85,6 +163,76 @@ void test_terminal_response_binding() {
     require_publisher_response_binding(service, verify_request,
         R"({"schema":"usk.publisher_lab_service_observation.v1","status":"failed","error":"verify refused"})");
 }
+void test_maintenance_response_binding() {
+    using usk::json::Value;
+    using usk::platform::windows::require_publisher_response_binding;
+    const std::string name = "USK_PUB_0123456789abcdef0123456789abcdef";
+    const std::wstring service(name.begin(), name.end());
+    for (const std::string operation : {"repair", "move", "uninstall"}) {
+        const Value request(Value::Object{{"schema", Value("usk." + operation + "_apply_request.v1")},
+            {"transaction_id", Value("tx.one")}, {"applied_at", Value("2026-10-06T07:00:00Z")},
+            {"plan_request", Value(Value::Object{{"install_id", Value("install.one")}, {"plan_id", Value("plan.one")}})}});
+        Value report(Value::Object{{"schema", Value("usk." + operation + "_report.v1")},
+            {"status", Value(operation == "move" ? "new_committed_old_retained" : "completed")},
+            {"install_id", Value("install.one")}, {"plan_id", Value("plan.one")}, {"transaction_id", Value("tx.one")},
+            {"report_id", Value(operation + ".tx.one")}, {"completed_at", Value("2026-10-06T07:00:00Z")}});
+        report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(report)));
+        Value response(Value::Object{{"schema", Value("usk.publisher_lab_service_observation.v1")}, {"status", Value("pass")},
+            {"request_sha256", Value(usk::json::sha256_canonical(request))}, {"operation", Value(operation)},
+            {"install_id", Value("install.one")}, {"transaction_id", Value("tx.one")}, {"service_name", Value(name)},
+            {"service_sid", Value("S-1-5-80-1-2-3-4-5")}, {"process_id", Value(std::uint64_t{123})},
+            {"operation_admission", Value(Value::Object{})},
+            {"registered_admission", Value(Value::Object{{"schema", Value("usk.publisher_registered_admission_observation.v1")},
+                {"service_name", Value(name)}, {"service_sid", Value("S-1-5-80-1-2-3-4-5")}, {"process_id", Value(std::uint64_t{123})}})},
+            {"apply_response", Value(Value::Object{{"schema", Value("usk.command_response.v1")}, {"status", Value("ok")}, {"payload", report}})}});
+        const auto encoded_request = usk::json::canonical(request);
+        require_publisher_response_binding(service, encoded_request, usk::json::canonical(response), 123);
+        refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(response), 124); });
+        for (const auto field : {"request_sha256", "operation", "install_id", "transaction_id", "service_name", "service_sid"}) {
+            auto wrong = response;
+            wrong.as_object().at(field) = Value("substituted");
+            refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(wrong), 123); });
+        }
+        for (const auto field : {"schema", "status", "install_id", "transaction_id", "plan_id", "completed_at", "report_id", "report_digest"}) {
+            auto wrong = response;
+            wrong.as_object().at("apply_response").as_object().at("payload").as_object().at(field) = Value("substituted");
+            refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(wrong), 123); });
+        }
+        auto wrong = response;
+        wrong.as_object().at("registered_admission").as_object().at("process_id") = Value(std::uint64_t{124});
+        refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(wrong), 123); });
+        wrong = response;
+        wrong.as_object().emplace("recovery_installed_response", Value());
+        refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(wrong), 123); });
+        const Value recovery(Value::Object{{"schema", Value("usk.publisher_maintenance_recovery_request.v1")},
+            {"operation", Value(operation)}, {"install_id", Value("install.one")}, {"transaction_id", Value("tx.one")}});
+        Value recovered_report(Value::Object{{"schema", Value("usk.maintenance_recovery_report.v1")}, {"status", Value("completed")},
+            {"operation", Value(operation)}, {"install_id", Value("install.one")}, {"transaction_id", Value("tx.one")},
+            {"plan_id", Value("plan.one")}, {"plan_digest", Value(std::string(64, 'a'))},
+            {"transaction_snapshot_sha256", Value(std::string(64, 'b'))}, {"effect_history_sha256", Value(std::string(64, 'c'))},
+            {"source_digest", Value(std::string(64, 'd'))}, {"recorded_at", Value("2026-10-06T07:00:00Z")},
+            {"report_id", Value("recovery." + operation + ".tx.one")}});
+        recovered_report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(recovered_report)));
+        auto recovered = response;
+        recovered.as_object().erase("apply_response");
+        recovered.as_object().at("request_sha256") = Value(usk::json::sha256_canonical(recovery));
+        recovered.as_object().emplace("recovery_response", Value(Value::Object{
+            {"schema", Value("usk.command_response.v1")}, {"status", Value("ok")}, {"payload", recovered_report}}));
+        const auto encoded_recovery = usk::json::canonical(recovery);
+        require_publisher_response_binding(service, encoded_recovery, usk::json::canonical(recovered), 123);
+        refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(recovered), 123); });
+        refuses([&] { require_publisher_response_binding(service, encoded_recovery, usk::json::canonical(response), 123); });
+        for (const auto field : {"operation", "plan_digest", "transaction_snapshot_sha256", "effect_history_sha256", "source_digest"}) {
+            auto invalid_report = recovered_report;
+            invalid_report.as_object().erase("report_digest");
+            invalid_report.as_object().at(field) = Value("substituted");
+            invalid_report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(invalid_report)));
+            wrong = recovered;
+            wrong.as_object().at("recovery_response").as_object().at("payload") = invalid_report;
+            refuses([&] { require_publisher_response_binding(service, encoded_recovery, usk::json::canonical(wrong), 123); });
+        }
+    }
+}
 void test_service_observation_transport_binding() {
     using usk::platform::windows::require_publisher_response_binding;
     const std::wstring service = L"USK_PUB_0123456789abcdef0123456789abcdef";
@@ -95,10 +243,24 @@ void test_service_observation_transport_binding() {
     require_publisher_response_binding(service, request, response);
     require_publisher_response_binding(service, request, response, 123);
     const auto v3_request = replaced(request, "request.v2", "request.v3");
+    // The current registered producer rejects the historical worker family
+    // during parsing, before SCM connection/start or request dispatch.
+    bool historical_not_dispatched = false;
+    try { (void)usk::platform::windows::submit_registered_publisher_request(service, v3_request); }
+    catch (const usk::base::EffectRequestNotDispatched&) { historical_not_dispatched = true; }
+    require(historical_not_dispatched, "current producer dispatched the historical scoped capability");
     const auto v3_response = replaced(response, "capability.v2", "capability.v3");
     require_publisher_response_binding(service, v3_request, v3_response, 123);
     refuses([&] { require_publisher_response_binding(service, v3_request, response, 123); });
     refuses([&] { require_publisher_response_binding(service, request, v3_response, 123); });
+    const auto v4_request = replaced(request, "request.v2", "request.v4");
+    const auto v4_response = replaced(response, "capability.v2", "capability.v4");
+    require_publisher_response_binding(service, v4_request, v4_response, 123);
+    for (const auto& old_response : {response, v3_response})
+        refuses([&] { require_publisher_response_binding(service, v4_request, old_response, 123); });
+    for (const auto& old_request : {request, v3_request})
+        refuses([&] { require_publisher_response_binding(service, old_request, v4_response, 123); });
+    refuses([&] { require_publisher_response_binding(service, v4_request, v4_response, 124); });
     refuses([&] { require_publisher_response_binding(service, request, response, 124); });
     refuses([&] { require_publisher_response_binding(service, request,
         replaced(response, "observe.one", "observe.stale")); });
@@ -342,10 +504,13 @@ std::thread raw_client(const std::wstring& name, const std::string& message,
     });
 }
 }
-int main() {
+int main(int argc, char** argv) {
     try {
+        test_authenticated_client_fact_equality();
         test_terminal_response_binding();
         test_service_observation_transport_binding();
+        test_maintenance_response_binding();
+        if (argc == 2 && std::string(argv[1]) == "--response-binding-smoke") return 0;
         const auto name=L"USK_transport_test_"+std::to_wstring(GetCurrentProcessId());
         const auto sid=current_sid();
         const std::wstring service_sid=L"S-1-5-80-1-2-3-4-5";
@@ -358,6 +523,8 @@ int main() {
         auto client=raw_client(name,"{\"reviewed\":true}",response,client_failure,true);
         try {
             require(channel->receive()=="{\"reviewed\":true}","request bytes changed");
+            require(channel->authenticated_canonical_request() == "{\"reviewed\":true}",
+                "actual authenticated canonical request binding differs");
             HANDLE token=nullptr;
             require(!OpenThreadToken(GetCurrentThread(),TOKEN_QUERY,TRUE,&token) &&
                 GetLastError()==ERROR_NO_TOKEN,"caller impersonation retained");
@@ -422,6 +589,7 @@ int main() {
             refuses([&] { (void)channel->observe_authenticated_object_access(INVALID_HANDLE_VALUE); });
             refuses([&] { channel->receive(); });
             channel->reply("completed");
+            refuses([&] { (void)channel->authenticated_canonical_request(); });
             refuses([&] { (void)observe_publisher_authenticated_descendant_access(
                 writable.get(), file_tree, *channel, client_facts); });
             refuses([&] { (void)channel->observe_authenticated_object_access(directory.get()); });

@@ -122,27 +122,50 @@ bool bounded_acquisition_cases(const char* scope, Acquire acquire)
     TestEvent held;
     TestEvent release;
     std::atomic<int> holder_result{0};
+    const ULONGLONG release_case_started = GetTickCount64();
+    ULONGLONG holder_scope_exit_ms = 0;
+    ULONGLONG release_signal_ms = 0;
+    DWORD release_signal_error = ERROR_SUCCESS;
     std::thread releasing_holder([&] {
         try {
-            auto guard = acquire(nullptr, 0);
-            if (!SetEvent(held.handle)) { holder_result = 3; return; }
-            holder_result = WaitForSingleObject(release.handle, 5000) == WAIT_OBJECT_0 ? 1 : 4;
+            {
+                auto guard = acquire(nullptr, 0);
+                if (!SetEvent(held.handle)) { holder_result = 3; return; }
+                holder_result = WaitForSingleObject(release.handle, 5000) == WAIT_OBJECT_0 ? 1 : 4;
+            }
+            holder_scope_exit_ms = GetTickCount64() - release_case_started;
         } catch (...) { holder_result = 2; SetEvent(held.handle); }
     });
     const DWORD held_wait = WaitForSingleObject(held.handle, 5000);
-    std::thread release_signal([&] { Sleep(50); SetEvent(release.handle); });
+    std::thread release_signal([&] {
+        Sleep(50);
+        release_signal_ms = GetTickCount64() - release_case_started;
+        if (!SetEvent(release.handle)) release_signal_error = GetLastError();
+    });
     bool acquired_after_release = false;
+    bool observed_abandonment = false;
+    std::string acquisition_error;
+    const ULONGLONG acquisition_started = GetTickCount64();
     try {
         auto guard = acquire(nullptr, 2000);
-        acquired_after_release = !guard.previous_owner_abandoned();
-    } catch (...) { }
+        observed_abandonment = guard.previous_owner_abandoned();
+        acquired_after_release = !observed_abandonment;
+    } catch (const std::exception& error) { acquisition_error = error.what(); }
+    catch (...) { acquisition_error = "non-standard exception"; }
+    const ULONGLONG acquisition_elapsed = GetTickCount64() - acquisition_started;
     release_signal.join();
     releasing_holder.join();
     const bool passed = held_wait == WAIT_OBJECT_0 && holder_result == 1 && acquired_after_release;
     if (!passed) {
         std::cerr << scope << ": release-before-deadline wait=" << held_wait
                   << " holder_result=" << holder_result.load()
-                  << " acquired=" << acquired_after_release << '\n';
+                  << " acquired=" << acquired_after_release
+                  << " abandoned=" << observed_abandonment
+                  << " acquisition_elapsed_ms=" << acquisition_elapsed
+                  << " release_signal_ms=" << release_signal_ms
+                  << " release_signal_error=" << release_signal_error
+                  << " holder_scope_exit_ms=" << holder_scope_exit_ms
+                  << " acquisition_error=" << acquisition_error << '\n';
     }
     return passed;
 }

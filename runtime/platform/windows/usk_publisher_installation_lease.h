@@ -7,9 +7,59 @@
 #include "usk_publisher_volume_operation_guard.h"
 #include <functional>
 #include <memory>
+namespace usk::transaction { struct TransactionSpec; }
 namespace usk::platform::windows {
 class PublisherInstallationLease;
+class PublisherInstallOperationContext;
 struct PublisherTreeObservation;
+enum class PublisherOperationKind { install_local, repair, move, uninstall };
+
+// Read-only original maintenance preimage under the actual installation guard.
+// Keeps the protected setup/state parents and exact original installed and
+// ownership records alive. No constructor writes, bootstraps or grants effects.
+// The owning native engine keeps this alive throughout the operation.
+class PublisherMaintenanceStateSnapshot final {
+public:
+    PublisherMaintenanceStateSnapshot(HANDLE volume, const std::wstring& volume_root,
+        const std::wstring& setup_component, const std::wstring& service_name,
+        const PublisherInstallOperationGuard& guard, const std::string& install_id);
+    ~PublisherMaintenanceStateSnapshot();
+    PublisherMaintenanceStateSnapshot(const PublisherMaintenanceStateSnapshot&) = delete;
+    PublisherMaintenanceStateSnapshot& operator=(const PublisherMaintenanceStateSnapshot&) = delete;
+    HANDLE setup_root() const;
+    HANDLE state_root() const;
+    const std::string& initial_state_revision() const;
+    const usk::json::Value& installed_state() const;
+    const usk::json::Value& ownership_manifest() const;
+    void require_custody() const;
+    // Fresh apply only: the complete actual installed record set must still
+    // equal its original guarded revision before the first intent write.
+    void require_initial_revision() const;
+    usk::json::Value reviewed_snapshot(PublisherOperationKind kind,
+        const std::string& operation_id, const usk::json::Value& reviewed_plan,
+        const usk::json::Value& apply_request) const;
+private:
+    friend class PublisherInstallOperationContext;
+    PublisherMaintenanceStateSnapshot(HANDLE volume, const std::wstring& volume_root,
+        const std::wstring& service_name, const PublisherInstallOperationGuard& guard,
+        const usk::json::Value& original_snapshot);
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
+// Closed data binding only, with no native ownership/lease verdict. Recovery
+// separately proves the retained original records, completed prefix and the
+// allowed current revision. This cannot activate a maintenance backend.
+void require_publisher_maintenance_snapshot_binding(const usk::json::Value& snapshot,
+    PublisherOperationKind kind, const std::string& install_id,
+    const std::string& operation_id, const std::string& initial_state_revision);
+
+// Derive one create-only record-set postimage from a complete original v2
+// snapshot and a separately validated installed document. Data association
+// only: the native owner must prove the exact original pending effect, bytes,
+// actual publication and allowed current revision. No observed set is adopted.
+usk::json::Value derive_publisher_maintenance_postimage_bindings(
+    const usk::json::Value& original_snapshot, const usk::json::Value& installed_postimage);
 
 // Internal data-shape check using the native tree observer's slash paths.
 // Security, held handles, exact original bytes and ownership remain separate
@@ -20,6 +70,32 @@ usk::json::Value observe_publisher_lease_holder();
 // Read-only native facts, without a protection/ownership verdict.
 usk::json::Value observe_publisher_lease_root_identity(HANDLE root);
 std::string observe_publisher_install_state_revision(HANDLE state_root,
+    const std::string& install_id, const std::string& service_sid);
+// Existing-only protected journal inspection under the actual installation
+// guard. Creates no directory, pending file or generation. The original active
+// record must be an exact member; an old completion is independent of today's
+// state revision or payload health and grants no further effects.
+std::optional<usk::json::Value> observe_publisher_completed_installation_lease(
+    HANDLE state_root, const std::wstring& volume_root, const std::wstring& service_name,
+    const PublisherInstallOperationGuard& guard, const usk::json::Value& original_active);
+// Extract only the original active lease from the exact protected v2 custody
+// document. This supplies no creator, completed-result or replay authority.
+usk::json::Value observe_publisher_original_maintenance_lease(
+    HANDLE state_root, const std::wstring& volume_root, const std::wstring& service_name,
+    const PublisherInstallOperationGuard& guard, const PublisherInstallOperationContext& context,
+    const std::string& authenticated_user_sid);
+// Read-only completed-operation root provenance from protected original
+// creator records. This returns an identity to compare, never effect authority.
+// Current revision, sealed transaction/effects and actual payload security
+// remain mandatory independent checks by the service verifier.
+std::string observe_publisher_completed_maintenance_root_id(
+    HANDLE state_root, const std::wstring& volume_root, const std::wstring& service_name,
+    const PublisherInstallOperationGuard& guard, const PublisherInstallOperationContext& context,
+    const std::string& authenticated_user_sid, const usk::json::Value& original_consumer_completion,
+    const usk::transaction::TransactionSpec& spec);
+// Exact sorted native record set behind the revision. The operation retains
+// this original set to derive only its reviewed installed postimage revision.
+usk::json::Value observe_publisher_install_state_bindings(HANDLE state_root,
     const std::string& install_id, const std::string& service_sid);
 // Read-only fresh-install preflight under the actual installation guard. An
 // absent setup root represents empty state; existing state/installed roots
@@ -40,17 +116,42 @@ usk::transaction::InstallLeasePreviousHolder observe_publisher_previous_lease_ho
 // this native context or permits changing an existing operation.
 class PublisherInstallOperationContext final {
 public:
+    // Existing-only inspection holds read/list handles and rejects every
+    // writer entry. It cannot bootstrap intent, bind roots or acquire a lease.
+    static std::unique_ptr<PublisherInstallOperationContext> inspect_existing(
+        HANDLE volume, const std::wstring& volume_root, const std::wstring& service_name,
+        const PublisherInstallOperationGuard& guard, const std::string& install_id,
+        const std::string& operation_id);
     PublisherInstallOperationContext(HANDLE volume, const std::wstring& volume_root,
         const std::wstring& service_name, const PublisherInstallOperationGuard& guard,
         const std::string& install_id, const std::string& operation_id);
+    PublisherInstallOperationContext(HANDLE volume, const std::wstring& volume_root,
+        const std::wstring& service_name, const PublisherInstallOperationGuard& guard,
+        const std::string& install_id, const std::string& operation_id,
+        PublisherOperationKind kind);
     ~PublisherInstallOperationContext();
     PublisherInstallOperationContext(const PublisherInstallOperationContext&) = delete;
     PublisherInstallOperationContext& operator=(const PublisherInstallOperationContext&) = delete;
     bool exists() const;
     void prepare(const usk::json::Value& reviewed_snapshot, const std::string& initial_state_revision);
+    // V1 install preparation keeps its original empty-revision semantics.
+    // Maintenance builds V2 intent from the held native preimage and exact
+    // reviewed plan/request; it repeats the guarded revision before any write.
+    void prepare_maintenance(const PublisherMaintenanceStateSnapshot& state,
+        const usk::json::Value& reviewed_plan, const usk::json::Value& apply_request);
+    // Read-only recovery of the exact protected original records, even when
+    // a bound postimage is now the newest installed record. No new plan or
+    // current-revision grant is inferred from successfully restoring custody.
+    std::unique_ptr<PublisherMaintenanceStateSnapshot> restore_maintenance_state() const;
     void bind_state_roots(HANDLE setup_root, HANDLE state_root);
+    // Read-only recovery check. Missing original binding refuses instead of
+    // creating a new record or granting a new root association.
+    void require_bound_state_roots(HANDLE setup_root, HANDLE state_root) const;
     std::string lease_binding_sha256() const;
     const usk::json::Value& record() const;
+    // Compare the finite broker observation with this independently opened,
+    // guarded original intent. Supplied observations confer no effect rights.
+    void require_original_recovery_intent_observation(const usk::json::Value&) const;
     void require_fence() const;
     // Read-only inspection of this operation's reserved, pre-candidate
     // bootstrap. Only an exact original sourceful apply may preserve it.
@@ -60,6 +161,10 @@ public:
     // a no-replace move. Incomplete anchors remain protected and retained.
     void prepare_publication(const PublisherInstallationLease& lease);
 private:
+    PublisherInstallOperationContext(HANDLE volume, const std::wstring& volume_root,
+        const std::wstring& service_name, const PublisherInstallOperationGuard& guard,
+        const std::string& install_id, const std::string& operation_id,
+        PublisherOperationKind kind, bool read_only);
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
@@ -83,6 +188,12 @@ public:
     void require_fence() const;
     void finish(bool handoff);
     const usk::json::Value& ownership() const;
+    // Read-only native recovery proof: the supplied original active record
+    // must be an exact member of this held protected journal, followed only
+    // by this same unfinished operation. Every earlier holder must actually
+    // have ended (PID plus birth identity); the current lease is a newer
+    // recovery generation. This proves no payload/metadata postcondition.
+    void require_recovery_lineage(const usk::json::Value& original_ownership) const;
 private:
     struct Impl;
     std::unique_ptr<Impl> impl_;

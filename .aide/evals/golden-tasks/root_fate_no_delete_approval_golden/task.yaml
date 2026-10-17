@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: root_fate_no_delete_approval_golden
+title: Root Fate No Delete Approval Golden
+status: active
+objective: Verify Q40 drop_candidate and root fates are not deletion approval.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task root_fate_no_delete_approval_golden
+no_model_calls: true
+no_network_calls: true

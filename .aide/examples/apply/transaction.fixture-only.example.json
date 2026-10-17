@@ -1,0 +1,16 @@
+{
+  "schema_version": "aide.transaction.v0",
+  "example": true,
+  "transaction_id": "transaction-fixture-example",
+  "mode": "fixture_only",
+  "phases": ["observe", "plan", "stage", "verify", "evidence"],
+  "operations": [
+    {"operation_id": "op-create-fixture-file", "operation_class": "create", "real_repo_apply_allowed": false},
+    {"operation_id": "op-managed-section-fixture", "operation_class": "update_managed_section", "real_repo_apply_allowed": false}
+  ],
+  "staged_changes": [{"change_id": "stage-managed-section-fixture", "verification_status": "pending"}],
+  "safety_gates": [{"gate_id": "no_real_repo_apply_mode", "status": "pass", "blocks_apply": true}],
+  "rollback_record": {"rollback_id": "rollback-fixture-transaction", "apply_allowed": false},
+  "no_apply_boundary": {"real_repo_apply_allowed": false, "target_mutation": false, "branch_mutation": false, "provider_or_model_calls": "none", "network_calls": "none"},
+  "evidence": {"evidence_id": "transaction-fixture-evidence", "result": "PASS"}
+}

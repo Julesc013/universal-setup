@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <string>
 #include <functional>
+#include <utility>
 
 using usk::platform::windows::has_restricted_publisher_token_facts;
 using usk::platform::windows::observe_current_publisher_token;
@@ -20,6 +21,67 @@ using usk::platform::windows::derive_ascii_publisher_service_sid;
 namespace {
 void check(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
+}
+
+// Reference the previous eight-field JSON representation. The production
+// comparison must preserve every value and array occurrence, including order.
+usk::json::Value token_comparison_projection(
+    const usk::platform::windows::PublisherTokenObservation& input) {
+    using usk::json::Value;
+    const auto groups = [](const auto& source) {
+        Value::Array result;
+        for (const auto& group : source) result.emplace_back(Value::Object{
+            {"sid", Value(group.sid)}, {"attributes", Value(static_cast<std::uint64_t>(group.attributes))}});
+        return Value(std::move(result));
+    };
+    return Value(Value::Object{{"user_sid", Value(input.process_user_sid)},
+        {"groups", groups(input.process_groups)}, {"restricted_sids", groups(input.process_restricted_sids)},
+        {"observing_thread_impersonating", Value(input.current_thread_impersonating)},
+        {"token_id", Value(input.identity.token_id)}, {"authentication_id", Value(input.identity.authentication_id)},
+        {"modified_id", Value(input.identity.modified_id)},
+        {"token_type", Value(static_cast<std::uint64_t>(input.identity.token_type))}});
+}
+void token_comparison_controls() {
+    using namespace usk::platform::windows;
+    const PublisherTokenObservation original{"S-1-5-18",
+        {{"S-1-1-0", 7}, {"S-1-5-32-545", 16}}, {{"S-1-1-0", 0}, {"S-1-5-12", 1}}, false,
+        {0xffffffffffffffffULL, 0x8000000000000000ULL, 3, TokenPrimary}};
+    const auto agrees = [](const PublisherTokenObservation& left, const PublisherTokenObservation& right) {
+        check(equal_publisher_token_observations(left, right) == usk::json::equal_values(
+            token_comparison_projection(left), token_comparison_projection(right)),
+            "typed token equality differs from the original JSON representation");
+    };
+    check(equal_publisher_token_observations(original, PublisherTokenObservation(original)),
+        "independently owned equal token facts differ");
+    agrees(original, original);
+    const std::vector<std::function<void(PublisherTokenObservation&)>> mutations{
+        [](auto& v) { v.process_user_sid = "S-1-5-19"; },
+        [](auto& v) { v.current_thread_impersonating = true; },
+        [](auto& v) { v.identity.token_id ^= 1; },
+        [](auto& v) { v.identity.authentication_id ^= 1; },
+        [](auto& v) { v.identity.modified_id ^= 1; },
+        [](auto& v) { v.identity.token_type = TokenImpersonation; },
+        [](auto& v) { v.process_groups.front().sid = "S-1-5-19"; },
+        [](auto& v) { v.process_groups.back().attributes ^= 1; },
+        [](auto& v) { v.process_restricted_sids.back().sid = "S-1-5-19"; },
+        [](auto& v) { v.process_restricted_sids.front().attributes ^= 1; },
+        [](auto& v) { std::swap(v.process_groups.front(), v.process_groups.back()); },
+        [](auto& v) { std::swap(v.process_restricted_sids.front(), v.process_restricted_sids.back()); },
+        [](auto& v) { v.process_groups.push_back(v.process_groups.front()); },
+        [](auto& v) { v.process_restricted_sids.push_back(v.process_restricted_sids.front()); },
+        [](auto& v) { v.process_groups.clear(); },
+        [](auto& v) { v.process_restricted_sids.clear(); }};
+    for (const auto& mutate : mutations) {
+        auto changed = original;
+        mutate(changed);
+        check(!equal_publisher_token_observations(original, changed) &&
+            !equal_publisher_token_observations(changed, original), "changed token facts were accepted");
+        agrees(original, changed); agrees(changed, original); agrees(changed, changed);
+    }
+    const PublisherTokenObservation empty{"", {}, {}, false, {}};
+    agrees(empty, empty); agrees(empty, original); agrees(original, empty);
+    const auto native = observe_current_publisher_token();
+    agrees(native, PublisherTokenObservation(native));
 }
 
 #if defined(_WIN64)
@@ -122,6 +184,24 @@ int main() {
         check(ordinary.identity.token_id != 0 && ordinary.identity.authentication_id != 0 &&
             ordinary.identity.modified_id != 0 && ordinary.identity.token_type == TokenPrimary,
             "actual process token statistics identity was not observed");
+        HANDLE held_process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, FALSE, GetCurrentProcessId());
+        check(held_process != nullptr, "query-only held process token control is unavailable");
+        const auto held_token = usk::platform::windows::observe_held_publisher_process_token(held_process);
+        CloseHandle(held_process);
+        check(held_token.process_user_sid == ordinary.process_user_sid &&
+            held_token.identity.token_id == ordinary.identity.token_id &&
+            held_token.identity.authentication_id == ordinary.identity.authentication_id &&
+            held_token.identity.modified_id == ordinary.identity.modified_id &&
+            held_token.identity.token_type == ordinary.identity.token_type && !held_token.current_thread_impersonating,
+            "actual held-process token differs from the current primary token");
+        HANDLE synchronization_only = OpenProcess(SYNCHRONIZE, FALSE, GetCurrentProcessId());
+        check(synchronization_only != nullptr, "synchronize-only process control is unavailable");
+        bool missing_query_refused = false;
+        try { (void)usk::platform::windows::observe_held_publisher_process_token(synchronization_only); }
+        catch (const std::runtime_error&) { missing_query_refused = true; }
+        CloseHandle(synchronization_only);
+        check(missing_query_refused, "primary-token observation accepted a process handle without query rights");
+        token_comparison_controls();
         const auto platform = usk::platform::windows::observe_publisher_execution_platform();
         check(platform.at("windows_build").as_unsigned() >= 17763 &&
             platform.at("sdk_version").as_string().compare(0, 5, "10.0.") == 0,

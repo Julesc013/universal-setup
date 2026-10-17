@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: capability_export_pack_inclusion_golden
+title: Capability Export Pack Inclusion Golden
+status: active
+description: Verify capability contracts are included in portable export-pack source scope.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task capability_export_pack_inclusion_golden
+quality_dimensions:
+  - export_inclusion
+  - source_state_boundary
+  - target_safety

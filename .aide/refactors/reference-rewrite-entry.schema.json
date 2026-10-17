@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.reference-rewrite-entry.schema.v0",
+  "type": "object",
+  "required": [
+    "reference_id",
+    "referencing_path",
+    "old_reference",
+    "new_reference_hint",
+    "reference_kind",
+    "confidence",
+    "status",
+    "reason",
+    "apply_allowed"
+  ],
+  "properties": {
+    "reference_id": {"type": "string"},
+    "referencing_path": {"type": "string"},
+    "old_reference": {"type": "string"},
+    "new_reference_hint": {"type": "string"},
+    "reference_kind": {"type": "string"},
+    "confidence": {"type": "string"},
+    "status": {"type": "string"},
+    "reason": {"type": "string"},
+    "apply_allowed": {"const": false}
+  }
+}

@@ -102,11 +102,11 @@ PublisherBoundRenameObservation probe_publisher_bound_rename_no_replace(
     const std::wstring& destination_component,
     const PublisherHandleObservation& expected_staged_root,
     const PublisherHandleObservation& expected_destination_parent,
-    const std::function<void()>& after_absence_check) {
+    const std::function<void()>& after_absence_check, const PublisherMaintenanceNames* maintenance_names) {
     if (!staged_root || staged_root == INVALID_HANDLE_VALUE ||
         !destination_parent || destination_parent == INVALID_HANDLE_VALUE ||
         staged_root == destination_parent ||
-        !is_publisher_canonical_component(destination_component)) {
+        !is_publisher_admitted_component(destination_parent, destination_component, maintenance_names)) {
         throw std::runtime_error("publisher rename has invalid bound inputs");
     }
     const auto staged = observe_publisher_directory_handle(staged_root);
@@ -137,7 +137,7 @@ PublisherBoundRenameObservation probe_publisher_bound_rename_no_replace(
         !same_volume(observe_local_ntfs_volume_handle(destination_parent), parent_volume)) {
         throw std::runtime_error("publisher rename bound handles changed before call");
     }
-    PublisherRenameInformation information(destination_parent, destination_component);
+    PublisherRenameInformation information(destination_parent, destination_component, maintenance_names);
     const auto source_access = observe_publisher_handle_granted_access(staged_root);
     const auto parent_access = observe_publisher_handle_granted_access(destination_parent);
     if ((source_access & DELETE) == 0 || (parent_access & FILE_ADD_SUBDIRECTORY) == 0) {

@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: intent_compile_destructive_prompt_golden
+title: Intent Compile Destructive Prompt Golden
+status: active
+description: Verify destructive prompts block or gate direct mutation.
+runner: .aide/scripts/aide_lite.py eval run --task intent_compile_destructive_prompt_golden
+quality_dimensions:
+  - destructive_guard
+  - no_raw_intent_execution
+  - deterministic_output

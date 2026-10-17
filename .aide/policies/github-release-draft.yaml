@@ -1,0 +1,61 @@
+schema_version: aide.github-release-draft-policy.v0
+policy_id: aide-github-release-draft-v0
+status: active
+purpose: >
+  Define deterministic local GitHub Release draft generation from the Q47 local
+  release bundle without creating tags, GitHub Releases, uploads, network/API
+  calls, branch mutations, target mutations, or provider/model calls.
+operating_mode:
+  - deterministic_local
+  - no_model_calls
+  - no_provider_calls
+  - no_network_calls
+  - local_draft_generation_only
+  - no_publish_in_q48
+  - no_tag_creation
+  - no_tag_push
+  - no_github_release_creation
+  - no_upload
+  - no_branch_mutation
+lifecycle:
+  - validate_release_bundle
+  - collect_assets
+  - collect_changelog_preview
+  - collect_release_notes_preview
+  - generate_draft
+  - generate_asset_list
+  - generate_upload_plan
+  - generate_publication_checklist
+  - validate_draft
+  - review
+  - future_manual_or_explicit_publication
+source_artifacts:
+  - .aide/release/dist/
+  - .aide/release/latest-release-bundle.json
+  - .aide/release/latest-release-artifacts.json
+  - .aide/release/latest-release-validation.md
+  - .aide/release/latest-release-provenance.md
+suggested_tag_policy:
+  no_stable_semver: use aide-lite-pack-v0-draft-<short-sha>
+  create_tag_in_q48: false
+  final_tag_requires_human_review: true
+draft_outputs:
+  - .aide/release/github-release-draft.md
+  - .aide/release/github-release-draft.json
+  - .aide/release/github-release-assets.json
+  - .aide/release/github-release-upload-plan.md
+  - .aide/release/github-release-upload-plan.json
+  - .aide/release/github-release-checklist.md
+  - .aide/release/github-release-checklist.json
+  - .aide/release/github-release-publication-boundary.md
+  - .aide/release/github-release-draft-validation.json
+  - .aide/release/github-release-draft-validation.md
+non_goals:
+  - no GitHub Release
+  - no tag
+  - no upload
+  - no publish
+  - no network
+  - no GitHub API call
+  - no branch mutation
+  - no target repo mutation

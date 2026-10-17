@@ -1,0 +1,37 @@
+schema_version: aide.doc-link-map-policy.v0
+policy_id: aide-doc-link-map-v0
+status: active
+purpose: >
+  Build a deterministic documentation link graph from Markdown links and
+  inline path references so future WorkUnits can inspect documentation coverage
+  and stale path candidates.
+doc_inputs:
+  - README.md
+  - AGENTS.md
+  - DOCUMENTATION.md
+  - IMPLEMENT.md
+  - PLANS.md
+  - ROADMAP.md
+  - docs/**
+  - .aide/**/*.md
+scan_rules:
+  markdown_links:
+    pattern: '[label](path)'
+    ignore:
+      - http://
+      - https://
+      - mailto:
+      - '#'
+  inline_path_references:
+    pattern: backticked repo-like paths
+  stale_candidates:
+    rule: local-looking doc link or inline path reference does not exist in tracked files or directories
+    language: stale_candidate
+conservative_language:
+  - stale_candidate
+  - missing_doc_candidate
+  - unreferenced_candidate
+non_goals:
+  - no external URL validation
+  - no deletion recommendation
+  - no automatic doc rewrite

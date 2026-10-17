@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.file-inventory-schema.v0",
+  "title": "AIDE File Inventory",
+  "type": "object",
+  "required": ["schema_version", "generated_by", "source_commit", "records"],
+  "properties": {
+    "schema_version": {"const": "aide.file-inventory.v0"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "path",
+          "kind",
+          "status",
+          "owner",
+          "extension",
+          "size_bytes",
+          "sha256",
+          "generated",
+          "evidence",
+          "template",
+          "local_state",
+          "exportable_hint",
+          "risk_hint",
+          "reasons",
+          "referenced_by_count",
+          "references_count",
+          "tests_count",
+          "docs_count"
+        ],
+        "properties": {
+          "path": {"type": "string"},
+          "kind": {"type": "string"},
+          "status": {"type": "string"},
+          "owner": {"type": "string"},
+          "extension": {"type": "string"},
+          "size_bytes": {"type": "integer"},
+          "sha256": {"type": "string"},
+          "generated": {"type": "boolean"},
+          "evidence": {"type": "boolean"},
+          "template": {"type": "boolean"},
+          "local_state": {"type": "boolean"},
+          "exportable_hint": {"type": "string"},
+          "risk_hint": {"type": "string"},
+          "reasons": {"type": "array", "items": {"type": "string"}},
+          "referenced_by_count": {"type": "integer"},
+          "references_count": {"type": "integer"},
+          "tests_count": {"type": "integer"},
+          "docs_count": {"type": "integer"}
+        }
+      }
+    }
+  }
+}

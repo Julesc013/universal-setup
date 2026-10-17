@@ -6,6 +6,7 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#include "usk_json.h"
 #include <vector>
 
 namespace usk::platform::windows {
@@ -21,6 +22,21 @@ bool require_publisher_device_acl_shape(PSID owner, PACL dacl, PSID service_sid)
 // grant. This pure data transformation does not install security or admit a
 // target. All other ACEs and the owner must pass the existing strict profile.
 std::vector<BYTE> restrict_publisher_default_device_acl(PSID owner, PACL dacl, PSID service_sid);
+
+// Pure bounded bootstrap postimage. Retains the trusted owner and ordered ACEs,
+// reduces only the recognized default when necessary, adds the exact service
+// grant and protects inheritance. Caller must separately bind original intent,
+// unpublished target/custody and exclusive admission before accepting a target.
+std::vector<BYTE> publisher_device_admission_postimage(PSID owner, PACL dacl, PSID service_sid);
+
+// Pure mounted completion for an already safe original. Refuses every outside
+// mutation grant before deriving service/protection; no default-right reduction.
+std::vector<BYTE> publisher_read_only_device_admission_postimage(PSID owner, PACL dacl, PSID service_sid);
+
+// Closed data-shape check only. V3 must carry a nonnull mounted transition;
+// false is reserved for legacy v2. Native identity, intended-policy derivation
+// and mutation authority remain mandatory checks in the owning controller.
+bool publisher_target_intent_has_device_transition(const json::Value& intent);
 
 } // namespace usk::platform::windows
 #endif

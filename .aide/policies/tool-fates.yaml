@@ -1,0 +1,51 @@
+schema_version: aide.tool-fates-policy.v0
+policy_id: aide.tool-fates.v0
+status: active
+purpose: >
+  Define advisory fates for discovered tools. Fates are review hints and never
+  authorize Q41 mutation.
+fates:
+  keep:
+    meaning: Valid existing tool; preserve as-is.
+    mutation_allowed: false
+  wrap:
+    meaning: Useful tool that may be called through a future AIDE wrapper.
+    mutation_allowed: false
+    execution_allowed_in_q41: false
+  adapt:
+    meaning: Useful tool needing future interface normalization.
+    mutation_allowed: false
+    migration_allowed_in_q41: false
+  extract:
+    meaning: Useful logic embedded in a messy file; future salvage may extract.
+    mutation_allowed: false
+  convert:
+    meaning: Useful policy or prose that may become machine-readable later.
+    mutation_allowed: false
+  archive:
+    meaning: Historical or evidence-only value; not an applied move.
+    mutation_allowed: false
+  drop_candidate:
+    meaning: Likely obsolete or duplicate but not approved for deletion.
+    mutation_allowed: false
+    deletion_approval: false
+  shim:
+    meaning: Old interface to preserve temporarily in a future plan.
+    mutation_allowed: false
+  unknown:
+    meaning: Insufficient evidence.
+    mutation_allowed: false
+required_for_any_future_mutation:
+  - explicit reviewed WorkUnit
+  - source inventory
+  - evidence_refs
+  - compatibility notes
+  - validation plan
+  - rollback plan
+  - operator approval
+global_rules:
+  drop_candidate_is_not_deletion_approval: true
+  archive_is_not_applied_move: true
+  wrap_is_plan_not_execution: true
+  adapt_is_plan_not_migration: true
+  every_fate_requires_evidence: true

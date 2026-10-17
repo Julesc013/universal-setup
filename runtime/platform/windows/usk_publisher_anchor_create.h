@@ -14,6 +14,7 @@
 #include <vector>
 
 namespace usk::platform::windows {
+class PublisherMaintenanceNames;
 
 // Internal candidate primitive for disposable fixtures. Creates exactly one
 // directory component relative to a held parent handle with FILE_CREATE and
@@ -37,7 +38,8 @@ HANDLE create_record_directory_relative_with_descriptor(
 // grammar. Keep the narrower generated-anchor grammar on the API above.
 HANDLE create_staged_directory_relative_with_descriptor(
     HANDLE parent, const std::wstring& name,
-    const std::vector<unsigned char>& security_descriptor);
+    const std::vector<unsigned char>& security_descriptor,
+    const PublisherMaintenanceNames* maintenance_names = nullptr);
 
 // Create a regular staged file with the same parent-bound, create-only and
 // creation-time descriptor rules. The returned non-inheritable handle permits

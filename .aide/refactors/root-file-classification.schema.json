@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "apply_allowed": {
+      "const": false
+    },
+    "authority_sensitive": {
+      "type": "boolean"
+    },
+    "build_sensitive": {
+      "type": "boolean"
+    },
+    "current_role": {
+      "type": "string"
+    },
+    "generated_sensitive": {
+      "type": "boolean"
+    },
+    "identity_sensitive": {
+      "type": "boolean"
+    },
+    "kind": {
+      "type": "string"
+    },
+    "owner": {
+      "type": "string"
+    },
+    "path": {
+      "type": "string"
+    },
+    "recommended_fate": {
+      "type": "string"
+    },
+    "recommended_target_hint": {
+      "type": "string"
+    },
+    "reasons": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "review_required": {
+      "type": "boolean"
+    },
+    "root": {
+      "type": "string"
+    },
+    "semantic_risk": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string"
+    },
+    "validators_required": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "path",
+    "root",
+    "kind",
+    "status",
+    "owner",
+    "current_role",
+    "recommended_fate",
+    "recommended_target_hint",
+    "identity_sensitive",
+    "build_sensitive",
+    "authority_sensitive",
+    "generated_sensitive",
+    "semantic_risk",
+    "reasons",
+    "validators_required",
+    "review_required",
+    "apply_allowed"
+  ],
+  "type": "object"
+}

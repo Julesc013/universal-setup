@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: tool_wrap_plan_schema_golden
+title: Tool Wrap Plan Schema Golden
+status: active
+objective: Verify Q41 wrap-plan schema and no-execution wrapper plan output.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task tool_wrap_plan_schema_golden
+no_model_calls: true
+no_network_calls: true

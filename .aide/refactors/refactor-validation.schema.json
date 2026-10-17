@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.refactor-validation.schema.v0",
+  "type": "object",
+  "required": [
+    "validation_id",
+    "commands",
+    "expected_results",
+    "evidence_refs",
+    "blocks_apply"
+  ],
+  "properties": {
+    "validation_id": {"type": "string"},
+    "commands": {"type": "array"},
+    "expected_results": {"type": "array"},
+    "evidence_refs": {"type": "array"},
+    "blocks_apply": {"type": "boolean"}
+  }
+}

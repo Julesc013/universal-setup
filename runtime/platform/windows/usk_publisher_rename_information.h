@@ -19,9 +19,10 @@ namespace usk::platform::windows {
 // https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntifs/ns-ntifs-_file_rename_information
 class PublisherRenameInformation final {
 public:
-    PublisherRenameInformation(HANDLE parent, const std::wstring& name) {
+    PublisherRenameInformation(HANDLE parent, const std::wstring& name,
+        const PublisherMaintenanceNames* maintenance_names = nullptr) {
         if (!parent || parent == INVALID_HANDLE_VALUE ||
-            !is_publisher_canonical_component(name)) {
+            !is_publisher_admitted_component(parent, name, maintenance_names)) {
             throw std::runtime_error("publisher rename information has invalid bound inputs");
         }
         bytes_ = static_cast<ULONG>(sizeof(FILE_RENAME_INFO) + name.size() * sizeof(WCHAR));

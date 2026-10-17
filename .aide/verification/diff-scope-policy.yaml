@@ -1,0 +1,27 @@
+schema_version: aide.diff-scope-policy.v0
+policy_id: q12.diff-scope.v0
+status: active-pending-review
+purpose: Classify changed repo paths against the active queue task scope.
+allowed_path_source:
+  primary: active queue task `scope.allowed_paths`
+  fallback: current Q12 prompt allowlist
+forbidden_path_source:
+  primary: active queue task `scope.forbidden_paths`
+  fallback:
+    - .git/**
+    - .env
+    - secrets/**
+    - .aide.local/**
+default_classification: unknown
+git_status_classification:
+  modified: classify path against allowed and forbidden patterns
+  added: classify path against allowed and forbidden patterns
+  deleted: warn unless explicitly allowed
+  renamed: classify old and new paths
+  untracked: classify path against allowed and forbidden patterns
+classes:
+  allowed: path matches an allowed pattern and no forbidden pattern
+  warning: path is deleted, ambiguous, or outside a known active task scope but not forbidden
+  forbidden: path matches a forbidden pattern
+  unknown: path does not match allowed or forbidden patterns
+current_limitation: Q12 performs path-based classification only; no full semantic diff analysis yet.

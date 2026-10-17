@@ -1,0 +1,13 @@
+{
+  "schema_version": "aide.transaction.v0",
+  "example": true,
+  "transaction_id": "transaction-report-only-example",
+  "mode": "report_only",
+  "phases": ["observe", "plan", "verify", "evidence"],
+  "operations": [],
+  "staged_changes": [],
+  "safety_gates": [{"gate_id": "no_real_repo_apply_mode", "status": "pass", "blocks_apply": true}],
+  "rollback_record": {"rollback_id": "rollback-report-only-example", "apply_allowed": false},
+  "no_apply_boundary": {"real_repo_apply_allowed": false, "target_mutation": false, "branch_mutation": false, "provider_or_model_calls": "none", "network_calls": "none"},
+  "evidence": {"evidence_id": "transaction-report-only-evidence", "result": "PASS"}
+}

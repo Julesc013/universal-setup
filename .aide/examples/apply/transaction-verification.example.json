@@ -1,0 +1,10 @@
+{
+  "schema_version": "aide.transaction-verification.v0",
+  "example": true,
+  "transaction_id": "transaction-fixture-example",
+  "result": "PASS",
+  "verified_at": "deterministic",
+  "checks": [{"name": "no_real_repo_apply_mode", "result": "PASS"}],
+  "blockers": [],
+  "no_apply_boundary": {"real_repo_apply_allowed": false, "target_mutation": false, "branch_mutation": false, "provider_or_model_calls": "none", "network_calls": "none"}
+}

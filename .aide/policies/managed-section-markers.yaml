@@ -1,0 +1,55 @@
+schema_version: aide.managed-section-marker-policy.v0
+policy_id: managed_section_markers_v0
+status: active_needs_review
+implemented_in: AIDE-APPLY-01-managed-section-patcher
+scope: fixture-only marker parsing and patch planning
+canonical_marker_family: AIDE-GENERATED
+accepted_marker_families:
+  - id: AIDE-GENERATED
+    begin_syntax: "<!-- AIDE-GENERATED:BEGIN section=<section-name> ... -->"
+    end_syntax: "<!-- AIDE-GENERATED:END section=<section-name> -->"
+    line_scope: marker must occupy its own line
+    section_name_pattern: "^[A-Za-z0-9][A-Za-z0-9_.:-]*$"
+section_name_requirements:
+  - non_empty
+  - deterministic
+  - stable_across_generations
+  - ascii_letters_digits_dot_colon_underscore_dash
+allowed_marker_examples:
+  - "<!-- AIDE-GENERATED:BEGIN section=aide-token-survival-adapter generator=aide-adapter-compiler-v0 mode=managed_section manual=outside-only -->"
+  - "<!-- AIDE-GENERATED:END section=aide-token-survival-adapter -->"
+forbidden_ambiguous_markers:
+  - marker_without_section_name
+  - duplicate_begin_marker_for_same_section
+  - duplicate_end_marker_for_same_section
+  - nested_begin_marker_before_matching_end
+  - end_marker_before_begin_marker
+  - marker_not_on_own_line
+missing_marker_behavior:
+  missing_start_marker: block_patching
+  missing_end_marker: block_patching
+duplicate_marker_behavior:
+  duplicate_start_marker: block_patching
+  duplicate_end_marker: block_patching
+nested_marker_behavior:
+  nested_marker: block_patching
+malformed_marker_behavior:
+  malformed_marker: block_patching
+hash_metadata_guidance:
+  section_hashes: sha256_of_exact_text_content
+  manual_prefix_hash: sha256_of_exact_text_before_replacement_region
+  manual_suffix_hash: sha256_of_exact_text_after_replacement_region
+manual_content_preservation:
+  content_outside_markers: user_owned
+  content_between_markers: generated_owned_when_marker_valid
+  preservation_requirement: exact_prefix_and_suffix_preservation
+boundary:
+  missing_markers_block_patching: true
+  duplicate_or_ambiguous_markers_block_patching: true
+  managed_section_patching_is_not_install_upgrade_apply: true
+  aide_apply_01_fixture_patching_only: true
+  active_repo_apply_allowed: false
+  target_repo_mutation_allowed: false
+  branch_mutation_allowed: false
+  provider_or_model_calls: none
+  network_calls: none

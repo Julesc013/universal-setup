@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aide.invalid/schemas/commit-message-disposition.v1.json",
+  "title": "AIDE exact historical commit-message disposition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "disposition_id",
+    "status",
+    "commit",
+    "tree",
+    "parents",
+    "message_sha256",
+    "failed_checks",
+    "scope",
+    "decision",
+    "reviewed_by",
+    "reviewed_at",
+    "decision_ref",
+    "evidence",
+    "record_digest"
+  ],
+  "properties": {
+    "schema_version": {"const": "aide.commit-message-disposition.v1"},
+    "disposition_id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+    "status": {"enum": ["proposed", "accepted", "rejected"]},
+    "commit": {"$ref": "#/$defs/objectId"},
+    "tree": {"$ref": "#/$defs/objectId"},
+    "parents": {"type": "array", "items": {"$ref": "#/$defs/objectId"}},
+    "message_sha256": {"$ref": "#/$defs/sha256"},
+    "failed_checks": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "scope": {"const": "historical_commit_message_only"},
+    "decision": {"const": "accept_historical_nonconformance"},
+    "reviewed_by": {"type": "string", "pattern": "^(?:|(?:owner|reviewer):[^\\s:][^\\s]*)$"},
+    "reviewed_at": {"type": "string", "pattern": "^(?:|\\d{4}-\\d{2}-\\d{2})$"},
+    "decision_ref": {"$ref": "#/$defs/reference"},
+    "evidence": {"type": "array", "items": {"$ref": "#/$defs/reference"}},
+    "record_digest": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "objectId": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

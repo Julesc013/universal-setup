@@ -1,0 +1,9 @@
+id: release_asset_schema_golden
+title: Release Asset Schema Golden
+status: active
+task_type: golden_task
+runner: aide_lite
+command: py -3 .aide/scripts/aide_lite.py eval run --task release_asset_schema_golden
+expected_result: PASS
+no_provider_calls: true
+no_network_calls: true

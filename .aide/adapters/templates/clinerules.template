@@ -1,0 +1,13 @@
+{{managed_begin}}
+# AIDE Existing-Tool Adapter: Cline
+
+- Read `.aide/context/latest-task-packet.md` before proposing changes.
+- Avoid full-history prompts, full-repo prompts, raw prompt/response logs,
+  provider keys, secrets, and `.aide.local/` contents.
+- Use file and line refs. Request extra context narrowly.
+- Run AIDE Lite validation and packet commands before review when available:
+  `doctor`, `validate`, `pack`, `verify`, and `review-pack`.
+- Do not implement Gateway forwarding, provider/model calls, or autonomous
+  loops from this guidance.
+- End with compact evidence, validation, risks, and next step.
+{{managed_end}}

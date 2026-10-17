@@ -1,0 +1,11 @@
+schema_version: aide.golden-task.v0
+id: task_os_wave_checkpoint_plan_golden
+title: Task OS Wave Checkpoint Plan Golden
+status: active
+description: Verify wave and checkpoint status/plan reports stay report-only.
+quality_dimensions:
+  - wave_plan
+  - checkpoint_plan
+  - no_branch_mutation
+runner: .aide/scripts/aide_lite.py eval run --task task_os_wave_checkpoint_plan_golden
+no_call: true

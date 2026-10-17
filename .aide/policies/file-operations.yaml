@@ -1,0 +1,72 @@
+schema_version: aide.file-operations-policy.v0
+policy_id: file_operations_v0
+status: active_needs_review
+operation_classes:
+  - create
+  - update
+  - delete
+  - move
+  - copy
+  - patch
+  - remove_managed_section
+  - create_managed_section
+  - update_managed_section
+  - create_directory
+  - remove_directory
+  - noop
+  - unknown
+class_rules:
+  create:
+    destructive: false
+    real_repo_apply_allowed: false
+    fixture_only_allowed: true
+  update:
+    destructive: false
+    real_repo_apply_allowed: false
+    fixture_only_allowed: true
+  delete:
+    destructive: true
+    real_repo_apply_allowed: false
+    fixture_only_allowed: false
+  move:
+    destructive: true
+    real_repo_apply_allowed: false
+    fixture_only_allowed: false
+  copy:
+    destructive: false
+    real_repo_apply_allowed: false
+    fixture_only_allowed: true
+  patch:
+    destructive: false
+    real_repo_apply_allowed: false
+    fixture_only_allowed: true
+  remove_managed_section:
+    destructive: true
+    real_repo_apply_allowed: false
+    fixture_only_allowed: false
+  create_managed_section:
+    destructive: false
+    real_repo_apply_allowed: false
+    fixture_only_allowed: true
+  update_managed_section:
+    destructive: false
+    real_repo_apply_allowed: false
+    fixture_only_allowed: true
+  create_directory:
+    destructive: false
+    real_repo_apply_allowed: false
+    fixture_only_allowed: true
+  remove_directory:
+    destructive: true
+    real_repo_apply_allowed: false
+    fixture_only_allowed: false
+  noop:
+    destructive: false
+    real_repo_apply_allowed: false
+    fixture_only_allowed: true
+  unknown:
+    destructive: unknown
+    real_repo_apply_allowed: false
+    fixture_only_allowed: false
+destructive_operation_rule: destructive operations are blocked for real repo apply and are not fixture-planned in AIDE-APPLY-00.
+managed_section_rule: managed-section operations require explicit marker ids, preimage hashes, postimage hashes, and rollback records.

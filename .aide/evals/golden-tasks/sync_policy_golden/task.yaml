@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+task_id: sync_policy_golden
+title: Sync Policy Golden
+status: active
+purpose: Check multi-machine sync policy anchors without creating implicit merge or rebase behavior.
+input_refs:
+  - .aide/policies/sync-policy.yaml
+  - .aide/git/sync-policy.md
+acceptance_ref: .aide/evals/golden-tasks/sync_policy_golden/acceptance.md
+expected_result: PASS

@@ -36,6 +36,36 @@ class NativeCiProofTests(unittest.TestCase):
         self.assertIn("cppcheck --project=build/smoke/compile_commands.json", workflow)
         self.assertIn("--parallel 4", workflow)
 
+    def test_publisher_qualification_does_not_hide_core_ctest_or_skip_main(self) -> None:
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        core = workflow.split("  test:\n", 1)[1].split("  publisher-qualification:\n", 1)[0]
+        qualification = workflow.split("  publisher-qualification:\n", 1)[1].split("  windows-win32:\n", 1)[0]
+        self.assertIn("ctest --test-dir build/smoke", core)
+        self.assertIn("--label-exclude '^publisher-qualification$'", core)
+        self.assertNotIn("windows_publisher_lab_probe.ps1", core)
+        self.assertIn("-DUSK_QUALIFICATION_DIAGNOSTICS=OFF", core)
+        self.assertIn("-DUSK_QUALIFICATION_DIAGNOSTICS=ON", qualification)
+        self.assertIn("|| github.base_ref == 'main'", qualification)
+        self.assertLess(qualification.index("Require the admitted same-repository"),
+                        qualification.index("actions/checkout@v6"))
+        self.assertIn("run: throw 'Publisher qualification requires", qualification)
+        self.assertNotIn("continue-on-error", qualification)
+        self.assertIn("--label-regex '^publisher-qualification$' --no-tests=error", qualification)
+        self.assertIn("id: publisher_hosted", qualification)
+        cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+        for name in ("usk_machine_registered_candidate_hosted", "usk_controller_registered_apply_hosted"):
+            properties = cmake.split("set_tests_properties(" + name, 1)[1].split(")", 1)[0]
+            self.assertIn("RUN_SERIAL TRUE TIMEOUT 420 LABELS publisher-qualification", properties)
+        self.assertEqual(cmake.count("LABELS publisher-qualification"), 2)
+        self.assertNotIn("Retain packaged machine service observation", core)
+        self.assertIn("Retain packaged machine service observation", qualification)
+        # Recovery must remain an executed qualification step on promotion even
+        # though the promotion head is dev, rather than a task-named branch.
+        recovery = qualification.split("name: Qualify untraced genuinely interrupted repair", 1)[1].split("      - name:", 1)[0]
+        self.assertNotIn("startsWith", recovery)
+        self.assertIn("windows_publisher_lab_probe.ps1", recovery)
+        self.assertIn("-PublicStandardMaintenanceRecoveryQualification", recovery)
+
 
 if __name__ == "__main__":
     unittest.main()
