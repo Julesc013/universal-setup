@@ -1,6 +1,13 @@
 schema_version: aide.promotion-rules-policy.v0
 policy_id: aide-promotion-rules-v0
 status: active
+cadence:
+  task_to_dev: after each completed useful validated increment
+  dev_to_main: promptly after the increment meets project acceptance and review gates
+  remote_sync: verify fetched target state before and observed remote result after each effect
+  existing_grants: avoid repeated permission requests for already-authorized ordinary effects
+  conflicts: preserve contributor work and review actual resolved result before integration
+  release_boundary: source promotion never certifies different or unqualified package bytes
 purpose: >
   Define report-only promotion gates for future merge/land/promote helpers.
   Q28 records rules only and never performs branch mutation.

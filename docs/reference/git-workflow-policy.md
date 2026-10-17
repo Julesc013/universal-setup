@@ -1,5 +1,18 @@
 # Git Workflow Policy
 
+The default for AIDE and new adopting projects is coherent detailed task commits,
+frequent validated task-to-`dev` integration and remote synchronization, followed
+by prompt reviewed promotion to `main`. Existing project profiles and overrides
+remain in force. Main hosting protection is optional; dev is normally unprotected.
+Neither setting permits force push, loss of another contributor's work, or bypass
+of acceptance. AIDE does not change existing hosting settings during adoption.
+
+Task branches are short-lived and local by default. Publish when collaboration,
+importance or blocked continuity warrants it, retaining a reason and next action.
+Review obsolete remote task refs after closure; retain active, important,
+persistent, uncontained, uncertain and open-collaboration work. Exact preservation,
+ownership, remote-ref and recovery evidence precedes any authorized removal.
+
 Q28 defines AIDE's local Git workflow policy before any branch mutation helpers
 exist.
 

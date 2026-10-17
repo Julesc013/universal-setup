@@ -5,11 +5,13 @@ a future helper plan from repository evidence.
 
 ## Roles
 
-- `canonical`: `main`; accepted truth, protected, no deletion, no force push.
+- `canonical`: `main`; accepted truth, optional hosting protection, no deletion, no force push.
 - `integration`: `dev`; shareable latest integration, not canonical release
-  truth.
+  truth; normally unprotected by the hosting service.
 - `task`: `task/*`, `codex/*`, `aide/*`, `fix/*`, `repair/*`; bounded work
   that lands to `dev` by default.
+  Keep it local and short-lived; publish when collaboration, an important checkpoint
+  or blocked continuity makes sharing useful. Preserve existing project policy.
 - `subtask`: narrow child work that rolls into a parent task branch.
 - `review`: `review/*`; review staging and evidence inspection.
 - `quarantine`: `quarantine/*`; isolated risky or disputed work.

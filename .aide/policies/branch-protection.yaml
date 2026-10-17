@@ -7,7 +7,8 @@ purpose: >
 rules:
   main:
     role: canonical
-    protect: true
+    protect: false
+    protection_choice: optional_project_opt_in
     require_reviews: true
     require_status_checks: true
     no_force_push: true
@@ -16,7 +17,8 @@ rules:
   dev:
     role: integration
     canonical_truth: false
-    protect: true
+    protect: false
+    protection_choice: normally_unprotected_project_may_opt_in
     require_reviews: false
     require_status_checks: true
     no_force_push: true
@@ -42,6 +44,8 @@ rules:
     generated_only: true
     hand_edits_allowed: false
 application_policy:
+  existing_remote_protection: preserve_until_separately_authorized_change
+  protection_disabled_does_not_allow_force_push_or_branch_deletion: true
   q35_applies_rules: false
   github_api_mutation: false
   workflow_file_written: false

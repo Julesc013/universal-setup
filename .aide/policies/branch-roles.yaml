@@ -63,7 +63,7 @@ roles:
     allowed_targets:
       - dev
       - main
-    remote_tracking_policy: local by default, remote only when shared or resumable
+    remote_tracking_policy: local by default; publish for collaboration, important checkpoints, or blocked continuity
     validation_required: task-local validation, evidence, and commit checks
     promotion_target: dev
     pruning_policy: prune only after contained in dev or main
@@ -217,6 +217,8 @@ branch_name_rules:
   main:
     role: canonical
     protected: true
+    protected_meaning: retained_role_never_force_push_or_prune_not_hosting_configuration
+    hosting_protection: optional_project_choice
     no_force_push: true
     no_deletion: true
     promotion_sources:
@@ -227,6 +229,8 @@ branch_name_rules:
   dev:
     role: integration
     protected: true
+    protected_meaning: retained_role_never_force_push_or_prune_not_hosting_configuration
+    hosting_protection: normally_unprotected_project_may_override
     shareable_latest_work: true
     canonical_release_truth: false
     note: dev is integration and not canonical release truth
@@ -238,6 +242,7 @@ branch_name_rules:
     short_lived: true
     local_by_default: true
     remote_only_if_shared_or_resumable: true
+    important_or_blocked_checkpoint_is_resumable: true
     default_target: dev
     delete_only_after_contained_in_dev_or_main: true
   release/*:

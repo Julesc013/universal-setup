@@ -1,5 +1,15 @@
 # GitHub Protection And CI Advisory
 
+Portable defaults leave main hosting protection optional and dev normally
+unprotected. Set each project's `rules.<branch>.protect` boolean in
+`.aide/policies/branch-protection.yaml` to opt in or override. The advisory now
+reads these choices instead of hard-coding protected main/dev. It accepts the
+existing two/four-space mapping with literal booleans; missing, duplicate or
+unsupported values remain unknown and fail policy validation. Human and JSON
+reports show the same choice and preserve existing remote settings. They do not
+claim that remote protection was observed or changed. Main review, applicable
+tests, no-force-push and persistent-branch retention remain independent duties.
+
 Q35 adds report-only GitHub protection and CI advisory support.
 
 The advisory uses repo-local evidence:

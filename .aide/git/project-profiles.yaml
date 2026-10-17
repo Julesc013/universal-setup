@@ -1,4 +1,12 @@
 schema_version: aide.git-project-profiles.v0
+inherited_defaults:
+  source: .aide/policies/git-workflow.yaml
+  main_hosting_protection: optional_project_choice
+  dev_hosting_protection: normally_unprotected
+  task_branches: short_lived_and_local_unless_shared_important_or_blocked
+  integration: frequent_validated_commits_and_sync_under_existing_grants
+  existing_project_profile_and_overrides: preserved
+  branch_creation: observed_project_plan_required_never_inferred_from_profile_alone
 profiles:
   aide:
     default_workflow_model: trunk_with_dev_integration

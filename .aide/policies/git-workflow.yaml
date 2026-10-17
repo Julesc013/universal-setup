@@ -8,6 +8,22 @@ purpose: >
 default_model: trunk_with_dev_integration
 canonical_branch: main
 integration_branch: dev
+portable_defaults:
+  applicability: AIDE and adopting projects unless project-owned policy overrides
+  commit_cadence: coherent reviewed increments with rationale checks risks and follow-up
+  integration_cadence: assess land and sync at each completed useful increment
+  promotion_cadence: promote qualified dev increments promptly through project review gates
+  before_each_effect: observe current refs ownership worktree and applicable evidence
+  main_hosting_protection: optional_project_choice
+  dev_hosting_protection: normally_disabled_project_may_override
+  preserve_existing_host_protection: true
+  task_branches: local_short_lived_by_default
+  publish_task_when: collaboration important_checkpoint or blocked_continuity warrants sharing
+  publication_record: reason exact_commit owner and next_action
+  remote_cleanup: exact_reviewed_closed_inactive_contained_task_refs_only
+  retention: active persistent important open_collaboration uncontained and uncertain refs
+  authority: use existing project grants without repeated routine permission requests
+  default_is_not_remote_apply_authority: true
 task_branch_prefixes:
   - task/
   - codex/
