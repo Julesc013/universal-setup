@@ -870,7 +870,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -994,7 +994,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -2072,7 +2072,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
@@ -2103,7 +2103,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
@@ -2134,7 +2134,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
@@ -2345,7 +2345,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "runtime/base/usk_stable_file.cpp",
@@ -2381,7 +2381,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "runtime/base/usk_stable_file.cpp",
@@ -2417,7 +2417,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "runtime/base/usk_stable_file.cpp",
@@ -2519,7 +2519,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         },
         {
           "path": "apps/cli/usk_machine.cpp",
@@ -2879,11 +2879,11 @@
         },
         {
           "path": "runtime/setup/state/usk_state_repository.h",
-          "sha256": "edf8ab790f25fffa5d3de0b06c4cd2df682cd0b22e68d72712ca0693a95b9566"
+          "sha256": "b73c3a90335824e7e67455c5c63d19eca2b216eb87e104cd0148636a1d032a65"
         },
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "tests/native/usk_transaction_session_smoke.cpp",
@@ -2982,7 +2982,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         },
         {
           "path": "apps/cli/usk_machine.cpp",
@@ -3342,11 +3342,11 @@
         },
         {
           "path": "runtime/setup/state/usk_state_repository.h",
-          "sha256": "edf8ab790f25fffa5d3de0b06c4cd2df682cd0b22e68d72712ca0693a95b9566"
+          "sha256": "b73c3a90335824e7e67455c5c63d19eca2b216eb87e104cd0148636a1d032a65"
         },
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "tests/native/usk_transaction_session_smoke.cpp",
@@ -3445,7 +3445,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         },
         {
           "path": "apps/cli/usk_machine.cpp",
@@ -3805,11 +3805,11 @@
         },
         {
           "path": "runtime/setup/state/usk_state_repository.h",
-          "sha256": "edf8ab790f25fffa5d3de0b06c4cd2df682cd0b22e68d72712ca0693a95b9566"
+          "sha256": "b73c3a90335824e7e67455c5c63d19eca2b216eb87e104cd0148636a1d032a65"
         },
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "tests/native/usk_transaction_session_smoke.cpp",
@@ -3976,7 +3976,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",
@@ -4007,7 +4007,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",
@@ -4038,7 +4038,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "contracts/schema/setup/installed_state.v1.schema.json",
@@ -4069,7 +4069,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -4104,7 +4104,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -4139,7 +4139,7 @@
       "source_observations": [
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         },
         {
           "path": "runtime/setup/kernel/usk_api.c",
@@ -4381,7 +4381,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
@@ -4416,7 +4416,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
@@ -4451,7 +4451,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
@@ -4486,7 +4486,7 @@
       "source_observations": [
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "runtime/setup/lifecycle/usk_lifecycle.cpp",
@@ -4880,7 +4880,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         }
       ],
       "acceptance_ids": [
@@ -4916,7 +4916,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         }
       ],
       "acceptance_ids": [
@@ -4952,7 +4952,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         }
       ],
       "acceptance_ids": [
@@ -5028,7 +5028,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         },
         {
           "path": "tests/native/usk_bundle_plan_process_probe.py",
@@ -5335,7 +5335,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         },
         {
           "path": "tests/native/usk_publisher_service_mode_probe.py",
@@ -5847,7 +5847,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         },
         {
           "path": "tests/native/usk_publisher_service_mode_probe.py",
@@ -6431,11 +6431,11 @@
         },
         {
           "path": "runtime/setup/state/usk_state_repository.h",
-          "sha256": "edf8ab790f25fffa5d3de0b06c4cd2df682cd0b22e68d72712ca0693a95b9566"
+          "sha256": "b73c3a90335824e7e67455c5c63d19eca2b216eb87e104cd0148636a1d032a65"
         },
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "tests/native/usk_transaction_session_smoke.cpp",
@@ -6563,7 +6563,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         },
         {
           "path": "runtime/setup/transaction/usk_install_lease.h",
@@ -6690,11 +6690,11 @@
         },
         {
           "path": "runtime/setup/state/usk_state_repository.h",
-          "sha256": "edf8ab790f25fffa5d3de0b06c4cd2df682cd0b22e68d72712ca0693a95b9566"
+          "sha256": "b73c3a90335824e7e67455c5c63d19eca2b216eb87e104cd0148636a1d032a65"
         },
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "tests/native/usk_transaction_session_smoke.cpp",
@@ -6822,7 +6822,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         },
         {
           "path": "runtime/setup/transaction/usk_install_lease.h",
@@ -7854,11 +7854,11 @@
         },
         {
           "path": "runtime/setup/state/usk_state_repository.h",
-          "sha256": "edf8ab790f25fffa5d3de0b06c4cd2df682cd0b22e68d72712ca0693a95b9566"
+          "sha256": "b73c3a90335824e7e67455c5c63d19eca2b216eb87e104cd0148636a1d032a65"
         },
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
@@ -7982,7 +7982,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         },
         {
           "path": "runtime/setup/transaction/usk_install_lease.h",
@@ -8107,11 +8107,11 @@
         },
         {
           "path": "runtime/setup/state/usk_state_repository.h",
-          "sha256": "edf8ab790f25fffa5d3de0b06c4cd2df682cd0b22e68d72712ca0693a95b9566"
+          "sha256": "b73c3a90335824e7e67455c5c63d19eca2b216eb87e104cd0148636a1d032a65"
         },
         {
           "path": "runtime/setup/state/usk_state_repository.cpp",
-          "sha256": "e036d63736999ef848365f23f83bb1cc2c2ca10e141fe70a0967cef22e40d5c1"
+          "sha256": "51a4ec7e90f463c12a03788ee7972ee0523bd3ac5e51b05ac2b8622526f7093b"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
@@ -8235,7 +8235,7 @@
         },
         {
           "path": "CMakeLists.txt",
-          "sha256": "5abb34d7d4350bb482fc7794a70dcb85d82c29c9ce1426e9c77a9137cb208088"
+          "sha256": "fcbb59103cbffee622556365bb9142f265b0629def7f19cb0fb1df49e6e093c2"
         },
         {
           "path": "runtime/setup/transaction/usk_install_lease.h",

@@ -1025,10 +1025,14 @@ if(USK_BUILD_TESTS)
   # The campaign task path already carries repository/task identity. Adding
   # build/run identifiers to native fixture paths can exceed the supported
   # Windows path envelope before the behavior under test is reached.
-  if(DEFINED ENV{FACMAN_TASK_ROOT} AND NOT "$ENV{FACMAN_TASK_ROOT}" STREQUAL "")
-    set(USK_TEST_TEMP_ROOT "$ENV{FACMAN_TASK_ROOT}/t")
-  else()
-    set(USK_TEST_TEMP_ROOT "${CMAKE_CURRENT_BINARY_DIR}/test-tmp")
+  # An explicit local root can keep fixtures inside an existing approved output
+  # area when long repository/task names exceed the supported Windows envelope.
+  if(NOT DEFINED USK_TEST_TEMP_ROOT OR "${USK_TEST_TEMP_ROOT}" STREQUAL "")
+    if(DEFINED ENV{FACMAN_TASK_ROOT} AND NOT "$ENV{FACMAN_TASK_ROOT}" STREQUAL "")
+      set(USK_TEST_TEMP_ROOT "$ENV{FACMAN_TASK_ROOT}/t")
+    else()
+      set(USK_TEST_TEMP_ROOT "${CMAKE_CURRENT_BINARY_DIR}/test-tmp")
+    endif()
   endif()
   file(MAKE_DIRECTORY "${USK_TEST_TEMP_ROOT}")
   get_property(USK_NATIVE_TESTS DIRECTORY PROPERTY TESTS)

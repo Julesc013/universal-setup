@@ -65,6 +65,13 @@ struct InstalledState {
 // current-revision authority; the repository still verifies owned bindings.
 std::string serialize_installed_state(const InstalledState& state);
 
+// Canonical record metadata only: these do not open paths, choose the current
+// revision, bind filename/ownership/native custody, or authorize retirement.
+// The ownership decoder consumes its text so the input/tree can be released
+// before recomputing a potentially large manifest digest.
+OwnershipManifest decode_ownership_record(std::string text, const std::string& lookup_id);
+InstalledState decode_installed_record(const std::string& text);
+
 class StateRepository {
 public:
     explicit StateRepository(std::filesystem::path state_root);

@@ -225,6 +225,71 @@ int run()
             "b27130773380781c6b5fe091173770aef362440834237af81bf23ff316d56153") {
         return 9;
     }
+    // The byte readers are intentionally usable without path access, but
+    // parsing a record does not establish its repository or chain authority.
+    const auto check = [](bool condition) {
+        if (!condition) throw std::runtime_error("canonical record byte decoder control failed");
+    };
+    using usk::state::decode_installed_record;
+    using usk::state::decode_ownership_record;
+    using usk::audit::decode_audit_event_record;
+    const auto installed_bytes = usk::state::serialize_installed_state(state);
+    check(usk::state::serialize_installed_state(decode_installed_record(installed_bytes)) == installed_bytes);
+    check(usk::state::serialize_installed_state(decode_installed_record(
+        installed_bytes.substr(0, installed_bytes.size() - 1u) + "\r\n")) == installed_bytes);
+    check(decode_ownership_record(exact_ownership, stored_ownership.manifest_id).manifest_digest ==
+        stored_ownership.manifest_digest);
+    check(decode_ownership_record(exact_ownership.substr(0, exact_ownership.size() - 1u) + "\r\n",
+        stored_ownership.install_id).manifest_digest == stored_ownership.manifest_digest);
+    check(refuses([&] { (void)decode_ownership_record(exact_ownership, "unrelated.install"); }));
+    check(refuses([&] { (void)decode_ownership_record(exact_ownership, "../escape"); }));
+    for (const auto& text : {installed_bytes.substr(0, installed_bytes.size() - 1u), " " + installed_bytes,
+            installed_bytes + "\n"}) {
+        check(refuses([&] { (void)decode_installed_record(text); }));
+    }
+    for (const auto& text : {exact_ownership.substr(0, exact_ownership.size() - 1u), " " + exact_ownership}) {
+        check(refuses([&] { (void)decode_ownership_record(text, stored_ownership.manifest_id); }));
+    }
+    auto altered = usk::json::parse(exact_ownership);
+    altered.as_object().at("files").as_array().front().as_object().at("sha256") =
+        usk::json::Value(std::string(64u, 'f'));
+    check(refuses([&] { (void)decode_ownership_record(usk::json::canonical(altered) + "\n",
+        stored_ownership.manifest_id); }));
+    altered = usk::json::parse(installed_bytes);
+    altered.as_object().at("ownership_manifest_ref") = usk::json::Value("ownership/../escape.json");
+    check(refuses([&] { (void)decode_installed_record(usk::json::canonical(altered) + "\n"); }));
+    altered = usk::json::parse(installed_bytes);
+    altered.as_object().emplace("retirement_approved", usk::json::Value(true));
+    check(refuses([&] { (void)decode_installed_record(usk::json::canonical(altered) + "\n"); }));
+    check(refuses([&] { (void)decode_installed_record(std::string(4u * 1024u * 1024u + 1u, ' ')); }));
+    check(refuses([&] { (void)decode_ownership_record(
+        std::string(16u * 1024u * 1024u + 1u, ' '), stored_ownership.manifest_id); }));
+
+    const auto event_bytes = read_text(corpus_source / "audit-event-0.json");
+    check(decode_audit_event_record(event_bytes).event_digest == compatible_chain.front().event_digest);
+    check(decode_audit_event_record(event_bytes.substr(0, event_bytes.size() - 1u) + "\r\n").event_digest ==
+        compatible_chain.front().event_digest);
+    altered = usk::json::parse(event_bytes);
+    altered.as_object().at("transaction_id") = usk::json::Value("different.transaction");
+    check(refuses([&] { (void)decode_audit_event_record(usk::json::canonical(altered) + "\n"); }));
+    check(refuses([&] { (void)decode_audit_event_record(" " + event_bytes); }));
+    check(refuses([&] { (void)decode_audit_event_record(std::string(1024u * 1024u + 1u, ' ')); }));
+
+    // Historical bytes remain parseable after removal from the owned fixture.
+    // Repository readers must still refuse missing custody or incorrect names.
+    const auto legacy_ownership = read_text(corpus_source / "ownership.json");
+    fs::remove(corpus.state / "ownership/install.fixture.json");
+    check(decode_ownership_record(legacy_ownership, "install.fixture").manifest_digest ==
+        compatible_state.ownership_manifest_digest);
+    check(refuses([&] { (void)corpus_state.read_installed("install.fixture"); }));
+    fs::copy_file(corpus_source / "ownership.json", corpus.state / "ownership/install.fixture.json");
+    fs::rename(corpus.state / "installed/install.fixture.json", corpus.state / "installed/unbound.json");
+    check(decode_installed_record(read_text(corpus_source / "installed.json")).install_id == "install.fixture");
+    check(refuses([&] { (void)corpus_state.read_installed("install.fixture"); }));
+    fs::rename(corpus.audit / "chains/audit.fixture/00000000000000000000.event.json",
+        corpus.audit / "chains/audit.fixture/00000000000000000001.event.json");
+    check(decode_audit_event_record(event_bytes).sequence == 0);
+    check(refuses([&] { (void)corpus_audit.read_and_validate_chain("audit.fixture"); }));
     return 0;
 }
 

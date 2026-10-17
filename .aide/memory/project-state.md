@@ -8,9 +8,10 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR250 is normally merged into dev at6933fc29 after all required core checks,
-independent source review and the live merge gate. Seven reviewed checkpoints
-PR244 through PR250 were integrated on18October2026; main remainsc048f7.
+PR251 is normally merged into dev at3e0e3dfe after all required core checks,
+independent source review and the live merge gate. Eight reviewed checkpoints
+PR244 through PR251 were integrated on18October2026; main remainsc048f7.
+PR250 was previously integrated at6933fc29.
 Reviewed/core-qualified dev integration is daily; main promotion targets19October
 when its additional publisher and applicable acceptance gates pass.
 PR249 was previously integrated at0aaba4de.
@@ -50,7 +51,7 @@ Native fault controls cover message construction/propagation and current-request
 fallback formatting. These are not a live registered-service allocation-fault run
 or the unfinished public C SDK factory/transport integration.
 
-The next token-buffer change targets measured repeated capacity queries and
+The integrated PR251 token-buffer change targets measured repeated capacity queries and
 temporary allocation in client_token_facts. It returns a fresh successful native
 content read for each of the same six properties, with fixed aligned1KiB storage
 and the existing64KiB exact-size fallback. The owner cannot move/copy because
@@ -64,6 +65,24 @@ independent two-call reader, allocation denial, >1KiB native fallback, changed
 ModifiedID/privileges and unusable failures. A bounded local helper benchmark is
 separate from full request qualification; no recovery deadline improvement or
 main/release acceptance is established by it.
+
+Connected owned-retirement work has begun with extraction of the existing
+canonical installed-state, ownership and audit-event byte validators. They
+validate bounded metadata for a later fixed native-custody consumer; they do
+not select a current revision, bind filesystem custody or authorize deletion.
+Existing repository readers retain safe opens, exact filenames, ownership joins
+and full chain sequence checks. Ownership parsing releases owned input/tree
+before digest reconstruction, retaining its prior large-manifest memory shape.
+Native tests cover legacy/current LF/CRLF records, canonical and digest refusal,
+byte bounds, and separate refusal for missing ownership or unbound filenames.
+The ownership outer byte bound remains16MiB but its unchanged default JSON
+parser still caps input at4MiB; no16MiB parse-support claim follows. A small CMake
+override admits an explicitly selected test fixture directory under the existing
+output area when long task paths exceed the unchanged Windows path envelope.
+The default test environment remains as before. This changes no product limit.
+The privileged retirement custody, journal/effect/lease/complete-namespace proof,
+real owned uninstall connection and final deletion remain unfinished. This is
+implementation preparation, with no installed-target retirement availability.
 
 The held eight-query recovery preview remains unapplied. Independent review finds
 its removed intermediate child/broker/client security observations nonredundant.
