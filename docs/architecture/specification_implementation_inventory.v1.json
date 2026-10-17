@@ -5347,7 +5347,7 @@
         },
         {
           "path": "tests/native/usk_publisher_lab_device_acl.cpp",
-          "sha256": "e435a2f4b14ba744738dc63f2295306bbd967e0aa5735f9a6ea2a8b7509073d3"
+          "sha256": "7c09a7210eab636a789f4c10118d85d6528976fc67f9bd41a08f6ebd02c85916"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_bound_rename.cpp",
@@ -5859,7 +5859,7 @@
         },
         {
           "path": "tests/native/usk_publisher_lab_device_acl.cpp",
-          "sha256": "e435a2f4b14ba744738dc63f2295306bbd967e0aa5735f9a6ea2a8b7509073d3"
+          "sha256": "7c09a7210eab636a789f4c10118d85d6528976fc67f9bd41a08f6ebd02c85916"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_bound_rename.cpp",
