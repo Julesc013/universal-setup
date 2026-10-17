@@ -95,11 +95,18 @@ std::uint64_t luid(const LUID& value) {
 }
 std::vector<unsigned char> token_info(HANDLE token, TOKEN_INFORMATION_CLASS kind) {
     DWORD size = 0;
-    require(!GetTokenInformation(token, kind, nullptr, 0, &size) &&
-        GetLastError() == ERROR_INSUFFICIENT_BUFFER && size && size <= 1024 * 1024,
-        "publisher worker token information size unavailable");
-    std::vector<unsigned char> bytes(size);
-    require(GetTokenInformation(token, kind, bytes.data(), size, &size) && size <= bytes.size(),
+    // The ordinary complete read needs no preceding failed size-only query.
+    // Keep pointer-bearing token data in its final owned allocation. A resize
+    // after insufficient space is followed by a new complete native read.
+    std::vector<unsigned char> bytes(1024u);
+    if (!GetTokenInformation(token, kind, bytes.data(), static_cast<DWORD>(bytes.size()), &size)) {
+        require(GetLastError() == ERROR_INSUFFICIENT_BUFFER && size && size <= 1024u * 1024u,
+            "publisher worker token information size unavailable");
+        bytes.resize(size);
+        require(GetTokenInformation(token, kind, bytes.data(), static_cast<DWORD>(bytes.size()), &size),
+            "publisher worker token information changed or unavailable");
+    }
+    require(size <= bytes.size(),
         "publisher worker token information changed or unavailable");
     bytes.resize(size);
     return bytes;
@@ -145,11 +152,17 @@ Value::Array acl_aces(PACL acl) {
 Value::Object object_security(HANDLE handle) {
     constexpr SECURITY_INFORMATION information = OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
     DWORD size = 0;
-    require(!GetKernelObjectSecurity(handle, information, nullptr, 0, &size) &&
-        GetLastError() == ERROR_INSUFFICIENT_BUFFER && size >= SECURITY_DESCRIPTOR_MIN_LENGTH &&
-        size <= 1024 * 1024, "publisher worker descriptor size unavailable");
-    std::vector<unsigned char> bytes(size);
-    require(GetKernelObjectSecurity(handle, information, bytes.data(), size, &size) && size <= bytes.size() &&
+    // Every invocation still obtains a fresh complete descriptor. Only the
+    // failed sizing probe is avoided when this bounded initial buffer fits.
+    std::vector<unsigned char> bytes(1024u);
+    if (!GetKernelObjectSecurity(handle, information, bytes.data(), static_cast<DWORD>(bytes.size()), &size)) {
+        require(GetLastError() == ERROR_INSUFFICIENT_BUFFER && size >= SECURITY_DESCRIPTOR_MIN_LENGTH &&
+            size <= 1024u * 1024u, "publisher worker descriptor size unavailable");
+        bytes.resize(size);
+        require(GetKernelObjectSecurity(handle, information, bytes.data(), static_cast<DWORD>(bytes.size()), &size),
+            "publisher worker stored descriptor unavailable");
+    }
+    require(size >= SECURITY_DESCRIPTOR_MIN_LENGTH && size <= bytes.size() &&
         IsValidSecurityDescriptor(bytes.data()), "publisher worker stored descriptor unavailable");
     PSID owner = nullptr;
     PACL dacl = nullptr;
@@ -178,14 +191,20 @@ std::vector<DWORD> thread_ids() {
     require(query != nullptr, "publisher worker independent system census export unavailable");
     constexpr ULONG limit = 16u * 1024u * 1024u;
     constexpr std::uint32_t length_mismatch = 0xc0000004u;
-    std::vector<std::uint8_t> bytes(1024u * 1024u);
+    // Retain only an allocation-size hint, never census bytes or thread IDs.
+    // Each boundary still uses a new zeroed buffer and a fresh system query.
+    thread_local ULONG capacity_hint = 1024u * 1024u;
+    std::vector<std::uint8_t> bytes(capacity_hint);
     for (unsigned attempt = 0; attempt != 4; ++attempt) {
         ULONG returned = 0;
         const auto status = static_cast<std::uint32_t>(query(static_cast<ULONG>(SystemProcessInformation),
             bytes.data(), static_cast<ULONG>(bytes.size()), &returned));
         if (status == 0) {
             require(returned && returned <= bytes.size(), "publisher worker independent census length unavailable");
-            return detail::parse_publisher_system_thread_census(bytes.data(), returned, GetCurrentProcessId(), GetCurrentThreadId());
+            auto ids = detail::parse_publisher_system_thread_census(
+                bytes.data(), returned, GetCurrentProcessId(), GetCurrentThreadId());
+            capacity_hint = static_cast<ULONG>(bytes.size());
+            return ids;
         }
         // Only incomplete buffer sizing can expand BEFORE any census is used.
         // Every other status, exhausted bound or failed observation refuses.
@@ -955,6 +974,11 @@ std::vector<DWORD> detail::parse_publisher_system_thread_census(const std::uint8
 }
 struct PublisherBrokerWorkerSecurity::Impl { BrokerOriginalThreads originals; };
 std::vector<DWORD> detail::observe_publisher_system_thread_census_for_test() { return thread_ids(); }
+std::vector<unsigned char> detail::observe_publisher_worker_token_bytes_for_test(
+    HANDLE token, TOKEN_INFORMATION_CLASS kind) { return token_info(token, kind); }
+Value detail::observe_publisher_worker_object_security_for_test(HANDLE handle) {
+    return Value(object_security(handle));
+}
 PublisherBrokerWorkerSecurity::PublisherBrokerWorkerSecurity(const PublisherServiceObservation& service)
     : impl_(std::make_unique<Impl>()) {
     require(service.process_id == GetCurrentProcessId(), "SCM broker lifetime context is another process");

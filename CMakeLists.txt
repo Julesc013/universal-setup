@@ -883,6 +883,13 @@ if(USK_BUILD_TESTS)
     add_test(NAME usk_publisher_process_boundary_smoke COMMAND usk_publisher_process_boundary_smoke)
     set_tests_properties(usk_publisher_process_boundary_smoke PROPERTIES TIMEOUT 30)
 
+    add_executable(usk_publisher_worker_buffer_smoke tests/native/usk_publisher_worker_buffer_smoke.cpp)
+    target_compile_features(usk_publisher_worker_buffer_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_worker_buffer_smoke PRIVATE usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_worker_buffer_smoke)
+    add_test(NAME usk_publisher_worker_buffer_smoke COMMAND usk_publisher_worker_buffer_smoke)
+    set_tests_properties(usk_publisher_worker_buffer_smoke PROPERTIES TIMEOUT 30)
+
     add_executable(usk_publisher_custody_image_smoke
       tests/native/usk_publisher_custody_image_smoke.cpp)
     target_compile_features(usk_publisher_custody_image_smoke PRIVATE cxx_std_17)

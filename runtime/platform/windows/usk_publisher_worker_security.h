@@ -102,6 +102,10 @@ namespace detail {
 std::vector<DWORD> parse_publisher_system_thread_census(const std::uint8_t*, std::size_t,
     DWORD current_process, DWORD current_thread);
 std::vector<DWORD> observe_publisher_system_thread_census_for_test();
+// Ordinary native buffer controls only; supplied handles grant no service or
+// effect authority. Returned token pointers remain inside the owned buffer.
+std::vector<unsigned char> observe_publisher_worker_token_bytes_for_test(HANDLE, TOKEN_INFORMATION_CLASS);
+usk::json::Value observe_publisher_worker_object_security_for_test(HANDLE);
 // Actual ordinary owned-thread controls; no service/effect authorization.
 struct BrokerWorkerSecurityTestOwner;
 std::shared_ptr<BrokerWorkerSecurityTestOwner> pin_broker_worker_security_for_test();
