@@ -190,6 +190,11 @@ for this increment is not yet qualified. Existing unpublished-only unregister an
 binary retirement remain fail closed for installed metadata; the fixed privileged
 owned-retirement implementation remains unfinished. No lab deletion substitutes
 for product retirement, and no120second request or420second fixture limit changes.
+PR252's first hosted core build rejects partial aggregate initializers in the new
+native record-reader fixture under GCC/Clang missing-field warnings as errors.
+The repair assigns the required fixture fields explicitly and preserves all
+defaults, assertions and strict compiler settings. Original failed logs are
+retained; the complete route remains subject to the repaired head's checks.
 Use the external task checkpoint for exact candidate pins and current results.
 Do not start another campaign, queue or unofficial checkout. Integrate reviewed
 dev checkpoints daily; promote main weekly when its qualification gates pass.

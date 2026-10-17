@@ -49,10 +49,19 @@ int main() {
         using usk::transaction::MaintenanceEffectRecordReader;
         Fixture fixture;
         const auto target = fixture.root / "payload";
-        const usk::lifecycle::RecipeBinding recipe{
-            "product.retirement", "1.0.0", std::string(64, '1'), std::string(64, '2'),
-            std::string(64, '3'), "reader-fixture", {"core"}, {{"application", "data.bin", "application"}}};
-        const std::vector<usk::lifecycle::PayloadFile> files{{"data.bin", {'d', 'a', 't', 'a'}}};
+        usk::lifecycle::RecipeBinding recipe;
+        recipe.product_id = "product.retirement";
+        recipe.product_version = "1.0.0";
+        recipe.recipe_digest = std::string(64, '1');
+        recipe.source_archive_digest = std::string(64, '2');
+        recipe.policy_digest = std::string(64, '3');
+        recipe.provider_revision = "reader-fixture";
+        recipe.components = {"core"};
+        recipe.entrypoints = {{"application", "data.bin", "application"}};
+        usk::lifecycle::PayloadFile payload;
+        payload.relative_path = "data.bin";
+        payload.bytes = {'d', 'a', 't', 'a'};
+        const std::vector<usk::lifecycle::PayloadFile> files{payload};
         const auto install = usk::lifecycle::plan_install("plan.install", "install.readers",
             "2026-10-18T00:00:00Z", target, fixture.roots, recipe, files);
         (void)usk::lifecycle::apply_install(install, install.plan_digest,
