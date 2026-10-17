@@ -221,9 +221,10 @@ std::string filename(std::uint64_t sequence)
     return out.str();
 }
 
-Value read_record(const fs::path& path, std::uint64_t& bytes)
+Value decode_record_text(const std::string& text, std::uint64_t& bytes)
 {
-    const std::string text = usk::record_io::read_stable_text(path, maximum_record_bytes);
+    if (text.size() > maximum_record_bytes)
+        throw std::runtime_error("maintenance journal record exceeds its byte bound");
     if (bytes > maximum_journal_bytes - text.size())
         throw std::runtime_error("maintenance journal exceeds its byte bound");
     bytes += text.size();
@@ -238,6 +239,10 @@ Value read_record(const fs::path& path, std::uint64_t& bytes)
         value.at("schema").as_string() != "usk.maintenance_effect_record.v1")
         throw std::runtime_error("maintenance journal record is invalid");
     return value;
+}
+Value read_record(const fs::path& path, std::uint64_t& bytes)
+{
+    return decode_record_text(usk::record_io::read_stable_text(path, maximum_record_bytes), bytes);
 }
 } // namespace
 
@@ -440,6 +445,89 @@ void MaintenanceEffectJournal::seal()
     sealed_ = true;
 }
 
+MaintenanceEffectRecordReader::MaintenanceEffectRecordReader(TransactionSpec spec,
+    std::string directory_identity, std::string expected_source_digest,
+    std::size_t record_count, bool retain_completed)
+    : spec_(std::move(spec)), directory_identity_(std::move(directory_identity)),
+      expected_source_digest_(std::move(expected_source_digest)), record_count_(record_count),
+      retain_completed_(retain_completed)
+{
+    if (!record_io::valid_identifier(spec_.transaction_id) || !digest(expected_source_digest_) ||
+        record_count_ == 0 || record_count_ > maximum_records)
+        throw std::runtime_error("maintenance inspection identity or record count is invalid");
+}
+void MaintenanceEffectRecordReader::consume(const std::string& record_name, const std::string& text)
+{
+    if (failed_ || finished_) throw std::logic_error("maintenance record reader is no longer usable");
+    try {
+        if (result_.next_sequence >= record_count_)
+            throw std::runtime_error("maintenance journal has an unexpected record");
+        const auto value = decode_record_text(text, bytes_);
+        const auto index = result_.next_sequence;
+        if (record_name != filename(index) ||
+            value.at("sequence").as_unsigned() != index ||
+            value.at("transaction_id").as_string() != spec_.transaction_id ||
+            value.at("source_digest").as_string() != expected_source_digest_ || result_.sealed ||
+            (index == 0u ? value.at("previous_digest").type() != Value::Type::null_value :
+             value.at("previous_digest").as_string() != result_.journal_digest))
+            throw std::runtime_error("maintenance journal chain or binding is invalid");
+        const auto& phase = value.at("phase").as_string();
+        const auto& details = value.at("details");
+        if (index == 0u) {
+            if (phase != "context") throw std::runtime_error("maintenance journal lacks original context");
+            exact_keys(details, {"source_context", "directory_identity"});
+            if (details.at("directory_identity").as_string() != directory_identity_)
+                throw std::runtime_error("maintenance journal directory identity changed");
+            result_.source_context = details.at("source_context").as_string();
+            validate_context(spec_, result_.source_context);
+            result_.source_digest = json::sha256_canonical(json::parse(result_.source_context));
+            if (result_.source_digest != expected_source_digest_)
+                throw std::runtime_error("maintenance original context digest changed");
+        } else if (phase == "intent") {
+            exact_keys(details, {"kind", "effect"});
+            if (!result_.pending_kind.empty()) throw std::runtime_error("maintenance intents overlap");
+            result_.pending_kind = details.at("kind").as_string();
+            result_.pending_details = details.at("effect");
+            validate_effect(spec_.operation, result_.pending_kind, result_.pending_details);
+            pending_sequence_ = index;
+        } else if (phase == "complete") {
+            exact_keys(details, {"intent_sequence", "kind", "outcome", "result_digest"});
+            if (result_.pending_kind.empty() || details.at("kind").as_string() != result_.pending_kind ||
+                details.at("intent_sequence").as_unsigned() != pending_sequence_)
+                throw std::runtime_error("maintenance completion does not bind an intent");
+            const std::string hash = details.at("result_digest").type() == Value::Type::null_value ?
+                std::string{} : details.at("result_digest").as_string();
+            validate_completion(result_.pending_kind, details.at("outcome").as_string(), hash);
+            if (retain_completed_) result_.completed.push_back({pending_sequence_, result_.pending_kind,
+                result_.pending_details, details.at("outcome").as_string(), hash});
+            result_.pending_kind.clear();
+            result_.pending_details = Value{};
+            ++result_.completed_effects;
+        } else if (phase == "sealed") {
+            if (!result_.pending_kind.empty() || details.type() != Value::Type::null_value)
+                throw std::runtime_error("maintenance journal sealed with an unresolved effect");
+            result_.sealed = true;
+        } else {
+            throw std::runtime_error("maintenance journal phase is invalid");
+        }
+        result_.journal_digest = value.at("digest").as_string();
+        ++result_.next_sequence;
+    } catch (...) { failed_ = true; throw; }
+}
+MaintenanceEffectInspection MaintenanceEffectRecordReader::finish()
+{
+    if (failed_ || finished_) throw std::logic_error("maintenance record reader is no longer usable");
+    try {
+        if (result_.next_sequence != record_count_)
+            throw std::runtime_error("maintenance journal input is incomplete");
+        result_.pending_sequence = pending_sequence_;
+        result_.serialized_bytes = bytes_;
+        result_.directory_identity = directory_identity_;
+        finished_ = true;
+        return std::move(result_);
+    } catch (...) { failed_ = true; throw; }
+}
+
 MaintenanceEffectInspection MaintenanceEffectJournal::inspect(const TransactionSpec& spec,
     const std::string& expected_source_digest, bool retain_completed)
 {
@@ -456,66 +544,13 @@ MaintenanceEffectInspection MaintenanceEffectJournal::inspect(const TransactionS
     }
     if (records.empty()) throw std::runtime_error("maintenance journal has no original context");
     std::sort(records.begin(), records.end());
-    MaintenanceEffectInspection result;
-    std::uint64_t bytes = 0;
-    std::uint64_t pending_sequence = 0;
-    for (std::size_t index = 0; index < records.size(); ++index) {
-        const auto value = read_record(records[index], bytes);
-        if (records[index].filename().string() != filename(index) ||
-            value.at("sequence").as_unsigned() != index ||
-            value.at("transaction_id").as_string() != spec.transaction_id ||
-            value.at("source_digest").as_string() != expected_source_digest || result.sealed ||
-            (index == 0u ? value.at("previous_digest").type() != Value::Type::null_value :
-             value.at("previous_digest").as_string() != result.journal_digest))
-            throw std::runtime_error("maintenance journal chain or binding is invalid");
-        const auto& phase = value.at("phase").as_string();
-        const auto& details = value.at("details");
-        if (index == 0u) {
-            if (phase != "context") throw std::runtime_error("maintenance journal lacks original context");
-            exact_keys(details, {"source_context", "directory_identity"});
-            if (details.at("directory_identity").as_string() != directory_identity)
-                throw std::runtime_error("maintenance journal directory identity changed");
-            result.source_context = details.at("source_context").as_string();
-            validate_context(spec, result.source_context);
-            result.source_digest = json::sha256_canonical(json::parse(result.source_context));
-            if (result.source_digest != expected_source_digest)
-                throw std::runtime_error("maintenance original context digest changed");
-        } else if (phase == "intent") {
-            exact_keys(details, {"kind", "effect"});
-            if (!result.pending_kind.empty()) throw std::runtime_error("maintenance intents overlap");
-            result.pending_kind = details.at("kind").as_string();
-            result.pending_details = details.at("effect");
-            validate_effect(spec.operation, result.pending_kind, result.pending_details);
-            pending_sequence = index;
-        } else if (phase == "complete") {
-            exact_keys(details, {"intent_sequence", "kind", "outcome", "result_digest"});
-            if (result.pending_kind.empty() || details.at("kind").as_string() != result.pending_kind ||
-                details.at("intent_sequence").as_unsigned() != pending_sequence)
-                throw std::runtime_error("maintenance completion does not bind an intent");
-            const std::string hash = details.at("result_digest").type() == Value::Type::null_value ?
-                std::string{} : details.at("result_digest").as_string();
-            validate_completion(result.pending_kind, details.at("outcome").as_string(), hash);
-            if (retain_completed) result.completed.push_back({pending_sequence, result.pending_kind,
-                result.pending_details, details.at("outcome").as_string(), hash});
-            result.pending_kind.clear();
-            result.pending_details = Value{};
-            ++result.completed_effects;
-        } else if (phase == "sealed") {
-            if (!result.pending_kind.empty() || details.type() != Value::Type::null_value)
-                throw std::runtime_error("maintenance journal sealed with an unresolved effect");
-            result.sealed = true;
-        } else {
-            throw std::runtime_error("maintenance journal phase is invalid");
-        }
-        result.journal_digest = value.at("digest").as_string();
-    }
+    MaintenanceEffectRecordReader reader(spec, directory_identity,
+        expected_source_digest, records.size(), retain_completed);
+    for (const auto& path : records)
+        reader.consume(path.filename().string(), record_io::read_stable_text(path, maximum_record_bytes));
     if (observe_directory_identity(directory) != directory_identity)
         throw std::runtime_error("maintenance journal directory changed during inspection");
-    result.next_sequence = records.size();
-    result.pending_sequence = pending_sequence;
-    result.serialized_bytes = bytes;
-    result.directory_identity = directory_identity;
-    return result;
+    return reader.finish();
 }
 
 MaintenanceEffectJournal::MaintenanceEffectJournal(TransactionSpec spec,

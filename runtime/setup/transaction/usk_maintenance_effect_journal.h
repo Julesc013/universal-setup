@@ -6,6 +6,7 @@
 #include "usk_transaction_session.h"
 #include "usk_json.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -44,6 +45,33 @@ struct MaintenanceEffectInspection {
     // Optional ordered observations for whole-operation continuation. These
     // remain journal facts, never native custody or evidence of the actor.
     std::vector<CompletedMaintenanceEffect> completed;
+};
+
+// One bounded metadata sequence. The caller independently proves complete
+// native membership and directory identity; this reader opens no path and
+// grants no custody, replay, currentness or effect authority. The declared
+// count must be consumed in order. Failed consume/finish permanently poisons
+// it; acquisition or argument failure before consume requires caller abandonment.
+class MaintenanceEffectRecordReader final {
+public:
+    MaintenanceEffectRecordReader(TransactionSpec spec, std::string directory_identity,
+        std::string expected_source_digest, std::size_t record_count,
+        bool retain_completed = false);
+    MaintenanceEffectRecordReader(const MaintenanceEffectRecordReader&) = delete;
+    MaintenanceEffectRecordReader& operator=(const MaintenanceEffectRecordReader&) = delete;
+    void consume(const std::string& record_name, const std::string& text);
+    MaintenanceEffectInspection finish();
+private:
+    TransactionSpec spec_;
+    std::string directory_identity_;
+    std::string expected_source_digest_;
+    std::size_t record_count_;
+    bool retain_completed_;
+    MaintenanceEffectInspection result_;
+    std::uint64_t pending_sequence_ = 0;
+    std::uint64_t bytes_ = 0;
+    bool failed_ = false;
+    bool finished_ = false;
 };
 
 // Internal append-only observations for the original maintenance transaction.

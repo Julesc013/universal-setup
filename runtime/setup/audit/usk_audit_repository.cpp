@@ -181,6 +181,18 @@ AuditEvent decode_audit_event_record(const std::string& text)
     return parse_event(document);
 }
 
+AuditEvent decode_audit_chain_record(const std::string& text, const std::string& chain_id,
+    const std::string& record_name, std::uint64_t sequence, const std::string& previous_digest)
+{
+    if (!record_io::valid_identifier(chain_id)) throw std::runtime_error("audit chain id is invalid");
+    auto event = decode_audit_event_record(text);
+    if (event.audit_chain_id != chain_id || event.sequence != sequence ||
+        event.event_id != chain_id + "." + std::to_string(sequence) ||
+        event.previous_event_digest != previous_digest || record_name != filename(sequence))
+        throw std::runtime_error("audit chain sequence or previous digest is invalid");
+    return event;
+}
+
 std::vector<AuditEvent> AuditRepository::read_and_validate_chain(const std::string& chain_id) const
 {
     return read_and_validate_chain_bounded(chain_id, std::numeric_limits<std::size_t>::max());
@@ -209,12 +221,8 @@ std::vector<AuditEvent> AuditRepository::read_and_validate_chain_bounded(
     std::string previous;
     for (std::size_t index = 0; index < paths.size(); ++index) {
         const std::string text = record_io::read_stable_text(paths[index], 1024u * 1024u);
-        AuditEvent event = decode_audit_event_record(text);
-        if (event.audit_chain_id != chain_id || event.sequence != index ||
-            event.event_id != chain_id + "." + std::to_string(index) ||
-            event.previous_event_digest != previous || paths[index].filename() != filename(index)) {
-            throw std::runtime_error("audit chain sequence or previous digest is invalid");
-        }
+        AuditEvent event = decode_audit_chain_record(
+            text, chain_id, paths[index].filename().string(), index, previous);
         previous = event.event_digest;
         events.push_back(std::move(event));
     }

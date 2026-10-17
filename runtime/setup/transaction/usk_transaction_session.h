@@ -123,6 +123,10 @@ public:
         FaultInjector injector = {});
     static RecoveryInspection inspect_recovery(const TransactionSpec& spec);
     static CompletedTransactionHistory inspect_completed_history(const TransactionSpec& spec);
+    // Historical metadata from supplied bounded bytes only. Does not open
+    // paths, observe current payload/revision, select replay or grant effects.
+    static CompletedTransactionHistory decode_completed_history(
+        const TransactionSpec& spec, const std::string& text);
     // Read-only comparison with bytes retained before an owned effect. Allows
     // only an unchanged immutable journal and its exact original transition
     // prefix plus valid finalization transitions. This confers no effect,

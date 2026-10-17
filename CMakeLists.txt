@@ -977,6 +977,12 @@ if(USK_BUILD_TESTS)
   target_link_libraries(usk_live_evidence_smoke PRIVATE usk_state_static usk_base_static)
   add_test(NAME usk_live_evidence_smoke COMMAND usk_live_evidence_smoke)
 
+  add_executable(usk_retirement_record_readers_smoke tests/native/usk_retirement_record_readers_smoke.cpp)
+  target_compile_features(usk_retirement_record_readers_smoke PRIVATE cxx_std_17)
+  target_link_libraries(usk_retirement_record_readers_smoke PRIVATE usk_lifecycle_static)
+  usk_enable_strict_warnings(usk_retirement_record_readers_smoke)
+  add_test(NAME usk_retirement_record_readers_smoke COMMAND usk_retirement_record_readers_smoke)
+
   add_executable(usk_lifecycle_smoke tests/native/usk_lifecycle_smoke.cpp)
   target_compile_features(usk_lifecycle_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_lifecycle_smoke PRIVATE usk_lifecycle_static)

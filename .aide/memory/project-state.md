@@ -80,6 +80,23 @@ parser still caps input at4MiB; no16MiB parse-support claim follows. A small CMa
 override admits an explicitly selected test fixture directory under the existing
 output area when long task paths exceed the unchanged Windows path envelope.
 The default test environment remains as before. This changes no product limit.
+The connected history seam now reuses the transaction journal's existing
+metadata predicates for supplied completed bytes, without path opens, replay
+selection or current-state observations. Existing filesystem inspection keeps
+its native path checks and fresh observations. A streaming maintenance-effect
+reader retains exact names/order/source/context/hash/intent/completion checks,
+200002-record/32KiB-record/64MiB-total bounds, and explicit declared-count finish.
+Any consumption/finalization failure permanently prevents a result. Its output
+can still describe an unsealed/pending history; retirement must require a full
+sealed completed operation under independent native custody. Audit byte links
+retain exact chain, name, sequence and predecessor checks. No callback backend,
+authority certificate or new writer is introduced.
+A focused native fixture creates and uninstalls an owned payload, compares path
+and byte history, tests withheld-path independence and contextual refusal,
+ordered/pending/sealed effects, missing/invalid input and sticky failure, and
+audit chain links. This is ordinary filesystem metadata coverage, not live
+privileged retirement or a current-service custody proof.
+
 The privileged retirement custody, journal/effect/lease/complete-namespace proof,
 real owned uninstall connection and final deletion remain unfinished. This is
 implementation preparation, with no installed-target retirement availability.
