@@ -8,11 +8,12 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR237 is merged into dev at73ea630; main remainsc048f7. CI39014022785 passed
-on the actual dev merge. Separate publisher qualification39013169720 failed:
-the legacy hosted start observed a remounted default device policy without
-protection or the service ACE. The following fixture then refused the retained
-input directory. These results do not qualify main, deployment or release.
+PR240 is merged into dev at6913f88; main remainsc048f7. CI39019325390 passed
+on the actual dev merge. Separate publisher qualification39018480782 failed:
+the legacy machine journey refused the remounted default device policy, and
+the admitted controller refused the hosted built-in Administrator's RID500.
+Target provisioning and controller dispatch were not reached. These results
+do not qualify main, deployment or release.
 
 Continue the connected admitted-target controller/consumer path, source-free
 recovery within120seconds, and genuine owned maintenance/retirement. The next
@@ -26,6 +27,11 @@ observes the admitted policy. Unconfirmed product retirement retains the mounted
 VHD, protected binary and recovery authority; it cannot be replaced by lab deletion.
 The legacy machine/consumer profile and completed-uninstall retirement remain
 unfinished qualification obligations. Both hosted tests remain required for main.
+The next controller fixture uses a generated elevated admin account with a valid
+account RID, through the existing acknowledged launcher with a separate profile.
+It retains the account while product authority remains and qualifies the actual
+actor independently before compilation. Product SID policy remains unchanged;
+local fixture controls are not evidence of a successful hosted actor or install.
 Use the external task checkpoint for exact candidate pins and current results.
 Do not start another campaign, queue or unofficial checkout. Integrate reviewed
 dev checkpoints daily; promote main weekly when its qualification gates pass.

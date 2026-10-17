@@ -216,7 +216,11 @@ foreach($primaryFails in @($false,$true)) {
     }
   }
 }
-$retention=@($try[0].Finally.Statements[0].Body.FindAll({param($node)
+$cleanupTries=@($try[0].Finally.Statements|Where-Object {
+    $_ -is [Management.Automation.Language.TryStatementAst]
+})
+if($cleanupTries.Count -ne 1){throw 'Original lab cleanup control flow is ambiguous'}
+$retention=@($cleanupTries[0].Body.FindAll({param($node)
     $node -is [Management.Automation.Language.IfStatementAst] -and
     $node.Extent.Text.Contains("throw 'Owned VHD image closure unconfirmed; retain backing file until runner VM disposal'")
 },$true))
