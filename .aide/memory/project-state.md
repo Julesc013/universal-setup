@@ -23,14 +23,20 @@ variants and strict root/lease checks. Diagnostic candidate81fb275 in
 CI39030286105 passed target admission and enrollment, then its source-retired
 reentry returned pass/already_visible_bound with client exit0. The subsequent
 independent state equality check failed; the later snapshot was not retained.
-The next increment retains all three existing reentry/stale-request/verify
-snapshots before their unchanged strict comparisons. Their differences remain
-unknown until actual evidence is retained. The legacy machine route still
-refuses its remounted device policy. A separate source correction applies the
-existing fresh-owned-image protection before first attachment to admitted
-controller fixtures, which previously skipped it. This omission is not the
-established cause of earlier admission failures. Local routing/security checks
-and source review pass; hosted qualification remains required.
+Candidate2e1f08a in CI39031666169 passed core/specification checks and
+again admitted, installed and completed already-visible source-retired reentry.
+Its retained independent snapshots contain39 then41rows: every prior row is
+unchanged, and exactly the active/completed generation2 ownership records were
+added. The existing strict lease transition validator accepts that append.
+The fixture incorrectly required complete row equality for effectful recovery.
+The next correction uses that existing reconciler, validates protection on the
+new records, and keeps stale-request/verification checks read-only against the
+completed recovery snapshot. This does not qualify genuinely interrupted repair
+recovery or retirement. The legacy machine route remains unqualified.
+The admitted fixture now also runs existing fresh-image protection before
+first attachment; its omitted preparation was not the established cause of
+earlier admission failures. Use the external task checkpoint for source pins,
+fresh hosted results and remaining cleanup obligations.
 Counterfactual replay with a synthetic root is only a validator test,
 not new native evidence. Source-free reentry and genuine retirement remain
 unqualified. The legacy machine route still refuses its remounted device policy.

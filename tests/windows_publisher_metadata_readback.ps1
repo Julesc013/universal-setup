@@ -40,6 +40,44 @@ function Assert-IndependentProtectedRows {
         }
     }
 }
+function Assert-IndependentLeaseTransition {
+    param(
+        [Parameter(Mandatory=$true)]$Result,
+        [Parameter(Mandatory=$true)]$Before,
+        [Parameter(Mandatory=$true)]$After,
+        [Parameter(Mandatory=$true)]$InstalledState,
+        [Parameter(Mandatory=$true)][ValidateSet('append','readonly')][string]$Mode,
+        [Parameter(Mandatory=$true)][string]$PythonBinary
+    )
+    $ErrorActionPreference='Stop'
+    $OutputEncoding=[Text.UTF8Encoding]::new($false)
+    $root=[string]$Result.independent.native_volume_root_file_id
+    $drive=[string]$Result.volume_drive_root
+    if($root -cnotmatch '^[0-9a-f]{16}:[0-9a-f]{32}$' -or $drive -cnotmatch '^[A-Z]:\\$' -or
+        $InstalledState.schema -cne 'usk.installed_state.v1' -or
+        $Before.independent.identity -cne 'S-1-5-18' -or $After.independent.identity -cne 'S-1-5-18' -or
+        $Before.observer_task_removed -ne $true -or $After.observer_task_removed -ne $true -or
+        $Before.independent.native_volume_root_file_id -cne $root -or
+        $After.independent.native_volume_root_file_id -cne $root) {
+        throw 'Independent lease transition observer or native boundary differs'
+    }
+    # New ownership files need the same protection as the original rows.
+    # The Python reconciler separately checks the complete immutable prefix,
+    # exact record bytes, context, state revision and one completed generation.
+    Assert-IndependentProtectedRows -Rows $After.independent.rows -ServiceSid $Result.service_sid -ConsumerSid ([string]$Result.consumer_sid) -VisibleRoot $Result.plan.target.root.Replace('/','\')
+    $request=@{mode=$Mode;before=@($Before.independent.rows);after=@($After.independent.rows);
+        drive=$drive;installed=$InstalledState;volume_root_id=$root}
+    $output=$request|ConvertTo-Json -Depth 64 -Compress|
+        & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -
+    if($LASTEXITCODE -ne 0){throw 'Independent lease transition record closure differs'}
+    $proof=($output -join [Environment]::NewLine)|ConvertFrom-Json
+    if($proof.status -cne 'bindings_consistent' -or
+        $proof.profile_qualified -isnot [bool] -or $proof.profile_qualified -or
+        $proof.publication_authority_granted -isnot [bool] -or $proof.publication_authority_granted) {
+        throw 'Independent lease transition result differs'
+    }
+    return $proof
+}
 function Assert-IndependentRetainedMaterial {
     param($Before,$After,[string]$ChangedPayloadPath='',[string]$ChangedPayloadSha256='',
         [switch]$NoAdditionalRows)

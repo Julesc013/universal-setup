@@ -2377,12 +2377,9 @@ try {
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
         $repeat=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
         $receipt.registered_source_free_reentry['independent_readback']=$repeat
-        if($repeat.independent.identity -ne 'S-1-5-18' -or -not $repeat.observer_task_removed -or
-            ($receipt.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
-            ($repeat.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
-            throw 'Registered source-free reentry changed independently observed installed rows'
-        }
-        $receipt.registered_source_free_reentry['unchanged_independent_rows']=@($repeat.independent.rows).Count
+        $receipt.registered_source_free_reentry['lease_transition']=Assert-IndependentLeaseTransition -Result $receipt -Before $readback -After $repeat -InstalledState $installedResponse.payload -Mode append -PythonBinary $PythonBinary
+        $receipt.registered_source_free_reentry['unchanged_independent_rows']=@($readback.independent.rows).Count
+        $receipt.registered_source_free_reentry['appended_ownership_rows']=(@($repeat.independent.rows).Count - @($readback.independent.rows).Count)
         $staleRecovery=[ordered]@{
             schema='usk.publisher_recovery_request.v1'
             request_id='recover.stale.'+$id
@@ -2413,11 +2410,7 @@ try {
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
         $afterStale=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
         $receipt.stale_minimal_recovery_refused['independent_readback']=$afterStale
-        if($afterStale.independent.identity -ne 'S-1-5-18' -or -not $afterStale.observer_task_removed -or
-            ($repeat.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
-            ($afterStale.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
-            throw 'Changed minimal recovery request altered installed state'
-        }
+        $receipt.stale_minimal_recovery_refused['lease_transition']=Assert-IndependentLeaseTransition -Result $receipt -Before $repeat -After $afterStale -InstalledState $installedResponse.payload -Mode readonly -PythonBinary $PythonBinary
     }
     if($RegisteredService -and -not $InterruptAfterStage) {
         # The ordinary packaged client asks the restricted service to verify
@@ -2498,11 +2491,7 @@ try {
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
         $verifyRows=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
         $receipt.registered_installed_verify['independent_readback']=$verifyRows
-        if($verifyRows.independent.identity -ne 'S-1-5-18' -or -not $verifyRows.observer_task_removed -or
-            ($receipt.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
-            ($verifyRows.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
-            throw 'Read-only verification changed independently observed installed rows'
-        }
+        $receipt.registered_installed_verify['lease_transition']=Assert-IndependentLeaseTransition -Result $receipt -Before $afterStale -After $verifyRows -InstalledState $installedResponse.payload -Mode readonly -PythonBinary $PythonBinary
         $receipt.registered_installed_verify['unchanged_independent_rows']=@($verifyRows.independent.rows).Count
         if(-not $HostileRights) {
             $damageEntries=@($plan.planned_entries|Where-Object {

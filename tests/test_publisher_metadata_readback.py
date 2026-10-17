@@ -14,6 +14,105 @@ import unittest
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_registered_reentry_reconciles_only_one_protected_lease_generation(self):
+        # Exercise all three ACTUAL registered call sites and the real Python
+        # reconciler using synthetic coordination rows, without native effects.
+        from unittest.mock import patch
+        import test_publisher_installation_lease_evidence as evidence
+        installed = dict(evidence.INSTALLED, schema='usk.installed_state.v1',
+                         fixture_utf8='caf\u00e9/\u8cc7\u6599')
+        with patch.object(evidence, 'INSTALLED', installed):
+            before, after = evidence.fixture(1), evidence.fixture(2)
+        sid = 'S-1-5-80-1-2-3-4-5'
+        for row in before + after:
+            row.update(owner='S-1-5-18', protected=True, aces=[
+                dict(sid=principal, rights=2032127, type='Allow', inherited=False,
+                     inheritance=0, propagation=0) for principal in ('S-1-5-18', sid)])
+        def observation(rows):
+            return dict(observer_task_removed=True, independent=dict(
+                identity='S-1-5-18', native_volume_root_file_id=evidence.ROOT, rows=rows))
+        payload = dict(before=observation(before), after=observation(after),
+                       installed=installed, drive=evidence.DRIVE, sid=sid)
+        root = Path(__file__).resolve().parents[1]
+        code = r"""$ErrorActionPreference='Stop'
+. (Join-Path $env:USK_TEST_SOURCE 'windows_publisher_metadata_readback.ps1')
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile(
+ (Join-Path $env:USK_TEST_SOURCE 'windows_publisher_metadata_hosted_probe.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Registered fixture parse failed'}
+$sites=@($ast.FindAll({param($n)
+ $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+ $n.Right.Extent.Text.StartsWith('Assert-IndependentLeaseTransition ',[StringComparison]::Ordinal)
+},$true)|Sort-Object {$_.Extent.StartOffset})
+if($sites.Count -ne 3){throw 'Actual registered lease transition sites differ'}
+$rows=@()
+foreach($case in @('ok','missing_generation','prior_drift','extra_object','new_acl','wrong_root',
+ 'wrong_observer','cleanup_unknown','stale_effect','verify_effect')) {
+ $data=[IO.File]::ReadAllText($env:USK_TEST_INPUT)|ConvertFrom-Json
+ $readback=$data.before;$repeat=$data.after
+ $afterStale=$repeat|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json
+ $verifyRows=$repeat|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json
+ $receipt=@{independent=$readback.independent;volume_drive_root=$data.drive;service_sid=$data.sid;
+  consumer_sid='';plan=@{target=@{root=($data.drive+'publication\destination\visible')}};
+  registered_source_free_reentry=@{};stale_minimal_recovery_refused=@{};registered_installed_verify=@{}}
+ $installedResponse=@{payload=$data.installed};$PythonBinary=$env:USK_TEST_PYTHON
+ switch($case) {
+  missing_generation {$repeat=$readback}
+  prior_drift {$repeat.independent.rows[0].file_id+='changed'}
+  extra_object {
+   $extra=$repeat.independent.rows[0]|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json
+   $extra.path=$data.drive+'unexpected'
+   $repeat.independent.rows=@($repeat.independent.rows)+@($extra)
+  }
+  new_acl {
+   $added=@($repeat.independent.rows|Where-Object {$_.path.EndsWith('g00000000000000000002-active.json')})
+   if($added.Count -ne 1){throw 'Synthetic second-generation object differs'}
+   $added[0].protected=$false
+  }
+  wrong_root {$repeat.independent.native_volume_root_file_id=('f'*16)+':'+('e'*32)}
+  wrong_observer {$repeat.independent.identity='S-1-5-19'}
+  cleanup_unknown {$repeat.observer_task_removed=$false}
+  stale_effect {$afterStale.independent.rows[0].file_id+='changed'}
+  verify_effect {$verifyRows.independent.rows[0].file_id+='changed'}
+ }
+ $completed=0;$failure=$null
+ try {
+  foreach($site in $sites){. ([scriptblock]::Create($site.Extent.Text));$completed++}
+ } catch {$failure=$_.Exception.Message}
+ $rows+=@{case=$case;completed=$completed;failure=$failure;
+  append=$receipt.registered_source_free_reentry.lease_transition;
+  stale=$receipt.stale_minimal_recovery_refused.lease_transition;
+  verify=$receipt.registered_installed_verify.lease_transition}
+}
+$rows|ConvertTo-Json -Depth 8 -Compress
+"""
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'synthetic-coordination.json'
+            path.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
+            environment = dict(os.environ, USK_TEST_SOURCE=str(root / 'tests'),
+                               USK_TEST_INPUT=str(path), USK_TEST_PYTHON=os.sys.executable)
+            for shell in [shutil.which('pwsh'), shutil.which('powershell.exe')]:
+                self.assertIsNotNone(shell)
+                # Only this child may load the reviewed local helper file;
+                # the workstation's execution-policy settings are unchanged.
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', code],
+                                        env=environment, capture_output=True, text=True, timeout=45)
+                self.assertEqual(result.returncode, 0, result.stderr[-4096:])
+                rows = json.loads(result.stdout)
+                self.assertEqual(len(rows), 10)
+                for row in rows:
+                    expected = 3 if row['case'] == 'ok' else {
+                        'stale_effect': 1, 'verify_effect': 2}.get(row['case'], 0)
+                    self.assertEqual(row['completed'], expected, row)
+                    if expected == 3:
+                        self.assertIsNone(row['failure'])
+                        for field in ('append', 'stale', 'verify'):
+                            self.assertEqual(row[field]['status'], 'bindings_consistent')
+                            self.assertIs(row[field]['profile_qualified'], False)
+                            self.assertIs(row[field]['publication_authority_granted'], False)
+                    else:
+                        self.assertIsNotNone(row['failure'], row)
+
     def test_failed_maintenance_readback_retains_rows_without_accepting_acl_role(self):
         # Exercise only actual reader/policy control flow with inert observed
         # data. No native access check, token custody or backup is manufactured.
