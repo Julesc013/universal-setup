@@ -8,6 +8,8 @@
 #endif
 #include <windows.h>
 #include <array>
+#include <cstddef>
+#include <vector>
 #include <exception>
 #include "usk_json.h"
 #include <memory>
@@ -63,6 +65,27 @@ private:
         message_[used] = '\0';
     }
 };
+namespace detail {
+// One freshly returned token-information value, not a token or authority cache.
+// TokenUser/Groups contain pointers into their own returned buffer. C++17
+// prvalue construction and deleted moves keep that storage at a fixed address.
+class PublisherClientTokenBytes final {
+public:
+    PublisherClientTokenBytes(HANDLE token, TOKEN_INFORMATION_CLASS kind);
+    PublisherClientTokenBytes(const PublisherClientTokenBytes&) = delete;
+    PublisherClientTokenBytes& operator=(const PublisherClientTokenBytes&) = delete;
+    PublisherClientTokenBytes(PublisherClientTokenBytes&&) = delete;
+    PublisherClientTokenBytes& operator=(PublisherClientTokenBytes&&) = delete;
+    const unsigned char* data() const noexcept {
+        return expanded_.empty() ? inline_bytes_.data() : expanded_.data();
+    }
+    std::size_t size() const noexcept { return size_; }
+private:
+    alignas(std::max_align_t) std::array<unsigned char, 1024> inline_bytes_{};
+    std::vector<unsigned char> expanded_;
+    DWORD size_ = 0;
+};
+}
 // Private transport only. This grants no filesystem or publisher authority.
 // The service supplies the admitted caller SID; message fields cannot choose it.
 class PublisherRequestChannel final {

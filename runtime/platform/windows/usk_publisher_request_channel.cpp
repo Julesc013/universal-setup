@@ -127,16 +127,8 @@ std::string sid_text(PSID sid) {
 std::uint64_t luid_value(const LUID& value) {
     return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(value.HighPart)) << 32u) | value.LowPart;
 }
-std::vector<unsigned char> token_bytes(HANDLE token, TOKEN_INFORMATION_CLASS kind) {
-    DWORD needed = 0;
-    if (GetTokenInformation(token, kind, nullptr, 0, &needed) || GetLastError() != ERROR_INSUFFICIENT_BUFFER ||
-        needed == 0 || needed > 65536)
-        throw std::runtime_error("authenticated client token size is unavailable or exceeds its bound");
-    std::vector<unsigned char> bytes(needed);
-    DWORD returned = 0;
-    if (!GetTokenInformation(token, kind, bytes.data(), needed, &returned) || returned != needed)
-        throw std::runtime_error("authenticated client token changed during observation");
-    return bytes;
+detail::PublisherClientTokenBytes token_bytes(HANDLE token, TOKEN_INFORMATION_CLASS kind) {
+    return detail::PublisherClientTokenBytes(token, kind);
 }
 detail::AuthenticatedClientObservation client_token_facts(HANDLE token, ULONG process_id) {
     const usk::diagnostics::DurationCounter elapsed(
@@ -336,6 +328,36 @@ HANDLE connect_publisher_request_endpoint(const std::wstring& service_name,
         }
     }
 }
+detail::PublisherClientTokenBytes::PublisherClientTokenBytes(HANDLE token, TOKEN_INFORMATION_CLASS kind) {
+    // Only the six data-only classes already consumed by client_token_facts.
+    // In particular, no handle-producing information class can enter this owner.
+    switch (kind) {
+    case TokenUser: case TokenStatistics: case TokenImpersonationLevel:
+    case TokenGroups: case TokenRestrictedSids: case TokenPrivileges: break;
+    default: throw std::invalid_argument("authenticated client token information class is unsupported");
+    }
+    constexpr DWORD maximum = 65536;
+    DWORD returned = 0;
+    if (GetTokenInformation(token, kind, inline_bytes_.data(),
+            static_cast<DWORD>(inline_bytes_.size()), &returned)) {
+        if (returned == 0 || returned > inline_bytes_.size())
+            throw std::runtime_error("authenticated client token changed during observation");
+        size_ = returned;
+        return;
+    }
+    // The failed call supplies only capacity. Ignore all failed response bytes;
+    // a larger value still gets a fresh read under the original exact-size cap.
+    if (GetLastError() != ERROR_INSUFFICIENT_BUFFER ||
+        returned <= inline_bytes_.size() || returned > maximum)
+        throw std::runtime_error("authenticated client token size is unavailable or exceeds its bound");
+    const DWORD needed = returned;
+    expanded_.resize(needed);
+    returned = 0;
+    if (!GetTokenInformation(token, kind, expanded_.data(), needed, &returned) || returned != needed)
+        throw std::runtime_error("authenticated client token changed during observation");
+    size_ = returned;
+}
+
 struct PublisherRequestChannel::State {
     Handle pipe;
     Handle client_token{nullptr};

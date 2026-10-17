@@ -11,6 +11,7 @@
 #if defined(_WIN32)
 #include <sddl.h>
 #include <atomic>
+#include <chrono>
 #include <array>
 #include <exception>
 #include <filesystem>
@@ -25,9 +26,9 @@
 #include <vector>
 // Test executable only: denial is scoped to the current test thread and starts
 // after its owned inputs are prepared. Other native fixture threads are unaffected.
-namespace { thread_local bool deny_unknown_message_allocations = false; }
+namespace { thread_local bool deny_request_channel_allocations = false; }
 void* operator new(std::size_t bytes) {
-    if (deny_unknown_message_allocations) throw std::bad_alloc();
+    if (deny_request_channel_allocations) throw std::bad_alloc();
     if (void* memory = std::malloc(bytes ? bytes : 1)) return memory;
     throw std::bad_alloc();
 }
@@ -59,11 +60,11 @@ void test_allocation_free_unknown_message() {
     bool denial_active = false, preserved = false, copied = false, bounded = false, null_reason = false;
     bool context_preserved = false, win32_range_preserved = false;
     struct ResetDenial {
-        ~ResetDenial() { deny_unknown_message_allocations = false; }
+        ~ResetDenial() { deny_request_channel_allocations = false; }
     };
     {
         ResetDenial reset;
-        deny_unknown_message_allocations = true;
+        deny_request_channel_allocations = true;
         try { (void)::operator new(32u); }
         catch (const std::bad_alloc&) { denial_active = true; }
         try {
@@ -98,7 +99,7 @@ void test_allocation_free_unknown_message() {
             std::strcmp(maximum.what(),
                 "publisher response unavailable; outcome unknown: Win32 4294967295") == 0;
     }
-    require(denial_active && !deny_unknown_message_allocations,
+    require(denial_active && !deny_request_channel_allocations,
         "UNKNOWN message test did not activate and release allocation denial");
     require(preserved && copied && bounded && null_reason && context_preserved && win32_range_preserved,
         "post-write allocation failure lost its bounded UNKNOWN exception");
@@ -411,6 +412,191 @@ struct OwnedHandle {
     OwnedHandle(const OwnedHandle&) = delete;
     OwnedHandle& operator=(const OwnedHandle&) = delete;
 };
+// Independent former two-call reader, retained only as a content/performance
+// control. A successful content query is required on both routes.
+std::vector<unsigned char> legacy_token_bytes(HANDLE token, TOKEN_INFORMATION_CLASS kind) {
+    DWORD needed = 0;
+    require(!GetTokenInformation(token, kind, nullptr, 0, &needed) &&
+        GetLastError() == ERROR_INSUFFICIENT_BUFFER && needed != 0 && needed <= 65536,
+        "legacy token capacity control failed");
+    std::vector<unsigned char> bytes(needed);
+    DWORD returned = 0;
+    require(GetTokenInformation(token, kind, bytes.data(), needed, &returned) && returned == needed,
+        "legacy token content control failed");
+    return bytes;
+}
+constexpr std::array<TOKEN_INFORMATION_CLASS, 6> client_token_classes{{
+    TokenUser, TokenStatistics, TokenImpersonationLevel, TokenGroups, TokenRestrictedSids, TokenPrivileges}};
+bool same_luid(const LUID& a, const LUID& b) {
+    return a.LowPart == b.LowPart && a.HighPart == b.HighPart;
+}
+void require_same_token_value(TOKEN_INFORMATION_CLASS kind,
+    const unsigned char* a, const unsigned char* b) {
+    if (kind == TokenUser) {
+        const auto& x = *reinterpret_cast<const TOKEN_USER*>(a);
+        const auto& y = *reinterpret_cast<const TOKEN_USER*>(b);
+        require(EqualSid(x.User.Sid, y.User.Sid) && x.User.Attributes == y.User.Attributes,
+            "fresh token user differs from independent native read");
+    } else if (kind == TokenStatistics) {
+        const auto& x = *reinterpret_cast<const TOKEN_STATISTICS*>(a);
+        const auto& y = *reinterpret_cast<const TOKEN_STATISTICS*>(b);
+        require(same_luid(x.TokenId, y.TokenId) && same_luid(x.AuthenticationId, y.AuthenticationId) &&
+            same_luid(x.ModifiedId, y.ModifiedId) && x.TokenType == y.TokenType &&
+            x.ImpersonationLevel == y.ImpersonationLevel && x.GroupCount == y.GroupCount &&
+            x.PrivilegeCount == y.PrivilegeCount && x.ExpirationTime.QuadPart == y.ExpirationTime.QuadPart &&
+            x.DynamicCharged == y.DynamicCharged && x.DynamicAvailable == y.DynamicAvailable,
+            "fresh token statistics differ from independent native read");
+    } else if (kind == TokenImpersonationLevel) {
+        require(*reinterpret_cast<const SECURITY_IMPERSONATION_LEVEL*>(a) ==
+            *reinterpret_cast<const SECURITY_IMPERSONATION_LEVEL*>(b), "fresh token level differs");
+    } else if (kind == TokenGroups || kind == TokenRestrictedSids) {
+        const auto& x = *reinterpret_cast<const TOKEN_GROUPS*>(a);
+        const auto& y = *reinterpret_cast<const TOKEN_GROUPS*>(b);
+        require(x.GroupCount == y.GroupCount, "fresh token group count differs");
+        for (DWORD i = 0; i < x.GroupCount; ++i)
+            require(EqualSid(x.Groups[i].Sid, y.Groups[i].Sid) &&
+                x.Groups[i].Attributes == y.Groups[i].Attributes, "fresh token group value/order differs");
+    } else {
+        const auto& x = *reinterpret_cast<const TOKEN_PRIVILEGES*>(a);
+        const auto& y = *reinterpret_cast<const TOKEN_PRIVILEGES*>(b);
+        require(x.PrivilegeCount == y.PrivilegeCount, "fresh token privilege count differs");
+        for (DWORD i = 0; i < x.PrivilegeCount; ++i)
+            require(same_luid(x.Privileges[i].Luid, y.Privileges[i].Luid) &&
+                x.Privileges[i].Attributes == y.Privileges[i].Attributes, "fresh token privilege value/order differs");
+    }
+}
+HANDLE owned_identification_token() {
+    HANDLE raw = nullptr;
+    require(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE, &raw) != FALSE,
+        "owned token input unavailable");
+    OwnedHandle process_token(raw);
+    raw = nullptr;
+    require(DuplicateTokenEx(process_token.value, TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ADJUST_PRIVILEGES,
+        nullptr, SecurityIdentification, TokenImpersonation, &raw) != FALSE,
+        "owned identification token unavailable");
+    return raw;
+}
+void test_fresh_client_token_buffers() {
+    using usk::platform::windows::detail::PublisherClientTokenBytes;
+    static_assert(!std::is_copy_constructible<PublisherClientTokenBytes>::value &&
+        !std::is_move_constructible<PublisherClientTokenBytes>::value,
+        "self-relative token pointers require fixed owner storage");
+    OwnedHandle token(owned_identification_token());
+    for (const auto kind : client_token_classes) {
+        const auto reference = legacy_token_bytes(token.value, kind);
+        const PublisherClientTokenBytes observed(token.value, kind);
+        require(observed.size() == reference.size(), "fresh token content length differs");
+        require_same_token_value(kind, observed.data(), reference.data());
+    }
+    bool denied = false;
+    struct ResetDenial { ~ResetDenial() { deny_request_channel_allocations = false; } };
+    {
+        ResetDenial reset;
+        deny_request_channel_allocations = true;
+        try { (void)::operator new(32u); } catch (const std::bad_alloc&) { denied = true; }
+        // Guaranteed prvalue elision retains pointers into the original owner,
+        // including through the same factory-return shape used in production.
+        const auto user = [&] { return PublisherClientTokenBytes(token.value, TokenUser); }();
+        const PublisherClientTokenBytes statistics(token.value, TokenStatistics);
+        const PublisherClientTokenBytes level(token.value, TokenImpersonationLevel);
+        require(IsValidSid(reinterpret_cast<const TOKEN_USER*>(user.data())->User.Sid) &&
+            statistics.size() == sizeof(TOKEN_STATISTICS) &&
+            level.size() == sizeof(SECURITY_IMPERSONATION_LEVEL), "inline native token content is unusable");
+    }
+    require(denied && !deny_request_channel_allocations, "token buffer allocation denial was not exercised");
+
+    // Change only this private duplicate; it is never used to impersonate or
+    // authorize an operation. A later read must observe the changed token.
+    const PublisherClientTokenBytes before(token.value, TokenStatistics);
+    const auto privileges = legacy_token_bytes(token.value, TokenPrivileges);
+    const auto& present = *reinterpret_cast<const TOKEN_PRIVILEGES*>(privileges.data());
+    require(present.PrivilegeCount != 0, "private token freshness control has no privilege");
+    TOKEN_PRIVILEGES adjustment{};
+    adjustment.PrivilegeCount = 1;
+    adjustment.Privileges[0].Luid = present.Privileges[0].Luid;
+    adjustment.Privileges[0].Attributes = present.Privileges[0].Attributes ^ SE_PRIVILEGE_ENABLED;
+    SetLastError(ERROR_SUCCESS);
+    require(AdjustTokenPrivileges(token.value, FALSE, &adjustment, 0, nullptr, nullptr) &&
+        GetLastError() == ERROR_SUCCESS, "private token freshness mutation failed");
+    const PublisherClientTokenBytes after(token.value, TokenStatistics);
+    require(!same_luid(reinterpret_cast<const TOKEN_STATISTICS*>(before.data())->ModifiedId,
+        reinterpret_cast<const TOKEN_STATISTICS*>(after.data())->ModifiedId),
+        "a fresh token read retained the prior modification identity");
+    const PublisherClientTokenBytes changed(token.value, TokenPrivileges);
+    const auto expected = legacy_token_bytes(token.value, TokenPrivileges);
+    require_same_token_value(TokenPrivileges, changed.data(), expected.data());
+
+    // A real restricted token forces the >1KiB path. No fake Win32 provider and
+    // no authority-changing impersonation is needed to enter that route.
+    constexpr std::size_t count = 128;
+    std::array<std::array<DWORD, SECURITY_MAX_SID_SIZE / sizeof(DWORD)>, count> sid_storage{};
+    std::array<SID_AND_ATTRIBUTES, count> restrictions{};
+    SID_IDENTIFIER_AUTHORITY authority = SECURITY_NT_AUTHORITY;
+    for (std::size_t i = 0; i < count; ++i) {
+        PSID sid = sid_storage[i].data();
+        require(InitializeSid(sid, &authority, 4) != FALSE, "restricted token SID setup failed");
+        *GetSidSubAuthority(sid, 0) = 21; *GetSidSubAuthority(sid, 1) = 1;
+        *GetSidSubAuthority(sid, 2) = 2; *GetSidSubAuthority(sid, 3) = static_cast<DWORD>(1000u + i);
+        restrictions[i] = SID_AND_ATTRIBUTES{sid, 0};
+    }
+    HANDLE raw = nullptr;
+    require(CreateRestrictedToken(token.value, 0, 0, nullptr, 0, nullptr,
+        static_cast<DWORD>(count), restrictions.data(), &raw) != FALSE, "large restricted token unavailable");
+    OwnedHandle restricted(raw);
+    const auto reference = legacy_token_bytes(restricted.value, TokenRestrictedSids);
+    require(reference.size() > 1024 && reference.size() <= 65536, "large native buffer route was not entered");
+    const PublisherClientTokenBytes expanded(restricted.value, TokenRestrictedSids);
+    require(expanded.size() == reference.size(), "expanded native buffer length differs");
+    require_same_token_value(TokenRestrictedSids, expanded.data(), reference.data());
+    bool allocation_refused = false;
+    {
+        ResetDenial reset;
+        deny_request_channel_allocations = true;
+        try { const PublisherClientTokenBytes unavailable(restricted.value, TokenRestrictedSids); }
+        catch (const std::bad_alloc&) { allocation_refused = true; }
+    }
+    require(allocation_refused, "failed expanded allocation returned a usable token buffer");
+    refuses([&] { const PublisherClientTokenBytes invalid(INVALID_HANDLE_VALUE, TokenUser); });
+    refuses([&] { const PublisherClientTokenBytes forbidden(token.value, TokenLinkedToken); });
+}
+std::uint64_t token_content_marker(TOKEN_INFORMATION_CLASS kind, const unsigned char* data) {
+    switch (kind) {
+    case TokenUser: return *GetSidSubAuthority(reinterpret_cast<const TOKEN_USER*>(data)->User.Sid, 0);
+    case TokenStatistics: return reinterpret_cast<const TOKEN_STATISTICS*>(data)->TokenId.LowPart;
+    case TokenImpersonationLevel: return *reinterpret_cast<const SECURITY_IMPERSONATION_LEVEL*>(data);
+    case TokenGroups: case TokenRestrictedSids: return reinterpret_cast<const TOKEN_GROUPS*>(data)->GroupCount;
+    case TokenPrivileges: return reinterpret_cast<const TOKEN_PRIVILEGES*>(data)->PrivilegeCount;
+    default: throw std::logic_error("benchmark token information class differs");
+    }
+}
+void benchmark_client_token_buffers() {
+    using usk::platform::windows::detail::PublisherClientTokenBytes;
+    OwnedHandle token(owned_identification_token());
+    constexpr unsigned repeats = 10000;
+    for (unsigned round = 0; round != 3; ++round) {
+        for (unsigned route = 0; route != 2; ++route) {
+            const bool inline_first = ((round + route) % 2u) != 0;
+            std::uint64_t bytes = 0, checksum = 0;
+            const auto started = std::chrono::steady_clock::now();
+            for (unsigned i = 0; i != repeats; ++i) {
+                for (const auto kind : client_token_classes) {
+                    if (inline_first) {
+                        const PublisherClientTokenBytes value(token.value, kind);
+                        bytes += value.size(); checksum += token_content_marker(kind, value.data());
+                    } else {
+                        const auto value = legacy_token_bytes(token.value, kind);
+                        bytes += value.size(); checksum += token_content_marker(kind, value.data());
+                    }
+                }
+            }
+            const auto micros = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - started).count();
+            std::cout << "token_buffer_benchmark round=" << round << " route="
+                << (inline_first ? "inline_first" : "legacy_two_call") << " values=" << repeats * 6u
+                << " bytes=" << bytes << " checksum=" << checksum << " elapsed_us=" << micros << '\n';
+        }
+    }
+}
 void test_endpoint_acquisition(const std::wstring& name, const std::wstring& sid,
     const std::wstring& service_sid) {
     using namespace usk::platform::windows;
@@ -623,6 +809,10 @@ std::thread raw_client(const std::wstring& name, const std::string& message,
 }
 int main(int argc, char** argv) {
     try {
+        test_fresh_client_token_buffers();
+        if (argc == 2 && std::string(argv[1]) == "--token-buffer-benchmark") {
+            benchmark_client_token_buffers(); return 0;
+        }
         test_allocation_free_unknown_message();
         test_controller_uncertainty_boundary();
         test_authenticated_client_fact_equality();
