@@ -680,7 +680,9 @@ if(USK_BUILD_TESTS)
     add_test(NAME usk_publisher_standard_launcher_smoke
       COMMAND powershell -NoProfile -ExecutionPolicy Bypass -File
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_standard_launcher_smoke.ps1")
-    set_tests_properties(usk_publisher_standard_launcher_smoke PROPERTIES TIMEOUT 15)
+    # Keep this bounded PowerShell/fixture initialization separate from CTest's
+    # concurrent SDK compiler subprocesses, without changing its deadline.
+    set_tests_properties(usk_publisher_standard_launcher_smoke PROPERTIES TIMEOUT 15 RUN_SERIAL TRUE)
     if(TARGET usk_machine)
       add_test(NAME usk_publisher_candidate_apply_process_smoke
         COMMAND "${Python3_EXECUTABLE}"
