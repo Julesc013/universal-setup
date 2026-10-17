@@ -2396,6 +2396,11 @@ try {
         $staleClientIdentity=Assert-RequestClientImage $requestClient
         $staleResult=Read-ClientObservation $requestClient
         $stale=$staleResult.service
+        $receipt['registered_stale_recovery_observation']=[ordered]@{
+            submitted_request=$staleRecovery;client_exit_code=$requestClient.process.ExitCode;
+            client_mode=$requestClient.client_mode;service_response=$stale;
+            one_shot_status=$(if($staleResult.envelope){$staleResult.envelope.status}else{$null});
+            response_file_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
         if($requestClient.process.ExitCode -eq 0 -or $stale.status -ne 'failed' -or
             $stale.error -cne 'reviewed install reentry differs from durable plan and source') {
             throw 'Changed minimal recovery request was admitted'
@@ -2447,6 +2452,11 @@ try {
         }
         $verifiedResult=Read-ClientObservation $verifyClient
         $verified=$verifiedResult.service
+        $receipt['registered_installed_verify_observation']=[ordered]@{
+            submitted_request=$verifyRequest;client_exit_code=$verifyClient.process.ExitCode;
+            client_mode=$verifyClient.client_mode;service_response=$verified;
+            one_shot_status=$(if($verifiedResult.envelope){$verifiedResult.envelope.status}else{$null});
+            response_file_sha256=(Get-FileHash -LiteralPath $verifyClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
         if($verified.status -ne 'pass' -or $verified.transaction_id -cne $applyRequest.transaction_id -or
             $verified.verify_response.status -ne 'ok' -or
             $verified.verify_response.payload.status -ne 'pass' -or
@@ -2480,6 +2490,11 @@ try {
         $requestClient=$null
         $staleVerifyResult=Read-ClientObservation $staleClient
         $staleResponse=$staleVerifyResult.service
+        $receipt['registered_stale_verify_observation']=[ordered]@{
+            submitted_request=$staleVerify;client_exit_code=$staleClient.process.ExitCode;
+            client_mode=$staleClient.client_mode;service_response=$staleResponse;
+            one_shot_status=$(if($staleVerifyResult.envelope){$staleVerifyResult.envelope.status}else{$null});
+            response_file_sha256=(Get-FileHash -LiteralPath $staleClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
         if($staleClient.process.ExitCode -eq 0 -or $staleResponse.status -ne 'failed' -or
             $staleResponse.error -cne 'authenticated verify request lacks the current completed installed state') {
             throw 'Stale authenticated verification request was not refused'
@@ -2519,6 +2534,11 @@ try {
             }
             $damageResult=Read-ClientObservation $damageClient
             $damageResponse=$damageResult.service
+            $receipt['registered_damaged_verify_observation']=[ordered]@{
+                submitted_request=$damageVerify;client_exit_code=$damageClient.process.ExitCode;
+                client_mode=$damageClient.client_mode;service_response=$damageResponse;
+                one_shot_status=$(if($damageResult.envelope){$damageResult.envelope.status}else{$null});
+                response_file_sha256=(Get-FileHash -LiteralPath $damageClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
             $damagedFiles=@($damageResponse.verify_response.payload.files|Where-Object {
                 $_.relative_path -ceq $damageEntries[0].relative_path
             })
