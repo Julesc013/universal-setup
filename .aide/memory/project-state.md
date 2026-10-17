@@ -11,6 +11,31 @@ The external FacMan task's compact continuation record holds the changing checkp
 PR252 is normally merged into dev atd88253dd after all required core checks,
 independent source review and the live merge gate. Nine reviewed checkpoints
 PR244 through PR252 were integrated on18October2026; main remainsc048f7.
+PR252's terminal publisher run39054655658/1 is red. Both fresh maintenance
+cohorts complete, while both genuinely interrupted source-retired repair
+recoveries again exceed120seconds with current-requestUNKNOWN and no native
+completion capture. Its synthetic build1ce09a372a1d has dev's325003b9 source
+tree; embedded build and package identity remain separate. The new controller
+stops at readonly repair planning before enrolled repair/uninstall/retirement
+execute. Its generic planner failure did not retain exit/stdout/stderr evidence.
+
+The current local diagnostic increment retains the readonly planner's process
+handle before waiting. Five actual redirected WinPS5 machine refusals yielded
+null ExitCode without this association, and five yielded actual exit4 with it.
+Both real successful repair/uninstall plans also return exit0 and matching
+request/plan identities under WinPS5 and PS7 without changing ordinary fixture
+file bytes. This reproduces a local harness defect, not the independently
+established cause of the hosted SYSTEM failure. Missing/nonzero exit remains
+refusal. Failure-only records bind the selected inputs and retain at most4096
+stdout and2048 stderr bytes with actual prefix hashes, partial labels and no
+authority/completion claim. Capture follows all cleanup attempts, preserves
+the primary error and discards provisional plans on any planning/close failure.
+Focused native-prefix/process-tail controls cover malformed/empty output,
+mismatched identity, timeout, unsafe capture, secondary cleanup and cleanup-only
+failure; they do not manufacture the SYSTEM admission gate. Required hosted
+qualification, reliable recovery, completed retirement and main/release
+acceptance remain open; deadlines and inventory classifications are unchanged.
+
 PR251 was previously integrated at3e0e3dfe.
 PR250 was previously integrated at6933fc29.
 Reviewed/core-qualified dev integration is daily; main promotion targets19October
