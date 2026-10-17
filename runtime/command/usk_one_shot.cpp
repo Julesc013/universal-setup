@@ -14,6 +14,7 @@
 #include <ostream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 namespace usk::command {
@@ -523,6 +524,15 @@ static OneShotResult run_publisher_request(const std::string& request_json,
         return failure(request_id, "invalid_request");
     }
 
+    // Prepare current-call uncertainty before any transport can connect/start/write.
+    // A later exception, including allocation failure while parsing/formatting a
+    // reply, returns these already owned bytes without another allocation.
+    static_assert(std::is_nothrow_move_constructible<OneShotResult>::value,
+        "publisher uncertainty return must not allocate");
+    auto unknown_response = candidate_outcome(request_id, "unknown", Value(),
+        candidate_command == "publisher.observe" ? "publisher_observation_unknown" :
+            "publisher_outcome_unknown", 5);
+
     if (candidate_command == "publisher.inspect") {
         try {
             if (!transport) return failure(request_id, "transport_unavailable");
@@ -555,9 +565,9 @@ static OneShotResult run_publisher_request(const std::string& request_json,
                 retain_observation ? response : response.at("capability_observation"),nullptr,0);
         } catch (const usk::base::EffectRequestNotDispatched&) {
             // Startup or controller admission may already have occurred.
-            return candidate_outcome(request_id,"unknown",Value(),"publisher_observation_unknown",5);
-        } catch (const std::exception&) {
-            return candidate_outcome(request_id,"unknown",Value(),"publisher_observation_unknown",5);
+            return unknown_response;
+        } catch (...) {
+            return unknown_response;
         }
     }
 
@@ -699,14 +709,12 @@ static OneShotResult run_publisher_request(const std::string& request_json,
             return candidate_outcome(request_id, "refused",
                 publisher_operation_diagnostic(observed, code), code, 4);
         } catch (const std::exception&) {
-            return candidate_outcome(request_id, "unknown", Value(), "publisher_outcome_unknown", 5);
+            return unknown_response;
         }
-    } catch (const std::exception&) {
-        return candidate_outcome(request_id, "unknown", Value(),
-            "publisher_outcome_unknown", 5);
+    } catch (...) {
+        return unknown_response;
     }
-    return candidate_outcome(request_id, "unknown", Value(),
-        "publisher_outcome_unknown", 5);
+    return unknown_response;
 }
 
 OneShotResult run_candidate_one_shot(const std::string& request_json,

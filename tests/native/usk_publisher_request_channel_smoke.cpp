@@ -16,9 +16,27 @@
 #include <filesystem>
 #include <iostream>
 #include <new>
+#include <cstdlib>
+#include <cstring>
+#include <type_traits>
+#include <utility>
 #include <stdexcept>
 #include <thread>
 #include <vector>
+// Test executable only: denial is scoped to the current test thread and starts
+// after its owned inputs are prepared. Other native fixture threads are unaffected.
+namespace { thread_local bool deny_unknown_message_allocations = false; }
+void* operator new(std::size_t bytes) {
+    if (deny_unknown_message_allocations) throw std::bad_alloc();
+    if (void* memory = std::malloc(bytes ? bytes : 1)) return memory;
+    throw std::bad_alloc();
+}
+void* operator new[](std::size_t bytes) { return ::operator new(bytes); }
+void operator delete(void* memory) noexcept { std::free(memory); }
+void operator delete[](void* memory) noexcept { ::operator delete(memory); }
+void operator delete(void* memory, std::size_t) noexcept { ::operator delete(memory); }
+void operator delete[](void* memory, std::size_t) noexcept { ::operator delete(memory); }
+
 using usk::platform::windows::PublisherRequestChannel;
 namespace {
 void require(bool condition, const char* message) { if (!condition) throw std::runtime_error(message); }
@@ -26,6 +44,64 @@ template<class Action> void refuses(Action action) {
     bool refused=false;
     try { action(); } catch (const std::exception&) { refused=true; }
     require(refused,"required refusal absent");
+}
+void test_allocation_free_unknown_message() {
+    using usk::platform::windows::PublisherRequestOutcomeUnknown;
+    static_assert(std::is_nothrow_constructible<PublisherRequestOutcomeUnknown, const char*>::value &&
+        std::is_nothrow_constructible<PublisherRequestOutcomeUnknown, const std::string&>::value &&
+        std::is_nothrow_constructible<PublisherRequestOutcomeUnknown, const char*, const char*>::value &&
+        std::is_nothrow_constructible<PublisherRequestOutcomeUnknown, const char*, DWORD>::value &&
+        std::is_nothrow_copy_constructible<PublisherRequestOutcomeUnknown>::value &&
+        std::is_nothrow_move_constructible<PublisherRequestOutcomeUnknown>::value,
+        "post-write UNKNOWN construction and propagation must not allocate");
+    constexpr char prefix[] = "publisher response unavailable; outcome unknown: ";
+    const std::string owned_reason(1024u, 'x');
+    bool denial_active = false, preserved = false, copied = false, bounded = false, null_reason = false;
+    bool context_preserved = false, win32_range_preserved = false;
+    struct ResetDenial {
+        ~ResetDenial() { deny_unknown_message_allocations = false; }
+    };
+    {
+        ResetDenial reset;
+        deny_unknown_message_allocations = true;
+        try { (void)::operator new(32u); }
+        catch (const std::bad_alloc&) { denial_active = true; }
+        try {
+            try { throw std::bad_alloc(); }
+            catch (const std::exception& error) {
+                // This is the raw transport's actual failure-message operation.
+                // The old string-backed constructor throws bad_alloc here.
+                throw PublisherRequestOutcomeUnknown(error.what());
+            }
+        } catch (const PublisherRequestOutcomeUnknown& error) {
+            preserved = std::strncmp(error.what(), prefix, sizeof(prefix) - 1u) == 0;
+            auto copy = error;
+            const auto moved = std::move(copy);
+            copied = std::strcmp(error.what(), moved.what()) == 0;
+        } catch (...) {}
+        try {
+            throw PublisherRequestOutcomeUnknown(owned_reason);
+        } catch (const PublisherRequestOutcomeUnknown& error) {
+            const auto length = std::strlen(error.what());
+            bounded = length == 511u && std::strcmp(error.what() + length - 3u, "...") == 0 &&
+                std::strncmp(error.what(), prefix, sizeof(prefix) - 1u) == 0;
+        } catch (...) {}
+        const PublisherRequestOutcomeUnknown unspecified(static_cast<const char*>(nullptr));
+        null_reason = std::strcmp(unspecified.what(), prefix) == 0;
+        const PublisherRequestOutcomeUnknown contextual("retained intent: ", "allocation failure");
+        context_preserved = std::strcmp(contextual.what(),
+            "publisher response unavailable; outcome unknown: retained intent: allocation failure") == 0;
+        const PublisherRequestOutcomeUnknown zero("Win32 ", DWORD{0});
+        const PublisherRequestOutcomeUnknown maximum("Win32 ", static_cast<DWORD>(0xffffffffu));
+        win32_range_preserved = std::strcmp(zero.what(),
+            "publisher response unavailable; outcome unknown: Win32 0") == 0 &&
+            std::strcmp(maximum.what(),
+                "publisher response unavailable; outcome unknown: Win32 4294967295") == 0;
+    }
+    require(denial_active && !deny_unknown_message_allocations,
+        "UNKNOWN message test did not activate and release allocation denial");
+    require(preserved && copied && bounded && null_reason && context_preserved && win32_range_preserved,
+        "post-write allocation failure lost its bounded UNKNOWN exception");
 }
 void test_controller_uncertainty_boundary() {
     using usk::platform::windows::detail::run_admitted_controller_request;
@@ -547,6 +623,7 @@ std::thread raw_client(const std::wstring& name, const std::string& message,
 }
 int main(int argc, char** argv) {
     try {
+        test_allocation_free_unknown_message();
         test_controller_uncertainty_boundary();
         test_authenticated_client_fact_equality();
         test_terminal_response_binding();

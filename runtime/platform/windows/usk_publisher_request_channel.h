@@ -7,6 +7,8 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <array>
+#include <exception>
 #include "usk_json.h"
 #include <memory>
 #include <string>
@@ -21,10 +23,45 @@ struct PublisherRequestOptions {
     DWORD conflict_wait_milliseconds = 0;
 };
 inline constexpr DWORD publisher_request_max_conflict_wait_milliseconds = 30000;
-class PublisherRequestOutcomeUnknown final : public std::runtime_error {
+// Message construction/copy must not allocate: this exception can be thrown
+// while handling allocation failure after the first possible request write.
+// A lost diagnostic suffix never changes the outcome or authorizes a retry.
+class PublisherRequestOutcomeUnknown final : public std::exception {
 public:
-    explicit PublisherRequestOutcomeUnknown(const std::string& reason) :
-        std::runtime_error("publisher response unavailable; outcome unknown: " + reason) {}
+    explicit PublisherRequestOutcomeUnknown(const char* reason) noexcept {
+        append("publisher response unavailable; outcome unknown: ");
+        append(reason);
+    }
+    explicit PublisherRequestOutcomeUnknown(const std::string& reason) noexcept :
+        PublisherRequestOutcomeUnknown(reason.c_str()) {}
+    PublisherRequestOutcomeUnknown(const char* context, const char* reason) noexcept :
+        PublisherRequestOutcomeUnknown(context) { append(reason); }
+    PublisherRequestOutcomeUnknown(const char* context, DWORD error) noexcept :
+        PublisherRequestOutcomeUnknown(context) {
+        // DWORD's complete decimal range fits in ten digits plus the terminator.
+        char digits[11]{};
+        auto* cursor = digits + sizeof(digits) - 1u;
+        do {
+            *--cursor = static_cast<char>('0' + error % 10u);
+            error /= 10u;
+        } while (error != 0);
+        append(cursor);
+    }
+    const char* what() const noexcept override { return message_.data(); }
+private:
+    std::array<char, 512> message_{};
+    void append(const char* text) noexcept {
+        if (!text) return;
+        std::size_t used = 0;
+        while (message_[used]) ++used;
+        while (*text && used + 1u < message_.size()) message_[used++] = *text++;
+        if (*text) {
+            message_[used - 3u] = '.';
+            message_[used - 2u] = '.';
+            message_[used - 1u] = '.';
+        }
+        message_[used] = '\0';
+    }
 };
 // Private transport only. This grants no filesystem or publisher authority.
 // The service supplies the admitted caller SID; message fields cannot choose it.

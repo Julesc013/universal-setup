@@ -1820,7 +1820,7 @@ void provision_registered_target(const std::wstring& name) {
         else throw std::runtime_error("target admission absence is uncertain");
     } catch (const std::exception& error) {
         if (intent_retained) throw PublisherRequestOutcomeUnknown(
-            std::string("target admission incomplete; protected intent retained: ") + error.what());
+            "target admission incomplete; protected intent retained: ", error.what());
         throw;
     }
 }
@@ -2060,7 +2060,7 @@ void register_service(const std::wstring& name, const std::wstring& binary,
         // entry for an exact same-identity retry. Never delete a previous or
         // uncertain registration while reporting an initial refusal.
         throw PublisherRequestOutcomeUnknown(
-            std::string("publisher registration incomplete; protected creation intent retained: ") + error.what());
+            "publisher registration incomplete; protected creation intent retained: ", error.what());
     }
 }
 
@@ -2269,7 +2269,7 @@ usk::json::Value enroll_reviewed_operation(const std::wstring& name, const std::
     return actual;
     } catch (const std::exception& error) {
         if (store_effects_may_exist)
-            throw PublisherRequestOutcomeUnknown(std::string("reviewed operation store effects may exist: ") + error.what());
+            throw PublisherRequestOutcomeUnknown("reviewed operation store effects may exist: ", error.what());
         throw;
     }
 }
@@ -2455,8 +2455,7 @@ void request_start(const std::wstring& name, const std::wstring& binary,
             // The reviewed caller must recover this same registration rather
             // than interpreting an unconfirmed start as no publication effect.
             throw usk::platform::windows::PublisherRequestOutcomeUnknown(
-                "reviewed publisher start outcome is uncertain; Win32 " +
-                std::to_string(error));
+                "reviewed publisher start outcome is uncertain; Win32 ", error);
         }
         throw std::runtime_error("matching publisher service could not start; Win32 " +
             std::to_string(error));
@@ -2552,8 +2551,7 @@ int run_registered_operation(const std::wstring& name, const std::wstring& binar
         }
         if (!StartServiceW(service.get(), 0, nullptr)) {
             throw usk::platform::windows::PublisherRequestOutcomeUnknown(
-                "registered operation start outcome is uncertain; Win32 " +
-                std::to_string(GetLastError()));
+                "registered operation start outcome is uncertain; Win32 ", GetLastError());
         }
     }
     return report_registered_response(name, request);
