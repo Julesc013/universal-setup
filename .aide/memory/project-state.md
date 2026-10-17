@@ -8,29 +8,39 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR248 is merged into dev at541544c; main remainsc048f7.
-Itsaa6f1dc source passed all six required core checks, specification validation,
-independent review and the live merge policy. Its native cohorts remain
-separately pending in CI39041319002; development integration is not release acceptance.
-PR247 was integrated at7a7a51a. Its publisher qualification in CI39039802715
-failed separately. Its registered controller passed the
-unchanged stale-recovery refusal, installed verification and stale-verify refusal.
-Intentional owned-file damage then returned recovery_required because completed
-nonpassing verification was rejected by the worker terminal grammar. The legacy
-machine route still refuses remounted device policy; service/binary recovery
-authority remains retained. Four independent maintenance cohorts were not
-produced after the earlier journey failed. PR248 independently admits those
-cohorts after the actor-qualified build without waiving any red result.
-The next runtime change binds terminal validation to the actual request and
-retains a completed verification's failed assessment, exact report identity and
-digest. Worker/job/query closure and native fences remain mandatory.
-Earlier PR246 CI39037422797 failed publisher qualification. Its retained
-stale-request observation is client exit3/statusrecovery_required,
-with error 'broker original protected intent is absent'. It does not establish
-request admission. The integrated repair narrows only this initial native absence
-before the broker's first admission reply, after confirmed query/worker,
-child/job and volume closure. Later failures remain conservative; hosted
-execution must still qualify the route with the unchanged refusal assertions.
+PR249 is normally merged into dev at0aaba4de; main remainsc048f7.
+All six required core checks, specification validation, independent source review
+and the live merge gate passed before development integration. The actual hosted
+registered controller now passes healthy verification, stale-request refusals and
+the intentionally damaged-file verification assertions: completed failed assessment,
+matching report digest and all40 unrelated rows unchanged. The journey subsequently
+refuses incomplete owned publisher retirement and retains service/binary authority.
+The legacy machine route still refuses its remounted device policy.
+Both independent fresh repair/move/uninstall cohorts pass on PR248 and PR249,
+including historical source-retired retries. Move explicitly retains its old root
+and defers reference/removal work. Both genuinely interrupted source-retired
+repair recovery cohorts still exceed120seconds with request-boundUNKNOWN and
+no verified terminal response/state. Both builds enable diagnostics; comparison
+with/without the WPR wrapper does not qualify release-default performance.
+No main, complete maintenance, retirement or release acceptance follows.
+
+The next transport repair makes the existing UNKNOWN exception's bounded message
+allocation-free and prepares each one-shot invocation's UNKNOWN bytes before
+transport. This closes an allocation-failure path that could otherwise become a
+false non-dispatch refusal. Target/registration/enrollment intent and uncertain-start
+callers also retain context and Win32 codes without allocating argument strings.
+It keeps the existing first-write boundary and response
+schemas; no dispatch marker, C ABI, endpoint authority or deadline is added.
+Native fault controls cover message construction/propagation and current-request
+fallback formatting. These are not a live registered-service allocation-fault run
+or the unfinished public C SDK factory/transport integration.
+
+The held eight-query recovery preview remains unapplied. Independent review finds
+its removed intermediate child/broker/client security observations nonredundant.
+An existing security-only observation API can retain process/token endpoints,
+but per-object access timing needs separate raw9 observations. Existing fixed-pair
+and original-record sharing must not be counted again as prospective savings.
+Continue from actual repeated cleanup/continuation costs and direct route tests.
 PR245 previously imported AIDE9605d8e into dev12f9f8c, preserving project state.
 The four fresh and genuinely interrupted maintenance cohorts are independently
 owned runs. Their workflow admission now requires the successful actor-qualified

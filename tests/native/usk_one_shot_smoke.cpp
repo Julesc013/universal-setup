@@ -6,13 +6,77 @@
 #include "usk_effect_dispatch.h"
 
 #include <cstdint>
+#include <cstdlib>
+#include <cstdio>
+#include <new>
+#include <type_traits>
 #include <ios>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
 
+// Test executable only. Denial begins in an admitted test transport, after
+// the production formatter must have prepared its current-call fallback.
+namespace { thread_local bool deny_publisher_test_allocations = false; }
+void* operator new(std::size_t bytes) {
+    if (deny_publisher_test_allocations) throw std::bad_alloc();
+    if (void* memory = std::malloc(bytes ? bytes : 1)) return memory;
+    throw std::bad_alloc();
+}
+void* operator new[](std::size_t bytes) { return ::operator new(bytes); }
+void operator delete(void* memory) noexcept { std::free(memory); }
+void operator delete[](void* memory) noexcept { ::operator delete(memory); }
+void operator delete(void* memory, std::size_t) noexcept { ::operator delete(memory); }
+void operator delete[](void* memory, std::size_t) noexcept { ::operator delete(memory); }
+
 namespace {
+struct ResetPublisherAllocationDenial {
+    ~ResetPublisherAllocationDenial() { deny_publisher_test_allocations = false; }
+};
+
+bool prebound_publisher_unknown(const std::string& input, const char* request_id,
+    const char* error_code, unsigned failure_kind) {
+    using usk::command::OneShotResult;
+    static_assert(std::is_nothrow_move_assignable<OneShotResult>::value,
+        "test result capture must not allocate while denial is active");
+    const auto expected_payload = usk::json::canonical(usk::json::parse(input).at("payload"));
+    std::string malformed = "{";
+    unsigned calls = 0; bool wrong_forward = false;
+    OneShotResult result;
+    try {
+        ResetPublisherAllocationDenial reset;
+        result = usk::command::run_publisher_one_shot(input,
+            [&](const std::string& forwarded) -> std::string {
+                ++calls; wrong_forward = forwarded != expected_payload;
+                deny_publisher_test_allocations = true;
+                if (failure_kind == 1u) return std::move(malformed);
+                if (failure_kind == 2u) throw 7;
+                throw std::bad_alloc();
+            });
+    } catch (...) { return false; }
+    if (deny_publisher_test_allocations || calls != 1 || wrong_forward || result.exit_code != 5)
+        return false;
+    const auto value = usk::json::parse(result.document);
+    return value.at("request_id").as_string() == request_id &&
+        value.at("status").as_string() == "unknown" &&
+        value.at("result").type() == usk::json::Value::Type::null_value &&
+        value.at("error").at("code").as_string() == error_code;
+}
+
+bool prebound_publisher_unknown_checks() {
+    const std::string a = R"({"schema":"usk.oneshot_request.v1","request_id":"allocation.A","command":"install_local.apply","payload":{"schema":"usk.install_local_apply_request.v1","plan_request":{"install_id":"example"},"transaction_id":"tx-A","applied_at":"2026-10-17T00:00:00Z"},"dry_run":false})";
+    const std::string b = R"({"schema":"usk.oneshot_request.v1","request_id":"allocation.B","command":"install_local.apply","payload":{"schema":"usk.install_local_apply_request.v1","plan_request":{"install_id":"example"},"transaction_id":"tx-B","applied_at":"2026-10-17T00:00:00Z"},"dry_run":false})";
+    const std::string observation = R"({"schema":"usk.oneshot_request.v1","request_id":"allocation.observe","command":"publisher.observe","payload":{"schema":"usk.publisher_capability_request.v5","request_id":"allocation.observe"},"dry_run":false})";
+    for (const unsigned failure_kind : {0u, 1u, 2u}) {
+        if (!prebound_publisher_unknown(a, "allocation.A", "publisher_outcome_unknown", failure_kind) ||
+            !prebound_publisher_unknown(b, "allocation.B", "publisher_outcome_unknown", failure_kind) ||
+            !prebound_publisher_unknown(observation, "allocation.observe", "publisher_observation_unknown", failure_kind))
+            return false;
+    }
+    std::puts("Prebound publisher UNKNOWN PASS: nine post-transport allocation-denial controls; no native dispatch claimed");
+    return true;
+}
 
 class BadAtEndBuffer final : public std::streambuf {
 public:
@@ -559,6 +623,7 @@ bool publisher_projection_checks()
 
 int main()
 {
+    if (!prebound_publisher_unknown_checks()) return 11;
     if (!publisher_projection_checks()) return 23;
     if (!maintenance_projection_checks()) return 24;
     if (!publisher_capability_checks()) return 24;
