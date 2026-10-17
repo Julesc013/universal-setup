@@ -127,7 +127,9 @@ private:
     friend class PublisherEffectRecordByteRound;
     std::vector<usk::json::Value> receive_record_result_stream(const usk::json::Value& scope, DWORD timeout_ms);
     // Only the fixed original record scope may use this identity check between
-    // its complete fresh image-digest endpoints. Each call still observes the
+    // its complete endpoint observations. Image content uses the wire-owned
+    // initial digest under an uninterrupted local-NTFS write-excluding handle;
+    // no later full-image content/read/CNG sample is claimed. Each call observes
     // held live peer and image/path identity; it returns no proof or authority.
     void require_record_chunk_custody(const usk::json::Value& original) const;
     // Borrowed only inside the fixed native readback's startup wait; never

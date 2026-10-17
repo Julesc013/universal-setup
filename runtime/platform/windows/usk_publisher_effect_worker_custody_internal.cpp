@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 #include "usk_diagnostic_metrics.h"
 #include "usk_publisher_effect_worker_custody_internal.h"
+#include "usk_publisher_custody_image_internal.h"
 #if defined(_WIN32)
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_effect_broker_internal.h"
@@ -75,21 +76,21 @@ std::string request_digest(const std::string& request) {
     digest.update(reinterpret_cast<const unsigned char*>(request.data()), request.size());
     return digest.finish();
 }
-void require_same_image(const usk::base::StableFile& first, const usk::base::StableFile& second) {
+void require_same_image(const usk::base::StableFile& first, const PublisherCustodyImage& second) {
     first.verify_unchanged();
     second.verify_unchanged();
     const auto& a = first.identity();
     const auto& b = second.identity();
     require(a.volume_id == b.volume_id && a.file_id == b.file_id &&
         a.size_bytes == b.size_bytes && a.modified_time_ns == b.modified_time_ns &&
-        a.link_count == b.link_count && first.sha256_hex() == second.sha256_hex(),
+        a.link_count == b.link_count && first.sha256_hex() == second.bound_sha256(),
         "effect transport does not hold the original executable image");
 }
-Value image_value(const usk::base::StableFile& image) {
+Value image_value(const PublisherCustodyImage& image) {
     const auto& identity = image.identity();
     return Value(Value::Object{{"volume_id", Value(identity.volume_id)},
         {"file_id", Value(identity.file_id)}, {"size_bytes", Value(identity.size_bytes)},
-        {"sha256", Value(image.sha256_hex())}});
+        {"sha256", Value(image.bound_sha256())}});
 }
 void require_canonical_sid(const std::wstring& text) {
     LocalMemory sid, canonical;
@@ -171,7 +172,7 @@ struct Wire {
     };
     Handle pipe, peer, cancel;
     std::unique_ptr<PendingIo> pending;
-    std::unique_ptr<usk::base::StableFile> image;
+    std::unique_ptr<PublisherCustodyImage> image;
     DWORD peer_id = 0;
     std::uint64_t peer_birth = 0, sent = 0, received = 0;
     std::wstring peer_image_path;
@@ -432,10 +433,10 @@ struct Wire {
             expected_image.at("size_bytes").as_unsigned() == identity.size_bytes,
             "effect record chunk original native custody identity changed");
         // The original is this scope's actual full observation, not supplied
-        // data or a cached validation result. Image bytes are freshly hashed
-        // at the complete scope endpoints. Intermediate chunks retain fresh
-        // held/path metadata, peer liveness/birth/path and actual token checks;
-        // they do not claim another image-content sample.
+        // data or cached authorization. Image content is bound once under the
+        // wire-owned uninterrupted local-NTFS write-excluding handle. Every
+        // chunk and full endpoint retain fresh held/path metadata, peer
+        // liveness/birth/path and actual token checks.
         require_peer();
     }
     std::string canonical_request;
@@ -479,7 +480,7 @@ void bind_peer(Wire& wire, HANDLE process, const usk::base::StableFile& original
     wire.peer_id = GetProcessId(query);
     wire.peer_birth = birth(query);
     wire.peer_image_path = image_path(query);
-    wire.image = std::make_unique<usk::base::StableFile>(wire.peer_image_path);
+    wire.image = std::make_unique<PublisherCustodyImage>(wire.peer_image_path);
     require_same_image(original, *wire.image);
     wire.require_peer();
 }
@@ -830,7 +831,7 @@ PublisherEffectWorkerPeer::PublisherEffectWorkerPeer(int argc, wchar_t** argv) :
     wire.peer_id = server_id;
     wire.peer_birth = birth(wire.peer.value);
     wire.peer_image_path = image_path(wire.peer.value);
-    wire.image = std::make_unique<usk::base::StableFile>(image_path(GetCurrentProcess()));
+    wire.image = std::make_unique<PublisherCustodyImage>(image_path(GetCurrentProcess()));
     usk::base::StableFile parent_image(wire.peer_image_path);
     require_same_image(parent_image, *wire.image);
     wire.require_peer();

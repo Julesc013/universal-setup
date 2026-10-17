@@ -2111,3 +2111,32 @@ This source change does not retrospectively classify the failed head
 authority or establish public availability. Its new native controls distinguish
 completed original custody from otherwise equivalent unknown or pending loss.
 Exact-source review and the full supported hosted profile remain required.
+
+The private effect-transport image binding is scoped to the registration-admitted
+protected running publisher executable. The protected installation creates a
+BA/SY-only output, completes synchronous writes and FlushFileBuffers, closes it,
+then promotes it; the admitted service grant is read/execute only. Registration
+checks its protected location, descriptor, actual process image and expected
+digest. This existing boundary excludes hostile pre-admission pending writers
+within the profile. Ordinary data-file test construction grants no production
+admission and supplies no general immutable-file guarantee.
+
+The private effect-transport image binding retains one original, non-inheritable
+GENERIC_READ/FILE_SHARE_READ handle for its entire wire lifetime, including
+closure-unknown retention. The held handle must positively identify a fixed local
+volume GUID, NTFS and its original volume serial, with no remote protocol facts.
+An initial complete SHA-256 binds content under that handle. Repeated custody
+observations reuse only this content binding: they still inspect held and
+reopened-path metadata, the actual live peer PID/birth/image path, and the
+callers' existing token and authorization facts. A failed image metadata check
+permanently invalidates that image owner. Restored mutable file observations and
+the general StableFile::sha256_hex() method retain fresh hashing.
+
+This replaces the previous repeated image-content sampling guarantee with local
+NTFS write exclusion. It does not sample later full-image read or CNG errors,
+cache authorization, cover remote filesystems, or assert immutable metadata.
+Existing writable handles or file-backed writable mappings must prevent
+admission; copy-on-write views do not alter the bound file. Trusted kernel and
+filesystem enforcement remains part of this profile's stated threat model.
+Source changes and local controls alone do not establish recovery qualification
+or a request-deadline improvement.

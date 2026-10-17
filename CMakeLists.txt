@@ -861,6 +861,16 @@ if(USK_BUILD_TESTS)
     add_test(NAME usk_publisher_process_boundary_smoke COMMAND usk_publisher_process_boundary_smoke)
     set_tests_properties(usk_publisher_process_boundary_smoke PROPERTIES TIMEOUT 30)
 
+    add_executable(usk_publisher_custody_image_smoke
+      tests/native/usk_publisher_custody_image_smoke.cpp)
+    target_compile_features(usk_publisher_custody_image_smoke PRIVATE cxx_std_17)
+    target_include_directories(usk_publisher_custody_image_smoke PRIVATE
+      "${CMAKE_CURRENT_SOURCE_DIR}/runtime/platform/windows")
+    target_link_libraries(usk_publisher_custody_image_smoke PRIVATE usk_base_static)
+    usk_enable_strict_warnings(usk_publisher_custody_image_smoke)
+    add_test(NAME usk_publisher_custody_image_smoke COMMAND usk_publisher_custody_image_smoke)
+    set_tests_properties(usk_publisher_custody_image_smoke PROPERTIES TIMEOUT 30)
+
     add_executable(usk_publisher_effect_worker_custody_smoke
       tests/native/usk_publisher_effect_worker_custody_smoke.cpp)
     target_compile_features(usk_publisher_effect_worker_custody_smoke PRIVATE cxx_std_17)

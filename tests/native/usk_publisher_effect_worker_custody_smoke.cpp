@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
 #include "usk_publisher_effect_worker_custody_internal.h"
+#include "usk_diagnostic_metrics.h"
 #include "usk_publisher_effect_execution_internal.h"
 #include "usk_protected_install_publisher_internal.h"
 #include "usk_publisher_token_observation.h"
@@ -249,7 +250,10 @@ void large_write_failure_control(const usk::base::StableFile& image,
     require(closure.confirmed() && closure.child_process_id == original.at("peer_process_id").as_unsigned(),
         "large-write retirement did not confirm the original child and pending I/O closure");
 }
+bool metric_sink(const usk::diagnostics::Event&) noexcept { return true; }
 void controls(const usk::base::StableFile& image, const std::wstring& sid) {
+    require(usk::diagnostics::enable(metric_sink), "custody counter control unavailable");
+    struct MetricsCloser { ~MetricsCloser() { usk::diagnostics::disable(metric_sink); } } metrics_closer;
     wchar_t directory[32768]{}, temporary[32768]{};
     const auto count = GetTempPathW(static_cast<DWORD>(std::size(directory)), directory);
     require(count && count < std::size(directory) &&
@@ -265,6 +269,14 @@ void controls(const usk::base::StableFile& image, const std::wstring& sid) {
     {
         PublisherEffectWorkerCustody custody(image, sid, request(), stop.value);
         const auto observed = custody.observation();
+        const auto hash_index = static_cast<std::size_t>(usk::diagnostics::Counter::hash_calls);
+        const auto hashes = usk::diagnostics::snapshot().totals[hash_index];
+        for (int iteration = 0; iteration < 16; ++iteration) {
+            require(usk::json::equal_values(custody.observation().at("image"), observed.at("image")),
+                "real wire custody image binding changed");
+        }
+        require(usk::diagnostics::snapshot().totals[hash_index] == hashes,
+            "real wire observation did not enter custody-only content reuse");
         require(observed.at("authority").as_string() == "none" &&
             observed.at("current_process_id").as_unsigned() == GetCurrentProcessId() &&
             observed.at("peer_process_id").as_unsigned() != GetCurrentProcessId() &&

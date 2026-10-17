@@ -446,6 +446,42 @@ std::string StableFile::sha256_hex() const
     return result;
 }
 
+#if defined(_WIN32)
+void StableFile::require_local_ntfs() const
+{
+    const auto handle = as_handle(native_handle_);
+    wchar_t filesystem[MAX_PATH + 1]{};
+    DWORD serial = 0, maximum_component = 0;
+    if (!GetVolumeInformationByHandleW(handle, nullptr, 0, &serial,
+            &maximum_component, nullptr, filesystem, MAX_PATH + 1) ||
+        std::wstring(filesystem) != L"NTFS" || maximum_component < 255 ||
+        hex_id(serial) != identity_.volume_id) {
+        throw std::runtime_error("held file is outside the local NTFS content-binding profile");
+    }
+    // Positive local-volume evidence comes from the original held handle.
+    std::vector<wchar_t> final_path(32768);
+    const auto length = GetFinalPathNameByHandleW(handle, final_path.data(),
+        static_cast<DWORD>(final_path.size()), VOLUME_NAME_GUID | FILE_NAME_OPENED);
+    if (!length || length >= final_path.size()) {
+        throw std::runtime_error("held file local volume GUID is unavailable");
+    }
+    const std::wstring name(final_path.data(), length);
+    const auto root_end = name.find(L"}\\");
+    if (name.compare(0, 11, L"\\\\?\\Volume{") != 0 || root_end != 47 ||
+        GetDriveTypeW(name.substr(0, root_end + 2).c_str()) != DRIVE_FIXED) {
+        throw std::runtime_error("held file is not on a fixed local volume");
+    }
+    // Match the publisher's existing handle-bound local-volume admission.
+    // A remote NTFS server can mutate bytes outside this machine's sharing.
+    FILE_REMOTE_PROTOCOL_INFO remote{};
+    if (GetFileInformationByHandleEx(handle, FileRemoteProtocolInfo, &remote, sizeof(remote)) ||
+        GetLastError() != ERROR_INVALID_PARAMETER) {
+        throw std::runtime_error("held file local NTFS protocol observation differs");
+    }
+    verify_unchanged();
+}
+#endif
+
 void StableFile::verify_unchanged() const
 {
 #if defined(_WIN32)
