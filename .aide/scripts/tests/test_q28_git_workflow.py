@@ -70,7 +70,7 @@ class Q28GitWorkflowTests(unittest.TestCase):
             with mock.patch.object(aide_lite, "run_git_capture", side_effect=lambda _root, args: git_fixture(args)):
                 code_buffer = io.StringIO()
                 with contextlib.redirect_stdout(code_buffer):
-                    code = aide_lite.main(["--repo-root", str(root), "git", "detect"])
+                    code = aide_lite.main(["--repo-root", str(root), "git", "detect", "--write-reports"])
             self.assertEqual(code, 0)
             data = json.loads(aide_lite.read_text(root / aide_lite.GIT_WORKFLOW_DETECTION_JSON_PATH))
             self.assertEqual(data["schema_version"], "aide.git-workflow-detection.v0")

@@ -5692,14 +5692,15 @@ def task_status_value(repo_root: Path, task_id: str) -> str:
 
 def current_task_id(repo_root: Path) -> str | None:
     packet = repo_root / LATEST_PACKET_PATH
-    if packet.exists():
-        text = read_text(packet)
-        match = re.search(r"^phase:\s*([^\n]+)$", text, re.IGNORECASE | re.MULTILINE)
-        if match:
-            return match.group(1).strip()
-        match = re.search(r"Q\d+[A-Za-z0-9._-]*[^\s`]*", text)
-        if match:
-            return match.group(0).strip()
+    if packet.is_file():
+        raw, explicit = task_packet_identity(read_text(packet))
+        if explicit and not raw:
+            raise ValueError("empty declared task identity")
+    raw, resolved = task_os_latest_task_ref(repo_root)
+    if raw:
+        if not resolved:
+            raise ValueError("invalid declared task identity")
+        return resolved
     tasks = queue_task_blocks(repo_root)
     for status in ["running", "partial", "ready", "needs_review"]:
         for task in reversed(tasks):
@@ -5795,24 +5796,24 @@ def safe_git_head_commit(repo_root: Path) -> str:
         return "unknown"
 
 
-def task_os_latest_task_ref(repo_root: Path) -> tuple[str, str]:
-    packet = repo_root / LATEST_PACKET_PATH
-    if not packet.exists():
-        return "", ""
-    text = read_text(packet)
+def task_packet_identity(text: str) -> tuple[str, bool]:
     # Only the packet preamble and the leading PHASE/GOAL lines can declare
     # task identity. Later sections contain incidental IDs in guidance.
     preamble = re.split(r"^##\s+", text, maxsplit=1, flags=re.MULTILINE)[0]
-    declared_id = re.search(r"^\s*[-*]?\s*task_id:\s*([^\s`]+)", preamble, re.MULTILINE)
-    if declared_id:
-        raw = declared_id.group(1)
-        return raw, resolve_task_id(repo_root, raw)
+    declared_ids = re.findall(r"^[ \t]*[-*]?[ \t]*(?:task_id|phase):[ \t]*([^\n]*)$", preamble, re.MULTILINE | re.IGNORECASE)
+    if declared_ids:
+        values = [value.strip() for value in declared_ids]
+        if len(set(values)) != 1:
+            raise ValueError("conflicting declared task identities")
+        return values[0], True
     candidate_lines: list[str] = []
     for heading in ["PHASE", "GOAL"]:
         match = re.search(rf"^##\s+{heading}\s*$\s*(.*?)(?=^##\s+|\Z)", text, re.MULTILINE | re.DOTALL)
         if match:
             lines = match.group(1).strip().splitlines()
             if lines:
+                if heading == "PHASE" and lines[0].strip().startswith("phase:"):
+                    return lines[0].strip().partition(":")[2].strip(), True
                 candidate_lines.append(re.sub(r"^UNSPECIFIED\s+-\s+", "", lines[0].strip()))
     patterns = [
         r"AIDE-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*-\d+(?:-[A-Za-z0-9._]+)*(?![A-Za-z0-9._-])",
@@ -5824,9 +5825,33 @@ def task_os_latest_task_ref(repo_root: Path) -> tuple[str, str]:
         for pattern in patterns:
             match = re.match(pattern, line)
             if match:
-                raw = match.group(0)
-                return raw, resolve_task_id(repo_root, raw)
-    return "", ""
+                return match.group(0), False
+    return "", False
+
+
+def task_os_latest_task_ref(repo_root: Path, packet_path: str = LATEST_PACKET_PATH) -> tuple[str, str]:
+    packet = safe_repo_path(repo_root, packet_path)
+    if not packet.exists():
+        return "", ""
+    raw, _explicit = task_packet_identity(read_text(packet))
+    if not raw:
+        return "", ""
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", raw):
+        return raw, ""
+    return raw, resolve_task_id(repo_root, raw)
+
+
+def selected_task_path(repo_root: Path, task_id: str) -> Path:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", task_id):
+        raise ValueError("invalid declared task identity")
+    selected = resolve_task_id(repo_root, task_id)
+    path = safe_repo_path(repo_root, f".aide/queue/{selected}/task.yaml")
+    if not path.is_file():
+        raise ValueError(f"declared task is missing: {task_id}")
+    declared = re.search(r"^id:\s*(\S+)\s*$", read_text(path), re.MULTILINE)
+    if declared and declared.group(1) != selected:
+        raise ValueError(f"declared task identity mismatch: {task_id}")
+    return path
 
 
 def task_os_read_status_yaml(repo_root: Path, task_id: str) -> str:
@@ -22831,49 +22856,69 @@ def github_expected_ci_commands() -> list[str]:
     ]
 
 
+def github_protection_choices(repo_root: Path) -> tuple[dict[str, dict[str, bool | None]], list[str]]:
+    """Read the existing policy's two/four-space boolean rule fields conservatively."""
+    branches = ("main", "dev", "release/*", "hotfix/*", "gh-pages")
+    keys = ("protect", "require_reviews", "require_status_checks")
+    choices = {branch: {key: None for key in keys} for branch in branches}
+    issues: list[str] = []
+    path = repo_root / BRANCH_PROTECTION_POLICY_PATH
+    if not path.is_file():
+        return choices, ["branch_protection_policy_missing"]
+    text = read_text(path)
+    rules = list(re.finditer(r"(?m)^rules:[ \t]*(.*)$", text))
+    if len(rules) != 1:
+        return choices, ["branch_protection_rules_missing_or_duplicate"]
+    if rules[0].group(1) and not rules[0].group(1).startswith("#"):
+        return choices, ["branch_protection_rules_unsupported_inline_value"]
+    section = text[rules[0].end():]
+    end = re.search(r"(?m)^[^\s#]", section)
+    if end:
+        section = section[:end.start()]
+    blocks = list(re.finditer(r"(?m)^  ([^\s:][^:\r\n]*):[ \t]*(.*)$", section))
+    for branch in branches:
+        selected = [(i, match) for i, match in enumerate(blocks) if match.group(1) == branch]
+        if len(selected) != 1:
+            issues.append(f"{branch}: rule missing or duplicate")
+            continue
+        index, match = selected[0]
+        if match.group(2) and not match.group(2).startswith("#"):
+            issues.append(f"{branch}: unsupported inline rule")
+            continue
+        body = section[match.end():blocks[index + 1].start() if index + 1 < len(blocks) else len(section)]
+        for key in keys:
+            values = re.findall(r"(?m)^    " + key + r":[ \t]*(.*)$", body)
+            if not values and key != "protect":
+                continue
+            if len(values) == 1 and re.fullmatch(r"(?:true|false)(?:[ \t]+#.*)?[ \t]*", values[0]):
+                choices[branch][key] = values[0].split()[0] == "true"
+            else:
+                issues.append(f"{branch}: {key} must be one literal boolean")
+    return choices, issues
+
+
 def make_github_protection_plan(repo_root: Path, state: dict[str, object] | None = None) -> dict[str, object]:
     helper_state = state if state is not None else collect_git_helper_state(repo_root)
     branches = [str(item) for item in helper_state.get("local_branches", []) if isinstance(item, str)]
     remote_branches = [str(item) for item in helper_state.get("remote_branches", []) if isinstance(item, str)]
     normalized = {normalize_branch_for_role(item) for item in [*branches, *remote_branches]}
+    choices, policy_issues = github_protection_choices(repo_root)
     branch_targets = []
-    for branch in ["main", "dev"]:
+    for branch, choice in choices.items():
         branch_targets.append(
             {
                 "branch": branch,
-                "role": classify_branch_role(branch),
-                "present": branch in normalized,
-                "recommended": True,
-                "required_reviews": 1 if branch == "main" else 0,
+                "role": {"release/*": "release", "hotfix/*": "hotfix"}.get(branch, classify_branch_role(branch)),
+                "present": any(fnmatch.fnmatchcase(item, branch) for item in normalized),
+                "recommended": choice["protect"],
+                "protection_choice": "project_optional" if branch == "main" else "normally_unprotected" if branch == "dev" else "project_policy",
+                "required_reviews": int(choice["require_reviews"]) if choice["require_reviews"] is not None else None,
+                "require_status_checks": choice["require_status_checks"],
                 "require_linear_history": False,
                 "allow_force_pushes": False,
                 "allow_deletions": False,
             }
         )
-    branch_targets.extend(
-        [
-            {
-                "branch": "release/*",
-                "role": "release",
-                "present": any(item.startswith("release/") for item in normalized),
-                "recommended": True,
-                "required_reviews": 1,
-                "require_linear_history": False,
-                "allow_force_pushes": False,
-                "allow_deletions": False,
-            },
-            {
-                "branch": "hotfix/*",
-                "role": "hotfix",
-                "present": any(item.startswith("hotfix/") for item in normalized),
-                "recommended": True,
-                "required_reviews": 1,
-                "require_linear_history": False,
-                "allow_force_pushes": False,
-                "allow_deletions": False,
-            },
-        ]
-    )
     required_checks = [
         "aide-validate",
         "aide-lite-validate",
@@ -22889,10 +22934,14 @@ def make_github_protection_plan(repo_root: Path, state: dict[str, object] | None
     return {
         "schema_version": "aide.github-branch-protection-plan.v0",
         "generated_by": GENERATOR_NAME,
-        "repo_id": "julesc013/aide",
+        "repo_id": "not_observed",
         "current_branch": helper_state.get("current_branch", "unknown"),
         "current_branch_role": helper_state.get("current_role", "unknown"),
-        "protected_branch_roles": ["canonical", "integration", "release", "deploy"],
+        "protected_branch_roles": sorted({item["role"] for item in branch_targets if item["recommended"] is True}),
+        "protection_policy_source": BRANCH_PROTECTION_POLICY_PATH,
+        "policy_issues": policy_issues,
+        "remote_protection_observed": False,
+        "preserve_existing_remote_settings": True,
         "branch_targets": branch_targets,
         "required_status_checks": required_checks,
         "required_review_gate": True,
@@ -22952,12 +23001,15 @@ def make_github_advisory(repo_root: Path) -> dict[str, object]:
                 remote_url = parts[1]
                 break
     findings = []
+    repo_id = remote_repo_summary(remote_url)
+    protection["repo_id"] = ci["repo_id"] = repo_id
+    findings.extend(protection["policy_issues"])
     if not any(item.get("branch") == "dev" and item.get("present") for item in protection["branch_targets"] if isinstance(item, dict)):
         findings.append("dev integration branch is planned but not detected locally/remotely")
     return {
         "schema_version": "aide.github-advisory.v0",
         "generated_by": GENERATOR_NAME,
-        "repo_id": remote_repo_summary(remote_url),
+        "repo_id": repo_id,
         "remote_url_summary": remote_repo_summary(remote_url),
         "current_branch": helper_state.get("current_branch", "unknown"),
         "current_commit": helper_state.get("current_commit", "unknown"),
@@ -22968,8 +23020,8 @@ def make_github_advisory(repo_root: Path) -> dict[str, object]:
         "branch_protection": protection,
         "ci": ci,
         "findings": findings,
-        "blockers": [],
-        "recommended_next_action": "review Q35 advisory before any future Q36+ intent work; do not apply GitHub settings until a later reviewed phase",
+        "blockers": list(protection["policy_issues"]),
+        "recommended_next_action": "review project protection choices and current Git evidence; preserve existing settings until a separately authorized apply",
         "github_api_mutation": False,
         "branch_protection_applied": False,
         "workflow_file_written": False,
@@ -22988,7 +23040,7 @@ def render_github_protection_plan_md(plan: dict[str, object]) -> str:
     for item in plan.get("branch_targets", []):
         if isinstance(item, dict):
             target_lines.append(
-                f"- {item.get('branch', '')}: role={item.get('role', '')}; present={str(item.get('present', False)).lower()}; force_push={str(item.get('allow_force_pushes', False)).lower()}; deletion={str(item.get('allow_deletions', False)).lower()}"
+                f"- {item.get('branch', '')}: role={item.get('role', '')}; present={str(item.get('present', False)).lower()}; protection={str(item.get('recommended')).lower() if item.get('recommended') is not None else 'unknown'}; choice={item.get('protection_choice', '')}; force_push={str(item.get('allow_force_pushes', False)).lower()}; deletion={str(item.get('allow_deletions', False)).lower()}"
             )
     check_lines = [f"- {item}" for item in plan.get("required_status_checks", []) if isinstance(item, str)]
     return f"""# AIDE GitHub Branch Protection Plan
@@ -23002,6 +23054,8 @@ def render_github_protection_plan_md(plan: dict[str, object]) -> str:
 - branch_protection_applied: false
 - workflow_file_written: false
 - preview_only: true
+- remote_protection_observed: false
+- policy_issues: {json.dumps(plan.get('policy_issues', []))}
 
 ## Branch Targets
 
@@ -23016,6 +23070,9 @@ def render_github_protection_plan_md(plan: dict[str, object]) -> str:
 This is an advisory plan. Q35 does not call GitHub APIs, create branch
 protection rules, write `.github/workflows`, push branches, create tags, or
 publish releases.
+Project-owned protection choices come from `{BRANCH_PROTECTION_POLICY_PATH}`.
+Existing remote protection is preserved; optional or disabled hosting protection
+does not bypass validation, review, no-force-push or persistent-branch retention.
 """
 
 
@@ -23142,6 +23199,8 @@ def write_github_advisory_reports(repo_root: Path) -> dict[str, object]:
 
 def validate_github_advisory_files(repo_root: Path) -> list[Check]:
     checks: list[Check] = []
+    _choices, policy_issues = github_protection_choices(repo_root)
+    check_pass(checks, not policy_issues, "branch protection choices are explicit: " + "; ".join(policy_issues))
     required_markers = {
         GITHUB_PROTECTION_POLICY_PATH: ["aide.github-protection-policy.v0", "advisory_only", "github_api_mutation: false", "workflow_file_written: false"],
         CI_GATES_POLICY_PATH: ["aide.ci-gates-policy.v0", "advisory_only", "required_gates", "workflow_installation: false"],
@@ -29569,7 +29628,20 @@ def scan_for_secret_findings(repo_root: Path, paths: Iterable[str]) -> list[Veri
     return findings
 
 
-def active_scope_task_path(repo_root: Path) -> Path | None:
+def active_scope_task_path(repo_root: Path, task_packet_path: str | None = None) -> Path | None:
+    packet = safe_repo_path(repo_root, task_packet_path or LATEST_PACKET_PATH)
+    if task_packet_path and not packet.is_file():
+        raise ValueError(f"selected task packet is missing: {task_packet_path}")
+    if packet.is_file():
+        raw, explicit = task_packet_identity(read_text(packet))
+        if raw or explicit:
+            try:
+                return selected_task_path(repo_root, raw)
+            except ValueError:
+                # Historical Q-only generic packets are context, not explicit
+                # queue declarations. Preserve their old fallback only here.
+                if explicit or not re.fullmatch(r"Q\d+", raw):
+                    raise
     index = repo_root / ".aide/queue/index.yaml"
     if index.exists():
         text = read_text(index)
@@ -29590,8 +29662,8 @@ def active_scope_task_path(repo_root: Path) -> Path | None:
     return None
 
 
-def load_scope_patterns(repo_root: Path) -> tuple[list[str], list[str]]:
-    task_path = active_scope_task_path(repo_root)
+def load_scope_patterns(repo_root: Path, task_packet_path: str | None = None) -> tuple[list[str], list[str]]:
+    task_path = active_scope_task_path(repo_root, task_packet_path)
     if task_path and task_path.exists():
         text = read_text(task_path)
         allowed = parse_simple_list(text, "allowed_paths")
@@ -29600,6 +29672,10 @@ def load_scope_patterns(repo_root: Path) -> tuple[list[str], list[str]]:
         allowed = []
         forbidden = []
     if not allowed:
+        packet = safe_repo_path(repo_root, task_packet_path or LATEST_PACKET_PATH)
+        raw, explicit = task_packet_identity(read_text(packet)) if packet.is_file() else ("", False)
+        if raw and (explicit or not re.fullmatch(r"Q\d+", raw)):
+            raise ValueError(f"declared task has no allowed paths: {raw}")
         allowed = [
             ".aide/queue/Q20-provider-adapter-v0/**",
             ".aide/queue/Q19-gateway-architecture-skeleton/**",
@@ -31353,12 +31429,17 @@ def provider_validation_checks(repo_root: Path) -> list[Check]:
     return checks
 
 
-def classify_changed_files(repo_root: Path) -> tuple[list[DiffScopeResult], list[VerificationFinding]]:
+def classify_changed_files(repo_root: Path, task_packet_path: str | None = None) -> tuple[list[DiffScopeResult], list[VerificationFinding]]:
     ok, entries, error = git_status_short(repo_root)
     findings: list[VerificationFinding] = []
+    try:
+        allowed, forbidden = load_scope_patterns(repo_root, task_packet_path)
+    except ValueError as exc:
+        allowed, forbidden = [], [".git/**", ".env", "secrets/**", ".aide.local/**"]
+        findings.append(VerificationFinding("ERROR", "diff_scope", str(exc)))
     if not ok:
-        return [], [VerificationFinding("WARN", "diff_scope", f"git status unavailable: {error}")]
-    allowed, forbidden = load_scope_patterns(repo_root)
+        findings.append(VerificationFinding("WARN", "diff_scope", f"git status unavailable: {error}"))
+        return [], findings
     results = [classify_scope_path(path, status, allowed, forbidden) for status, path in entries]
     for result in results:
         if result.classification == "forbidden":
@@ -31499,7 +31580,7 @@ def collect_verification_findings(
         checked_files.extend(scan_paths)
         findings.extend(scan_for_secret_findings(repo_root, scan_paths))
 
-    changed_files, diff_findings = classify_changed_files(repo_root)
+    changed_files, diff_findings = classify_changed_files(repo_root, task_packet_path)
     findings.extend(diff_findings)
     return findings, changed_files, sorted(set(checked_files))
 
@@ -31603,6 +31684,13 @@ def write_verification_report(repo_root: Path, requested: str, report: Verificat
 
 
 def current_queue_id(repo_root: Path) -> str:
+    packet = repo_root / LATEST_PACKET_PATH
+    if packet.is_file():
+        raw, explicit = task_packet_identity(read_text(packet))
+        if raw or explicit:
+            selected = active_scope_task_path(repo_root)
+            if selected:
+                return selected.parent.name
     for queue_id in [
         "Q20-provider-adapter-v0",
         "Q19-gateway-architecture-skeleton",
@@ -32603,6 +32691,48 @@ def packet_budget_warnings(text: str, repo_root: Path) -> tuple[str, tuple[str, 
 
 def render_task_packet(repo_root: Path, task_text: str, chars: int = 0, tokens: int = 0, budget_status: str = "PENDING", warnings: Iterable[str] = ()) -> str:
     phase, title = infer_phase(task_text)
+    goal = task_text.strip()
+    requested = re.sub(r"^(?:Implement|Review|Plan)\s+", "", task_text.strip(), flags=re.IGNORECASE)
+    raw, _explicit = task_packet_identity("## GOAL\n\n" + requested)
+    if not raw and requested:
+        leading = requested.split()[0].rstrip(":")
+        if (re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", leading)
+                and (repo_root / f".aide/queue/{leading}/task.yaml").is_file()):
+            raw = leading
+    task_source = None
+    if raw:
+        try:
+            task_source = selected_task_path(repo_root, raw)
+        except ValueError:
+            if not re.fullmatch(r"Q\d+", raw):
+                raise
+    identity_preamble = ""
+    task_refs = ""
+    allowed_lines = ("- `<fill from the next reviewed queue packet>`\n- `.aide/context/**`\n"
+                     f"- `.aide/queue/{phase.lower()}-*` if this task becomes a queue item\n"
+                     "- root docs only when behavior or documentation links change")
+    forbidden_lines = "- `.git/**`\n- `.env`\n- `secrets/**`\n- `.aide.local/**`"
+    if task_source:
+        source_text = read_text(task_source)
+        allowed = parse_simple_list(source_text, "allowed_paths")
+        forbidden = parse_simple_list(source_text, "forbidden_paths")
+        if not allowed and not re.fullmatch(r"Q\d+", raw):
+            raise ValueError(f"declared task has no allowed paths: {raw}")
+        if allowed:
+            selected = task_source.parent.name
+            identity_preamble = f"task_id: {selected}\nprojection_only: true\n\n"
+            phase = selected
+            title_match = re.search(r"^title:\s*(.+)$", source_text, re.MULTILINE)
+            if title_match:
+                title = title_match.group(1).strip()
+            if requested == raw:
+                goal = title
+            task_refs = (f"- `.aide/queue/{selected}/task.yaml` (selected scope and acceptance)\n"
+                         f"- `.aide/queue/{selected}/ExecPlan.md` (continuation; when present)\n"
+                         f"- `.aide/queue/{selected}/status.yaml` (actual state; when present)\n")
+            allowed_lines = "\n".join(f"- `{value}`" for value in allowed)
+            forbidden_lines = "\n".join(f"- `{value}`" for value in forbidden)
+            forbidden_lines += "\n- baseline protected paths and effects remain governed by repository policy"
     snapshot_state = "present" if (repo_root / SNAPSHOT_PATH).exists() else "missing; run snapshot"
     repo_map_state = "present" if (repo_root / REPO_MAP_JSON_PATH).exists() else "missing; run index"
     test_map_state = "present" if (repo_root / TEST_MAP_JSON_PATH).exists() else "missing; run index"
@@ -32615,13 +32745,13 @@ def render_task_packet(repo_root: Path, task_text: str, chars: int = 0, tokens: 
     warning_lines = "\n".join(f"  - {warning}" for warning in warnings) or "  - none"
     return f"""# AIDE Latest Task Packet
 
-## PHASE
+{identity_preamble}## PHASE
 
 {phase} - {title}
 
 ## GOAL
 
-{task_text.strip()}
+{goal}
 
 ## WHY
 
@@ -32629,7 +32759,7 @@ Continue AIDE token survival by using repo-local context refs, compact objective
 
 ## CONTEXT_REFS
 
-- `.aide/memory/project-state.md`
+{task_refs}- `.aide/memory/project-state.md`
 - `.aide/memory/decisions.md`
 - `.aide/memory/open-risks.md`
 - `{SNAPSHOT_PATH}` ({snapshot_state})
@@ -32655,22 +32785,17 @@ Continue AIDE token survival by using repo-local context refs, compact objective
 
 ## ALLOWED_PATHS
 
-- `<fill from the next reviewed queue packet>`
-- `.aide/context/**`
-- `.aide/queue/{phase.lower()}-*` if this task becomes a queue item
-- root docs only when behavior or documentation links change
+{allowed_lines}
 
 ## FORBIDDEN_PATHS
 
-- `.git/**`
-- `.env`
-- `secrets/**`
-- `.aide.local/**`
+{forbidden_lines}
 - raw provider credentials, API keys, local caches, raw prompt logs
 - Gateway, provider, Runtime, Service, Commander, Mobile, MCP/A2A, host, or app-surface implementation paths unless the queue packet explicitly authorizes them
 
 ## IMPLEMENTATION
 
+- This projection is context; it does not admit work or activate effects. Read the selected queue authority and review gates.
 - Read the queue packet and relevant repo refs first.
 - Keep changes inside the allowed paths.
 - Make the smallest coherent diff that satisfies acceptance.
@@ -32752,9 +32877,10 @@ def build_task_packet(repo_root: Path, task_text: str) -> PacketRender:
 
 
 def write_task_packet(repo_root: Path, task_text: str) -> tuple[WriteResult, PacketRender]:
+    packet = build_task_packet(repo_root, task_text)
     if not (repo_root / SNAPSHOT_PATH).exists():
         write_snapshot(repo_root)
-    packet = build_task_packet(repo_root, task_text)
+        packet = build_task_packet(repo_root, task_text)
     result = write_text_if_changed(repo_root / LATEST_PACKET_PATH, packet.text)
     return result, packet
 
@@ -33881,7 +34007,9 @@ def command_changelog_preview(args: argparse.Namespace) -> int:
             and (args.repo_root / ".aide/queue/index.yaml").is_file()):
         print("result: REFUSED\nsource changelog output must use .aide/changelog")
         return 1
-    if not source_maintainer_job_guard(args.repo_root, canonical_paths=(".aide/changelog",)):
+    if not source_maintainer_job_guard(
+        args.repo_root, canonical_paths=(".aide/changelog",), installed_changelog=True
+    ):
         return 1
     output_format = getattr(args, "format", "all") or "all"
     data = write_changelog_preview(
@@ -39527,12 +39655,250 @@ def command_task_evidence(args: argparse.Namespace) -> int:
     return 0
 
 
+def task_view_read(repo_root: Path, relative: str, *, limit: int = 131072) -> bytes:
+    """Read one bounded ordinary repository record; never follow a link."""
+    parts = relative.replace("\\", "/").split("/")
+    public_queue_record = (len(parts) == 4 and parts[:2] == [".aide", "queue"]
+                           and parts[-1] in ("task.yaml", "status.yaml"))
+    if (not relative or any(part in ("", ".", "..") or ":" in part
+                           or part.endswith((".", " ")) for part in parts)
+            or quality_secret_or_local_path(relative)
+            or any(part.lower() in (".git", ".codex", ".ssh", ".aide.local")
+                   or part.lower().startswith(".env") for part in parts)
+            or (not public_queue_record and install_rel_is_secret_like(relative))):
+        raise ValueError("unsafe_reference")
+    path = repo_root.resolve()
+    for part in parts:
+        path /= part
+        info = path.lstat()
+        if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+            raise ValueError("unsafe_reference")
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise ValueError("unsafe_reference")
+    if info.st_size > limit:
+        raise ValueError("record_too_large")
+    with path.open("rb") as stream:
+        data = stream.read(limit + 1)
+    if len(data) > limit:
+        raise ValueError("record_too_large")
+    return data
+
+
+def task_view_fields(text: str, source: str, issues: list[dict[str, str]]) -> dict[str, object]:
+    """Project supported public fields, not a general YAML loader."""
+    names = {"id", "task_id", "title", "objective", "status", "result", "owner",
+             "responsible_owner", "next_action", "next_slice", "classification",
+             "review_gate", "planning_state", "acceptance_scope", "remaining_obligations",
+             "blocking_input", "blocked_reason", "product_qualified", "target_mutated"}
+    fields: dict[str, object] = {}
+    lines = text.splitlines()
+    def scalar(raw: str) -> object:
+        raw = raw.strip()
+        if len(raw) > 1024 or any(ord(char) < 32 for char in raw):
+            raise ValueError
+        if raw.startswith("#"):
+            return None
+        if raw.startswith('"'):
+            value = json.loads(raw)
+            if not isinstance(value, str) or any(ord(char) < 32 for char in value):
+                raise ValueError
+            return value
+        if raw.startswith("'"):
+            if not re.fullmatch(r"'(?:[^']|'')*'", raw):
+                raise ValueError
+            return raw[1:-1].replace("''", "'")
+        raw = re.split(r"\s+#", raw, maxsplit=1)[0].rstrip()
+        if raw.lower() in ("", "null", "~"):
+            return None
+        if raw.lower() in ("true", "false"):
+            return raw.lower() == "true"
+        if raw.startswith(("[", "{", "!", "&", "*", "|", ">")) or ": " in raw:
+            raise ValueError
+        return raw
+    for index, line in enumerate(lines):
+        if len(issues) >= 32:
+            if issues[-1]["code"] != "issue_limit":
+                issues.append({"code": "issue_limit", "source": source, "field": ""})
+            break
+        if not line or line[0].isspace() or line.startswith("#") or line == "---":
+            continue
+        match = re.fullmatch(r"([A-Za-z_][A-Za-z0-9_-]*):[ \t]*(.*)", line)
+        if not match:
+            issues.append({"code": "malformed_record", "source": source, "field": ""})
+            continue
+        key, raw = match.groups()
+        if len(key) > 128:
+            issues.append({"code": "field_name_limit", "source": source, "field": ""})
+            continue
+        if key not in names and not key.endswith(("_ref", "_sha256")):
+            continue
+        if key in fields:
+            fields[key] = None
+            issues.append({"code": "duplicate_field", "source": source, "field": key})
+            continue
+        if len(fields) >= 64:
+            issues.append({"code": "field_limit", "source": source, "field": ""})
+            break
+        continuation = []
+        for following in lines[index + 1:]:
+            if following and not following[0].isspace():
+                break
+            if following.strip() and not following.lstrip().startswith("#"):
+                continuation.append(following.strip())
+        try:
+            if raw in (">", ">-", "|", "|-"):
+                value = " ".join(continuation)
+                if len(value) > 1024 or any(ord(char) < 32 for char in value):
+                    raise ValueError
+            elif not raw and continuation:
+                if key != "remaining_obligations" or len(continuation) > 16:
+                    raise ValueError
+                if not all(item.startswith("- ") for item in continuation):
+                    raise ValueError
+                value = [scalar(item[2:]) for item in continuation]
+                if not all(isinstance(item, str) for item in value):
+                    raise ValueError
+            elif continuation:
+                raise ValueError
+            else:
+                value = scalar(raw)
+            if value is not None:
+                if key in ("product_qualified", "target_mutated"):
+                    if not isinstance(value, bool):
+                        raise ValueError
+                elif key != "remaining_obligations" and not isinstance(value, str):
+                    raise ValueError
+            fields[key] = value
+        except (ValueError, TypeError):
+            fields[key] = None
+            issues.append({"code": "unsupported_field", "source": source, "field": key})
+    return fields
+
+
+def build_current_task_view(repo_root: Path, task_id: str | None = None) -> dict[str, object]:
+    issues: list[dict[str, str]] = []
+    view: dict[str, object] = {"schema_version": "aide.task-current.v1", "task_id": "",
+        "status": "missing", "result": None, "objective": None, "owner": None,
+        "next_action": None, "remaining_obligations": None, "scope": {},
+        "declared_status": None, "index_status": None, "evidence": [], "sources": {},
+        "issues": issues, "read_only": True, "acceptance_verified": False}
+    def observe(relative: str, *, optional: bool = False, limit: int = 131072) -> str:
+        try:
+            text = task_view_read(repo_root, relative, limit=limit).decode("utf-8-sig")
+            if not text.strip() and not optional:
+                issues.append({"code": "empty_record", "source": relative, "field": ""})
+            return text
+        except FileNotFoundError:
+            if not optional:
+                issues.append({"code": "missing_record", "source": relative, "field": ""})
+        except (OSError, UnicodeError, ValueError) as exc:
+            issues.append({"code": str(exc) if isinstance(exc, ValueError) and not isinstance(exc, UnicodeError)
+                           else "unreadable_record", "source": relative, "field": ""})
+        return ""
+    # Bound and check the existing resolver's fixed input paths before using it.
+    index_text = observe(".aide/queue/index.yaml", optional=True, limit=1048576)
+    packet_text = observe(LATEST_PACKET_PATH, optional=True) if task_id is None else ""
+    if issues:
+        return view
+    try:
+        if task_id is None:
+            raw, explicit = task_packet_identity(packet_text)
+            if explicit and not raw:
+                raise ValueError("invalid declared task identity")
+            task_id = current_task_id(repo_root) or ""
+        if not task_id:
+            return view
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", task_id):
+            raise ValueError("invalid declared task identity")
+        selected = resolve_task_id(repo_root, task_id)
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", selected):
+            raise ValueError("invalid resolved task identity")
+    except ValueError:
+        issues.append({"code": "invalid_identity", "source": LATEST_PACKET_PATH if packet_text else "request", "field": "task_id"})
+        return view
+    task_ref = f".aide/queue/{selected}/task.yaml"
+    status_ref = f".aide/queue/{selected}/status.yaml"
+    task_text = observe(task_ref)
+    if not task_text:
+        return view
+    task = task_view_fields(task_text, task_ref, issues)
+    if task.get("id") != selected:
+        issues.append({"code": "identity_mismatch", "source": task_ref, "field": "id"})
+        return view
+    view["task_id"] = selected
+    status = task_view_fields(observe(status_ref), status_ref, issues)
+    if any(key in status and status[key] != selected for key in ("id", "task_id")):
+        issues.append({"code": "identity_mismatch", "source": status_ref, "field": "task_id"})
+        status = {}
+    sources = {"objective": task_ref, "status": status_ref, "result": status_ref,
+               "scope": status_ref, "declared_status": task_ref, "index_status": ".aide/queue/index.yaml"}
+    view.update(status=status.get("status") if isinstance(status.get("status"), str) else "unknown",
+                result=status.get("result"), objective=task.get("objective") or task.get("title"),
+                declared_status=task.get("status"), sources=sources)
+    for output, keys in {"owner": ("responsible_owner", "owner"), "next_action": ("next_action", "next_slice"),
+                         "remaining_obligations": ("remaining_obligations", "blocking_input", "blocked_reason")}.items():
+        for record, source in ((status, status_ref), (task, task_ref)):
+            found = next((key for key in keys if record.get(key) is not None), None)
+            if found:
+                view[output] = record[found]; sources[output] = source
+                break
+    view["scope"] = {key: status.get(key) for key in
+        ("classification", "acceptance_scope", "review_gate", "product_qualified", "target_mutated")}
+    entries = [item for item in queue_task_blocks(repo_root) if item.get("id") == selected] if index_text else []
+    if len(entries) == 1:
+        view["index_status"] = entries[0].get("status")
+        if view["index_status"] and view["index_status"] != view["status"]:
+            issues.append({"code": "index_status_conflict", "source": ".aide/queue/index.yaml", "field": "status"})
+    elif len(entries) > 1:
+        issues.append({"code": "duplicate_index_identity", "source": ".aide/queue/index.yaml", "field": "id"})
+    refs = [(record, source, key) for record, source in ((task, task_ref), (status, status_ref))
+            for key in sorted(record) if key.endswith("_ref") and record[key] is not None]
+    if len(refs) > 16:
+        issues.append({"code": "reference_limit", "source": status_ref, "field": ""})
+    for record, source, key in refs[:16]:
+        ref = record[key]
+        item = {"field": key, "source": source, "path": None, "availability": "unsafe_reference",
+                "applicability": "unverified"}
+        if isinstance(ref, str):
+            ref = ref.replace("\\", "/")
+            relative = ref if ref.startswith(".aide/") else f".aide/queue/{selected}/{ref}"
+            try:
+                data = task_view_read(repo_root, relative)
+                item.update(path=relative, availability="present")
+                expected = record.get(key[:-4] + "_sha256")
+                if expected is not None:
+                    if not isinstance(expected, str) or not re.fullmatch(r"[a-f0-9]{64}", expected):
+                        item["availability"] = "invalid_digest"
+                    elif hashlib.sha256(data).hexdigest() != expected:
+                        item["availability"] = "digest_mismatch"
+                    else:
+                        item["digest_verified"] = True
+            except FileNotFoundError:
+                item.update(path=relative, availability="missing")
+            except ValueError as exc:
+                item["availability"] = str(exc)
+            except OSError:
+                item["availability"] = "unreadable"
+        view["evidence"].append(item)
+    return view
+
+
 def command_task_current(args: argparse.Namespace) -> int:
-    task_id = current_task_id(args.repo_root) or ""
-    print("AIDE Lite task current")
-    print(f"task_id: {task_id}")
-    print(f"status: {task_status_value(args.repo_root, task_id) if task_id else 'missing'}")
-    return 0 if task_id else 1
+    view = build_current_task_view(args.repo_root, getattr(args, "task_id", None))
+    if getattr(args, "json", False):
+        print(json.dumps(view, indent=2, sort_keys=True, ensure_ascii=True))
+    else:
+        print("AIDE Lite task current")
+        print(f"task_id: {view['task_id']}")
+        print(f"status: {view['status']}")
+        for key in ("result", "objective", "owner", "next_action", "remaining_obligations"):
+            print(f"{key}: {view[key] if view[key] is not None else 'unknown'}")
+        print("scope: " + json.dumps(view["scope"], sort_keys=True))
+        print("evidence: " + (", ".join(f"{item['field']}={item['availability']}" for item in view["evidence"]) or "unknown"))
+        print("evidence_applicability: unverified; recorded outcomes do not verify acceptance")
+        if view["issues"]:
+            print("issues: " + ", ".join(sorted({item["code"] for item in view["issues"]})))
+    return 0 if view["task_id"] else 1
 
 
 def command_blocker_status(args: argparse.Namespace) -> int:
@@ -45740,7 +46106,54 @@ def command_managed_job(args: argparse.Namespace) -> int:
         return 1
 
 
-def source_maintainer_job_guard(repo_root: Path, *, packaging: bool = False, canonical_paths=()) -> bool:
+def installed_changelog_identity_valid(repo_root: Path) -> bool:
+    """Recognize a completed portable installation, not a source admission grant."""
+    try:
+        profile = portable_target_path(repo_root, ".aide/profile.yaml")
+        if profile.exists():
+            # The Task OS role projection is advisory. At this boundary accept
+            # only explicit, unambiguous scalar identity (including comments).
+            fields = {}
+            scalar = r"[A-Za-z0-9_.:/<>-]+"
+            for line in read_text(profile).splitlines():
+                if re.match(r"\s*['\"]?<<['\"]?\s*:", line):
+                    return False
+                if not re.match(r"\s*['\"]?profile_(?:id|mode)", line):
+                    continue
+                match = re.fullmatch(
+                    rf"(profile_id|profile_mode):[ \t]*(?:'({scalar})'|\"({scalar})\"|({scalar}))[ \t]*(?:#.*)?",
+                    line,
+                )
+                if match is None or match[1] in fields:
+                    return False
+                fields[match[1]] = next(value for value in match.groups()[1:] if value is not None)
+            if ("profile_id" not in fields or fields["profile_id"] == "aide-self-hosting"
+                    or fields.get("profile_mode") == "self-hosting"):
+                return False
+        for relative in (PORTABLE_IMPORT_INTENT_PATH, PORTABLE_REPAIR_INTENT_PATH,
+                         PORTABLE_REMOVAL_INTENT_PATH):
+            if portable_target_path(repo_root, relative).exists():
+                return False
+        receipt = load_portable_import_receipt(repo_root)
+        if receipt is None:
+            return False
+        relative = ".aide/scripts/aide_lite.py"
+        entry = receipt["managed"].get(relative, {})
+        return (
+            entry.get("kind") == "managed_file"
+            and entry.get("source") == relative
+            and entry.get("ownership") == "aide_portable_managed"
+            and entry.get("installed_digest") == entry.get("source_digest")
+            and target_file_digest(portable_target_path(repo_root, relative))
+                == entry.get("installed_digest")
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
+def source_maintainer_job_guard(
+    repo_root: Path, *, packaging: bool = False, canonical_paths=(), installed_changelog: bool = False
+) -> bool:
     # A validated extracted payload can run its portable no-model checks
     # without source-checkout admission. Missing source state alone is never a
     # reason to bypass the guard: it may mean the checkout is damaged.
@@ -45753,6 +46166,10 @@ def source_maintainer_job_guard(repo_root: Path, *, packaging: bool = False, can
             pass
     if not (repo_root / "core/execution/managed_workspace.py").is_file():
         if (repo_root / ".aide/queue/index.yaml").is_file():
+            if (installed_changelog and not packaging
+                    and canonical_paths == (".aide/changelog",)
+                    and installed_changelog_identity_valid(repo_root)):
+                return True
             print("result: REFUSED\nsource checkout has no managed job owner")
             return False
         return True
@@ -46220,7 +46637,10 @@ def build_parser(default_repo_root: Path) -> argparse.ArgumentParser:
     task_evidence_parser = task_subparsers.add_parser("evidence")
     task_evidence_parser.add_argument("--task-id", help="Queue task id. Defaults to current/latest task.")
     task_evidence_parser.set_defaults(handler=command_task_evidence)
-    task_subparsers.add_parser("current").set_defaults(handler=command_task_current)
+    task_current_parser = task_subparsers.add_parser("current")
+    task_current_parser.add_argument("--task-id", help="Queue task id. Defaults to current/latest task.")
+    task_current_parser.add_argument("--json", action="store_true", help="Emit a bounded read-only task observation as JSON.")
+    task_current_parser.set_defaults(handler=command_task_current)
 
     blocker_parser = subparsers.add_parser("blocker")
     blocker_subparsers = blocker_parser.add_subparsers(dest="blocker_command", required=True)

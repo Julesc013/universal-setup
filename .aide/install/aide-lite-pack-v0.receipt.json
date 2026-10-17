@@ -66,12 +66,12 @@
       "source_digest": "f7c1c06a902d9f89880fd4c83fb9f900e6772559be140804fb05e314f6557d2d"
     },
     ".aide/adapters/templates/AGENTS.md.template": {
-      "installed_digest": "c9e07410f1cab90694e05c6814aa09bab41148da3a7bbde38ac9adc1ee9ce49d",
+      "installed_digest": "b1981b010541dff852ace80b240c144f9810290a0db1a29d5dcb6e99432178c2",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/adapters/templates/AGENTS.md.template",
-      "source_digest": "c9e07410f1cab90694e05c6814aa09bab41148da3a7bbde38ac9adc1ee9ce49d"
+      "source_digest": "b1981b010541dff852ace80b240c144f9810290a0db1a29d5dcb6e99432178c2"
     },
     ".aide/adapters/templates/CLAUDE.md.template": {
       "installed_digest": "fa5308e204b88effe832357d4936e7b564e79103dd67ef109f7414fa2f7beb52",
@@ -3354,12 +3354,12 @@
       "source_digest": "3b129d7e54369b042bf704494efe13a61d671e4f9754e3f7647bf5e0bd23f083"
     },
     ".aide/git/branch-roles.md": {
-      "installed_digest": "c750d16b19b3edf610357ead2fcb4e3a56b3f51fb744eac8201d304bbf4f178d",
+      "installed_digest": "aa34c2548e9ca4b3e79204dccb73078fea5736822263e79f9ba01fa980e6ca0b",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/git/branch-roles.md",
-      "source_digest": "c750d16b19b3edf610357ead2fcb4e3a56b3f51fb744eac8201d304bbf4f178d"
+      "source_digest": "aa34c2548e9ca4b3e79204dccb73078fea5736822263e79f9ba01fa980e6ca0b"
     },
     ".aide/git/commit-message-disposition.schema.json": {
       "installed_digest": "b2858200e3e699682ce366f887673785c62446f2bb50f662d38950139fc4af08",
@@ -3394,36 +3394,36 @@
       "source_digest": "cf9f7af62f44bd8f0b0a57c109fb2489add2cc18df5b18e92b3d954460754b40"
     },
     ".aide/git/project-profiles.yaml": {
-      "installed_digest": "aaafe5213324070a17c8209b4f110d6ee407d6ba856370e204454af46f09abfd",
+      "installed_digest": "8f2a551de6fa5a3c0166d9b7b42fd32bf7742331029489cd90a3bede01634e2f",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/git/project-profiles.yaml",
-      "source_digest": "aaafe5213324070a17c8209b4f110d6ee407d6ba856370e204454af46f09abfd"
+      "source_digest": "8f2a551de6fa5a3c0166d9b7b42fd32bf7742331029489cd90a3bede01634e2f"
     },
     ".aide/git/promotion-rules.md": {
-      "installed_digest": "081737125b00930901b8e253ded9dc48688e5aead50af6f545669729e5e04d78",
+      "installed_digest": "d6cd06816ce5b9e3ff98c2e075e86607f3d33c412b41f39e228a59e6006277db",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/git/promotion-rules.md",
-      "source_digest": "081737125b00930901b8e253ded9dc48688e5aead50af6f545669729e5e04d78"
+      "source_digest": "d6cd06816ce5b9e3ff98c2e075e86607f3d33c412b41f39e228a59e6006277db"
     },
     ".aide/git/prune-policy.md": {
-      "installed_digest": "23ac0559e55fc8b6d6a303ae844a3eb1aa4ebb16c1aa68db585288c0d1f59cfa",
+      "installed_digest": "6bc6fed2c356090e1c2ff374042ad694f80ffda8f1be564fa5fc8425d807ec13",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/git/prune-policy.md",
-      "source_digest": "23ac0559e55fc8b6d6a303ae844a3eb1aa4ebb16c1aa68db585288c0d1f59cfa"
+      "source_digest": "6bc6fed2c356090e1c2ff374042ad694f80ffda8f1be564fa5fc8425d807ec13"
     },
     ".aide/git/sync-policy.md": {
-      "installed_digest": "7afbf00c01667c6d5728847df66314f2a04433e12087643a13c9be61577e6b89",
+      "installed_digest": "56379dbbc1262803795cc72cbfe01235502dc5b8a28aea9b17243a3300ac0f04",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/git/sync-policy.md",
-      "source_digest": "7afbf00c01667c6d5728847df66314f2a04433e12087643a13c9be61577e6b89"
+      "source_digest": "56379dbbc1262803795cc72cbfe01235502dc5b8a28aea9b17243a3300ac0f04"
     },
     ".aide/github/README.md": {
       "installed_digest": "ff03524670f2e45f71fb0e6ef1540cafb434741e62e9ee1e862566e3c221d1d7",
@@ -3714,20 +3714,20 @@
       "source_digest": "c596779a372591084a57e4fecbe57a1befaa7fa12cbaca1cecd8d31f97da3d2f"
     },
     ".aide/policies/branch-protection.yaml": {
-      "installed_digest": "a26f8eaf1e2d150bb08e61e77617129b46b6371fc1899ecf65d58593b28242f5",
+      "installed_digest": "d03bc5d6086344a855dd4fa67baac5bcd4e297672c52fba823be4ce9260e6ff2",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/policies/branch-protection.yaml",
-      "source_digest": "a26f8eaf1e2d150bb08e61e77617129b46b6371fc1899ecf65d58593b28242f5"
+      "source_digest": "d03bc5d6086344a855dd4fa67baac5bcd4e297672c52fba823be4ce9260e6ff2"
     },
     ".aide/policies/branch-roles.yaml": {
-      "installed_digest": "7ad257b65ad23f8aa33b1addd34c48dcd1111c7de8053b2a9f4b84e7754c2698",
+      "installed_digest": "abafd0e22d7420ceb6c2672ee2eb5ffb8586d78b5d4994627252bc943b24b83e",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/policies/branch-roles.yaml",
-      "source_digest": "7ad257b65ad23f8aa33b1addd34c48dcd1111c7de8053b2a9f4b84e7754c2698"
+      "source_digest": "abafd0e22d7420ceb6c2672ee2eb5ffb8586d78b5d4994627252bc943b24b83e"
     },
     ".aide/policies/cache.yaml": {
       "installed_digest": "37af764de378eaeaaf1ba03d5bf41b4d1c97fcdc100370d865f8d79d708823bc",
@@ -3890,20 +3890,20 @@
       "source_digest": "4249059143ca8b06af6acbf6c921867b62231f96452041558af2a9d43c587606"
     },
     ".aide/policies/git-workflow.yaml": {
-      "installed_digest": "41bf7bcc170dc4d91ef93dc7140afb2fb7b471c5343f460bfc9d2fcb8ecb955b",
+      "installed_digest": "eab8e17ac56481ae07ad66a66b14b591de938f9af0c65278b202dd06fa0b784d",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/policies/git-workflow.yaml",
-      "source_digest": "41bf7bcc170dc4d91ef93dc7140afb2fb7b471c5343f460bfc9d2fcb8ecb955b"
+      "source_digest": "eab8e17ac56481ae07ad66a66b14b591de938f9af0c65278b202dd06fa0b784d"
     },
     ".aide/policies/github-protection.yaml": {
-      "installed_digest": "ff030e75f9a5986bec91def5b636c7cb1d0145b5404a8f9a957dc392bff20f43",
+      "installed_digest": "74815bdacf9157fcc534e6684c859c3403564ad8b52caf4d167cf40cd25fbf89",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/policies/github-protection.yaml",
-      "source_digest": "ff030e75f9a5986bec91def5b636c7cb1d0145b5404a8f9a957dc392bff20f43"
+      "source_digest": "74815bdacf9157fcc534e6684c859c3403564ad8b52caf4d167cf40cd25fbf89"
     },
     ".aide/policies/github-release-draft.yaml": {
       "installed_digest": "d1422778d37d2d3bf520aa76178ada93e6e616563974a0cbb676335cbe1169cb",
@@ -4050,12 +4050,12 @@
       "source_digest": "3102c09596d4e7caa115deb46a97fd7e50a254b35d76355a23922009e639bf8b"
     },
     ".aide/policies/promotion-rules.yaml": {
-      "installed_digest": "e7cfae52fbbaff062cddbbb78050c74b08a27efb72a32a44cc2047943af83502",
+      "installed_digest": "a4a5cea1f0097f3c6a57413824c2085993f2840cb3598fb0c390e86c7801a095",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/policies/promotion-rules.yaml",
-      "source_digest": "e7cfae52fbbaff062cddbbb78050c74b08a27efb72a32a44cc2047943af83502"
+      "source_digest": "a4a5cea1f0097f3c6a57413824c2085993f2840cb3598fb0c390e86c7801a095"
     },
     ".aide/policies/prompt-normalization.yaml": {
       "installed_digest": "9c435e0c453978a013ca904a0800aefcd15d3f13694480f1d37d2363943341af",
@@ -4074,12 +4074,12 @@
       "source_digest": "d904a19c05cd819d21869a82f24df99ab71ac8b25f60c1c4a17dc23397fbf738"
     },
     ".aide/policies/prune-policy.yaml": {
-      "installed_digest": "3dda27992ce1278cedb28e9bc84b94f1fbe6c2d5627c1d98dbc8b1b065f811fd",
+      "installed_digest": "62814f7d9ec0443e6b4dd9d9f8cf4e702a66d168a2a0caae1d4567513c05eb66",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/policies/prune-policy.yaml",
-      "source_digest": "3dda27992ce1278cedb28e9bc84b94f1fbe6c2d5627c1d98dbc8b1b065f811fd"
+      "source_digest": "62814f7d9ec0443e6b4dd9d9f8cf4e702a66d168a2a0caae1d4567513c05eb66"
     },
     ".aide/policies/recovery.yaml": {
       "installed_digest": "bcf9176ad4ebc99c4d36b353f9bf78347154e8fed8c5a6ba0d5ad684cf0bbdb9",
@@ -5370,12 +5370,12 @@
       "source_digest": "da42bfdea1680445c6d272cbd1d3f09b394a5c8b670b15fbd014aa93520d45ea"
     },
     ".aide/scripts/aide_lite.py": {
-      "installed_digest": "bd66068522077f0bc30031c2de15a7c9f73aa5e35e7f19e11cb4719b28dcbde7",
+      "installed_digest": "c680cd09f7c6f3c259d47e9ae6dbfb46fb84868524f378acb426e9531fb6dd62",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/scripts/aide_lite.py",
-      "source_digest": "bd66068522077f0bc30031c2de15a7c9f73aa5e35e7f19e11cb4719b28dcbde7"
+      "source_digest": "c680cd09f7c6f3c259d47e9ae6dbfb46fb84868524f378acb426e9531fb6dd62"
     },
     ".aide/scripts/tests/test_adapter_compiler.py": {
       "installed_digest": "ca38e9df4799cb125da26b55e21d031ee7367998a096ad91aba2094783189ed2",
@@ -5441,6 +5441,14 @@
       "source": ".aide/scripts/tests/test_gateway_commands.py",
       "source_digest": "565667e5b4435ea041b59d2ad55ce4da690e972224e11a26a37d0ae9bb11904c"
     },
+    ".aide/scripts/tests/test_git_defaults.py": {
+      "installed_digest": "f5dc58ada735ee3369caffb37fd3983f64c446c0a955b0692c801fc3d756aaa0",
+      "kind": "managed_file",
+      "local_overlay": false,
+      "ownership": "aide_portable_managed",
+      "source": ".aide/scripts/tests/test_git_defaults.py",
+      "source_digest": "f5dc58ada735ee3369caffb37fd3983f64c446c0a955b0692c801fc3d756aaa0"
+    },
     ".aide/scripts/tests/test_golden_tasks.py": {
       "installed_digest": "e4debd0e37cf852100bb53e1625a9cd4e61bba0f45d25bd19a737dab33262b65",
       "kind": "managed_file",
@@ -5448,6 +5456,14 @@
       "ownership": "aide_portable_managed",
       "source": ".aide/scripts/tests/test_golden_tasks.py",
       "source_digest": "e4debd0e37cf852100bb53e1625a9cd4e61bba0f45d25bd19a737dab33262b65"
+    },
+    ".aide/scripts/tests/test_installed_changelog_guard.py": {
+      "installed_digest": "e5b081a652fe5c3888e51c2b648574e4c9cf083a2ba50c6838f2b9d9aaa18e34",
+      "kind": "managed_file",
+      "local_overlay": false,
+      "ownership": "aide_portable_managed",
+      "source": ".aide/scripts/tests/test_installed_changelog_guard.py",
+      "source_digest": "e5b081a652fe5c3888e51c2b648574e4c9cf083a2ba50c6838f2b9d9aaa18e34"
     },
     ".aide/scripts/tests/test_managed_commit_create.py": {
       "installed_digest": "19842a0f7dfde4db7db1725bc44f84c1eae93cfac8d90ae928d662f71bf7e614",
@@ -5490,12 +5506,12 @@
       "source_digest": "3ef26e1d1acc58734a85fe23e77a78ea2fc7a79c3f882d06ff7d29ad18a2b90b"
     },
     ".aide/scripts/tests/test_q28_git_workflow.py": {
-      "installed_digest": "a236211910a30da4e747401aa2695cd58a90724ddce7f5184c14803604b291ce",
+      "installed_digest": "a6e49cc3911d0fea42540896b0b5b55de1da9ea0c397414580ff30a3da380115",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/scripts/tests/test_q28_git_workflow.py",
-      "source_digest": "a236211910a30da4e747401aa2695cd58a90724ddce7f5184c14803604b291ce"
+      "source_digest": "a6e49cc3911d0fea42540896b0b5b55de1da9ea0c397414580ff30a3da380115"
     },
     ".aide/scripts/tests/test_q29_git_helper.py": {
       "installed_digest": "ce62fadc0653691b70b82af72137dea3421d1ffb73fbdc62863b91cc3485031d",
@@ -5664,6 +5680,22 @@
       "ownership": "aide_portable_managed",
       "source": ".aide/scripts/tests/test_stable_release_admission.py",
       "source_digest": "2391e73f4af7edb338109d43010f32f5a0b197d1b331c80f6369e38b9d955db5"
+    },
+    ".aide/scripts/tests/test_task_binding.py": {
+      "installed_digest": "487a384b1632a38bbaf5ce8d6c9079a1789a3b4f9e3a16a3fd1ff9928bb793e0",
+      "kind": "managed_file",
+      "local_overlay": false,
+      "ownership": "aide_portable_managed",
+      "source": ".aide/scripts/tests/test_task_binding.py",
+      "source_digest": "487a384b1632a38bbaf5ce8d6c9079a1789a3b4f9e3a16a3fd1ff9928bb793e0"
+    },
+    ".aide/scripts/tests/test_task_current.py": {
+      "installed_digest": "e95ed8f9adbdf5c772436b754494b4821abe96c433b8f84817ec05a5ac2d0db3",
+      "kind": "managed_file",
+      "local_overlay": false,
+      "ownership": "aide_portable_managed",
+      "source": ".aide/scripts/tests/test_task_current.py",
+      "source_digest": "e95ed8f9adbdf5c772436b754494b4821abe96c433b8f84817ec05a5ac2d0db3"
     },
     ".aide/scripts/tests/test_token_ledger.py": {
       "installed_digest": "c7dbfd465fabce79eb1e2af1f8e9ae762ef4c123a41229d0f50ecbdd04c611a8",
@@ -6202,12 +6234,12 @@
       "source_digest": "c4797c496859e63fae83a4a29a20401aeaf2e02f26513a1daa07019dd1b8ae11"
     },
     "docs/reference/aide-lite-test-runner.md": {
-      "installed_digest": "6e069802a5c0f5d2869044f684df0222713698a62862c8db9838058cb55c8ba1",
+      "installed_digest": "6d8c6be497591929faededa91e7b8ad307d25a519d9ec46a61215b6919df422d",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": "docs/reference/aide-lite-test-runner.md",
-      "source_digest": "6e069802a5c0f5d2869044f684df0222713698a62862c8db9838058cb55c8ba1"
+      "source_digest": "6d8c6be497591929faededa91e7b8ad307d25a519d9ec46a61215b6919df422d"
     },
     "docs/reference/aide-lite.md": {
       "installed_digest": "f88e5c4344054f91f7eb88c9107dfc5562a8af084565ebbf02cff116addca7b5",
@@ -6250,12 +6282,12 @@
       "source_digest": "9c03aa2b397dae29b20e8d00a9ee78902e720754df7f53955527e0882d1dec7c"
     },
     "docs/reference/branch-roles.md": {
-      "installed_digest": "dc008b7bd8e49ef5f9331a5fd7c99c6a69f0fc091cc1b6094543c3a48b969d6d",
+      "installed_digest": "8b331c979c3540c2434b88ef1d79933b08d28c232020c52ee7acc32aff22d5da",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": "docs/reference/branch-roles.md",
-      "source_digest": "dc008b7bd8e49ef5f9331a5fd7c99c6a69f0fc091cc1b6094543c3a48b969d6d"
+      "source_digest": "8b331c979c3540c2434b88ef1d79933b08d28c232020c52ee7acc32aff22d5da"
     },
     "docs/reference/cache-local-state-boundary.md": {
       "installed_digest": "f0a5643e7f1f2cee1bb40e1086945c7c8a9451108ede126f144cb3f6a8d5548a",
@@ -6274,12 +6306,12 @@
       "source_digest": "1533b4122dc1666e92058643cc167070a3defab64a57c078fde4574082b7c51e"
     },
     "docs/reference/changelog-preview.md": {
-      "installed_digest": "6a997585aa124672d333d9376b67d5df43c896855ef341edabcc8a61003ec13b",
+      "installed_digest": "3b606e0862cad3274050d867579915821aa1b5c3355b976b1620c24f2030fc1e",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": "docs/reference/changelog-preview.md",
-      "source_digest": "6a997585aa124672d333d9376b67d5df43c896855ef341edabcc8a61003ec13b"
+      "source_digest": "3b606e0862cad3274050d867579915821aa1b5c3355b976b1620c24f2030fc1e"
     },
     "docs/reference/checkpoint-and-promotion-model.md": {
       "installed_digest": "ed9e5bcc9854d92996bdbba96f88289f7b0b964cf3b3d67f4fc3fe2b67fd1d87",
@@ -6338,28 +6370,28 @@
       "source_digest": "ca1265dc51d82f6ed29099364f631b0c162bc048ad4e726954e47232c27d147c"
     },
     "docs/reference/git-helper-workflow.md": {
-      "installed_digest": "78aeb85b1e3c98868b6d99258bbf6844dda546c60e07a86d033d5c73a780bd8c",
+      "installed_digest": "0dbd17b875a44fc333db12f8c95fed51860d6e83438cab39a34a886a46c375fd",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": "docs/reference/git-helper-workflow.md",
-      "source_digest": "78aeb85b1e3c98868b6d99258bbf6844dda546c60e07a86d033d5c73a780bd8c"
+      "source_digest": "0dbd17b875a44fc333db12f8c95fed51860d6e83438cab39a34a886a46c375fd"
     },
     "docs/reference/git-workflow-policy.md": {
-      "installed_digest": "cd47ec2ac810385cf486f925f40c5d9d9b1d535871493cd89dd656669378c42d",
+      "installed_digest": "5b336067f38f3fba0c5816b3725b756c247498574509b8eee848bf0e1159a45e",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": "docs/reference/git-workflow-policy.md",
-      "source_digest": "cd47ec2ac810385cf486f925f40c5d9d9b1d535871493cd89dd656669378c42d"
+      "source_digest": "5b336067f38f3fba0c5816b3725b756c247498574509b8eee848bf0e1159a45e"
     },
     "docs/reference/github-protection-ci-advisory.md": {
-      "installed_digest": "3f4523c41b9535e833ffc0fd0fb950c088ef5b8c88bf7f0a8e732a629214c8b8",
+      "installed_digest": "2735d260c86bc614f8d12a3bb0ef85a7e4436c92e810c9291fa4453c70f58b8e",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": "docs/reference/github-protection-ci-advisory.md",
-      "source_digest": "3f4523c41b9535e833ffc0fd0fb950c088ef5b8c88bf7f0a8e732a629214c8b8"
+      "source_digest": "2735d260c86bc614f8d12a3bb0ef85a7e4436c92e810c9291fa4453c70f58b8e"
     },
     "docs/reference/github-release-draft.md": {
       "installed_digest": "847a5660cd23ec834ededd6c23504911c697a7685d8b1eaaccf0d0744c1efac7",
@@ -6557,21 +6589,21 @@
   "mode": "safe",
   "network_calls": false,
   "pack": {
+    "checksums_digest": "fc6675b2d448964bddd6d52d4f0253515d47809c1f06f5259d74f388c253caf7",
+    "manifest_digest": "ead30896338da544471d0bc05a7e3f25d6f392e0b60627e68e6f428e221dd9b5",
+    "pack_id": "aide-lite-pack-v0",
+    "source_commit": "bbb153e26108b834d18cd9715e71a42a8e81b213"
+  },
+  "pack_id": "aide-lite-pack-v0",
+  "plan_digest": "2a6ff3504ff14b49390de51148515a73c7c321aa793ecc9696b1f2a27a71b66b",
+  "predecessor_pack": {
     "checksums_digest": "97898ece41a00f7d1b3c7182ee4fc1b81ad203f3aa55ebb91dfa5ad11905fa9f",
     "manifest_digest": "71d1720abdacc4c37f4522b49ed590d52ad9dba8b8860b82087f5b48760bdcd8",
     "pack_id": "aide-lite-pack-v0",
     "source_commit": "a17cf4b3dbec5caa236c62ee2fa23b31aa09c8fc"
   },
-  "pack_id": "aide-lite-pack-v0",
-  "plan_digest": "87189e5c2a7f51c37329bbe87b433ae9fd3989e3da69b8d3fdf08adc5bab181f",
-  "predecessor_pack": {
-    "checksums_digest": "7354fa79e8c83e5813fbb699f8284bd03c12b6c2a3c5b2e9935d10c3c7ebd90f",
-    "manifest_digest": "71f7a6fe8c598aae09e0e89014707132b890650d1f2cdfd58f0d0362c6d957e3",
-    "pack_id": "aide-lite-pack-v0",
-    "source_commit": "6c37af95393dade9092dbfc788f466be34ff2c7c"
-  },
   "project_controls_digest": "missing",
   "provider_or_model_calls": false,
-  "receipt_digest": "be52aca443f67a2ce38f845c2362c8f3b4ddc72b15caf2505ac1aa7402afaacf",
+  "receipt_digest": "e8798782084dac1daf56e1da13b0f710c26541468d80476d68d2fdb65381a694",
   "schema_version": "aide.portable-import-receipt.v2"
 }

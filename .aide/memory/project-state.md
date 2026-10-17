@@ -8,7 +8,16 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR243 is merged into dev atb2a8eb9; main remainsc048f7. All required core
+PR244 is merged into dev at29b6e3a; main remainsc048f7.
+Its0834c10 source passed all six required core checks, specification validation,
+independent review and the live merge policy. Publisher qualification remains
+separate in CI39034031107; development integration is not release acceptance.
+That run retained native install and already-visible source-retired reentry pass,
+with all39 prior rows unchanged and exactly the protected generation2 lease pair
+added. It then stopped at the stale-request assertion before retaining its reply.
+That wording does not establish invalid-request admission. Installed verification
+and later maintenance were not produced; product retirement still retains authority.
+PR243 was previously integrated atb2a8eb9. All required core
 checks and all57native Windows tests passed on312747d in CI39028347676.
 The account-marker and SDK scheduling repairs preserve all existing deadlines.
 Accepted-dev push CI39029178418 also passed all core/specification jobs;
@@ -29,7 +38,7 @@ Its retained independent snapshots contain39 then41rows: every prior row is
 unchanged, and exactly the active/completed generation2 ownership records were
 added. The existing strict lease transition validator accepts that append.
 The fixture incorrectly required complete row equality for effectful recovery.
-The next correction uses that existing reconciler, validates protection on the
+The integrated correction uses that existing reconciler, validates protection on the
 new records, and keeps stale-request/verification checks read-only against the
 completed recovery snapshot. This does not qualify genuinely interrupted repair
 recovery or retirement. The legacy machine route remains unqualified.
@@ -63,9 +72,25 @@ Use the external task checkpoint for exact candidate pins and current results.
 Do not start another campaign, queue or unofficial checkout. Integrate reviewed
 dev checkpoints daily; promote main weekly when its qualification gates pass.
 
-AIDE provenance pins source main6f2abc4 and exporta17cf4b, with the retained
+AIDE provenance pins source main9605d8e and exportbbb153e, with the retained
 installation receipt under `.aide/install/`. Project memory, custom tools,
 campaign records and bindings remain owned by this repository. Optional AIDE
 execution features remain inactive; the FacMan resource guard governs this
 campaign. Generic cross-project coordination is separate AIDE work and does not
 block Setup implementation.
+
+The latest ownership-aware AIDE refresh preserves all nonadmitted project
+bytes, including profile, memory, local state and custom AGENTS guidance.
+Portable helper updates improve task identity/current status, changelog handling
+and project-specific Git advice; remote protections and Setup branch policy are
+unchanged. The pack is optional development tooling, not a runtime dependency.
+One isolated upstream source-runner fixture remains unqualified: its marker-only
+managed_workspace module lacks current_context. Target portable validation is
+recorded separately; do not convert that fixture failure into a passing claim.
+
+Target AIDE validation, five exact-pack policy tests, seven inventory tests and
+strict checks pass. The portable selftest is not qualified: the new pack raises
+NameError while importing its synthetic gateway fixture under Python3.14 and3.11.
+The previous6f2 pack also fails its selftest, with a caught assertion instead of
+this exception. These are retained failures, not passing compatibility evidence;
+no AIDE execution pool, provider call or GitHub protection change is enabled.

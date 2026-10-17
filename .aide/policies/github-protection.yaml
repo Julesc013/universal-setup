@@ -37,10 +37,14 @@ advisory_outputs:
   - .aide/github/ci-advisory.md
   - .aide/github/latest-github-status.md
 protected_branch_roles:
+  - release
+  - hotfix
+  - deploy
+optional_protected_roles:
   - canonical
   - integration
-  - release
-  - deploy
+protection_choice_source: .aide/policies/branch-protection.yaml
+preserve_existing_remote_settings: true
 required_before_future_apply:
   - clean_or_understood_worktree
   - current_pack_status_pass
