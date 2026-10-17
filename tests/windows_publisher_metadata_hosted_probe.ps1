@@ -2906,14 +2906,7 @@ try {
             if($AdmittedTarget) {
                 # Keep authority when product retirement refuses. Never use
                 # sc-delete or erase retained lifecycle evidence to pass cleanup.
-                $remove=@('--unregister',$service,$ServiceBinary,$VolumeRoot,$callerSid,$registeredMode)
-                $retirementError=Join-Path $root 'product-retirement-error.txt'
-                $removed=& $ServiceControlBinary @remove 2>$retirementError
-                if($LASTEXITCODE -ne 0 -or ($removed|ConvertFrom-Json).status -cne 'removal_requested') {
-                    $receipt['product_retirement_failure']=Read-BoundedDiagnostic $retirementError 16384
-                    throw 'Admitted publisher retirement incomplete; retain recovery authority'
-                }
-                $receipt['product_service_unregister']=$removed|ConvertFrom-Json
+                Invoke-ControllerOwnedRetirement
             } elseif($ProductionConcurrentRights -and $receipt.status -eq 'protected_metadata_observed') {
                 $held=[IO.File]::Open($controlLock,[IO.FileMode]::Open,
                     [IO.FileAccess]::ReadWrite,[IO.FileShare]::None)

@@ -36,8 +36,8 @@ struct PublisherRetirementDirectoryMetadata {
 // Administrative, existing-only custody for the fixed owned-uninstall route.
 // Registration, SCM, image, volume and every observed metadata handle remain
 // private. Construction and observation cannot delete SCM or the executable.
-// The fixed lifecycle/domain route is still unfinished. Its private effects
-// cannot be selected by serialized metadata, a boolean verdict or a callback.
+// Its private effects are reachable only through the fixed lifecycle/domain
+// route, never serialized metadata, a boolean verdict or a callback.
 // The actual elevated administrator is distinct from the configured consumer;
 // canonical consumer/SCM bindings do not require elevating that consumer.
 // Record bytes: at most16MiB per file and64MiB in total. Native entry/depth

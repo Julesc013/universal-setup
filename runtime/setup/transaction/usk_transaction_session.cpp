@@ -1737,27 +1737,15 @@ void TransactionSession::require_completed_transition_extension(const Transactio
     require_transition_extension_impl(spec, original_text, original_snapshot_sha256,
         expected_current_snapshot_sha256, true);
 }
-void TransactionSession::require_transition_extension_impl(const TransactionSpec& spec,
-    const std::string& original_text, const std::string& original_snapshot_sha256,
-    const std::string& expected_current_snapshot_sha256, bool completed_history)
+namespace {
+void require_transition_extension_documents(const std::string& original_text,const std::string& current_text)
 {
-    constexpr std::size_t maximum = 4u * 1024u * 1024u;
-    const auto hash = [](const std::string& text) {
+    constexpr std::size_t maximum=4u*1024u*1024u;
+    const auto hash=[](const std::string& text) {
         base::Sha256 digest;
-        digest.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        digest.update(reinterpret_cast<const unsigned char*>(text.data()),text.size());
         return digest.finish();
     };
-    if (original_text.size() > maximum || !valid_sha256(original_snapshot_sha256) ||
-        !valid_sha256(expected_current_snapshot_sha256) || hash(original_text) != original_snapshot_sha256)
-        throw std::runtime_error("maintenance original transaction snapshot is unavailable");
-    const auto inspect = [&] { return inspect_recovery_impl(spec, !completed_history); };
-    const auto before = inspect();
-    if (before.snapshot_sha256 != expected_current_snapshot_sha256 || !before.commit_started)
-        throw std::runtime_error("maintenance current transaction snapshot changed");
-    const auto current_text = read_bounded_text(absolute_normal(spec.state_root) / "transactions" /
-        (spec.transaction_id + ".journal.json"), maximum);
-    if (hash(current_text) != expected_current_snapshot_sha256)
-        throw std::runtime_error("maintenance current transaction bytes changed");
     auto original = json::parse(original_text, {maximum, 64u, 2u * 1024u * 1024u, 1024u * 1024u});
     auto current = json::parse(current_text, {maximum, 64u, 2u * 1024u * 1024u, 1024u * 1024u});
     const auto& prefix = original.at("transitions").as_array();
@@ -1804,9 +1792,58 @@ void TransactionSession::require_transition_extension_impl(const TransactionSpec
     for (const auto* key : {"transitions", "current_state", "journal_digest", "updated_at", "recovery"}) {
         original.as_object().erase(key); current.as_object().erase(key);
     }
-    if (json::canonical(original) != json::canonical(current) ||
-        inspect().snapshot_sha256 != expected_current_snapshot_sha256)
+    if (json::canonical(original) != json::canonical(current))
         throw std::runtime_error("maintenance transaction extension changed immutable fields or its snapshot");
+}
+
+} // namespace
+
+void TransactionSession::require_transition_extension_impl(const TransactionSpec& spec,
+    const std::string& original_text, const std::string& original_snapshot_sha256,
+    const std::string& expected_current_snapshot_sha256, bool completed_history)
+{
+    constexpr std::size_t maximum = 4u * 1024u * 1024u;
+    const auto hash = [](const std::string& text) {
+        base::Sha256 digest;
+        digest.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        return digest.finish();
+    };
+    if (original_text.size() > maximum || !valid_sha256(original_snapshot_sha256) ||
+        !valid_sha256(expected_current_snapshot_sha256) || hash(original_text) != original_snapshot_sha256)
+        throw std::runtime_error("maintenance original transaction snapshot is unavailable");
+    const auto inspect = [&] { return inspect_recovery_impl(spec, !completed_history); };
+    const auto before = inspect();
+    if (before.snapshot_sha256 != expected_current_snapshot_sha256 || !before.commit_started)
+        throw std::runtime_error("maintenance current transaction snapshot changed");
+    const auto current_text = read_bounded_text(absolute_normal(spec.state_root) / "transactions" /
+        (spec.transaction_id + ".journal.json"), maximum);
+    if (hash(current_text) != expected_current_snapshot_sha256)
+        throw std::runtime_error("maintenance current transaction bytes changed");
+    require_transition_extension_documents(original_text,current_text);
+    if(inspect().snapshot_sha256 != expected_current_snapshot_sha256)
+        throw std::runtime_error("maintenance transaction extension changed immutable fields or its snapshot");
+}
+
+void TransactionSession::require_completed_transition_extension_bytes(const TransactionSpec& spec,
+    const std::string& original_text,const std::string& original_snapshot_sha256,
+    const std::string& current_text,const std::string& expected_current_snapshot_sha256)
+{
+    constexpr std::size_t maximum=4u*1024u*1024u;
+    const auto hash=[](const std::string& text) {
+        base::Sha256 digest;
+        digest.update(reinterpret_cast<const unsigned char*>(text.data()),text.size());
+        return digest.finish();
+    };
+    if(original_text.size()>maximum || current_text.size()>maximum ||
+        !valid_sha256(original_snapshot_sha256) || !valid_sha256(expected_current_snapshot_sha256) ||
+        hash(original_text)!=original_snapshot_sha256 || hash(current_text)!=expected_current_snapshot_sha256)
+        throw std::runtime_error("completed transaction byte snapshots are unavailable");
+    // Full current grammar/identity/chain validation remains mandatory. This
+    // byte projection supplies no current namespace, native fact or authority.
+    const auto current=decode_completed_history(spec,current_text);
+    if(current.snapshot_sha256!=expected_current_snapshot_sha256)
+        throw std::runtime_error("completed transaction byte identity differs");
+    require_transition_extension_documents(original_text,current_text);
 }
 
 std::unique_ptr<TransactionSession> TransactionSession::restart_streaming(

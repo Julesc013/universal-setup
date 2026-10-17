@@ -212,6 +212,8 @@ target_link_libraries(usk_lifecycle_static PUBLIC
 if(WIN32)
   target_sources(usk_lifecycle_static PRIVATE runtime/setup/lifecycle/usk_protected_install_publisher.cpp)
   target_sources(usk_lifecycle_static PRIVATE runtime/setup/lifecycle/usk_native_maintenance_context_internal.cpp)
+  target_sources(usk_lifecycle_static PRIVATE runtime/setup/lifecycle/usk_owned_publisher_retirement.cpp)
+  target_sources(usk_lifecycle_static PRIVATE runtime/setup/lifecycle/usk_owned_retirement_object_history_internal.cpp)
   target_compile_definitions(usk_lifecycle_static PRIVATE
     USK_INTERNAL_PUBLISHER_FINALIZATION)
   target_link_libraries(usk_lifecycle_static PRIVATE usk_publisher_windows_static)
@@ -529,7 +531,7 @@ if(USK_BUILD_APPS)
     target_include_directories(usk_publisher_service_control PRIVATE
       "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base")
     target_link_libraries(usk_publisher_service_control PRIVATE
-      usk_publisher_windows_static usk_base_static advapi32 shell32)
+      usk_lifecycle_static usk_publisher_windows_static usk_base_static advapi32 shell32)
     usk_enable_strict_warnings(usk_publisher_service_control)
   endif()
 endif()
@@ -992,7 +994,12 @@ if(USK_BUILD_TESTS)
 
   add_executable(usk_retirement_record_readers_smoke tests/native/usk_retirement_record_readers_smoke.cpp)
   target_compile_features(usk_retirement_record_readers_smoke PRIVATE cxx_std_17)
+  target_compile_definitions(usk_retirement_record_readers_smoke PRIVATE
+    USK_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
   target_link_libraries(usk_retirement_record_readers_smoke PRIVATE usk_lifecycle_static)
+  if(WIN32)
+    target_link_libraries(usk_retirement_record_readers_smoke PRIVATE usk_publisher_windows_static)
+  endif()
   usk_enable_strict_warnings(usk_retirement_record_readers_smoke)
   add_test(NAME usk_retirement_record_readers_smoke COMMAND usk_retirement_record_readers_smoke)
 
