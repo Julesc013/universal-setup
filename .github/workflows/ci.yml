@@ -96,6 +96,18 @@ jobs:
           python-version: "3.11"
       # Build this job's actual checked-out merge source. Diagnostic binaries
       # have their own identity; no equality with the core build is claimed.
+      - name: Qualify the named elevated controller actor before compilation
+        id: controller_actor
+        timeout-minutes: 2
+        shell: pwsh
+        run: ./tests/windows_publisher_controller_actor_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-controller-actor-qualification.json"
+      - name: Retain controller actor qualification
+        if: ${{ always() && (steps.controller_actor.outcome == 'success' || steps.controller_actor.outcome == 'failure') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-controller-actor-qualification
+          path: ${{ runner.temp }}\usk-controller-actor-qualification.json
+          if-no-files-found: error
       - run: cmake -S . -B build/smoke -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DUSK_QUALIFICATION_DIAGNOSTICS=ON
         env:
           USK_TRUSTED_HOSTED_LAB: 'true'

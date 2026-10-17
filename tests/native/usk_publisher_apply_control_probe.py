@@ -69,12 +69,14 @@ $cases=@(
     @{name='client';observation=@{service_removed=$true;protected_service_binary_removed=$true};retain=$true},
     @{name='untyped';observation=@{service_removed='true';protected_service_binary_removed=$true;client_cleanup_confirmed=$true};retain=$true},
     @{name='refused';observation=@{service_removed=$true;protected_service_binary_removed=$true;client_cleanup_confirmed=$true;retirement_cleanup_failure='refused'};retain=$true},
+    @{name='launcher';observation=@{service_removed=$true;protected_service_binary_removed=$true;client_cleanup_confirmed=$true};retain=$true;launcher_closed=$false},
     @{name='confirmed';observation=@{service_removed=$true;protected_service_binary_removed=$true;client_cleanup_confirmed=$true};retain=$false},
     @{name='legacy';observation=$null;retain=$false})
 foreach($case in $cases) {
     [IO.File]::WriteAllText($vhd,'owned cleanup sentinel')
     $script:imageQueries=0;$script:dismountCalls=0;$script:deleteCalls=0
     $AdmittedTarget=$case.name -cne 'legacy';$failure=$null
+    $controllerLauncherClosed=-not $case.ContainsKey('launcher_closed') -or $case.launcher_closed
     $receipt=[ordered]@{status='fixture_body_passed';service_observation=$case.observation}
     . $cleanup
     $retained=Test-Path -LiteralPath $vhd -PathType Leaf
@@ -107,6 +109,59 @@ if($failure -cne 'synthetic primary request failure' -or
     $receipt.cleanup_failure -cne 'Owned client cleanup failed: synthetic client cleanup failure' -or
     $receipt.client_cleanup_confirmed -ne $false -or $receipt.status -cne 'failed') {
     throw 'Client cleanup obscured the primary request failure'
+}
+# Execute the account finalizer itself, with inert account effects. A closed
+# launcher alone cannot retire an account still bound to product authority.
+$tokens=$null;$errors=$null
+$helperAst=[Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $Repository 'tests\windows_publisher_standard_launcher.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Launcher parse failed'}
+$actorFunction=$helperAst.Find({param($Node)
+    $Node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $Node.Name -ceq 'Invoke-OwnedPublisherFixtureTask'},$false)
+$actorTries=@($actorFunction.Body.EndBlock.Statements|Where-Object {
+    $_ -is [Management.Automation.Language.TryStatementAst] -and $_.Finally})
+if($actorTries.Count -ne 1){throw 'Owned account finalizer is missing or ambiguous'}
+$accountCleanup=Read-Block $actorTries[0].Finally
+function Get-LocalUser($SID,$ErrorAction) {
+    if($script:accountReadFailure){throw 'synthetic account cleanup failure'}
+    if($script:accountPresent){return [pscustomobject]@{Name=$accountName;Description=$taskName}}
+}
+function Remove-LocalUser($SID,$ErrorAction) {$script:accountDeletes++;$script:accountPresent=$false}
+$named=$true;$accountAttempted=$true;$accountSid='S-1-5-21-1-2-3-1001'
+$accountName='USKCTL_fixture';$taskName='USK_ADMITTED_CONTROLLER_'+('a'*32)
+$OutputPath=Join-Path $Scratch 'actor-child.json';$secure=$null
+$cases=@(
+    @{name='live';closed=$false;state=@{service_removed=$true;protected_service_binary_removed=$true;client_cleanup_confirmed=$true};remove=$false},
+    @{name='authority';closed=$true;state=@{service_removed=$false;client_cleanup_confirmed=$true};remove=$false},
+    @{name='binary';closed=$true;state=@{service_removed=$true;client_cleanup_confirmed=$true};remove=$false},
+    @{name='untyped';closed=$true;state=@{service_removed='true';protected_service_binary_removed=$true;client_cleanup_confirmed=$true};remove=$false},
+    @{name='retired';closed=$true;state=@{service_removed=$true;protected_service_binary_removed=$true;client_cleanup_confirmed=$true};remove=$true},
+    @{name='probe';closed=$true;probe=$true;state=@{schema='usk.publisher_controller_actor_probe.v1';scope='identity_only_no_product_dispatch';status='passed'};remove=$true},
+    @{name='wrong_scope';closed=$true;probe=$true;state=@{schema='usk.publisher_controller_actor_probe.v1';scope='product_dispatch';status='passed'};remove=$false})
+foreach($case in $cases) {
+    $case.state|ConvertTo-Json|Set-Content -LiteralPath $OutputPath -Encoding utf8
+    $actorClosed=$case.closed;$IdentityProbe=[bool]$case.probe;$actorOriginalError=$null
+    $script:accountReadFailure=$false;$script:accountPresent=$true;$script:accountDeletes=0
+    $controllerActorObservation=[ordered]@{account_removed=$false;account_retained=$false}
+    . $accountCleanup
+    if(($script:accountDeletes -eq 1) -ne $case.remove -or
+        $controllerActorObservation.account_removed -ne $case.remove -or
+        $controllerActorObservation.account_retained -eq $case.remove) {
+        throw ('Owned controller account retirement differs: '+$case.name)
+    }
+}
+$IdentityProbe=$false;$actorClosed=$true
+@{service_removed=$true;protected_service_binary_removed=$true;client_cleanup_confirmed=$true}|
+    ConvertTo-Json|Set-Content -LiteralPath $OutputPath -Encoding utf8
+try {throw 'original actor failure'} catch {$actorOriginalError=$_}
+$script:accountReadFailure=$true;$script:accountDeletes=0
+$controllerActorObservation=[ordered]@{account_removed=$false;account_retained=$false}
+. $accountCleanup
+if($script:accountDeletes -or -not $controllerActorObservation.account_retained -or
+    $controllerActorObservation.account_cleanup_failure -cne 'synthetic account cleanup failure' -or
+    $actorOriginalError.Exception.Message -cne 'original actor failure') {
+    throw 'Account cleanup erased original failure or removed an uncertain account'
 }
 ''', encoding="utf-8")
     result = subprocess.run(
@@ -224,6 +279,14 @@ def main() -> int:
                     raise AssertionError(f"unsafe admitted fixture profile reached setup: {name}: {result}")
                 if output.exists() or missing_vhd.exists():
                     raise AssertionError("rejected fixture profile created output or storage")
+        actor_probe = repository / "tests" / "windows_publisher_controller_actor_probe.ps1"
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+             "-File", str(actor_probe), "-OutputPath", str(output)],
+            capture_output=True, text=True, timeout=10, check=False, env=fixture_environment,
+        )
+        if result.returncode == 0 or "requires the hosted disposable VM" not in result.stderr or output.exists():
+            raise AssertionError(f"controller actor probe bypassed hosted admission: {result}")
         if len(sys.argv) > 2:
             observer = Path(sys.argv[2]).resolve(strict=True)
             result = subprocess.run(

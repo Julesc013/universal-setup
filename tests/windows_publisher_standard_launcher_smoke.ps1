@@ -315,6 +315,29 @@ $refused=$false
 try {Assert-StandardRegisteredTaskAbsent -TaskName 'not-owned' -CreateScheduler {$opened[0]++}}
 catch {$refused=$true}
 if(-not $refused -or $opened[0] -ne 0){throw 'Unowned task absence reached scheduler access'}
+$registeredName='USK_ADMITTED_CONTROLLER_'+('b'*32)
+foreach($case in @('positive','system_logon','text_logon','wrong_profile')) {
+    $fixture=New-FixtureScheduler 'positive';$state=$fixture.State
+    $principal=$fixture.Scheduler.Folder.RegisteredTask.Definition.Principal
+    $principal.UserId='S-1-5-21-1-2-3-1001'
+    $principal.LogonType=switch($case){'system_logon'{5};'text_logon'{'1'};default{1}}
+    $profile=if($case -ceq 'wrong_profile'){'SystemStandard'}else{'NamedController'}
+    $failure=$null;$info=$null
+    try {
+        $info=Read-StandardRegisteredTaskInformation -TaskName $registeredName -ActorProfile $profile `
+            -RevalidateTask {
+                param($Observed)
+                if($Observed.Principal.UserId -cne 'S-1-5-21-1-2-3-1001' -or $Observed.Principal.LogonType -ne 1) {
+                    throw 'Named controller principal differs'
+                }
+            } -CreateScheduler {return $fixture.Scheduler}.GetNewClosure() -ReleaseReference {}
+    } catch {$failure=$_}
+    if(($case -ceq 'positive') -ne ($null -eq $failure)){throw ('Controller task profile acceptance differs: '+$case)}
+    if($case -ceq 'wrong_profile' -and $state.Calls.Count){throw 'Controller task name reached default SYSTEM scheduler access'}
+}
+$fixture=New-FixtureScheduler 'missing'
+Assert-StandardRegisteredTaskAbsent -TaskName $registeredName -ActorProfile NamedController `
+    -CreateScheduler {return $fixture.Scheduler}.GetNewClosure() -ReleaseReference {}
 'Launcher startup: acknowledgment, metadata identity/types, original errors and reference cleanup checked; no tasks executed'
 
 & (Join-Path $PSScriptRoot 'windows_publisher_install_guard_cleanup_smoke.ps1')
