@@ -25,13 +25,26 @@ local_branch_prune_rules:
     - evidence recorded
 remote_branch_prune_rules:
   default: not_allowed_in_q28
+  later_reviewed_cleanup_cadence: after integrated task closure and during sync maintenance
+  retain:
+    - active owner or worktree or open pull request
+    - persistent branch or important retained checkpoint
+    - uncontained work or unknown ownership or uncertain effects
+  exact_manifest_requires:
+    - fresh remote branch name and expected commit
+    - canonical or integration containment and preserved unique work
+    - task closure and acknowledged absence of active ownership
+    - no open collaboration obligation and no retention designation
+    - recovery branch-to-commit record and nonforce operation
+    - observed remote outcome before retrying uncertain deletion
+  age_or_containment_alone_authorizes_deletion: false
   future_requirement:
     - explicit command flag
     - containment proof
     - remote-tracking confirmation
     - review evidence
 branch_age_hints:
-  task: consider after contained and inactive for 7 days
+  task: consider after accepted closure and confirmed inactivity; age alone is insufficient
   review: consider after review closure
   hotfix: retain until backmerged to all targets
   release: retain while release line is maintained

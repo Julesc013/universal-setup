@@ -3,6 +3,15 @@
 Q29 adds AIDE's first local merge, land, promote, sync, and prune helper layer.
 It is a dry-run-first helper surface, not live branch automation.
 
+The portable default is frequent coherent commits, validated task-to-dev sync and
+prompt reviewed main promotion. Use the current project's standing grants and
+exact helper/effect evidence. Task branches stay local unless shared, important
+or blocked continuity needs a remote checkpoint. Hosting protection is optional
+for main and normally off for dev; persistent-role retention still applies.
+Preserve project overrides and existing host protection. The helpers do not
+install protection, deliver automatic background synchronization or certify a
+new release merely because source was promoted.
+
 ## Safety Model
 
 - `main` is canonical accepted truth.

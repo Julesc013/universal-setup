@@ -28,3 +28,15 @@ Outputs:
 Malformed or legacy commits are reported, not hidden and not rewritten. Merge commits can be ignored as non-structured inputs. The generator is preview-only: it does not tag, publish, create GitHub Releases, mutate branches, call providers/models, or use the network.
 
 The portable pack exports the policy, config, templates, command support, tests, golden tasks, and this reference doc. Generated preview outputs remain source-specific and are not exported as target truth.
+
+Installed projects may generate previews after creating their own queue. The
+changelog guard recognizes a completed import receipt whose managed CLI matches
+the installed bytes. Missing or invalid receipts, changed CLI bytes, CLI overlays,
+pending lifecycle operations and AIDE self-hosting identity do not qualify for
+that recognition. Project-owned profiles and policy customization remain valid.
+Profile identity accepts explicit plain or quoted scalars and trailing comments;
+duplicate fields, inherited identity and unsupported scalar forms are refused.
+This recognition applies only to changelog generation; source-checkout admission,
+packaging and test execution retain their existing boundaries. Receipt matching
+detects inconsistent local state; it is not a sandbox or a cryptographic trust
+claim against an actor able to rewrite both code and receipts.
