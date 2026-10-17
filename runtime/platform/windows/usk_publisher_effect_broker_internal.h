@@ -92,7 +92,8 @@ void require_publisher_effect_selected_object_access_batch_readback(const usk::j
 // selection, native custody, worker admission or permission for an effect.
 void require_publisher_effect_queries_closed_marker(const usk::json::Value& marker,
     const std::string& kind, const usk::json::Value& expected_native_objects);
-void require_publisher_effect_terminal_record(const usk::json::Value&, const usk::json::Value& broker_record);
+void require_publisher_effect_terminal_record(const usk::json::Value&,
+    const usk::json::Value& broker_record, const usk::json::Value& actual_request);
 // Bounded original-peer error data, never a terminal or definite preflight
 // result. It cannot narrow retained effects or grant an execution scope.
 void require_publisher_effect_failure_diagnostic(const usk::json::Value&);

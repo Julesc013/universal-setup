@@ -356,7 +356,7 @@ int private_effect_worker_main(int argc, wchar_t** argv) {
                 // ended. Failed native observation cannot manufacture a terminal.
                 {
                     const usk::diagnostics::Scope effect_worker_finalization_diagnostic(usk::diagnostics::Phase::effect_worker_finalization);
-                    require_publisher_effect_terminal_record(terminal, owner.service_admission());
+                    require_publisher_effect_terminal_record(terminal, owner.service_admission(), usk::json::parse(request));
                 }
             } catch (...) {
                 // An invalid terminal is never sent. Preserve the first actual
