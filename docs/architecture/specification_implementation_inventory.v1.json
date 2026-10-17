@@ -2755,7 +2755,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a3352ef0ada9e689dbaf95704e6f988342532b61dd64bfbd1a4a8458fd579685"
+          "sha256": "9031b60591c631513d8535e5390ebaa1f374d756cc485a0a850c89a42e74739a"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
@@ -3218,7 +3218,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a3352ef0ada9e689dbaf95704e6f988342532b61dd64bfbd1a4a8458fd579685"
+          "sha256": "9031b60591c631513d8535e5390ebaa1f374d756cc485a0a850c89a42e74739a"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
@@ -3681,7 +3681,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a3352ef0ada9e689dbaf95704e6f988342532b61dd64bfbd1a4a8458fd579685"
+          "sha256": "9031b60591c631513d8535e5390ebaa1f374d756cc485a0a850c89a42e74739a"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
@@ -4872,7 +4872,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a3352ef0ada9e689dbaf95704e6f988342532b61dd64bfbd1a4a8458fd579685"
+          "sha256": "9031b60591c631513d8535e5390ebaa1f374d756cc485a0a850c89a42e74739a"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4908,7 +4908,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a3352ef0ada9e689dbaf95704e6f988342532b61dd64bfbd1a4a8458fd579685"
+          "sha256": "9031b60591c631513d8535e5390ebaa1f374d756cc485a0a850c89a42e74739a"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4944,7 +4944,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a3352ef0ada9e689dbaf95704e6f988342532b61dd64bfbd1a4a8458fd579685"
+          "sha256": "9031b60591c631513d8535e5390ebaa1f374d756cc485a0a850c89a42e74739a"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -5671,7 +5671,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a3352ef0ada9e689dbaf95704e6f988342532b61dd64bfbd1a4a8458fd579685"
+          "sha256": "9031b60591c631513d8535e5390ebaa1f374d756cc485a0a850c89a42e74739a"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
@@ -5723,7 +5723,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a3352ef0ada9e689dbaf95704e6f988342532b61dd64bfbd1a4a8458fd579685"
+          "sha256": "9031b60591c631513d8535e5390ebaa1f374d756cc485a0a850c89a42e74739a"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
@@ -6195,7 +6195,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a3352ef0ada9e689dbaf95704e6f988342532b61dd64bfbd1a4a8458fd579685"
+          "sha256": "9031b60591c631513d8535e5390ebaa1f374d756cc485a0a850c89a42e74739a"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
@@ -6503,7 +6503,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a3352ef0ada9e689dbaf95704e6f988342532b61dd64bfbd1a4a8458fd579685"
+          "sha256": "9031b60591c631513d8535e5390ebaa1f374d756cc485a0a850c89a42e74739a"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
@@ -6762,7 +6762,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a3352ef0ada9e689dbaf95704e6f988342532b61dd64bfbd1a4a8458fd579685"
+          "sha256": "9031b60591c631513d8535e5390ebaa1f374d756cc485a0a850c89a42e74739a"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
@@ -6896,7 +6896,7 @@
       "source_observations": [
         {
           "path": "release/index/branch_policy.v2.toml",
-          "sha256": "678b707dbcf6eaaa2696e5ea3cec78b572fdcadf096366affcc1070e0bf7e686"
+          "sha256": "eb2857c2d6e7304e66b6d55d06ecdb722c407d925e32948e5a7a7b7322d771b8"
         },
         {
           "path": "release/index/contract_maturity.v1.toml",
@@ -6904,7 +6904,7 @@
         },
         {
           "path": "tools/branch_policy_check.py",
-          "sha256": "d2e38f4c22b8fbddded0b5921f9d95e75c004ad4da4026338aadb894bb53b980"
+          "sha256": "c72e4b9e7cdc04a034150085f11f73781b4018fc2a1416f6e76e7b485345586b"
         }
       ],
       "acceptance_ids": [
@@ -6934,7 +6934,7 @@
       "source_observations": [
         {
           "path": "release/index/branch_policy.v2.toml",
-          "sha256": "678b707dbcf6eaaa2696e5ea3cec78b572fdcadf096366affcc1070e0bf7e686"
+          "sha256": "eb2857c2d6e7304e66b6d55d06ecdb722c407d925e32948e5a7a7b7322d771b8"
         },
         {
           "path": "release/index/contract_maturity.v1.toml",
@@ -6942,7 +6942,7 @@
         },
         {
           "path": "tools/branch_policy_check.py",
-          "sha256": "d2e38f4c22b8fbddded0b5921f9d95e75c004ad4da4026338aadb894bb53b980"
+          "sha256": "c72e4b9e7cdc04a034150085f11f73781b4018fc2a1416f6e76e7b485345586b"
         }
       ],
       "acceptance_ids": [
@@ -6972,7 +6972,7 @@
       "source_observations": [
         {
           "path": "release/index/branch_policy.v2.toml",
-          "sha256": "678b707dbcf6eaaa2696e5ea3cec78b572fdcadf096366affcc1070e0bf7e686"
+          "sha256": "eb2857c2d6e7304e66b6d55d06ecdb722c407d925e32948e5a7a7b7322d771b8"
         },
         {
           "path": "release/index/contract_maturity.v1.toml",
@@ -6980,7 +6980,7 @@
         },
         {
           "path": "tools/branch_policy_check.py",
-          "sha256": "d2e38f4c22b8fbddded0b5921f9d95e75c004ad4da4026338aadb894bb53b980"
+          "sha256": "c72e4b9e7cdc04a034150085f11f73781b4018fc2a1416f6e76e7b485345586b"
         }
       ],
       "acceptance_ids": [
@@ -7922,7 +7922,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a3352ef0ada9e689dbaf95704e6f988342532b61dd64bfbd1a4a8458fd579685"
+          "sha256": "9031b60591c631513d8535e5390ebaa1f374d756cc485a0a850c89a42e74739a"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
@@ -8175,7 +8175,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "a3352ef0ada9e689dbaf95704e6f988342532b61dd64bfbd1a4a8458fd579685"
+          "sha256": "9031b60591c631513d8535e5390ebaa1f374d756cc485a0a850c89a42e74739a"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
@@ -8375,7 +8375,7 @@
       "source_observations": [
         {
           "path": "README.md",
-          "sha256": "9d3773968887ae851ba9c92d9dd4be0263e37b7915f64cb520a673199a6244a5"
+          "sha256": "23cd91400fe1bea1881bda2f487930b0f71a76ee59ca8db25f3d601af979eab6"
         },
         {
           "path": "apps/gui/README.md",
@@ -8410,7 +8410,7 @@
       "source_observations": [
         {
           "path": "README.md",
-          "sha256": "9d3773968887ae851ba9c92d9dd4be0263e37b7915f64cb520a673199a6244a5"
+          "sha256": "23cd91400fe1bea1881bda2f487930b0f71a76ee59ca8db25f3d601af979eab6"
         },
         {
           "path": "apps/gui/README.md",
@@ -8445,7 +8445,7 @@
       "source_observations": [
         {
           "path": "README.md",
-          "sha256": "9d3773968887ae851ba9c92d9dd4be0263e37b7915f64cb520a673199a6244a5"
+          "sha256": "23cd91400fe1bea1881bda2f487930b0f71a76ee59ca8db25f3d601af979eab6"
         },
         {
           "path": "apps/gui/README.md",
@@ -8592,7 +8592,7 @@
       "source_observations": [
         {
           "path": "docs/governance/branch_model.md",
-          "sha256": "bfbe5d28ac18ae241abc140d480a8311b82a01d6413f52bc33a2d76e57129e9a"
+          "sha256": "f398922ef1cac775138877c74bed8679a841220b528018a2f67ad35fe6f67b13"
         },
         {
           "path": "spec/execution/workflow.md",
@@ -8623,7 +8623,7 @@
       "source_observations": [
         {
           "path": "docs/governance/branch_model.md",
-          "sha256": "bfbe5d28ac18ae241abc140d480a8311b82a01d6413f52bc33a2d76e57129e9a"
+          "sha256": "f398922ef1cac775138877c74bed8679a841220b528018a2f67ad35fe6f67b13"
         },
         {
           "path": "spec/execution/workflow.md",
@@ -8654,7 +8654,7 @@
       "source_observations": [
         {
           "path": "docs/governance/branch_model.md",
-          "sha256": "bfbe5d28ac18ae241abc140d480a8311b82a01d6413f52bc33a2d76e57129e9a"
+          "sha256": "f398922ef1cac775138877c74bed8679a841220b528018a2f67ad35fe6f67b13"
         },
         {
           "path": "spec/execution/workflow.md",
