@@ -125,7 +125,7 @@ if($actorTries.Count -ne 1){throw 'Owned account finalizer is missing or ambiguo
 $accountCleanup=Read-Block $actorTries[0].Finally
 function Get-LocalUser($SID,$ErrorAction) {
     if($script:accountReadFailure){throw 'synthetic account cleanup failure'}
-    if($script:accountPresent){return [pscustomobject]@{Name=$accountName;Description=$taskName}}
+    if($script:accountPresent){return [pscustomobject]@{Name=$accountName;Description=('USKCTL:'+('a'*32))}}
 }
 function Remove-LocalUser($SID,$ErrorAction) {$script:accountDeletes++;$script:accountPresent=$false}
 $named=$true;$accountAttempted=$true;$accountSid='S-1-5-21-1-2-3-1001'
