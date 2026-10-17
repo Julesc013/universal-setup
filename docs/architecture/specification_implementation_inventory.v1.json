@@ -2715,7 +2715,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_launcher.ps1",
-          "sha256": "a38b6ff3eddb1254650e42853a9c690e992c0ed8d372120367c3b57b7b207b62"
+          "sha256": "df6c305d38df94c621a642a652ab0cb804e38feecaa00d568af66bfb7fd12d69"
         },
         {
           "path": "tests/windows_publisher_standard_launcher_smoke.ps1",
@@ -3178,7 +3178,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_launcher.ps1",
-          "sha256": "a38b6ff3eddb1254650e42853a9c690e992c0ed8d372120367c3b57b7b207b62"
+          "sha256": "df6c305d38df94c621a642a652ab0cb804e38feecaa00d568af66bfb7fd12d69"
         },
         {
           "path": "tests/windows_publisher_standard_launcher_smoke.ps1",
@@ -3641,7 +3641,7 @@
         },
         {
           "path": "tests/windows_publisher_standard_launcher.ps1",
-          "sha256": "a38b6ff3eddb1254650e42853a9c690e992c0ed8d372120367c3b57b7b207b62"
+          "sha256": "df6c305d38df94c621a642a652ab0cb804e38feecaa00d568af66bfb7fd12d69"
         },
         {
           "path": "tests/windows_publisher_standard_launcher_smoke.ps1",

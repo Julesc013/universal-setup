@@ -8,12 +8,12 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR240 is merged into dev at6913f88; main remainsc048f7. CI39019325390 passed
-on the actual dev merge. Separate publisher qualification39018480782 failed:
-the legacy machine journey refused the remounted default device policy, and
-the admitted controller refused the hosted built-in Administrator's RID500.
-Target provisioning and controller dispatch were not reached. These results
-do not qualify main, deployment or release.
+PR241 is merged into dev atc35b6a9; main remainsc048f7. All required core
+checks passed on submitted7374417 in CI39022433004. Its separate publisher
+job stopped before actor startup: the generated account description exceeded
+Windows'48character limit. Product compilation and dispatch were not reached.
+The preceding legacy machine/device-policy failure remains an open obligation,
+not an executed failure in this run. Main, deployment and release remain unqualified.
 
 Continue the connected admitted-target controller/consumer path, source-free
 recovery within120seconds, and genuine owned maintenance/retirement. The next

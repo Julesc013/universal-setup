@@ -280,7 +280,7 @@ function Invoke-OwnedPublisherFixtureTask {
         $password='Aa1!'+[guid]::NewGuid().ToString('N')
         $secure=ConvertTo-SecureString $password -AsPlainText -Force
         $accountAttempted=$true
-        $account=New-LocalUser -Name $accountName -Password $secure -PasswordNeverExpires -Description $taskName -ErrorAction Stop
+        $account=New-LocalUser -Name $accountName -Password $secure -PasswordNeverExpires -Description ('USKCTL:'+$taskName.Substring('USK_ADMITTED_CONTROLLER_'.Length)) -ErrorAction Stop
         $accountSid=$account.SID.Value;$expectedSid=$accountSid
         $script:controllerActorObservation.account_name=$accountName
         $script:controllerActorObservation.account_sid=$accountSid
@@ -536,7 +536,7 @@ function Invoke-OwnedPublisherFixtureTask {
                 })
                 if($retired -and $accountSid) {
                     $current=Get-LocalUser -SID ([Security.Principal.SecurityIdentifier]::new($accountSid)) -ErrorAction Stop
-                    if($current.Name -cne $accountName -or $current.Description -cne $taskName){throw 'Owned controller account identity changed'}
+                    if($current.Name -cne $accountName -or $current.Description -cne ('USKCTL:'+$taskName.Substring('USK_ADMITTED_CONTROLLER_'.Length))){throw 'Owned controller account identity changed'}
                     Remove-LocalUser -SID ([Security.Principal.SecurityIdentifier]::new($accountSid)) -ErrorAction Stop
                     if(Get-LocalUser -SID ([Security.Principal.SecurityIdentifier]::new($accountSid)) -ErrorAction SilentlyContinue){throw 'Owned controller account remains'}
                     $script:controllerActorObservation.account_removed=$true
