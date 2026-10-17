@@ -8,12 +8,149 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_controller_uses_complete_lease_postimage_and_verified_repair(self):
+        # Execute the actual controller statement range and real pair checker;
+        # synthetic rows grant no native observer, actor or retirement verdict.
+        import copy
+        import test_publisher_installation_lease_evidence as evidence
+        active, completed = [json.loads(row['content_json']) for row in evidence.fixture(2)[-2:]]
+        tx, install, plan = 'owned.repair.test', evidence.INSTALLED['install_id'], 'plan.owned.test'
+        def seal(value):
+            value['ownership_sha256'] = evidence.digest({k: v for k, v in value.items() if k != 'ownership_sha256'})
+            return value
+        active.update(operation='repair', operation_id=tx)
+        seal(active)
+        completed = seal(dict(active, status='completed', result_state_revision='e' * 64))
+        state = dict(schema='usk.installed_state.v1', install_id=install, transaction_id=tx, lifecycle_status='verified')
+        journal = dict(schema='usk.transaction_journal.v1', transaction_id=tx,
+                       plan_digest='f' * 64, current_state='completed')
+        sealed = dict(schema='usk.maintenance_effect_record.v1', transaction_id=tx, phase='sealed')
+        audit = dict(schema='usk.audit_event.v1', transaction_id=tx, operation='repair',
+                     phase='completed', status='pass', plan_id=plan)
+        base = [state, active, completed, journal, sealed, audit]
+        cases = [dict(name='repair', operation='repair', documents=copy.deepcopy(base), expected=True)]
+        for name, index, key, value in (
+                ('legacy-predecessor', 2, 'predecessor_sha256', active['ownership_sha256']),
+                ('holder', 2, 'holder', dict(active['holder'], process_id=999)),
+                ('attempt', 2, 'attempt_id', 'changed.attempt'),
+                ('context', 2, 'operation_context_sha256', '9' * 64),
+                ('root', 2, 'state_root_identity', dict(evidence.STATE_ROOT, file_id='9' * 32)),
+                ('generation', 2, 'generation', 3),
+                ('installed-status', 0, 'lifecycle_status', 'installed'),
+                ('uninstall-status', 0, 'lifecycle_status', 'retired'),
+                ('journal', 3, 'current_state', 'committing'),
+                ('audit', 5, 'status', 'warn'),
+                ('seal', 4, 'phase', 'complete'),
+                ('bad-hash', 2, 'ownership_sha256', '9' * 64)):
+            documents = copy.deepcopy(base)
+            documents[index][key] = value
+            if index == 2 and key != 'ownership_sha256':
+                seal(documents[2])
+            cases.append(dict(name=name, operation='repair', documents=documents, expected=False))
+        for index, name in ((0, 'state'), (1, 'active'), (2, 'terminal'), (3, 'journal'), (4, 'seal'), (5, 'audit')):
+            for change in ('missing', 'duplicate'):
+                documents = copy.deepcopy(base)
+                if change == 'missing':
+                    documents.pop(index)
+                else:
+                    documents.append(copy.deepcopy(documents[index]))
+                cases.append(dict(name=change + '-' + name, operation='repair', documents=documents, expected=False))
+        for name in ('changed-bytes', 'missing-repaired-file'):
+            cases.append(dict(name=name, operation='repair', documents=copy.deepcopy(base), expected=False))
+        uninstall = copy.deepcopy(base)
+        for value in uninstall:
+            if 'operation' in value:
+                value['operation'] = 'uninstall'
+            if value['schema'] == 'usk.installation_lease_ownership.v1':
+                seal(value)
+        uninstall[0]['lifecycle_status'] = 'retired'
+        uninstall += [
+            dict(schema='usk.maintenance_effect_record.v1', transaction_id=tx, phase='intent',
+                 sequence=7, details=dict(kind='remove_directory', effect=dict(root_role='installed', relative_path=''))),
+            dict(schema='usk.maintenance_effect_record.v1', transaction_id=tx, phase='complete',
+                 details=dict(intent_sequence=7, outcome='applied'))]
+        cases.append(dict(name='uninstall', operation='uninstall', documents=copy.deepcopy(uninstall), expected=True))
+        for name in ('retained-root', 'retained-files', 'retained-root-effect'):
+            cases.append(dict(name=name, operation='uninstall', documents=copy.deepcopy(uninstall), expected=False))
+        root = Path(__file__).resolve().parents[1]
+        code = r"""$ErrorActionPreference='Stop'
+Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Utility/Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
+$source=[IO.File]::ReadAllText($env:USK_CONTROLLER_SOURCE)
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors)
+if($errors.Count -or @($ast.EndBlock.Statements|Where-Object {
+ $_ -isnot [Management.Automation.Language.FunctionDefinitionAst]}).Count){throw 'Controller helper is not definition-only'}
+. $env:USK_CONTROLLER_SOURCE
+$start=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+ $n.Left.Extent.Text -ceq '$documents'},$true))
+$end=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+ $n.Extent.Text -ceq '$currentInstalled=$state[0]'},$true))
+if($start.Count -ne 1 -or $end.Count -ne 1 -or $start[0].Extent.EndOffset -ge $end[0].Extent.StartOffset) {
+ throw 'Actual controller completion checks are ambiguous'
+}
+$checks=[scriptblock]::Create($source.Substring($start[0].Extent.StartOffset,
+ $end[0].Extent.StartOffset-$start[0].Extent.StartOffset))
+$inputCases=[IO.File]::ReadAllText($env:USK_CASE_FILE)|ConvertFrom-Json
+$PythonBinary=$env:USK_TEST_PYTHON
+$observed=@()
+foreach($inputCase in $inputCases) {
+ $operation=$inputCase.operation
+ $case=[ordered]@{};$currentInstalled=[pscustomobject]@{install_id='org.example.setup'}
+ $apply=[pscustomobject]@{transaction_id='owned.repair.test';reviewed_plan_digest=('f'*64)}
+ $planRequest=[pscustomobject]@{plan_id='plan.owned.test'}
+ $currentRoot='U:\publication\destination\visible'
+ $damaged=[pscustomobject]@{path=$currentRoot+'\data.bin';before_sha256=('d'*64)}
+ $damageEntries=@([pscustomobject]@{relative_path='data.bin'})
+ $rowNumber=0
+ $rows=@($inputCase.documents|ForEach-Object {
+  $rowNumber++
+  [pscustomobject]@{path=('U:\setup-state\record'+$rowNumber);content_json=($_|ConvertTo-Json -Depth 16 -Compress)}
+ })
+ if($operation -ceq 'repair' -or $inputCase.name -ceq 'retained-root') {
+  $rows+=[pscustomobject]@{path=$damaged.path;sha256=('d'*64);content_json=$null}
+ }
+ if($inputCase.name -ceq 'changed-bytes') {$rows[-1].sha256=('c'*64)}
+ $after=[pscustomobject]@{independent=[pscustomobject]@{rows=$rows}}
+ $report=[pscustomobject]@{repaired_files=@([pscustomobject]@{relative_path='data.bin'});
+  retained_changed_owned_files=@();retained_unknown_paths=@();retained_directories=@();deleted_owned_files=@('one','two')}
+ if($inputCase.name -ceq 'missing-repaired-file') {$report.repaired_files=@()}
+ if($inputCase.name -ceq 'retained-files') {$report.retained_changed_owned_files=@('changed')}
+ if($inputCase.name -ceq 'retained-root-effect') {$inputCase.documents[-1].details.outcome='retained'
+  $rows[-1].content_json=($inputCase.documents[-1]|ConvertTo-Json -Depth 16 -Compress)}
+ $failure=$null
+ try {& $checks} catch {$failure=$_.Exception.Message}
+ $observed+=@{name=$inputCase.name;accepted=($null -eq $failure);failure=$failure;proof=$case.lease_pair}
+}
+$observed|ConvertTo-Json -Depth 16 -Compress
+"""
+        with tempfile.TemporaryDirectory() as temporary:
+            payload = Path(temporary) / 'cases.json'
+            payload.write_text(json.dumps(cases), encoding='utf-8')
+            environment = dict(os.environ, USK_CONTROLLER_SOURCE=str(
+                root / 'tests/windows_publisher_controller_maintenance_probe.ps1'),
+                USK_CASE_FILE=str(payload), USK_TEST_PYTHON=sys.executable)
+            for shell in (shutil.which('pwsh'), shutil.which('powershell.exe')):
+                self.assertIsNotNone(shell)
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                                         '-Command', code], env=environment, capture_output=True, text=True, timeout=60)
+                self.assertEqual(result.returncode, 0, result.stderr[-4000:])
+                observed = json.loads(result.stdout)
+                self.assertEqual(len(observed), len(cases))
+                for actual, expected in zip(observed, cases):
+                    with self.subTest(shell=shell, case=expected['name']):
+                        self.assertEqual(actual['accepted'], expected['expected'], actual['failure'])
+                        if expected['expected']:
+                            self.assertFalse(actual['proof']['profile_qualified'])
+                            self.assertFalse(actual['proof']['publication_authority_granted'])
+                            self.assertEqual(actual['proof']['coordination']['status'], 'completed')
+
     def test_stale_recovery_captures_each_failed_terminal_predicate(self):
         # Execute the actual receipt assignment, refusal assertion and success
         # assignment with inert replies. This proves diagnostic retention and

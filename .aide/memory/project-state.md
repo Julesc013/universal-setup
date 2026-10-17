@@ -23,9 +23,18 @@ enrolled repair returns matching successful public/native responses. Its next
 independent gate incorrectly expects the terminal lease predecessor to be the
 same-generation active digest; the protocol preserves the prior-generation
 predecessor in both records. A later check also expects installed rather than
-the repair's verified lifecycle state. These are observed fixture assumptions
-to repair with direct negative controls, not permission to waive the gate.
-Controller uninstall and product retirement were not executed successfully.
+the repair's verified lifecycle state. The fixture now checks the full closed
+terminal postimage and both ownership seals, preserving every immutable active
+field (including the prior-generation predecessor), and expects verified for
+repair. The existing lease reconciler reuses that same data predicate. It
+grants no membership, current-state, holder-liveness or retirement verdict.
+All22 readback tests and34 lease tests pass, including the actual controller
+assertion range and real checker under both Windows PowerShell and PowerShell7.
+Resealed changed holder/root/attempt/context/generation, missing/duplicate
+state/lease/journal/seal/audit, changed repair bytes and retained uninstall
+content refuse. The retained actual PR253 repair passes the corrected assertion
+range under both shells; its original red result remains unchanged. Fresh
+controller uninstall and product retirement still require native qualification.
 
 The current owned-retirement route work extracts the existing canonical
 original-custody and created-closure record checks into a private metadata

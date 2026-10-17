@@ -9,7 +9,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from publisher_installation_lease_evidence import canonical, digest, snapshot, transition, bootstrap_takeover, bootstrap_preservation_takeover, active_ownership, LeaseEvidenceError
+from publisher_installation_lease_evidence import canonical, digest, snapshot, transition, bootstrap_takeover, bootstrap_preservation_takeover, active_ownership, terminal_pair, LeaseEvidenceError
 
 DRIVE = 'U:\\'
 ROOT = '0000000000000001:' + 'a' * 32
@@ -277,6 +277,32 @@ def preservation_takeover_fixture():
 
 
 class LeaseRecordReconciliationTests(unittest.TestCase):
+    def test_terminal_is_the_active_postimage_not_a_new_predecessor_link(self):
+        for generation in (1, 2):
+            active, completed = [json.loads(row['content_json']) for row in fixture(generation)[-2:]]
+            self.assertEqual(terminal_pair(active, completed), {'generation': generation, 'status': 'completed'})
+            self.assertEqual(completed['predecessor_sha256'], active['predecessor_sha256'])
+            self.assertNotEqual(completed['predecessor_sha256'], active['ownership_sha256'])
+            for key, value in (
+                    ('predecessor_sha256', active['ownership_sha256']), ('attempt_id', 'another.attempt'),
+                    ('operation_id', 'another.operation'), ('operation', 'repair'),
+                    ('expected_state_revision', '9' * 64), ('operation_context_sha256', '9' * 64),
+                    ('generation', generation + 1), ('holder', dict(active['holder'], process_id=999)),
+                    ('state_root_identity', dict(STATE_ROOT, file_id='9' * 32))):
+                bad = dict(completed, **{key: value})
+                bad['ownership_sha256'] = digest({k: v for k, v in bad.items() if k != 'ownership_sha256'})
+                with self.subTest(generation=generation, key=key), self.assertRaises(LeaseEvidenceError):
+                    terminal_pair(active, bad)
+            for key, value in (
+                    ('ownership_sha256', '9' * 64), ('result_state_revision', None), ('status', 'active'),
+                    ('holder', dict(active['holder'], process_id=True)),
+                    ('state_root_identity', dict(STATE_ROOT, volume_serial='01'))):
+                bad = dict(completed, **{key: value})
+                with self.subTest(generation=generation, malformed=key), self.assertRaises(LeaseEvidenceError):
+                    terminal_pair(active, bad)
+            with self.assertRaises(LeaseEvidenceError):
+                terminal_pair(dict(active, unexpected=True), completed)
+
     def test_active_reserved_absence_requires_explicit_native_proof_and_keeps_default_plan_floor(self):
         rows, request, response, apply, consumer, holder, absence = active_absence_fixture()
         result = active_ownership(rows, DRIVE, INSTALLED, ROOT, request, response, apply, consumer, holder,

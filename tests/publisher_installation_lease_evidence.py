@@ -27,6 +27,52 @@ def digest(value):
     return hashlib.sha256(canonical(value).encode('utf-8')).hexdigest()
 
 
+
+def terminal_pair(active, terminal):
+    """Closed data postimage only; no membership, currentness or native grant."""
+    fields = {'schema', 'install_id', 'operation', 'operation_id', 'attempt_id',
+              'state_root_identity', 'holder', 'generation', 'expected_state_revision',
+              'status', 'result_state_revision', 'predecessor_sha256', 'ownership_sha256',
+              'operation_context_sha256'}
+    sha = lambda value: isinstance(value, str) and re.fullmatch('[0-9a-f]{64}', value)
+    for value in (active, terminal):
+        require(isinstance(value, dict) and value.keys() == fields, 'lease pair record is not closed')
+        require(value['schema'] == 'usk.installation_lease_ownership.v1' and
+                value['operation'] in ('install_local', 'repair', 'move', 'update', 'uninstall',
+                                       'generation_activate', 'generation_retire') and
+                all(isinstance(value[key], str) and re.fullmatch('[A-Za-z0-9_.-]{1,128}', value[key]) for key in ('install_id', 'operation_id', 'attempt_id')),
+                'lease pair request identity differs')
+        generation = value['generation']
+        require(type(generation) is int and 1 <= generation <= 0xffffffffffffffff and
+                (value['predecessor_sha256'] is None if generation == 1 else sha(value['predecessor_sha256'])) and
+                sha(value['expected_state_revision']) and sha(value['operation_context_sha256']),
+                'lease pair generation or revision differs')
+        observed_root = value['state_root_identity']
+        require(isinstance(observed_root, dict) and observed_root.keys() == {'file_id', 'volume_serial'} and
+                isinstance(observed_root['file_id'], str) and re.fullmatch('[0-9a-f]{32}', observed_root['file_id']) and
+                int(observed_root['file_id'], 16) != 0 and isinstance(observed_root['volume_serial'], str) and
+                re.fullmatch('[1-9][0-9]{0,19}', observed_root['volume_serial']) and
+                int(observed_root['volume_serial']) <= 0xffffffffffffffff, 'lease pair root identity differs')
+        holder = value['holder']
+        require(isinstance(holder, dict) and holder.keys() == {'process_id', 'process_creation_time'} and
+                type(holder['process_id']) is int and 1 <= holder['process_id'] <= 0xffffffff and
+                isinstance(holder['process_creation_time'], str) and
+                re.fullmatch('[0-9a-f]{16}', holder['process_creation_time']) and
+                int(holder['process_creation_time'], 16), 'lease pair holder identity differs')
+        require((value['status'] == 'active' and value['result_state_revision'] is None) or
+                (value['status'] in ('completed', 'handoff') and sha(value['result_state_revision'])),
+                'lease pair status or terminal revision differs')
+        require(sha(value['ownership_sha256']) and
+                value['ownership_sha256'] == digest({key: item for key, item in value.items() if key != 'ownership_sha256'}),
+                'lease pair record seal differs')
+    require(active['status'] == 'active' and terminal['status'] in ('completed', 'handoff'),
+            'lease pair has no active/terminal transition')
+    expected = dict(active, status=terminal['status'], result_state_revision=terminal['result_state_revision'])
+    expected['ownership_sha256'] = digest({key: item for key, item in expected.items() if key != 'ownership_sha256'})
+    require(terminal == expected, 'lease terminal transition differs')
+    return {'generation': terminal['generation'], 'status': terminal['status']}
+
+
 def root(value):
     require(isinstance(value, str) and re.fullmatch(r'[0-9a-f]{16}:[0-9a-f]{32}', value), 'native root identity absent')
     require(int(value[:16], 16) and int(value[17:], 16), 'native root identity zero')
@@ -291,9 +337,7 @@ def _snapshot(rows, drive, installed, volume_root_id, *, allow_active=False, all
                     'lease terminal has no active predecessor')
             require(value['result_state_revision'] in ({state_revision} if value['status'] == 'completed' else
                     {digest([]), state_revision}), 'lease terminal revision differs')
-            expected = dict(previous, status=value['status'], result_state_revision=value['result_state_revision'])
-            expected['ownership_sha256'] = digest({key: item for key, item in expected.items() if key != 'ownership_sha256'})
-            require(value == expected, 'lease terminal transition differs')
+            terminal_pair(previous, value)
         history.append(value)
         previous = value
     require(allow_active or history[-1]['status'] == 'completed', 'current snapshot lacks completed ownership')
@@ -581,7 +625,11 @@ def main():
     else:
         with open(args.input, encoding='utf-8-sig') as stream:
             value = json.load(stream)
-    if value['mode'] == 'snapshot':
+    if value['mode'] == 'completed_pair':
+        require(value.keys() == {'mode', 'active', 'completed'}, 'lease pair input is not closed')
+        result = terminal_pair(value['active'], value['completed'])
+        require(result['status'] == 'completed', 'controller lease pair is not completed')
+    elif value['mode'] == 'snapshot':
         result = snapshot(value['rows'], value['drive'], value['installed'], value['volume_root_id'],
                           allow_active=value.get('allow_active') is True, allow_legacy_missing=value.get('allow_legacy_missing') is True,
                           allow_initial_empty_state=value.get('allow_initial_empty_state') is True)
