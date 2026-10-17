@@ -8,10 +8,10 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR255 is normally merged into dev at6147f297, source tree0f7a3179, after
+PR256 is normally merged into dev at660cc616, source tree5dcab359, after
 six required core checks, specification validation, independent source review
-and the live branch gate. Twelve checkpoints PR244-255 were integrated on
-18October2026; dev-push39068769137 also completed successfully. Main remains
+and the live branch gate. Thirteen checkpoints PR244-256 were integrated on
+18October2026; dev-push39076265669 also completed successfully. Main remains
 c048f7f1 and the next weekly target is19October when additional qualification
 passes. The current external task checkpoint binds changing local/remote facts.
 
@@ -25,8 +25,10 @@ obtains original protected custody and guards, observes ended holders, rechecks
 the whole custody, then invokes its private exact service/image finalization.
 The administrative --retire-owned command now calls this fixed owner; the hosted
 controller exercises refusal before uninstall and actual retirement only after
-independent retired/root-absence checks. Independent final review and actual
-native retirement qualification remain required.
+independent retired/root-absence checks. Exact-source review approved the code.
+The current hosted controller completes actual retirement with service/image
+absence, confirmed client/launcher cleanup and143unchanged SYSTEM history rows.
+This is one fresh enrolled unmoved profile; whole-profile qualification is withheld.
 
 The locally passing historical116-record/28-directory uninstall projection now
 runs through the actual metadata route. Its source pins and limited historical
@@ -44,13 +46,28 @@ and SYSTEM retired/pass root-absence readback. Retained b6f4f28 recoveries excee
 interrupted source-retired repair requests within the unchanged public helper
 contract: matching public/native completion, lease generation4-to-5, SYSTEM
 verified state and ordinary verification pass; client/account cleanup is confirmed.
-Its build3cb2b3e2 has accepted dev's0f7a3179 tree. Both cohorts use diagnostics;
+Its build3cb2b3e2 has the previously accepted0f7a3179 source tree. Both cohorts use diagnostics;
 two successful requests establish neither a speedup nor whole-profile reliability.
-The overall publisher job still fails packaged/controller cleanup with generic
-retirement refusing; its unconfirmed launcher cleanup remains retained evidence.
-The new fixed owner's native retirement, whole recovery-profile qualification,
-ordinary public strict installation, main, deployment and release acceptance
-remain unestablished. Inventory classifications remain unchanged.
+That run's publisher failure and unconfirmed launcher cleanup remain historical
+evidence. Current run39075397888/1 passes both fresh maintenance cohorts and the
+controller retirement journey, but both genuinely interrupted source-retired
+repair recoveries again exceed120seconds with matching UNKNOWN responses and
+no native completion or independent after-state. Client/launcher cleanup remains
+unconfirmed for those failed requests. Legacy packaged startup still refuses its
+remounted-device policy. Actual build0b766728 has accepted dev's5dcab359 tree;
+its commit and diagnostic package identity remain distinct from dev660cc616.
+Whole recovery-profile qualification, ordinary public strict installation, main,
+deployment and release acceptance remain unestablished. Inventory classifications
+remain unchanged.
+
+Current CPU samples resolve against the matching native image/PDB and identify
+repeated worker security queries and thread censuses within the retained capture.
+The next candidate avoids failed size-only reads when bounded initial buffers
+fit, and retains only a per-thread census allocation-size hint. Every complete
+native read and before/after census stays fresh; existing bounds and parsing
+remain. Local architecture checks and hosted recovery must qualify the candidate
+before any deadline improvement is claimed. The held eight-query preview remains
+unapplied.
 
 PR253 is normally merged into dev at384a623c, source tree9e04fa2e, after all
 six required core checks, specification validation, independent exact source
