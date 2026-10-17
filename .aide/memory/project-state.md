@@ -8,17 +8,24 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR246 is merged into dev atec90c10; main remainsc048f7.
-Its33d9b6f source passed all six required core checks, specification validation,
-independent review and the live merge policy. Publisher qualification failed
-separately in CI39037422797; development integration is not release acceptance.
-The retained stale-request observation is client exit3/statusrecovery_required,
+PR247 is merged into dev at7a7a51a; main remainsc048f7.
+Itsdd12b4b source passed all six required core checks, specification validation,
+independent review and the live merge policy. Publisher qualification remains
+separate in CI39039802715; development integration is not release acceptance.
+Earlier PR246 CI39037422797 failed publisher qualification. Its retained
+stale-request observation is client exit3/statusrecovery_required,
 with error 'broker original protected intent is absent'. It does not establish
-request admission. The next repair narrows only this initial native absence
+request admission. The integrated repair narrows only this initial native absence
 before the broker's first admission reply, after confirmed query/worker,
 child/job and volume closure. Later failures remain conservative; hosted
 execution must still qualify the route with the unchanged refusal assertions.
 PR245 previously imported AIDE9605d8e into dev12f9f8c, preserving project state.
+The four fresh and genuinely interrupted maintenance cohorts are independently
+owned runs. Their workflow admission now requires the successful actor-qualified
+build and the admitted same-repository Windows PR context, with cancellation
+respected. An earlier isolated journey failure still fails publisher qualification,
+while these cohorts can retain their own outcomes. Their existing assertions,
+deadlines, producer-bound collectors and main gate remain unchanged.
 Earlier PR244 CI39034031107 retained native install and already-visible source-retired reentry pass,
 with all39 prior rows unchanged and exactly the protected generation2 lease pair
 added. It then stopped at the stale-request assertion before retaining its reply.
