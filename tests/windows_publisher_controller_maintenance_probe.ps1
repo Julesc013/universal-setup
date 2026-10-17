@@ -61,6 +61,24 @@ function Invoke-ControllerMaintenanceRequest {
     if($cleanup){throw $cleanup}
 }
 
+# Validate the existing closed lease postimage; a pair is historical metadata,
+# never proof of native membership, current revision or retirement authority.
+function Assert-ControllerMaintenanceLeasePair {
+    param($Active,$Completed,[string]$PythonBinary)
+    $ErrorActionPreference='Stop'
+    $OutputEncoding=[Text.UTF8Encoding]::new($false)
+    $output=@{mode='completed_pair';active=$Active;completed=$Completed}|ConvertTo-Json -Depth 16 -Compress|
+        & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_installation_lease_evidence.py') --input -
+    if($LASTEXITCODE -ne 0){throw 'Owned maintenance lease terminal postimage differs'}
+    $proof=($output -join [Environment]::NewLine)|ConvertFrom-Json
+    if($proof.status -cne 'bindings_consistent' -or $proof.coordination.status -cne 'completed' -or
+        $proof.profile_qualified -isnot [bool] -or $proof.profile_qualified -or
+        $proof.publication_authority_granted -isnot [bool] -or $proof.publication_authority_granted) {
+        throw 'Owned maintenance lease pair projection differs'
+    }
+    return $proof
+}
+
 function Invoke-ControllerOwnedUninstall {
     if(-not $AdmittedTarget -or -not $ControllerApply -or -not $packageRoot -or
         $env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
@@ -238,15 +256,15 @@ function Invoke-ControllerOwnedUninstall {
             $_.operation -ceq $operation -and $_.phase -ceq 'completed' -and $_.status -ceq 'pass' -and $_.plan_id -ceq $planRequest.plan_id})
         if($state.Count -ne 1 -or $leases.Count -ne 2 -or $active.Count -ne 1 -or $completed.Count -ne 1 -or
             $active[0].generation -ne $completed[0].generation -or
-            $completed[0].predecessor_sha256 -cne $active[0].ownership_sha256 -or
             $journal.Count -ne 1 -or $sealed.Count -ne 1 -or $audit.Count -ne 1) {
             throw 'Owned maintenance lacks independent state, completed lease, journal, sealed effects or audit'
         }
+        $case['lease_pair']=Assert-ControllerMaintenanceLeasePair -Active $active[0] -Completed $completed[0] -PythonBinary $PythonBinary
         if($operation -ceq 'repair') {
             $restored=@($after.independent.rows|Where-Object path -ceq $damaged.path)
             if($restored.Count -ne 1 -or $restored[0].sha256 -cne $damaged.before_sha256 -or
                 @($report.repaired_files|Where-Object relative_path -ceq $damageEntries[0].relative_path).Count -ne 1 -or
-                $state[0].lifecycle_status -cne 'installed') {throw 'Owned repair did not restore the exact damaged bytes'}
+                $state[0].lifecycle_status -cne 'verified') {throw 'Owned repair did not restore the exact damaged bytes'}
         } else {
             $remaining=@($after.independent.rows|Where-Object {
                 $_.path -ceq $currentRoot -or $_.path.StartsWith($currentRoot+'\',[StringComparison]::Ordinal)})

@@ -5,6 +5,7 @@
 #include "usk_install_restart.h"
 #include "usk_maintenance_context_internal.h"
 #include "usk_maintenance_recovery_internal.h"
+#include "usk_completed_maintenance_records_internal.h"
 
 #include "usk_audit_repository.h"
 #include "usk_json.h"
@@ -33,6 +34,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
@@ -3036,23 +3038,49 @@ bool maintenance_same_ownership(const state::OwnershipManifest& actual, const st
 }
 } // namespace
 
-static json::Value read_maintenance_reviewed_plan_impl(const transaction::TransactionSpec& spec, bool completed_history)
+// Prepared only by the bounded byte decoder below. No native handle, effect
+// owner, callback or fallback path enters this metadata view.
+struct CompletedMaintenanceRecords {
+    transaction::CompletedTransactionHistory transaction;
+    transaction::MaintenanceEffectInspection effects;
+    const std::string& reviewed_plan;
+    state::InstalledState original, resulting;
+    state::OwnershipManifest original_ownership, resulting_ownership;
+    std::vector<audit::AuditEvent> audit;
+
+    state::InstalledState installed(const std::string& id, const std::string& tx) const {
+        const auto& result = tx == original.transaction_id ? original : resulting;
+        if (result.install_id != id || result.transaction_id != tx)
+            throw std::runtime_error("completed maintenance bytes lost their exact installed snapshot");
+        return result;
+    }
+    state::OwnershipManifest ownership(const std::string& id) const {
+        const auto& result = id == ownership_id_from_ref(original.ownership_manifest_ref) ||
+            id == original_ownership.manifest_id ? original_ownership : resulting_ownership;
+        if (result.manifest_id != id && result.install_id != id)
+            throw std::runtime_error("completed maintenance bytes lost their exact ownership record");
+        return result;
+    }
+};
+
+static json::Value read_maintenance_reviewed_plan_impl(const transaction::TransactionSpec& spec, bool completed_history,
+    const CompletedMaintenanceRecords* records = nullptr)
 {
-    const auto historical = completed_history ? transaction::TransactionSession::inspect_completed_history(spec) :
+    const auto historical = records ? records->transaction : completed_history ? transaction::TransactionSession::inspect_completed_history(spec) :
         transaction::CompletedTransactionHistory{};
     const auto current = completed_history ? transaction::RecoveryInspection{} :
         transaction::TransactionSession::inspect_recovery(spec);
     const auto snapshot_sha256 = completed_history ? historical.snapshot_sha256 : current.snapshot_sha256;
     const auto source_digest = completed_history ? historical.stream.source_digest : current.stream_source_digest;
     const auto source_context = completed_history ? historical.stream.source_context : current.stream_source_context;
-    const auto history = transaction::MaintenanceEffectJournal::inspect(spec, source_digest);
+    const auto history = records ? records->effects : transaction::MaintenanceEffectJournal::inspect(spec, source_digest);
     if (history.source_context != source_context)
         throw std::runtime_error("maintenance reviewed plan has inconsistent original context");
     const auto context = json::parse(history.source_context);
     if (!context.contains("reviewed_plan_ref") || !context.contains("reviewed_plan_sha256"))
         throw std::runtime_error("legacy maintenance has no durable reviewed plan");
     const fs::path path = spec.state_root / "transactions" / context.at("reviewed_plan_ref").as_string();
-    const std::string text = record_io::read_stable_text(path, maximum_maintenance_plan_bytes);
+    const std::string text = records ? records->reviewed_plan : record_io::read_stable_text(path, maximum_maintenance_plan_bytes);
     if (maintenance_text_digest(text) != context.at("reviewed_plan_sha256").as_string())
         throw std::runtime_error("maintenance reviewed-plan bytes differ from original context");
     const Value artifact = json::parse(text, {maximum_maintenance_plan_bytes, 12u, 200000u, maximum_total_path_bytes});
@@ -3093,7 +3121,8 @@ static json::Value read_maintenance_reviewed_plan_impl(const transaction::Transa
         if (plan.at(role).as_string() != context.at(role).at("root").as_string())
             throw std::runtime_error("maintenance reviewed plan changed its original roots");
     }
-    const auto original = state::StateRepository(spec.state_root).read_installed_snapshot(
+    const auto original = records ? records->installed(context.at("install_id").as_string(),
+        context.at("original_installed_transaction_id").as_string()) : state::StateRepository(spec.state_root).read_installed_snapshot(
         context.at("install_id").as_string(), context.at("original_installed_transaction_id").as_string());
     if (installed_digest(original) != context.at("original_installed_state_digest").as_string() ||
         original.ownership_manifest_digest != context.at("ownership_manifest_digest").as_string() ||
@@ -3102,7 +3131,8 @@ static json::Value read_maintenance_reviewed_plan_impl(const transaction::Transa
         fs::absolute(fs::u8path(original.target_root)).lexically_normal().generic_u8string() !=
             context.at("installed_root").at("root").as_string())
         throw std::runtime_error("maintenance reviewed plan lost its original installed snapshot");
-    const auto ownership = state::StateRepository(spec.state_root).read_ownership(ownership_id_from_ref(original.ownership_manifest_ref));
+    const auto ownership = records ? records->ownership(ownership_id_from_ref(original.ownership_manifest_ref)) :
+        state::StateRepository(spec.state_root).read_ownership(ownership_id_from_ref(original.ownership_manifest_ref));
     if (ownership.manifest_digest != original.ownership_manifest_digest || ownership.install_id != original.install_id ||
         fs::absolute(fs::u8path(ownership.target_root)).lexically_normal() != fs::absolute(fs::u8path(original.target_root)).lexically_normal() ||
         ownership.files.size() > maximum_lifecycle_files || ownership.directories.size() > maximum_lifecycle_directories)
@@ -3205,9 +3235,9 @@ static json::Value read_maintenance_reviewed_plan_impl(const transaction::Transa
             if (!safe_relative(unknown.as_string())) throw std::runtime_error("maintenance uninstall unknown path is invalid");
         }
     }
-    const auto after_snapshot = completed_history ? transaction::TransactionSession::inspect_completed_history(spec).snapshot_sha256 :
+    const auto after_snapshot = records ? records->transaction.snapshot_sha256 : completed_history ? transaction::TransactionSession::inspect_completed_history(spec).snapshot_sha256 :
         transaction::TransactionSession::inspect_recovery(spec).snapshot_sha256;
-    const auto after_history = transaction::MaintenanceEffectJournal::inspect(spec, source_digest);
+    const auto after_history = records ? records->effects : transaction::MaintenanceEffectJournal::inspect(spec, source_digest);
     if (after_snapshot != snapshot_sha256 ||
         after_history.journal_digest != history.journal_digest)
         throw std::runtime_error("maintenance reviewed plan changed during inspection");
@@ -3220,18 +3250,18 @@ json::Value read_maintenance_reviewed_plan(const transaction::TransactionSpec& s
 }
 
 static MaintenanceContinuationInspection inspect_maintenance_prefix(const transaction::TransactionSpec& spec,
-    bool completed_history)
+    bool completed_history, const CompletedMaintenanceRecords* records = nullptr)
 {
-    const auto historical = completed_history ? transaction::TransactionSession::inspect_completed_history(spec) :
+    const auto historical = records ? records->transaction : completed_history ? transaction::TransactionSession::inspect_completed_history(spec) :
         transaction::CompletedTransactionHistory{};
     const auto current = completed_history ? transaction::RecoveryInspection{} :
         transaction::TransactionSession::inspect_recovery(spec);
     const auto snapshot_sha256 = completed_history ? historical.snapshot_sha256 : current.snapshot_sha256;
     const auto source_digest = completed_history ? historical.stream.source_digest : current.stream_source_digest;
-    const auto history = transaction::MaintenanceEffectJournal::inspect(spec, source_digest, true);
+    const auto history = records ? records->effects : transaction::MaintenanceEffectJournal::inspect(spec, source_digest, true);
     if (completed_history && (!history.sealed || !history.pending_kind.empty()))
         throw std::runtime_error("maintenance historical result lacks a completed sealed original prefix");
-    const auto artifact = read_maintenance_reviewed_plan_impl(spec, completed_history);
+    const auto artifact = read_maintenance_reviewed_plan_impl(spec, completed_history, records);
     const auto context = json::parse(history.source_context);
     const auto stream = completed_history ? historical.stream :
         transaction::TransactionSession::inspect_recovery_stream(spec, snapshot_sha256);
@@ -3240,15 +3270,18 @@ static MaintenanceContinuationInspection inspect_maintenance_prefix(const transa
         throw std::runtime_error("maintenance continuation lost its original stream or effect prefix");
     const auto& plan = artifact.at("reviewed_plan");
     const auto& objects = artifact.at("original_owned_objects").as_array();
-    state::StateRepository repository(spec.state_root);
-    const auto original = repository.read_installed_snapshot(context.at("install_id").as_string(),
+    std::optional<state::StateRepository> repository;
+    if (!records) repository.emplace(spec.state_root);
+    const auto original = records ? records->installed(context.at("install_id").as_string(),
+        context.at("original_installed_transaction_id").as_string()) : repository->read_installed_snapshot(context.at("install_id").as_string(),
         context.at("original_installed_transaction_id").as_string());
-    const auto original_ownership = repository.read_ownership(ownership_id_from_ref(original.ownership_manifest_ref));
+    const auto original_ownership = records ? records->ownership(ownership_id_from_ref(original.ownership_manifest_ref)) :
+        repository->read_ownership(ownership_id_from_ref(original.ownership_manifest_ref));
     const fs::path installed_root = fs::u8path(original.target_root);
     const auto pin = [&] {
-        const auto pinned = completed_history ? transaction::TransactionSession::inspect_completed_history(spec).snapshot_sha256 :
+        const auto pinned = records ? records->transaction.snapshot_sha256 : completed_history ? transaction::TransactionSession::inspect_completed_history(spec).snapshot_sha256 :
             transaction::TransactionSession::inspect_recovery(spec).snapshot_sha256;
-        const auto effects = transaction::MaintenanceEffectJournal::inspect(spec, source_digest);
+        const auto effects = records ? records->effects : transaction::MaintenanceEffectJournal::inspect(spec, source_digest);
         if (pinned != snapshot_sha256 || effects.journal_digest != history.journal_digest)
             throw std::runtime_error("maintenance continuation changed during selection");
     };
@@ -3405,15 +3438,20 @@ static MaintenanceContinuationInspection inspect_maintenance_prefix(const transa
             ++output;
         }
     }
-    auto expected_ownership = maintenance_expected_ownership(spec, original);
+    auto expected_ownership = records ? original_ownership : maintenance_expected_ownership(spec, original);
+    if (records && spec.operation != "uninstall") {
+        expected_ownership.manifest_id = "ownership." + original.install_id + "." + spec.transaction_id;
+        expected_ownership.created_by_transaction_id = spec.transaction_id;
+        expected_ownership.manifest_digest.clear();
+    }
     if (spec.operation != "uninstall" && !select("write_ownership", fixed(Value(Value::Object{
             {"manifest_id", Value(expected_ownership.manifest_id)}, {"prior_manifest_digest", Value(original.ownership_manifest_digest)}})),
             [&](const auto& completed) {
-                const auto actual = repository.read_ownership(expected_ownership.manifest_id);
+                const auto actual = records ? records->ownership(expected_ownership.manifest_id) : repository->read_ownership(expected_ownership.manifest_id);
                 if (!maintenance_same_ownership(actual, expected_ownership) || actual.manifest_digest != completed.result_digest)
                     throw std::runtime_error("maintenance ownership completion lost its immutable postimage");
             })) return result;
-    const auto ownership = repository.read_ownership(expected_ownership.manifest_id);
+    const auto ownership = records ? records->ownership(expected_ownership.manifest_id) : repository->read_ownership(expected_ownership.manifest_id);
     if (!maintenance_same_ownership(ownership, expected_ownership))
         throw std::runtime_error("maintenance continuation ownership differs from its original closure");
     const auto applied_at = context.at("applied_at").as_string();
@@ -3475,7 +3513,8 @@ static MaintenanceContinuationInspection inspect_maintenance_prefix(const transa
         if (completed_history) {
             // Read the original immutable result. Its verification digest is
             // historical metadata, never a new verdict on today's payload.
-            const auto recorded = repository.read_installed_snapshot(original.install_id, spec.transaction_id);
+            const auto recorded = records ? records->installed(original.install_id, spec.transaction_id) :
+                repository->read_installed_snapshot(original.install_id, spec.transaction_id);
             if (recorded.last_verification.report_id != report_id || recorded.last_verification.verified_at != applied_at ||
                 (recorded.last_verification.status != "pass" && recorded.last_verification.status != "warn"))
                 throw std::runtime_error("maintenance historical verification differs from the original result");
@@ -3493,7 +3532,8 @@ static MaintenanceContinuationInspection inspect_maintenance_prefix(const transa
     if (!select("write_installed", fixed(Value(Value::Object{{"install_id", Value(installed.install_id)},
             {"state_digest", Value(installed_hash)}, {"state_revision", maintenance_installed_revision(installed)}})),
             [&](const auto& completed) {
-                const auto actual = repository.read_installed_snapshot(original.install_id, spec.transaction_id);
+                const auto actual = records ? records->installed(original.install_id, spec.transaction_id) :
+                    repository->read_installed_snapshot(original.install_id, spec.transaction_id);
                 if (maintenance_installed_digest(actual) != installed_hash || completed.result_digest != installed_hash)
                     throw std::runtime_error("maintenance installed completion lost its immutable postimage");
             })) return result;
@@ -3505,7 +3545,8 @@ static MaintenanceContinuationInspection inspect_maintenance_prefix(const transa
     if (!select("append_audit", fixed(Value(Value::Object{{"chain_id", Value(original.audit_chain_id)},
             {"input_digest", Value(json::sha256_canonical(input))}, {"input", input}})), [&](const auto& completed) {
                 std::size_t matches = 0;
-                for (const auto& event : audit::AuditRepository(spec.audit_root).read_and_validate_chain_bounded(original.audit_chain_id, 256u)) {
+                for (const auto& event : records ? records->audit :
+                        audit::AuditRepository(spec.audit_root).read_and_validate_chain_bounded(original.audit_chain_id, 256u)) {
                     if (event.transaction_id == spec.transaction_id) {
                         if (json::canonical(maintenance_audit_binding(event)) != json::canonical(input) ||
                             event.event_digest != completed.result_digest) throw std::runtime_error("maintenance completed audit differs");
@@ -3565,6 +3606,70 @@ MaintenanceContinuationInspection inspect_maintenance_continuation_unscoped(cons
 MaintenanceContinuationInspection inspect_completed_maintenance_history(const transaction::TransactionSpec& spec)
 {
     return inspect_maintenance_prefix(spec, true);
+}
+
+MaintenanceContinuationInspection decode_completed_maintenance_history(
+    const transaction::TransactionSpec& spec, const CompletedMaintenanceHistoryBytes& bytes)
+{
+    if (spec.operation != "repair" && spec.operation != "uninstall")
+        throw std::runtime_error("completed byte history supports only unmoved repair and uninstall");
+    if (bytes.effects.size() > 200002u || bytes.audit.size() > 256u || bytes.audit.empty() ||
+        bytes.effect_directory_identity.size() > 256u)
+        throw std::runtime_error("completed maintenance record counts exceed existing bounds");
+    std::size_t total = 0;
+    const auto account = [&](const std::string& text) {
+        if (text.empty() || text.size() > 16u * 1024u * 1024u || text.size() > 64u * 1024u * 1024u - total)
+            throw std::runtime_error("completed maintenance input bytes exceed bounds");
+        total += text.size();
+    };
+    account(bytes.effect_directory_identity);
+    for (const auto* text : {&bytes.transaction, &bytes.reviewed_plan, &bytes.original_installed,
+            &bytes.original_ownership, &bytes.resulting_installed, &bytes.resulting_ownership})
+        account(*text);
+    for (const auto& record : bytes.effects) { account(record.first); account(record.second); }
+    for (const auto& record : bytes.audit) { account(record.first); account(record.second); }
+    auto historical = transaction::TransactionSession::decode_completed_history(spec, bytes.transaction);
+    transaction::MaintenanceEffectRecordReader reader(spec, bytes.effect_directory_identity,
+        historical.stream.source_digest, bytes.effects.size(), true);
+    for (const auto& record : bytes.effects) reader.consume(record.first, record.second);
+    auto effects = reader.finish();
+    if (!effects.sealed || !effects.pending_kind.empty() || effects.source_context != historical.stream.source_context)
+        throw std::runtime_error("completed maintenance bytes lack the original sealed context");
+    const auto context = json::parse(effects.source_context);
+    const auto install_id = context.at("install_id").as_string();
+    auto original = state::decode_installed_record(bytes.original_installed);
+    auto resulting = state::decode_installed_record(bytes.resulting_installed);
+    if (original.install_id != install_id ||
+        original.transaction_id != context.at("original_installed_transaction_id").as_string() ||
+        resulting.install_id != install_id || resulting.transaction_id != spec.transaction_id ||
+        original.transaction_id == spec.transaction_id || original.audit_chain_id != resulting.audit_chain_id)
+        throw std::runtime_error("completed maintenance installed byte identities differ");
+    auto original_ownership = state::decode_ownership_record(bytes.original_ownership,
+        ownership_id_from_ref(original.ownership_manifest_ref));
+    auto resulting_ownership = state::decode_ownership_record(bytes.resulting_ownership,
+        ownership_id_from_ref(resulting.ownership_manifest_ref));
+    const auto require_ownership = [](const auto& installed, const auto& ownership) {
+        if (installed.ownership_manifest_digest != ownership.manifest_digest ||
+            installed.install_id != ownership.install_id || installed.target_root != ownership.target_root)
+            throw std::runtime_error("completed maintenance installed/ownership byte bindings differ");
+    };
+    require_ownership(original, original_ownership);
+    require_ownership(resulting, resulting_ownership);
+    std::vector<usk::audit::AuditEvent> audit_events;
+    std::string previous;
+    for (const auto& record : bytes.audit) {
+        auto event = usk::audit::decode_audit_chain_record(record.second, original.audit_chain_id,
+            record.first, audit_events.size(), previous);
+        previous = event.event_digest;
+        audit_events.push_back(std::move(event));
+    }
+    const CompletedMaintenanceRecords prepared{std::move(historical), std::move(effects), bytes.reviewed_plan,
+        std::move(original), std::move(resulting), std::move(original_ownership),
+        std::move(resulting_ownership), std::move(audit_events)};
+    const auto result = inspect_maintenance_prefix(spec, true, &prepared);
+    if (!result.effects_complete || !result.sealed || result.pending || !result.next_kind.empty())
+        throw std::runtime_error("completed maintenance byte selection did not finish");
+    return result;
 }
 
 state::OwnershipManifest maintenance_ownership_postimage(const transaction::TransactionSpec& spec,

@@ -9,6 +9,11 @@
 #include <string>
 #include <vector>
 
+namespace usk::lifecycle::detail {
+// Defined only by the fixed domain route, never a caller-provided callback.
+void retire_owned_publisher(const std::wstring& service_name);
+}
+
 namespace usk::platform::windows {
 
 // Bytes obtained from the actual protected target. This is metadata, never a
@@ -20,10 +25,19 @@ struct PublisherRetirementRecord {
     std::string sha256;
 };
 
+// Actual identities from one original held directory, for the existing lease
+// and transaction metadata codecs. These are observations, not authority.
+struct PublisherRetirementDirectoryMetadata {
+    PublisherHandleObservation object;
+    usk::json::Value lease_root_identity;
+    std::string journal_identity;
+};
+
 // Administrative, existing-only custody for the fixed owned-uninstall route.
 // Registration, SCM, image, volume and every observed metadata handle remain
 // private. Construction and observation cannot delete SCM or the executable.
-// This component is not yet a callable owned-retirement implementation.
+// The fixed lifecycle/domain route is still unfinished. Its private effects
+// cannot be selected by serialized metadata, a boolean verdict or a callback.
 // The actual elevated administrator is distinct from the configured consumer;
 // canonical consumer/SCM bindings do not require elevating that consumer.
 // Record bytes: at most16MiB per file and64MiB in total. Native entry/depth
@@ -45,12 +59,21 @@ public:
     const std::wstring& volume_root() const;
     const std::vector<PublisherRetirementRecord>& records() const;
     const std::vector<std::wstring>& directories() const;
+    // Exact existing member (empty means admitted root); no path is reopened.
+    // Fresh local same-handle identity/security checks bracket both codecs.
+    PublisherRetirementDirectoryMetadata observe_directory_metadata(const std::wstring& relative_path);
     // The lifecycle owner must derive the complete installation set, acquire
     // these guards in order and validate every operation before final effects.
     // Partial acquisition or any observation failure permanently poisons custody.
     void acquire_installations(const std::vector<std::string>& sorted_install_ids);
     void require_unchanged();
 private:
+    friend void usk::lifecycle::detail::retire_owned_publisher(const std::wstring&);
+    // Only the fixed lifecycle owner may call after its complete domain proof.
+    // Revalidate the original custody before each native effect. A pending SCM
+    // deletion keeps the image; uncertain disposition/close requires a fresh
+    // invocation to establish actual absence, never an assumed rollback.
+    void retire_after_owned_validation();
     struct State;
     std::unique_ptr<State> state_;
 };

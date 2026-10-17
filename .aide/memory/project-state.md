@@ -8,6 +8,82 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
+PR253 is normally merged into dev at384a623c, source tree9e04fa2e, after all
+six required core checks, specification validation, independent exact source
+review and the live branch gate. Ten reviewed checkpoints PR244 through PR253
+were integrated on18October2026. Its publisher run39059484749/1 is terminal
+red; all core and specification checks passed. Both fresh maintenance cohorts
+complete, while both genuinely interrupted source-retired repair recoveries
+still exceed120seconds. The diagnostic-enabled synthetic checkout999cc3cf has
+the submitted9e04fa2e source tree; package identities remain separately pinned.
+No main, deployment or release qualification follows from dev integration.
+
+The controller readonly planner now returns a matching successful plan and the
+enrolled repair returns matching successful public/native responses. Its next
+independent gate incorrectly expects the terminal lease predecessor to be the
+same-generation active digest; the protocol preserves the prior-generation
+predecessor in both records. A later check also expects installed rather than
+the repair's verified lifecycle state. The fixture now checks the full closed
+terminal postimage and both ownership seals, preserving every immutable active
+field (including the prior-generation predecessor), and expects verified for
+repair. The existing lease reconciler reuses that same data predicate. It
+grants no membership, current-state, holder-liveness or retirement verdict.
+All22 readback tests and34 lease tests pass, including the actual controller
+assertion range and real checker under both Windows PowerShell and PowerShell7.
+Resealed changed holder/root/attempt/context/generation, missing/duplicate
+state/lease/journal/seal/audit, changed repair bytes and retained uninstall
+content refuse. The retained actual PR253 repair passes the corrected assertion
+range under both shells; its original red result remains unchanged. Fresh
+controller uninstall and product retirement still require native qualification.
+
+The current owned-retirement route work extracts the existing canonical
+original-custody and created-closure record checks into a private metadata
+reader. The service recovery reader consumes that decoder while retaining its
+actual native record reads, child provenance checks, current lease/holder
+lineage and creator checks in their existing order. The same16MiB document and
+two-million-value bounds remain. Parsing and matching supplied record bindings
+grant no native custody, currentness, effect or retirement authority. Direct
+metadata controls cover supported record families, closed/canonical bytes,
+bounds, transaction/plan/context/original/lease mismatches and changed provenance.
+Separately retained PR252 repair/uninstall bytes match their native-observed
+SHA/length and request/root bindings; replay succeeds and cross-operation
+pairing refuses. These are historical metadata observations, not live native
+entry or completed retirement. Complete domain, namespace, lease, current
+revision and final native effects still need the fixed connected route.
+
+The native custody owner now has fresh same-handle directory metadata for the
+existing lease128-bit and transaction33-character identity codecs, with exact
+original membership and before/after identity, security and stream checks.
+Private final effects are reserved to the single fixed lifecycle function:
+full original custody revalidation, exact stopped-service deletion and
+confirmed own handle closure, actual SCM absence, full revalidation, disposition
+of the original fully hashed held image, confirmed close and final absence.
+Pending SCM deletion retains the image; an uncertain later disposition/close
+is incomplete and requires fresh revalidation, not an assumed rollback.
+Failed/finished custody cannot be reused. No registration/history is removed.
+The friend lifecycle function and CLI integration remain unimplemented; these
+private effects have not been entered or positively qualified on a native
+target. Construction and observation still cannot select retirement. The
+complete domain/current-state/all-operation/ended-holder/absence join remains
+mandatory before connecting the route; no serialized verdict or callback can
+enable its final effects.
+
+A bounded whole-history byte reader now reuses the existing completed repair
+and uninstall selection: canonical journal and reviewed-plan association,
+complete sealed ordered effects, original/result ownership and installed
+postimages, and a unique matching audit event. It accepts no callback, opens
+no record path and has no live-read fallback. The ordinary readers retain
+their existing native reads and rechecks. Input bounds16MiB/field and64MiB
+aggregate (including names and the separately bounded directory identity) do
+not claim total memory or deadline bounds. Actual fixture repair/uninstall
+enter the byte route while their entire parent directory is withheld; normal
+inspection refuses there. Legacy ownership lookup by installation ID is also
+exercised, with changed effects, plan, state, ownership, audit and bounds
+refusing. An old completed uninstall may retain content: complete sealed
+history is not a retired-target verdict. Native membership, creator, lease,
+holder termination, current revision and fresh payload absence remain separate
+requirements of the still unfinished fixed retirement route.
+
 PR252 is normally merged into dev atd88253dd after all required core checks,
 independent source review and the live merge gate. Nine reviewed checkpoints
 PR244 through PR252 were integrated on18October2026; main remainsc048f7.
