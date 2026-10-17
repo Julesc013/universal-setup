@@ -63,6 +63,27 @@ function Read-BoundedDiagnostic([string]$Path,[int]$Limit) {
         return [Text.Encoding]::UTF8.GetString($bytes,0,$count)
     } finally {$stream.Dispose()}
 }
+function Invoke-ObservedPublisherControl {
+    param([ValidateSet('target_admission','installation_enrollment')][string]$Phase,[string[]]$Arguments)
+    $errorPath=Join-Path $root ($Phase+'-'+$id+'.stderr.txt')
+    $attempt=[ordered]@{phase=$Phase;service=$service;native_exit_code=$null;
+        stderr_observed_bytes=$null;stderr_prefix_limit_bytes=16384;stderr_prefix=$null;capture_failure=$null}
+    $receipt.control_attempts.Add($attempt)
+    # Clear the previous invocation's exit code before this command can run.
+    # Neither an exception nor missing diagnostics establishes a native outcome.
+    $global:LASTEXITCODE=$null
+    try {$output=@(& $ServiceControlBinary @Arguments 2>$errorPath)}
+    finally {
+        $attempt.native_exit_code=$global:LASTEXITCODE
+        try {
+            if(Test-Path -LiteralPath $errorPath -PathType Leaf) {
+                $attempt.stderr_observed_bytes=(Get-Item -LiteralPath $errorPath).Length
+                $attempt.stderr_prefix=Read-BoundedDiagnostic $errorPath 16384
+            }
+        } catch {$attempt.capture_failure=$_.Exception.Message.Substring(0,[Math]::Min(1024,$_.Exception.Message.Length))}
+    }
+    [pscustomobject]@{native_exit_code=$attempt.native_exit_code;output=$output}
+}
 if(([int][bool]$InterruptAfterVisibleRecord+[int][bool]$InterruptAfterRename+[int][bool]$InterruptBeforePublish+[int][bool]$InterruptAfterStage) -gt 1){throw 'Select one interruption window'}
 if($InterruptDuringConsumerAccess -and (-not $ConsumerAccess -or $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)){throw 'Consumer interruption requires its exclusive consumer profile'}
 if($ConsumerAccess -and (-not $ClientBinary -or -not $PayloadBinary)){throw 'Consumer profile requires client and actual executable'}
@@ -491,7 +512,8 @@ $receipt=[ordered]@{schema='usk.publisher.metadata_vm_probe.v1';status='not_run'
     service_sid=$null;binary_sha256=(Get-FileHash -LiteralPath $ServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant();
     machine_sha256=(Get-FileHash -LiteralPath $MachineBinary -Algorithm SHA256).Hash.ToLowerInvariant();
     archive_sha256=$null;strip_prefix='pkg';request=$null;plan=$null;native=$null;independent=$null;
-    observer_task_removed=$false;service_removed=$false;failure=$null;power_loss_test=$false}
+    observer_task_removed=$false;service_removed=$false;failure=$null;power_loss_test=$false;
+    control_attempts=[Collections.Generic.List[object]]::new()}
 $created=$false
 $registrationAttempted=$false
 $expectedRegisteredCommand=''
@@ -1124,17 +1146,20 @@ try {
         # Provision only the still-empty, exactly owned target. No lab ACL
         # writer substitutes for the product's retained admission protocol.
         Assert-OwnedVolume
-        $admitted=& $ServiceControlBinary --provision-target $service --confirm-empty-volume
-        if($LASTEXITCODE -ne 0){throw 'Product target admission did not complete'}
+        $admissionAttempt=Invoke-ObservedPublisherControl -Phase target_admission `
+            -Arguments @('--provision-target',$service,'--confirm-empty-volume')
+        if($admissionAttempt.native_exit_code -ne 0){throw 'Product target admission did not complete'}
+        $admitted=$admissionAttempt.output
         $admission=($admitted -join "`n")|ConvertFrom-Json
         if($admission.schema -cne 'usk.publisher_service_control.v1' -or
             $admission.status -cne 'target_admitted' -or $admission.service -cne $service) {
             throw 'Product target admission response differs'
         }
         $receipt['target_admission']=$admission
-        $enrolled=& $ServiceControlBinary --enroll-reviewed-operation $service $envelope `
-            $receipt.envelope_sha256 $binding.apply_file
-        if($LASTEXITCODE -ne 0){throw 'Product reviewed installation enrollment did not complete'}
+        $enrollmentAttempt=Invoke-ObservedPublisherControl -Phase installation_enrollment `
+            -Arguments @('--enroll-reviewed-operation',$service,$envelope,$receipt.envelope_sha256,$binding.apply_file)
+        if($enrollmentAttempt.native_exit_code -ne 0){throw 'Product reviewed installation enrollment did not complete'}
+        $enrolled=$enrollmentAttempt.output
         $enrollment=($enrolled -join "`n")|ConvertFrom-Json
         if($enrollment.schema -cne 'usk.publisher_service_control.v1' -or
             $enrollment.status -cne 'reviewed_operation_enrolled' -or $enrollment.service -cne $service) {

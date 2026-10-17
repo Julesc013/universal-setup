@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -67,6 +68,66 @@ ConvertTo-Json -InputObject @($results) -Depth 8 -Compress
 
 @unittest.skipUnless(POWERSHELL, 'PowerShell unavailable on this platform')
 class PublisherPowerShellEnrollmentTests(unittest.TestCase):
+    def test_controller_attempt_retains_native_failure_without_stale_success(self):
+        # Execute the actual diagnostic helper with an inert native Python child.
+        # No registration, volume or privileged operation is invoked.
+        code = r'''
+param([string]$Root,[string]$OutputRoot,[string]$Python)
+$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $Root 'tests/windows_publisher_metadata_hosted_probe.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Controller fixture parse failed'}
+$functions=@($ast.FindAll({param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -cin @('Read-BoundedDiagnostic','Invoke-ObservedPublisherControl')
+},$true))
+if($functions.Count -ne 2){throw 'Exact diagnostic helpers required'}
+# Preserve the reader's parameters declared outside its function body.
+foreach($function in $functions){. ([scriptblock]::Create($function.Extent.Text))}
+$root=$OutputRoot;$service='synthetic_service';$ServiceControlBinary=$Python
+$receipt=@{control_attempts=[Collections.Generic.List[object]]::new()};$results=@()
+foreach($exitCode in @(0,3,5)) {
+    $id=[guid]::NewGuid().ToString('N');$global:LASTEXITCODE=0
+    $native="import sys;sys.stdout.write('native stdout');sys.stderr.write('native admission detail:'+('x'*20000) if $exitCode else '');sys.exit($exitCode)"
+    $observed=Invoke-ObservedPublisherControl -Phase target_admission -Arguments @('-c',$native)
+    $attempt=$receipt.control_attempts[$receipt.control_attempts.Count-1]
+    $results+=@{requested=$exitCode;observed=$observed.native_exit_code;recorded=$attempt.native_exit_code;
+        stdout=($observed.output -join "`n");stderr_bytes=$attempt.stderr_observed_bytes;
+        prefix_chars=([string]$attempt.stderr_prefix).Length;native_prefix=([string]$attempt.stderr_prefix).StartsWith('native admission detail:');
+        capture_failure=$attempt.capture_failure}
+}
+$ServiceControlBinary=Join-Path $OutputRoot 'missing-native-command.exe'
+$id=[guid]::NewGuid().ToString('N');$global:LASTEXITCODE=0;$refused=$false
+try{Invoke-ObservedPublisherControl -Phase installation_enrollment -Arguments @('unused')|Out-Null}catch{$refused=$true}
+$attempt=$receipt.control_attempts[$receipt.control_attempts.Count-1]
+@{native=@($results);missing_refused=$refused;missing_exit=$attempt.native_exit_code;
+    phases=@($receipt.control_attempts|ForEach-Object phase)}|ConvertTo-Json -Depth 5 -Compress
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'control-observation.ps1'
+            script.write_text(code, encoding='utf-8')
+            result = subprocess.run([POWERSHELL, '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                '-File', str(script), '-Root', str(ROOT), '-OutputRoot', directory,
+                '-Python', sys.executable], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        observed = json.loads(result.stdout)
+        self.assertEqual(len(observed['native']), 3)
+        for row in observed['native']:
+            self.assertEqual(row['observed'], row['requested'])
+            self.assertEqual(row['recorded'], row['requested'])
+            self.assertEqual(row['stdout'], 'native stdout')
+            self.assertIsNone(row['capture_failure'])
+            if row['requested']:
+                self.assertGreater(row['stderr_bytes'], 16384)
+                self.assertEqual(row['prefix_chars'], 16384)
+                self.assertTrue(row['native_prefix'])
+            else:
+                self.assertEqual((row['stderr_bytes'], row['prefix_chars']), (0, 0))
+        self.assertTrue(observed['missing_refused'])
+        self.assertIsNone(observed['missing_exit'])
+        self.assertEqual(observed['phases'], ['target_admission'] * 3 + ['installation_enrollment'])
+
     def test_original_enrollment_precedes_source_free_work_for_every_fixture(self):
         # No service, target, token or approval is created by this test.
         with tempfile.TemporaryDirectory() as directory:

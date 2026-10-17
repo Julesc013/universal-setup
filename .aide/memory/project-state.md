@@ -8,18 +8,22 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR242 is merged into dev at29c5fe5; main remainsc048f7. All required core
-checks and all57native Windows tests passed on18b972c in CI39024589767.
+PR243 is merged into dev atb2a8eb9; main remainsc048f7. All required core
+checks and all57native Windows tests passed on312747d in CI39028347676.
 The account-marker and SDK scheduling repairs preserve all existing deadlines.
-Accepted-dev push CI39025588762 also passed all core/specification jobs;
+Accepted-dev push CI39029178418 also passed all core/specification jobs;
 publisher qualification was skipped by its push condition.
-Candidate8743ab3 in CI39025902728 passed the actual query-only V2 VHD
+Earlier candidate8743ab3 in CI39025902728 passed the actual query-only V2 VHD
 observation and completed the admitted controller's request-bound installation.
 A raw independent39row snapshot was captured, but its full oracle failed on
 an unbound Python invocation before lease validation. Binding Python locally
 also exposed a missing independently measured volume-root identity.
-The next change binds those inputs explicitly and retains strict root/lease
-checks. Counterfactual replay with a synthetic root is only a validator test,
+The integrated repair binds those inputs and preserves actual recovery reply
+variants and strict root/lease checks. Its hosted run failed earlier during
+target admission, before exercising the repair. The native admission stderr
+was missing from the controller receipt; the next increment retains bounded
+native command evidence for admission and enrollment without retrying effects.
+Counterfactual replay with a synthetic root is only a validator test,
 not new native evidence. Source-free reentry and genuine retirement remain
 unqualified. The legacy machine route still refuses its remounted device policy.
 Main, deployment and release remain unqualified; exact results stay in the task checkpoint.
