@@ -8,16 +8,25 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-Current focus is PR237 native publication and local maintenance. Sourceafa80e8 has
-independent source approval and six successful CI jobs, including Win32; native
-Windows CI37479046586 failed target admission. Its observed remounted descriptor
-lost protection and the service ACE. No current-head public installation or
-maintenance success is claimed. Continue the actual failed-check repair and
-connected installation/recovery path; do not start another campaign or queue.
+PR237 is merged into dev at73ea630; main remainsc048f7. CI39014022785 passed
+on the actual dev merge. Separate publisher qualification39013169720 failed:
+the legacy hosted start observed a remounted default device policy without
+protection or the service ACE. The following fixture then refused the retained
+input directory. These results do not qualify main, deployment or release.
 
-AIDE Lite was safely imported from committed aide/main1402003. The pack retains
-its recorded export27338811; its command kernel is identical to current main.
-All747 existing files survived import, with only the reviewed .gitignore postimage.
-Our custom tools, campaign records, memory, bindings, settings and source remain.
-The unrelated AIDE source checkout edits were preserved. Optional AIDE execution
-features remain inactive; the FacMan resource guard governs this campaign.
+Continue the connected admitted-target controller/consumer path, source-free
+recovery within120seconds, and genuine owned maintenance/retirement. The next
+controller increment explicitly opts request-bearing verbs into the existing
+service-admitted dispatcher, retains caller/binary/volume/reviewed-request pins,
+and preserves UNKNOWN across transport-entry exceptions. Native preflight and
+fault controls do not establish a successful hosted installation or cleanup.
+Use the external task checkpoint for exact candidate pins and current results.
+Do not start another campaign, queue or unofficial checkout. Integrate reviewed
+dev checkpoints daily; promote main weekly when its qualification gates pass.
+
+AIDE provenance pins source main6f2abc4 and exporta17cf4b, with the retained
+installation receipt under `.aide/install/`. Project memory, custom tools,
+campaign records and bindings remain owned by this repository. Optional AIDE
+execution features remain inactive; the FacMan resource guard governs this
+campaign. Generic cross-project coordination is separate AIDE work and does not
+block Setup implementation.

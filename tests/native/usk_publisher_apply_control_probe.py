@@ -47,25 +47,51 @@ def main() -> int:
                                 capture_output=True, timeout=10, check=False)
         if before.returncode != 1060:
             raise AssertionError("generated test service absence was not established")
-        result = subprocess.run(args, capture_output=True, text=True,
-                                timeout=10, check=False)
-        if result.returncode != 3 or "differs" not in result.stderr:
-            raise AssertionError(f"reviewed apply substitution was admitted: {result}")
-        for operation, expected_schema in (
-            ("--recover-registered", "usk.publisher_recovery_request.v1"),
-            ("--verify-registered", "usk.publisher_installed_verify_request.v1"),
-        ):
-            wrong_request = root / (operation[2:] + ".json")
-            write_json(wrong_request, {"schema": "usk.install_local_apply_request.v1"})
+        # Exercise the real controller parser and request checks in every mode,
+        # including the admitted route. The distinct diagnostic proves these
+        # refusals reached the request check rather than an unsupported option.
+        for mode in ([], ["--admit-client-observer"], ["--grant-client-read"],
+                     ["--service-admitted-client"]):
+            result = subprocess.run(
+                args + mode, capture_output=True, text=True, timeout=10, check=False,
+            )
+            if result.returncode != 3 or "apply request differs" not in result.stderr:
+                raise AssertionError(f"reviewed apply substitution was admitted in {mode}: {result}")
+            for operation, expected_schema in (
+                ("--recover-registered", "usk.publisher_recovery_request.v1"),
+                ("--verify-registered", "usk.publisher_installed_verify_request.v1"),
+            ):
+                wrong_request = root / (operation[2:] + ".json")
+                write_json(wrong_request, {"schema": "usk.install_local_apply_request.v1"})
+                result = subprocess.run(
+                    [str(executable), operation, service, str(executable), volume,
+                     caller, "0" * 64, str(wrong_request)] + mode,
+                    capture_output=True, text=True, timeout=10, check=False,
+                )
+                if result.returncode != 3 or "request mode differs" not in result.stderr:
+                    raise AssertionError(
+                        f"{operation} accepted a request other than {expected_schema} in {mode}: {result}"
+                    )
+        # Admitted requests must bind the current caller before reading input.
+        # A different canonical account SID is insufficient, even with this mode.
+        wrong_caller_args = list(args)
+        wrong_caller_args[7] = "S-1-5-18" if caller != "S-1-5-18" else "S-1-5-19"
+        result = subprocess.run(
+            wrong_caller_args + ["--service-admitted-client"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        if result.returncode != 3 or "caller differs from this process identity" not in result.stderr:
+            raise AssertionError(f"admitted controller did not reject the actual caller mismatch: {result}")
+        # The mode is deliberately unavailable on legacy configure/start verbs.
+        # Opting in must never turn these into SCM mutations for an admitted target.
+        for operation in ("--recover", "--verify", "--start"):
             result = subprocess.run(
                 [str(executable), operation, service, str(executable), volume,
-                 caller, "0" * 64, str(wrong_request)],
+                 caller, "--service-admitted-client"],
                 capture_output=True, text=True, timeout=10, check=False,
             )
-            if result.returncode != 3 or "mode differs" not in result.stderr:
-                raise AssertionError(
-                    f"{operation} accepted a request other than {expected_schema}: {result}"
-                )
+            if result.returncode != 3 or "caller access mode is invalid" not in result.stderr:
+                raise AssertionError(f"admitted mode reached legacy {operation}: {result}")
         after = subprocess.run(["sc.exe", "query", service],
                                capture_output=True, timeout=10, check=False)
         if after.returncode != 1060:

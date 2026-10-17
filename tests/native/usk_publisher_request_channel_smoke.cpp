@@ -3,6 +3,7 @@
 #include "usk_publisher_request_channel.h"
 #include "usk_publisher_authenticated_client_internal.h"
 #include "usk_publisher_registration.h"
+#include "usk_publisher_controller_request_internal.h"
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_tree_observation.h"
 #include "usk_effect_dispatch.h"
@@ -14,6 +15,7 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <new>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -24,6 +26,45 @@ template<class Action> void refuses(Action action) {
     bool refused=false;
     try { action(); } catch (const std::exception&) { refused=true; }
     require(refused,"required refusal absent");
+}
+void test_controller_uncertainty_boundary() {
+    using usk::platform::windows::detail::run_admitted_controller_request;
+    require(run_admitted_controller_request([](auto& boundary) -> int {
+        boundary.enter_transport();
+        throw std::bad_alloc(); // Including failure to construct typed UNKNOWN.
+    }) == 5, "post-transport allocation failure became a controller refusal");
+    require(run_admitted_controller_request([](auto& boundary) -> int {
+        boundary.enter_transport();
+        throw usk::base::EffectRequestNotDispatched(); // A lower-layer downgrade is untrusted here.
+    }) == 5, "post-transport typed refusal escaped the controller boundary");
+    require(run_admitted_controller_request([](auto& boundary) -> int {
+        boundary.enter_transport();
+        throw std::ios_base::failure("terminal response output failed");
+    }) == 5, "failed response projection lost controller uncertainty");
+    require(run_admitted_controller_request([](auto& boundary) -> int {
+        boundary.enter_transport();
+        boundary.enter_transport(); // Sticky even if more than one layer marks entry.
+        throw 7;
+    }) == 5, "non-standard post-transport failure lost controller uncertainty");
+    for (const int terminal : {0, 3}) {
+        require(run_admitted_controller_request([terminal](auto& boundary) {
+            boundary.enter_transport();
+            return terminal;
+        }) == terminal, "known controller terminal result became UNKNOWN");
+    }
+    bool refused_before_transport = false;
+    try {
+        (void)run_admitted_controller_request([](auto& boundary) -> int {
+            require(!boundary.dispatch_possible(), "a new invocation retained prior dispatch state");
+            throw usk::base::EffectRequestNotDispatched();
+        });
+    } catch (const usk::base::EffectRequestNotDispatched&) { refused_before_transport = true; }
+    require(refused_before_transport, "proven pre-transport refusal lost its classification");
+    bool allocation_before_transport = false;
+    try {
+        (void)run_admitted_controller_request([](auto&) -> int { throw std::bad_alloc(); });
+    } catch (const std::bad_alloc&) { allocation_before_transport = true; }
+    require(allocation_before_transport, "pre-transport allocation failure became possible dispatch");
 }
 // Independent old wire-shaped projection: do not call the production projector
 // to decide whether two typed values should compare equal.
@@ -506,6 +547,7 @@ std::thread raw_client(const std::wstring& name, const std::string& message,
 }
 int main(int argc, char** argv) {
     try {
+        test_controller_uncertainty_boundary();
         test_authenticated_client_fact_equality();
         test_terminal_response_binding();
         test_service_observation_transport_binding();
