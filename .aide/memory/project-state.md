@@ -6,7 +6,7 @@ Foundation; completion of that release and the wider specification are separate.
 Use the sole FacMan worktree, reusable build and current laboratory. The external
 task checkpoint holds changing source, review, process and qualification pins.
 
-Accepted dev is 6d35bb97, the normal PR263 merge after seven core/specification
+Accepted dev is d1350fde, the normal PR265 merge after seven core/specification
 checks and exact-source independent review. Main remains c048f7f1. Integrate
 reviewed/core-qualified checkpoints into dev daily; promote to main weekly when
 its additional qualification passes. An incomplete publisher run does not block
@@ -32,9 +32,20 @@ retirement. The original controller's real verification also requires product
 activation, with its authenticated controller request preserved. SCM fixture
 failures retain phase, expected refusal and bounded actual diagnostics.
 
-The prior accepted dev push also passed all seven core checks. The new accepted
-push and PR262 publisher job remain independently observed qualification runs;
-no runtime or acceptance upgrade is implied.
+The accepted d1350fde push passed all seven core checks; publisher qualification
+is skipped for that push and remains separate. PR265's hosted machine apply
+returned success, but hostile-coverage qualification failed: one235ms sampling
+gap invalidated a5.6second run under the unchanged200ms consumer bound.
+The observer now splits intervals at that bound; it never joins across the gap,
+accepts a singleton interval, or exceeds64 intervals. Rejected bounded attacker
+data is retained separately from admitted evidence. The fixture's immediate
+post-close SCM probe also observed presence after confirmed deletion/closure.
+Its test-only bounded completion wait requires fresh native1060 before both
+unchanged product helpers make their own strict observations. Presence,1072
+and other errors never establish absence. Production retries, rights and
+deadlines are unchanged. Both-shell interval/admission controls pass and the
+actual-parent collector fails their positive split control; native compilation,
+independent review and hosted qualification remain required.
 Inventory classifications and specification acceptance states are unchanged.
 
 PR261's first publisher group failed in the packaged SYSTEM fixture before its
@@ -488,3 +499,11 @@ No process-tree kill fallback, production policy or deadline changes are made.
 Both-shell focused controls pass; independent source review and fresh hosted
 qualification remain required. Other PowerShell5.1 forced-tree cleanup paths
 retain their existing unsupported-method refusal rather than claiming closure.
+
+PR266's first head fails strict MSVC19.44 x64/x86 compilation because a
+literal-zero synthetic clock causes template warningC4127. Installed14.44
+reproduces both failures and exposes an x86 unreachable-code warning in the
+always-throwing test callback. The negative controls now read runtime-valued
+frozen clock and failure inputs; their exact81-probe cap, deadline and failed-close
+assertions remain. Production helpers and warning settings are unchanged. Fresh compile,
+control execution and exact-source review remain required before resubmission.
