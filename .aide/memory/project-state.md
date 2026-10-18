@@ -6,24 +6,36 @@ Foundation; completion of that release and the wider specification are separate.
 Use the sole FacMan worktree, reusable build and current laboratory. The external
 task checkpoint holds changing source, review, process and qualification pins.
 
-Accepted dev is 639e7b75, the normal PR268 merge after seven core/specification
-checks and exact-source independent review. Main remains c048f7f1. Integrate
-reviewed/core-qualified checkpoints into dev daily; promote to main weekly when
-its additional qualification passes. An incomplete publisher run does not block
-a reviewed dev checkpoint or qualify main, deployment packages or a release.
+Accepted dev is dd9468c3, the normal PR269 merge after seven core/specification
+checks and exact-source independent review. Its accepted push also passed all
+seven core/specification jobs. Main remains c048f7f1. Integrate reviewed/core-qualified
+checkpoints into dev daily; promote to main weekly when its additional
+qualification passes. An incomplete publisher run does not qualify main,
+deployment packages or a release.
 
-The accepted 639e7b75 push passed all seven core/specification jobs. PR268's
-publisher run separately retains a passing original controller repair/uninstall
-and retirement journey, plus passing untraced fresh maintenance. Its packaged
-journey passes installation, source-free reentry, verification and the three
-live-retirement refusals, then returns recovery_required during the first repair
-of its deliberately damaged owned file. Uninstall has not started. The native
-failure reason is not retained by that helper, so neither a timeout nor a
-security-policy cause is established. Failure capture now preserves up to4MiB
-of the actual native file as exact bytes with length/digest, under a separate
-diagnostic-only field. Missing, busy or oversized captures retain their own
-observation failure without replacing the public verdict or process barriers.
-The successful response/native-terminal matching path remains unchanged.
+PR268's publisher run completed red. Both fresh maintenance cohorts passed,
+while both current source-retired repair recovery requests exceeded120seconds
+without native completion. The retained checkout joins build677deadc to the
+submitted tree109afa8b; build identity and package bytes remain distinct.
+The original controller completed repair/uninstall/retirement. The packaged
+journey passed install, source-free reentry, verify and live-retirement refusals,
+then failed its first damaged-file repair before uninstall began.
+
+PR269's bounded native failure capture now retains the packaged repair's actual
+service refusal: stored ZIP streaming apply exceeded its time budget. This is
+the repair reader's fixed30-second budget, not evidence of an outer120-second
+timeout or of an uninstall defect. The same run separately retains a controller
+readonly planner failure: the child wait ended and matching ok stdout was
+captured, but the managed process ExitCode was null. Native exit zero is not
+established by those response bytes. The full publisher run remains incomplete.
+
+Readonly planner qualification now reads exit status from the original retained
+process handle: require native signalling and a successful GetExitCodeProcess,
+then require zero before the existing request/plan response checks. An available
+managed code must match its native DWORD bit pattern; null means unavailable.
+No PID reopening, response-derived exit, longer wait, cleanup waiver or product
+security change is introduced. Missing/native query/contradictory evidence and
+cleanup failures continue to withdraw provisional success.
 
 CI39097031751's retained traced and untraced interrupted, source-retired repair
 recoveries return current-request completion, then pass installed verification.

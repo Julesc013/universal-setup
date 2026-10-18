@@ -14,6 +14,31 @@ $observer=$strings[0].Value
 $native=[regex]::Match($observer,'(?s) Add-Type -TypeDefinition @"\r?\n(.*?)"@')
 if(-not $native.Success){throw 'Actual native prefix reader is absent'}
 Add-Type -TypeDefinition $native.Groups[1].Value
+Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+public static class UskPlannerExitFixture {
+ [DllImport("kernel32.dll",SetLastError=true)]
+ static extern bool DuplicateHandle(IntPtr sourceProcess,IntPtr source,IntPtr targetProcess,
+  out IntPtr target,uint access,bool inherit,uint options);
+ public static SafeWaitHandle SynchronizeOnly(IntPtr source) {
+  IntPtr copy;
+  if(!DuplicateHandle(new IntPtr(-1),source,new IntPtr(-1),out copy,0x100000,false,0))
+   throw new Win32Exception(Marshal.GetLastWin32Error());
+  return new SafeWaitHandle(copy,true);
+ }
+}
+'@
+$live=[Diagnostics.Process]::GetCurrentProcess()
+try {
+ foreach($handle in @([IntPtr]::Zero,[IntPtr](-1),$live.Handle)) {
+  $refused=$false
+  try {[UskMetadataFacts]::ReadExitedProcessCode($handle)|Out-Null} catch {$refused=$true}
+  if(-not $refused){throw 'Unavailable or live handle produced a completed exit observation'}
+ }
+} finally {$live.Dispose()}
 $ast=[Management.Automation.Language.Parser]::ParseInput($observer,[ref]$tokens,[ref]$errors)
 if($errors){throw 'Actual observer does not parse'}
 $blocks=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.IfStatementAst] -and
@@ -38,7 +63,7 @@ function Start-Process {
  }
  if($script:scenario -ceq 'real_refusal'){return & $script:realStart @PSBoundParameters}
  if($script:scenario -ceq 'empty'){$text=''}
- elseif($script:scenario -cin @('success','mismatch','cleanup_only_failure')) {
+ elseif($script:scenario -cin @('success','missing_managed_success','mismatch_codes','native_query_failure','mismatch','cleanup_only_failure')) {
   $text=@{schema='usk.oneshot_response.v1';request_id=$(if($script:scenario -ceq 'mismatch'){'wrong'}else{'plan.test'});
    status='ok';result=@{status='ok';payload=@{plan_id='plan.test'}}}|ConvertTo-Json -Depth 8 -Compress
  } else {$text='actual-failure:'+([char]0x03c0).ToString()*5000}
@@ -51,7 +76,9 @@ function Start-Process {
 }
 $script:inert=[pscustomobject]@{Id=7123;ExitCode=4}
 $script:inert|Add-Member -MemberType ScriptProperty -Name Handle -Value {
- $script:handleObserved=$true;return [IntPtr]7123
+ $script:handleObserved=$true
+ if($script:scenario -ceq 'native_query_failure'){return $script:queryDeniedHandle.DangerousGetHandle()}
+ return $script:exitProcess.Handle
 }
 $script:inert|Add-Member -MemberType ScriptMethod -Name WaitForExit -Value {
  param($Milliseconds)
@@ -65,7 +92,8 @@ $script:inert|Add-Member -MemberType ScriptMethod -Name Dispose -Value {
 }
 $root=[IO.Path]::Combine([IO.Path]::GetTempPath(),('usk-plan-diagnostic-'+[guid]::NewGuid().ToString('N')))
 [IO.Directory]::CreateDirectory($root)|Out-Null
-$scenarios=@('failure','empty','mismatch','timeout','capture_failure','cleanup_failure','cleanup_only_failure','success')
+$scenarios=@('failure','empty','mismatch','timeout','capture_failure','cleanup_failure','cleanup_only_failure',
+ 'success','missing_managed_success','missing_managed_failure','mismatch_codes','native_query_failure')
 if($MachineBinary){$scenarios+=@('real_refusal')}
 $directories=[Collections.Generic.List[string]]::new()
 try {
@@ -83,30 +111,63 @@ try {
    [Text.UTF8Encoding]::new($false))
   $planner=$null;$plannerEnded=$false;$planningFailure=$null;$planningDiagnostic=$null
   $global:UskMetadataReadonlyPlanningFailure=$null;$script:killed=$false;$script:handleObserved=$false
-  $script:inert.ExitCode=if($script:scenario -cin @('empty','mismatch','cleanup_only_failure','success')){0}else{4}
+   $nativeExit=if($script:scenario -cin @('empty','mismatch','cleanup_only_failure','success',
+     'missing_managed_success','mismatch_codes','native_query_failure')){0}else{4}
+   $script:inert.ExitCode=if($script:scenario -cin @('missing_managed_success','missing_managed_failure')){$null}
+    elseif($script:scenario -ceq 'mismatch_codes'){4}else{$nativeExit}
+   # The process-control tail remains injectable, but exit evidence comes from
+   # an actual retained terminated child. No synthetic handle/exit is accepted
+   # by the real native reader. These children never access setup state.
+   $script:exitProcess=[Diagnostics.Process]::new()
+   $script:exitProcess.StartInfo.FileName=Join-Path ([Environment]::SystemDirectory) 'cmd.exe'
+   $script:exitProcess.StartInfo.Arguments='/d /c exit '+$nativeExit
+   $script:exitProcess.StartInfo.UseShellExecute=$false
+   $script:exitProcess.StartInfo.CreateNoWindow=$true
+   $script:exitProcess.StartInfo.WindowStyle=[Diagnostics.ProcessWindowStyle]::Hidden
+   $script:queryDeniedHandle=$null
+   $exitFixtureStarted=$false
+   try {
+   if(-not $script:exitProcess.Start()){throw 'Exit fixture process did not start'}
+   $exitFixtureStarted=$true
+   $fixtureHandle=$script:exitProcess.Handle
+   if(-not $script:exitProcess.WaitForExit(5000)){throw 'Exit fixture did not terminate'}
+   $script:queryDeniedHandle=[UskPlannerExitFixture]::SynchronizeOnly($fixtureHandle)
   $held=[Collections.Generic.List[object]]::new();$ownedStream=[IO.MemoryStream]::new();$held.Add($ownedStream)
   $result=@{};$caught=$null
   try {. $tail} catch {$caught=$_}
   if($ownedStream.CanRead){throw 'Planner forgot another held input'}
   $diagnostic=$global:UskMetadataReadonlyPlanningFailure
-  if($script:scenario -ceq 'success') {
-   if($caught -or $diagnostic -or -not $result.maintenance_plan){throw 'Successful plan changed'}
+   if($script:scenario -cin @('success','missing_managed_success')) {
+    if($caught -or $diagnostic -or -not $result.maintenance_plan -or
+       $result.maintenance_plan.exit_code -ne 0){throw 'Successful plan changed'}
   } else {
    if(-not $caught -or -not $diagnostic -or $result.maintenance_plan -or
     $diagnostic.schema -cne 'usk.controller_readonly_plan_failure.v1' -or $diagnostic.qualification_granted -or
     $diagnostic.authority_granted -or $diagnostic.request_id -cne 'plan.test' -or
-    $diagnostic.request_sha256 -cne $binding.request_sha256){throw 'Failed plan escaped or lost binding'}
+     $diagnostic.request_sha256 -cne $binding.request_sha256){
+     throw ('Failed plan escaped or lost binding: '+(@{case=$script:scenario;
+       primary=$caught.Exception.Message;diagnostic=$diagnostic;result=$result}|ConvertTo-Json -Depth 8 -Compress))
+    }
    if($script:scenario -ceq 'timeout') {
     if($caught.Exception.Message -cne 'Readonly maintenance planner exceeded its bound' -or
      $diagnostic.planner_exited -or $null -ne $diagnostic.exit_code -or -not $script:killed) {
      throw 'Timeout manufactured exit or lost original failure'
     }
+   } elseif($script:scenario -ceq 'native_query_failure') {
+    if($diagnostic.planner_exited -or $null -ne $diagnostic.exit_code -or -not $script:killed -or
+       $caught.Exception.Message -cnotlike '*Readonly planner native exit code unavailable*') {
+     throw 'A signalled process handle without query rights manufactured an exit code'
+    }
    } else {
-    $expectedExit=if($script:scenario -cin @('empty','mismatch','cleanup_only_failure')){0}else{4}
+    $expectedExit=if($script:scenario -cin @('empty','mismatch','cleanup_only_failure','mismatch_codes')){0}else{4}
     if(-not $diagnostic.planner_exited -or $diagnostic.exit_code -ne $expectedExit) {
      throw ('Actual exit observation changed: '+(@{case=$script:scenario;expected=$expectedExit;
        primary=$caught.Exception.Message;diagnostic=$diagnostic}|ConvertTo-Json -Depth 8 -Compress))
     }
+   }
+   if($script:scenario -ceq 'mismatch_codes' -and
+      $caught.Exception.Message -cne 'Readonly planner managed and native exit codes differ') {
+    throw 'Contradictory process observations were not refused'
    }
    if($script:scenario -ceq 'cleanup_failure' -and
     $caught.Exception.Message -cne 'Readonly maintenance planner did not return a bounded success') {
@@ -142,7 +203,15 @@ try {
      $reply.status -cne 'refused' -or $diagnostic.exit_code -ne 4 -or
      (Test-Path -LiteralPath (Join-Path $directory 'absent-setup'))){throw 'Actual local machine refusal differs'}
    }
-  }
+   }
+   } finally {
+    if($exitFixtureStarted -and -not $script:exitProcess.HasExited){
+     $script:exitProcess.Kill()
+     if(-not $script:exitProcess.WaitForExit(5000)){throw 'Owned exit fixture closure is unknown'}
+    }
+    if($script:queryDeniedHandle){$script:queryDeniedHandle.Dispose()}
+    $script:exitProcess.Dispose()
+   }
  }
  foreach($limit in @(0,8193)) {
   $refused=$false
