@@ -116,6 +116,13 @@ jobs:
       - name: Qualify packaged machine and registered controller publisher journeys
         id: publisher_hosted
         run: ctest --test-dir build/smoke -C Release --output-on-failure --label-regex '^publisher-qualification$' --no-tests=error
+      - name: Retain native publisher qualification log
+        if: ${{ always() && (steps.publisher_hosted.outcome == 'success' || steps.publisher_hosted.outcome == 'failure') && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-publisher-native-qualification-log
+          path: build/smoke/Testing/Temporary/LastTest.log
+          if-no-files-found: error
       - name: Retain packaged machine service observation
         if: ${{ always() && (steps.publisher_hosted.outcome == 'success' || steps.publisher_hosted.outcome == 'failure') && github.event.pull_request.head.repo.full_name == github.repository }}
         uses: actions/upload-artifact@v4

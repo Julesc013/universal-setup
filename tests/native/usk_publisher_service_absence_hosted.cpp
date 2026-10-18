@@ -62,6 +62,10 @@ struct OwnedService {
             status.dwCurrentState == SERVICE_STOPPED && status.dwProcessId == 0,
             "fixture service is not stopped");
         require(DeleteService(original.value) != FALSE, "fixture service delete unconfirmed");
+        // This is the API that documents the already-marked error. A later
+        // read-only OpenService may still open the record while it is held.
+        require(DeleteService(original.value) == FALSE && GetLastError() == ERROR_SERVICE_MARKED_FOR_DELETE,
+            "fixture original service deletion mark was not independently observed");
         original.close_confirmed();
     }
 };
@@ -93,35 +97,57 @@ void qualify(SC_HANDLE manager) {
     ScmHandle observer(OpenServiceW(manager, service.name.c_str(), SERVICE_QUERY_CONFIG));
     require(observer.value != nullptr, "fixture query-only handle unavailable");
     service.mark_and_close();
-    refused("strict held deletion", [&] { native::require_publisher_service_absence(manager, service.name); }, "Win32 1072");
+    const auto strict = refused("strict held deletion", [&] {
+        native::require_publisher_service_absence(manager, service.name);
+    }, "owned retirement strict SCM revalidation: ");
+    const bool pending_error = strict == "owned retirement strict SCM revalidation: SCM absence is unconfirmed; "
+        "Win32 1072; probes 1; pending-deletion observations 1";
+    require(pending_error || strict == "owned retirement strict SCM revalidation: service is present",
+        "held service refusal did not establish presence or the exact pending error");
 
-    const auto waiting = refused("wait held deletion", [&] {
-        (void)native::wait_for_deleted_publisher_service_absence(manager, service.name);
-    }, "post-delete-and-close SCM completion: SCM absence is unconfirmed; Win32 1072");
-    std::cout << "held-query-handle timeout: " << waiting << '\n';
-    // It remains pending after timeout; no fallback is projected as absence.
-    refused("strict after deadline", [&] { native::require_publisher_service_absence(manager, service.name); }, "Win32 1072");
+    if (!pending_error) {
+        // The stopped record remains in SCM until its last handle closes.
+        // Presence is a valid strict refusal, never permission to retry it as
+        // absent. Do not manufacture 1072 coverage from DeleteService's error.
+        refused("wait held presence", [&] {
+            (void)native::wait_for_deleted_publisher_service_absence(manager, service.name);
+        }, "owned retirement post-delete-and-close SCM completion: service is present");
+        refused("strict held presence unchanged", [&] {
+            native::require_publisher_service_absence(manager, service.name);
+        }, "owned retirement strict SCM revalidation: service is present");
+        observer.close_confirmed();
+        std::cout << "held-query-handle presence refused; native OpenService 1072 retry route not observed\n";
+    } else {
+        const auto waiting = refused("wait held deletion", [&] {
+            (void)native::wait_for_deleted_publisher_service_absence(manager, service.name);
+        }, "post-delete-and-close SCM completion: SCM absence is unconfirmed; Win32 1072");
+        std::cout << "held-query-handle timeout: " << waiting << '\n';
+        // It remains pending after timeout; no fallback is projected as absence.
+        refused("strict after deadline", [&] { native::require_publisher_service_absence(manager, service.name); }, "Win32 1072");
 
-    // Execute the exact product helper while the original query-only handle
-    // still exists. The returned count must positively establish entry through
-    // 1072; a scheduler that never enters that route cannot pass this control.
-    auto completion = std::async(std::launch::async, [&] {
-        return native::wait_for_deleted_publisher_service_absence(manager, service.name);
-    });
-    require(completion.wait_for(std::chrono::milliseconds(200)) == std::future_status::timeout,
-        "pending fixture completed before the observer closed");
-    observer.close_confirmed();
-    const auto result = completion.get();
-    require(result.pending_deletion_observations > 0 && result.probes <= 81 &&
-        result.probes == result.pending_deletion_observations + 1,
-        "pending completion did not positively cover the bounded native route");
+        // Execute the exact product helper while the original query-only handle
+        // still exists. The returned count must positively establish entry through
+        // 1072; a scheduler that never enters that route cannot pass this control.
+        auto completion = std::async(std::launch::async, [&] {
+            return native::wait_for_deleted_publisher_service_absence(manager, service.name);
+        });
+        require(completion.wait_for(std::chrono::milliseconds(200)) == std::future_status::timeout,
+            "pending fixture completed before the observer closed");
+        observer.close_confirmed();
+        const auto result = completion.get();
+        require(result.pending_deletion_observations > 0 && result.probes <= 81 &&
+            result.probes == result.pending_deletion_observations + 1,
+            "pending completion did not positively cover the bounded native route");
+        std::cout << "held-query-handle completion: probes " << result.probes <<
+            "; pending-deletion observations " << result.pending_deletion_observations << '\n';
+    }
+    // Both native observations must converge only after the original observer
+    // was explicitly closed. Only a fresh 1060 may establish actual absence.
     native::require_publisher_service_absence(manager, service.name);
     const auto absent = native::wait_for_deleted_publisher_service_absence(manager, service.name);
     require(absent.probes == 1 && absent.pending_deletion_observations == 0,
         "already absent fixture did not use one fresh observation");
-    std::cout << "held-query-handle completion: probes " << result.probes <<
-        "; pending-deletion observations " << result.pending_deletion_observations <<
-        "; strict native absence confirmed\n";
+    std::cout << "strict native absence confirmed after observer closure\n";
 }
 } // namespace
 
