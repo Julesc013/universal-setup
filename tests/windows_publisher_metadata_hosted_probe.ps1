@@ -714,7 +714,11 @@ function New-OwnedMetadataActorBody {
         ('$env:RUNNER_ENVIRONMENT='+(& $quote $env:RUNNER_ENVIRONMENT)),
         ('$env:RUNNER_TEMP='+(& $quote $env:RUNNER_TEMP)),
         ('if((Get-FileHash -LiteralPath '+(& $quote $ActorScript)+' -Algorithm SHA256).Hash.ToLowerInvariant() -cne '+(& $quote $ScriptHash)+'){throw ''Owned actor script changed''}'),
-        $invocation) -join "`n")
+        # A child script's exit sets LASTEXITCODE but does not exit this wrapper.
+        # Reset it for actors that complete without invoking a native command.
+        '$global:LASTEXITCODE=0',
+        $invocation,
+        'exit $LASTEXITCODE') -join "`n")
 }
 function Set-OwnedMetadataServiceInputAccess {
     $acl=Get-Acl -LiteralPath $root

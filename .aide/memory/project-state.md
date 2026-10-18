@@ -6,7 +6,7 @@ Foundation; completion of that release and the wider specification are separate.
 Use the sole FacMan worktree, reusable build and current laboratory. The external
 task checkpoint holds changing source, review, process and qualification pins.
 
-Accepted dev is d1350fde, the normal PR265 merge after seven core/specification
+Accepted dev is 26d16b11, the normal PR266 merge after seven core/specification
 checks and exact-source independent review. Main remains c048f7f1. Integrate
 reviewed/core-qualified checkpoints into dev daily; promote to main weekly when
 its additional qualification passes. An incomplete publisher run does not block
@@ -32,20 +32,23 @@ retirement. The original controller's real verification also requires product
 activation, with its authenticated controller request preserved. SCM fixture
 failures retain phase, expected refusal and bounded actual diagnostics.
 
-The accepted d1350fde push passed all seven core checks; publisher qualification
-is skipped for that push and remains separate. PR265's hosted machine apply
-returned success, but hostile-coverage qualification failed: one235ms sampling
-gap invalidated a5.6second run under the unchanged200ms consumer bound.
-The observer now splits intervals at that bound; it never joins across the gap,
-accepts a singleton interval, or exceeds64 intervals. Rejected bounded attacker
-data is retained separately from admitted evidence. The fixture's immediate
-post-close SCM probe also observed presence after confirmed deletion/closure.
-Its test-only bounded completion wait requires fresh native1060 before both
-unchanged product helpers make their own strict observations. Presence,1072
-and other errors never establish absence. Production retries, rights and
-deadlines are unchanged. Both-shell interval/admission controls pass and the
-actual-parent collector fails their positive split control; native compilation,
-independent review and hosted qualification remain required.
+The accepted 26d16b11 push passed all seven core checks; publisher qualification
+is skipped for that push and remains separate. PR266's native SCM fixture and
+all six extended hostile-coverage stages pass after the bounded observation
+repair. Its packaged apply and source-free reentry succeed, then the deliberately
+stale recovery check fails. The actual generated actor wrapper loses a child
+script's refusal4 and recovery-required5 exits and returns0 under PS5.1 and7.
+The next repair resets LASTEXITCODE before invocation and explicitly propagates
+it afterward. Actual child-process controls preserve0/1/4/5, implicit success,
+exceptions, response bytes, literal arguments, environment and changed-source
+refusal. Test-only child module paths bind their own PowerShell version.
+The real product refusal predicates and120-second request contract are unchanged.
+PR266's controller owned retirement separately reports service presence after
+deletion/closure; its handle owner is not established and its binary is retained.
+The latest traced and untraced recovery producer receipts report completion;
+independent current-request/state reconciliation and whole-profile acceptance
+remain separate. Neither intermittent passes nor the rejected pureJSON previews
+establish reliability or a recovery latency improvement.
 Inventory classifications and specification acceptance states are unchanged.
 
 PR261's first publisher group failed in the packaged SYSTEM fixture before its

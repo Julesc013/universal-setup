@@ -22,7 +22,8 @@ def write_json(path: Path, value: dict) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def verify_fixture_retention(repository: Path, root: Path) -> None:
+def verify_fixture_retention(repository: Path, root: Path,
+                             powershell: str = "powershell.exe") -> None:
     # Execute the fixtures' actual catch/finally blocks. Replace only disk and
     # process effects: no VHD, mount, service or administrator token is needed.
     driver = root / "fixture-retention.ps1"
@@ -442,11 +443,39 @@ if($bodyFactory.Count -ne 1){throw 'Owned actor body factory missing'}
 . ([scriptblock]::Create($bodyFactory[0].Extent.Text))
 $stubScript=Join-Path $Scratch "actor ' literal.ps1"
 $stubOutput=Join-Path $Scratch 'owned-actor-roundtrip.json'
+function Invoke-OwnedActorBody([string]$Body) {
+    $wrapper=Join-Path $Scratch 'owned-actor-wrapper.ps1'
+    # A previous native result must not become an implicit-success actor's exit.
+    [IO.File]::WriteAllText($wrapper,('$global:LASTEXITCODE=73'+"`n"+$Body))
+    $info=[Diagnostics.ProcessStartInfo]::new()
+    $info.FileName=(Get-Process -Id $PID).Path
+    $info.Arguments='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$wrapper+'"'
+    $info.UseShellExecute=$false;$info.CreateNoWindow=$true
+    $info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
+    # A PS7 parent can leave PS5.1 with only incompatible module search paths.
+    $info.EnvironmentVariables['PSModulePath']=Join-Path $PSHOME 'Modules'
+    $process=[Diagnostics.Process]::new();$process.StartInfo=$info
+    try {
+        if(-not $process.Start()){throw 'Owned actor wrapper control did not start'}
+        $stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
+        if(-not $process.WaitForExit(10000)) {
+            $process.Kill();$process.WaitForExit();throw 'Owned actor wrapper control timed out'
+        }
+        $process.WaitForExit()
+        return [pscustomobject]@{exit_code=$process.ExitCode;
+            stdout=$stdout.GetAwaiter().GetResult();stderr=$stderr.GetAwaiter().GetResult()}
+    } finally {$process.Dispose()}
+}
 [IO.File]::WriteAllText($stubScript,@'
-param([string]$Message,[string]$OutputPath,[switch]$Selected)
+param([string]$Message,[string]$OutputPath,[switch]$Selected,
+    [int]$ExitCode=0,[switch]$ImplicitSuccess,[switch]$ThrowFailure)
 [ordered]@{message=$Message;selected=[bool]$Selected;github=$env:GITHUB_ACTIONS;
     runner=$env:RUNNER_ENVIRONMENT;temporary=$env:RUNNER_TEMP}|
     ConvertTo-Json|Set-Content -LiteralPath $OutputPath -Encoding utf8
+Write-Output 'actual actor response'
+if($ThrowFailure){throw 'actual actor failure'}
+if($ImplicitSuccess){return}
+exit $ExitCode
 '@)
 $contextNames=@('GITHUB_ACTIONS','RUNNER_ENVIRONMENT','RUNNER_TEMP');$savedContext=@{}
 foreach($name in $contextNames){$savedContext[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
@@ -455,16 +484,32 @@ try {
     $message="literal ' ; "+'$()'
     $digest=(Get-FileHash -LiteralPath $stubScript -Algorithm SHA256).Hash.ToLowerInvariant()
     $body=New-OwnedMetadataActorBody $stubScript @('-Message',$message,'-OutputPath',$stubOutput,'-Selected') $digest
-    . ([scriptblock]::Create($body))
+    $completed=Invoke-OwnedActorBody $body
+    if($completed.exit_code -ne 0){throw ('Owned actor roundtrip failed: '+$completed.stderr)}
     $observed=Get-Content -LiteralPath $stubOutput -Raw|ConvertFrom-Json
-    if($observed.message -cne $message -or -not $observed.selected -or $observed.github -cne 'true' -or
+    if($completed.exit_code -ne 0 -or $completed.stdout.Trim() -cne 'actual actor response' -or
+        $observed.message -cne $message -or -not $observed.selected -or $observed.github -cne 'true' -or
         $observed.runner -cne 'github-hosted' -or $observed.temporary -cne $env:RUNNER_TEMP) {
         throw 'Owned actor argument/context literals did not roundtrip'
     }
+    foreach($code in @(1,4,5)) {
+        $exitBody=New-OwnedMetadataActorBody $stubScript @('-Message',$message,
+            '-OutputPath',$stubOutput,'-ExitCode',[string]$code) $digest
+        $completed=Invoke-OwnedActorBody $exitBody
+        if($completed.exit_code -ne $code -or $completed.stdout.Trim() -cne 'actual actor response') {
+            throw ('Owned actor wrapper changed its actual child exit: '+$code)
+        }
+    }
+    foreach($case in @('ImplicitSuccess','ThrowFailure')) {
+        $caseBody=New-OwnedMetadataActorBody $stubScript @('-OutputPath',$stubOutput,('-'+$case)) $digest
+        $completed=Invoke-OwnedActorBody $caseBody
+        if(($completed.exit_code -eq 0) -ne ($case -ceq 'ImplicitSuccess')) {
+            throw ('Owned actor wrapper changed implicit success or exception: '+$case)
+        }
+    }
     [IO.File]::Delete($stubOutput);[IO.File]::AppendAllText($stubScript,"`n# changed")
-    $caught=$null
-    try {. ([scriptblock]::Create($body))} catch {$caught=$_}
-    if(-not $caught -or (Test-Path -LiteralPath $stubOutput)) {
+    $completed=Invoke-OwnedActorBody $body
+    if($completed.exit_code -eq 0 -or (Test-Path -LiteralPath $stubOutput)) {
         throw 'Changed actor source executed despite the bound digest'
     }
 } finally {
@@ -561,9 +606,9 @@ foreach($case in @('success','native_failure','native_and_restore_failure')) {
 }
 ''', encoding="utf-8")
     result = subprocess.run(
-        ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+        [powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
          "-File", str(driver), "-Repository", str(repository), "-Scratch", str(root)],
-        capture_output=True, text=True, timeout=10, check=False,
+        capture_output=True, text=True, timeout=30, check=False,
     )
     if result.returncode != 0:
         raise AssertionError(f"fixture cleanup containment failed: {result}")
