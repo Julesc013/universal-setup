@@ -64,6 +64,12 @@ storage_policy:
   raw_response_storage_default: false
   committed_controller_outputs_allowed: deterministic_metadata_and_reports
   secrets_forbidden: true
+  unfamiliar_json_metadata: preserve_as_opaque_data_not_authority
+  invalid_or_ambiguous_records: refuse_before_ledger_or_report_rewrite
+  replacement_identity: run_id_phase_source
+  metadata_replacement: require_unique_match_and_no_conflict
+  ledger_write: complete_serialization_then_existing_atomic_replace
+  current_run_regeneration: replaces_current_observations_not_immutable_attempt_history
 non_goals:
   - no_gateway
   - no_provider_calls

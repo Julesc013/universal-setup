@@ -98,6 +98,43 @@ internal model requests remain unknown and the attributed result is always
 `PARTIAL`. Same-session streams with uncertain turn identity suppress known
 subtotals rather than risk double counting.
 
+`job effort --work-set PATH` presents supplied managed attempts across preparation,
+context, execution, tests, review, repair, integration, recovery and cleanup.
+The path is repo-relative. Default output is compact text; `--json` includes exact
+job, source and manifest identities. This is a read-only partial observation,
+with exit code 2 for `PARTIAL` and 1 for refused inputs; it cannot mark work done.
+
+Example work-set shape (replace the placeholder with the receipt's actual hash):
+
+```json
+{"schema":"aide.work-effort-set.v1","work_id":"MY-WORK",
+ "receipts":[{"path":"evidence/job.json","sha256":"<64 lowercase hex characters>","phase":"tests"}],
+ "usage_roster":null}
+```
+
+Each entry pins an ordinary managed-job result by raw byte SHA-256. The view
+checks its work identity, canonical job-manifest digest and source identities.
+Identical observations count once; conflicting snapshots or phase assignments
+for one job are refused. Failure, cancellation and incomplete observations stay
+visible separately from observed retirement. Phase membership is declared by
+the manifest; it does not prove complete accounting for that phase. A preview
+assigned to integration, for example, does not account for a later push.
+
+Inputs are limited to 16 receipts, 64 KiB work-set/roster JSON and 256 KiB per
+receipt; JSON output is capped at 64 KiB. Explicit paths stay under the supplied
+repository, with ordinary ancestor and file checks. This is cooperative input
+validation, not isolation against an unrestricted concurrent filesystem writer.
+No receipt-owned scratch/log path is followed. Collection hashes are observations,
+not newly verified artifact bytes. Memory and scratch maxima describe the largest
+observed individual job; they are neither additive costs nor whole-host peaks.
+
+An optional `usage_roster` object with `path` and `sha256` reuses the existing
+Codex attempt-set importer described above, including its stream bounds and
+overlap handling. Its work identity must match. Model usage without a supplied
+roster, human effort, complete work cost and time to accepted outcome remain
+unknown. All phases remain visible, even when none of their attempts was supplied.
+There is no provider call, ledger write, automatic discovery or savings claim.
+
 Portable `job context` accepts one Codex `debug prompt-input` JSON stream on
 stdin, capped at 2 MiB. It reports message/part counts and visible text sizes
 by role without printing or retaining the supplied text. Unknown roles and

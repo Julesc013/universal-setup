@@ -46,4 +46,7 @@
 
 ## Reviewer Instructions
 
-`<evidence-only review rules and required output format>`
+Use `.aide/prompts/evidence-review.md` and
+`.aide/verification/review-decision-policy.yaml`. Start from this packet and inspect
+relevant source, callers and contracts when needed. Report concrete findings and
+evidence gaps; do not expand effects or require unrelated cleanup.

@@ -11,9 +11,9 @@ from pathlib import Path, PurePosixPath
 
 ROOT = Path(__file__).resolve().parents[1]
 RECEIPT = ".aide/install/aide-lite-pack-v0.receipt.json"
-RECEIPT_SHA256 = "22005b8b697bd18fb38247391a2b9ff3075e9867d91355f3d2687548987925db"
-SOURCE_MAIN = "9605d8e333a1da8f113a2a1b44f88427511fbba2"
-EXPORT_SOURCE = "bbb153e26108b834d18cd9715e71a42a8e81b213"
+RECEIPT_SHA256 = "da60f368bf3e07e3f3204e3130d670fa97c51a169cc0a267a641884f61bde8db"
+SOURCE_MAIN = "19e237cde0864ca56169a14a7bf8ded5180d6def"
+EXPORT_SOURCE = "bf15170f5a0dc41385b732b8d0c0d443dfd55aee"
 LICENSES = {
     "LICENSE": "4dc06d89797867a708e238be9df8c67f9c6395a29f783b00b009cdf80a0bf9c5",
     "NOTICE": "2246ed3f6738e9a9175648ecb6fdc6fc0423b96e4a2db7e6a8c70727c4ca9950",
@@ -61,8 +61,8 @@ def validate(root: Path = ROOT) -> tuple[list[str], set[Path]]:
             "runtime_dependency": False,
             "receipt": RECEIPT,
             "receipt_sha256": RECEIPT_SHA256,
-            "managed_records": 823,
-            "managed_files": 822,
+            "managed_records": 826,
+            "managed_files": 825,
             "licenses": LICENSES,
         }
         if provenance != expected:
@@ -79,14 +79,14 @@ def validate(root: Path = ROOT) -> tuple[list[str], set[Path]]:
                 or receipt.get("network_calls") is not False
                 or receipt.get("provider_or_model_calls") is not False
                 or receipt.get("pack") != {
-                    "checksums_digest": "fc6675b2d448964bddd6d52d4f0253515d47809c1f06f5259d74f388c253caf7",
-                    "manifest_digest": "ead30896338da544471d0bc05a7e3f25d6f392e0b60627e68e6f428e221dd9b5",
+                    "checksums_digest": "806f5aa332ea394fbe14928d31dc301040f91ee36b51a23236fc4dd4dca48819",
+                    "manifest_digest": "7d0a5ef79fba59e196490222f72fa38f6b085a5f86617365b84b843a3737ec5c",
                     "pack_id": "aide-lite-pack-v0",
                     "source_commit": EXPORT_SOURCE,
                 }):
             raise ValueError("AIDE safe-import identity drifted")
         managed = receipt.get("managed")
-        if not isinstance(managed, dict) or len(managed) != 823:
+        if not isinstance(managed, dict) or len(managed) != 826:
             raise ValueError("AIDE managed inventory drifted")
         file_count = 0
         for relative, entry in managed.items():
@@ -117,7 +117,7 @@ def validate(root: Path = ROOT) -> tuple[list[str], set[Path]]:
                 raise ValueError(f"AIDE managed file drifted: {relative}")
             licensed.add(Path(relative))
             file_count += 1
-        if file_count != 822:
+        if file_count != 825:
             raise ValueError("AIDE managed file count drifted")
         profile = ".aide/profile.yaml"
         header = read_regular(root, profile, 16384).decode("utf-8").splitlines()[:8]
@@ -135,7 +135,7 @@ def main() -> int:
     for problem in problems:
         print(f"aide-pack-policy-check: {problem}")
     if not problems:
-        print(f"aide-pack-policy-check: ok (822 upstream files, target profile, preserved AGENTS section; development only)")
+        print(f"aide-pack-policy-check: ok (825 upstream files, target profile, preserved AGENTS section; development only)")
     return int(bool(problems))
 
 

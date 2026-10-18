@@ -3786,12 +3786,12 @@
       "source_digest": "3aa06da9ebd802637ce9ba28bd7a7901eb2ce2aceffccbe3e27698fbf09e1898"
     },
     ".aide/policies/controller.yaml": {
-      "installed_digest": "72c34303d80c66ac4e18ac7b2fcce7c5a12e24a5155f5ebc2d78c690919f56c4",
+      "installed_digest": "3995afe802b7793444a26f927715f21f25cb4ca0803428f435f31dace5eee029",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/policies/controller.yaml",
-      "source_digest": "72c34303d80c66ac4e18ac7b2fcce7c5a12e24a5155f5ebc2d78c690919f56c4"
+      "source_digest": "3995afe802b7793444a26f927715f21f25cb4ca0803428f435f31dace5eee029"
     },
     ".aide/policies/dependency-map.yaml": {
       "installed_digest": "23ccfa97213aae6e166ea1faef1ca07f4dc3caf59b5786f861e1c774d705bf60",
@@ -3914,12 +3914,12 @@
       "source_digest": "d1422778d37d2d3bf520aa76178ada93e6e616563974a0cbb676335cbe1169cb"
     },
     ".aide/policies/impacted-tests.yaml": {
-      "installed_digest": "3ffd86d78793cf0d9d323984c692f7555a44267aa28100cd8b0240cf01ac817d",
+      "installed_digest": "2771d02ddc0fc76e66aa88e43dce6a81dd0a5b6c736321fb998385d9fea016ad",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/policies/impacted-tests.yaml",
-      "source_digest": "3ffd86d78793cf0d9d323984c692f7555a44267aa28100cd8b0240cf01ac817d"
+      "source_digest": "2771d02ddc0fc76e66aa88e43dce6a81dd0a5b6c736321fb998385d9fea016ad"
     },
     ".aide/policies/install-conflicts.yaml": {
       "installed_digest": "1322ed8473eecb7e1b91472048e56bdb9d8010ec7848234340f0670fb7ca94e0",
@@ -4186,12 +4186,12 @@
       "source_digest": "d4092162f8991e5cc7edb4c4bdd0e18ee2bd62ac49b0caa671576db2ddce9787"
     },
     ".aide/policies/release-versioning.yaml": {
-      "installed_digest": "b81235640cbca552826a1bb212f5e451a9dd0af8c8ab27e65765446324ab1253",
+      "installed_digest": "ab4f891d8cc3f6c9f60a0b3cab6feaf0eed119ec856eba5036e5314c89abc1f6",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/policies/release-versioning.yaml",
-      "source_digest": "b81235640cbca552826a1bb212f5e451a9dd0af8c8ab27e65765446324ab1253"
+      "source_digest": "ab4f891d8cc3f6c9f60a0b3cab6feaf0eed119ec856eba5036e5314c89abc1f6"
     },
     ".aide/policies/repair-classes.yaml": {
       "installed_digest": "9157fc8de21e829a93c04edb634d84d8b8032c542e6d6654abaf0d6470840fdc",
@@ -4642,12 +4642,12 @@
       "source_digest": "b09467f8c47a4f8d90341e94a978104f982b6ecea7e1a9e051ba41b289b9ff9f"
     },
     ".aide/prompts/evidence-review.md": {
-      "installed_digest": "34c3b67cbc89ed9ed06339407dfbe1f294b1079f943f6276e57bd214ccd93109",
+      "installed_digest": "91e89727b361e3e9a9dd987d700f09d52814841537f1004556f7ed088890b3c3",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/prompts/evidence-review.md",
-      "source_digest": "34c3b67cbc89ed9ed06339407dfbe1f294b1079f943f6276e57bd214ccd93109"
+      "source_digest": "91e89727b361e3e9a9dd987d700f09d52814841537f1004556f7ed088890b3c3"
     },
     ".aide/providers/adapter-contract.yaml": {
       "installed_digest": "5464783e15592b187e1b39cebf2aefa6552838dd2be3001e0b093b1b29a689a7",
@@ -4698,12 +4698,12 @@
       "source_digest": "595010258518f0834a18bea51455c77d2d55cc99b108f501d14356570a1e81e0"
     },
     ".aide/quality/file-quality-ledger.schema.json": {
-      "installed_digest": "27dc4ab13b901de878f04505603aa5075032b042b3b3ec0ea0539fedf11eef1c",
+      "installed_digest": "b9cc1949da6e383c2a5934178034ba8e7ccb169d3691b06e6c27c8eb708818c5",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/quality/file-quality-ledger.schema.json",
-      "source_digest": "27dc4ab13b901de878f04505603aa5075032b042b3b3ec0ea0539fedf11eef1c"
+      "source_digest": "b9cc1949da6e383c2a5934178034ba8e7ccb169d3691b06e6c27c8eb708818c5"
     },
     ".aide/quality/file-quality-record.schema.json": {
       "installed_digest": "9aaf30645c77a661932996355bd8777977f7117e0c377bcad601f48d7d78e380",
@@ -5226,12 +5226,12 @@
       "source_digest": "48dcefd0ec76d628892eaaa32b9ef32fa5e31eb4cb05027007c6dcfe18c98e32"
     },
     ".aide/reports/file-quality-ledger.schema.json": {
-      "installed_digest": "3ab71917a871451d93771f81e5c441fb4c776c84e34d9f320a5ead0822419713",
+      "installed_digest": "245c1ab00cc2082a9acd1ed1f69b1467893470053b836455e436b10f2c18c15b",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/reports/file-quality-ledger.schema.json",
-      "source_digest": "3ab71917a871451d93771f81e5c441fb4c776c84e34d9f320a5ead0822419713"
+      "source_digest": "245c1ab00cc2082a9acd1ed1f69b1467893470053b836455e436b10f2c18c15b"
     },
     ".aide/rollback/README.md": {
       "installed_digest": "c2a088d95a456c542c2734ffae7bf612d84078634dd7e36b8190f0b8ee6d295f",
@@ -5370,12 +5370,12 @@
       "source_digest": "da42bfdea1680445c6d272cbd1d3f09b394a5c8b670b15fbd014aa93520d45ea"
     },
     ".aide/scripts/aide_lite.py": {
-      "installed_digest": "c680cd09f7c6f3c259d47e9ae6dbfb46fb84868524f378acb426e9531fb6dd62",
+      "installed_digest": "3cca89eefa075ec72b06430d8b8d09657da5af27d20fd161715e14da00e8a456",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/scripts/aide_lite.py",
-      "source_digest": "c680cd09f7c6f3c259d47e9ae6dbfb46fb84868524f378acb426e9531fb6dd62"
+      "source_digest": "3cca89eefa075ec72b06430d8b8d09657da5af27d20fd161715e14da00e8a456"
     },
     ".aide/scripts/tests/test_adapter_compiler.py": {
       "installed_digest": "ca38e9df4799cb125da26b55e21d031ee7367998a096ad91aba2094783189ed2",
@@ -5474,12 +5474,12 @@
       "source_digest": "19842a0f7dfde4db7db1725bc44f84c1eae93cfac8d90ae928d662f71bf7e614"
     },
     ".aide/scripts/tests/test_outcome_controller.py": {
-      "installed_digest": "a58c5917b4d648639f753540e7e3730de103b8bd384c103b73287db76915ed56",
+      "installed_digest": "8ddf490f5255976bf2fe23737cf5a976bd3ec316382e3c9b21419604aae2f15c",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/scripts/tests/test_outcome_controller.py",
-      "source_digest": "a58c5917b4d648639f753540e7e3730de103b8bd384c103b73287db76915ed56"
+      "source_digest": "8ddf490f5255976bf2fe23737cf5a976bd3ec316382e3c9b21419604aae2f15c"
     },
     ".aide/scripts/tests/test_provider_adapter.py": {
       "installed_digest": "1b9e4cecaef60a206ee2d2df27f9ea8a1ded0c029726701b577edf0a0a451d1e",
@@ -5562,12 +5562,12 @@
       "source_digest": "868fcb7ae9cdb8a63c5b027e6c54fe25caa3420d98f4f82d3f37f39a0895b2c7"
     },
     ".aide/scripts/tests/test_q38_file_quality.py": {
-      "installed_digest": "f4f45bd16a6fe7c356fff140cdedbade2f4c01fbd3be9cd8d88178e575c5a21e",
+      "installed_digest": "84fbe9ad9dd047527cbd0c999b72fb3c219b7700cd806736c35075c8a6357682",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/scripts/tests/test_q38_file_quality.py",
-      "source_digest": "f4f45bd16a6fe7c356fff140cdedbade2f4c01fbd3be9cd8d88178e575c5a21e"
+      "source_digest": "84fbe9ad9dd047527cbd0c999b72fb3c219b7700cd806736c35075c8a6357682"
     },
     ".aide/scripts/tests/test_q39_refactor_control.py": {
       "installed_digest": "dbd66ba74878475d70f43b079a2508368ebc79a7a8f5b895004b6fe2d7e18810",
@@ -5649,6 +5649,14 @@
       "source": ".aide/scripts/tests/test_q48_github_release_draft.py",
       "source_digest": "9e64617635d1edfa34e8162415f5f51651a2ce65bb91474b67fab02384659b79"
     },
+    ".aide/scripts/tests/test_resume_plan.py": {
+      "installed_digest": "640ebedcd268f7a1dfcb8012aec32d0b05605a729e277ba996b460d9712253d7",
+      "kind": "managed_file",
+      "local_overlay": false,
+      "ownership": "aide_portable_managed",
+      "source": ".aide/scripts/tests/test_resume_plan.py",
+      "source_digest": "640ebedcd268f7a1dfcb8012aec32d0b05605a729e277ba996b460d9712253d7"
+    },
     ".aide/scripts/tests/test_retired_evidence.py": {
       "installed_digest": "37834a2c858b0cbdbc00a3c34b4b1be7642203d86c509bd1674f7030075c57be",
       "kind": "managed_file",
@@ -5658,12 +5666,12 @@
       "source_digest": "37834a2c858b0cbdbc00a3c34b4b1be7642203d86c509bd1674f7030075c57be"
     },
     ".aide/scripts/tests/test_review_pack.py": {
-      "installed_digest": "c6a62b1bb29f3e2b1c99608803dcda9945ffe1d0356f64826327644acf3bb228",
+      "installed_digest": "66d3269ff56790ea714fd53ac3c7295ca33923d20495f6e68f5a168d4cc4d698",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/scripts/tests/test_review_pack.py",
-      "source_digest": "c6a62b1bb29f3e2b1c99608803dcda9945ffe1d0356f64826327644acf3bb228"
+      "source_digest": "66d3269ff56790ea714fd53ac3c7295ca33923d20495f6e68f5a168d4cc4d698"
     },
     ".aide/scripts/tests/test_router_profile.py": {
       "installed_digest": "9ca0d5a1ce93ae442b5f068c7ba720e38ca86d41787e857704afae5dbd7b5f88",
@@ -5681,13 +5689,21 @@
       "source": ".aide/scripts/tests/test_stable_release_admission.py",
       "source_digest": "2391e73f4af7edb338109d43010f32f5a0b197d1b331c80f6369e38b9d955db5"
     },
+    ".aide/scripts/tests/test_stable_successor.py": {
+      "installed_digest": "fc20f6384e7f9e7bd70fd11f80ba804522dcdcb47bc013d3cacee23119110352",
+      "kind": "managed_file",
+      "local_overlay": false,
+      "ownership": "aide_portable_managed",
+      "source": ".aide/scripts/tests/test_stable_successor.py",
+      "source_digest": "fc20f6384e7f9e7bd70fd11f80ba804522dcdcb47bc013d3cacee23119110352"
+    },
     ".aide/scripts/tests/test_task_binding.py": {
-      "installed_digest": "487a384b1632a38bbaf5ce8d6c9079a1789a3b4f9e3a16a3fd1ff9928bb793e0",
+      "installed_digest": "fb299063dca0e0308ac3141150cb15d835013e93af9a19134e1c2070415f6dd5",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/scripts/tests/test_task_binding.py",
-      "source_digest": "487a384b1632a38bbaf5ce8d6c9079a1789a3b4f9e3a16a3fd1ff9928bb793e0"
+      "source_digest": "fb299063dca0e0308ac3141150cb15d835013e93af9a19134e1c2070415f6dd5"
     },
     ".aide/scripts/tests/test_task_current.py": {
       "installed_digest": "e95ed8f9adbdf5c772436b754494b4821abe96c433b8f84817ec05a5ac2d0db3",
@@ -5712,6 +5728,14 @@
       "ownership": "aide_portable_managed",
       "source": ".aide/scripts/tests/test_verifier.py",
       "source_digest": "c5d87dacd3845a67b75e99e03a75899628a0c9bc49d90a91a19220c4d9da9cb8"
+    },
+    ".aide/scripts/tests/test_work_effort.py": {
+      "installed_digest": "bd9044b23c462ec6ac70d0a44255a6cc295fcfcae3853aba7863b8faf3e2a313",
+      "kind": "managed_file",
+      "local_overlay": false,
+      "ownership": "aide_portable_managed",
+      "source": ".aide/scripts/tests/test_work_effort.py",
+      "source_digest": "bd9044b23c462ec6ac70d0a44255a6cc295fcfcae3853aba7863b8faf3e2a313"
     },
     ".aide/scripts/tests/test_x_os_00_task_os.py": {
       "installed_digest": "7b05af4fc7124dcc144f12eab8a288124983ceeb5d9795f7798c6c960a0c0f3c",
@@ -5738,12 +5762,12 @@
       "source_digest": "4509355fc87b618c013ac1406e24e5a2181f5ac4c658f89fc0b8eae6a20393ef"
     },
     ".aide/scripts/tests/test_x_test_00_validation_tiers.py": {
-      "installed_digest": "61e31e837c4d3f8473064dce12c9dbbe533c0a7e5aa0b673968d66a7bdc7748a",
+      "installed_digest": "13ab07444e265c9ab4f524a6640ba88335cc29bafdcdc7370b71c077f54bb642",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/scripts/tests/test_x_test_00_validation_tiers.py",
-      "source_digest": "61e31e837c4d3f8473064dce12c9dbbe533c0a7e5aa0b673968d66a7bdc7748a"
+      "source_digest": "13ab07444e265c9ab4f524a6640ba88335cc29bafdcdc7370b71c077f54bb642"
     },
     ".aide/tasks/README.md": {
       "installed_digest": "d4241957decd3c1a612af8e78a43fad9199b53f77adec7ff7a6b41fa55ee2d0c",
@@ -6186,20 +6210,20 @@
       "source_digest": "b2561aa9208ff0b480d711af6ba43ada8ad56c17a72a7c75c15c704b0bd78ad9"
     },
     ".aide/verification/review-decision-policy.yaml": {
-      "installed_digest": "f707c1533642a8b64f7fabcd35df1bc8b8eef5b425ccb002d86b516005771db6",
+      "installed_digest": "efc81235ca9cae4a299c5bca6fd54cefd1fec0c4a82592d47893c1dd00ddc0e9",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/verification/review-decision-policy.yaml",
-      "source_digest": "f707c1533642a8b64f7fabcd35df1bc8b8eef5b425ccb002d86b516005771db6"
+      "source_digest": "efc81235ca9cae4a299c5bca6fd54cefd1fec0c4a82592d47893c1dd00ddc0e9"
     },
     ".aide/verification/review-packet.template.md": {
-      "installed_digest": "5d04856667253aa1349be7dd91543576b334dc16222a335c142a5f6741eb6243",
+      "installed_digest": "31c58c481acf9b1b75b11dcccdd255f7f8861b611b656d7a7f5655dec4791df3",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": ".aide/verification/review-packet.template.md",
-      "source_digest": "5d04856667253aa1349be7dd91543576b334dc16222a335c142a5f6741eb6243"
+      "source_digest": "31c58c481acf9b1b75b11dcccdd255f7f8861b611b656d7a7f5655dec4791df3"
     },
     ".aide/verification/secret-scan-policy.yaml": {
       "installed_digest": "120e7ffe1db6031abfdff62320787f0119e8e43d0a667503541c9be94c5c29a3",
@@ -6226,20 +6250,20 @@
       "source_digest": "3493a260bbb167554bb7f02b1fc2968fc3be9711974f72d09a58d0d18c4af46b"
     },
     "docs/reference/aide-lite-release-bundle.md": {
-      "installed_digest": "c4797c496859e63fae83a4a29a20401aeaf2e02f26513a1daa07019dd1b8ae11",
+      "installed_digest": "6e4e0e3c4230c911fe4fca38ba024a7ef7de3d8e7921924f4a5128c00436287d",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": "docs/reference/aide-lite-release-bundle.md",
-      "source_digest": "c4797c496859e63fae83a4a29a20401aeaf2e02f26513a1daa07019dd1b8ae11"
+      "source_digest": "6e4e0e3c4230c911fe4fca38ba024a7ef7de3d8e7921924f4a5128c00436287d"
     },
     "docs/reference/aide-lite-test-runner.md": {
-      "installed_digest": "6d8c6be497591929faededa91e7b8ad307d25a519d9ec46a61215b6919df422d",
+      "installed_digest": "a2b4942f42b5d5bc6abe9a22e0dd034c83b021b2bec30b450933ddd85cb9e383",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": "docs/reference/aide-lite-test-runner.md",
-      "source_digest": "6d8c6be497591929faededa91e7b8ad307d25a519d9ec46a61215b6919df422d"
+      "source_digest": "a2b4942f42b5d5bc6abe9a22e0dd034c83b021b2bec30b450933ddd85cb9e383"
     },
     "docs/reference/aide-lite.md": {
       "installed_digest": "f88e5c4344054f91f7eb88c9107dfc5562a8af084565ebbf02cff116addca7b5",
@@ -6346,12 +6370,12 @@
       "source_digest": "0b5c86279ce8effe4da48be6d34c34329b20377fc57887f4e23549092c5b7bb7"
     },
     "docs/reference/file-quality-ledger.md": {
-      "installed_digest": "c7eb545cba70bfbbc7e2f56e0cbdbb8f4b13f654fc2fbad55b47c634f8bebe82",
+      "installed_digest": "c19b9c1895dc8e01b70028cdf257ab1a6708f034ae4a45b5fd8dd8570bdd2e62",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": "docs/reference/file-quality-ledger.md",
-      "source_digest": "c7eb545cba70bfbbc7e2f56e0cbdbb8f4b13f654fc2fbad55b47c634f8bebe82"
+      "source_digest": "c19b9c1895dc8e01b70028cdf257ab1a6708f034ae4a45b5fd8dd8570bdd2e62"
     },
     "docs/reference/full-discovery-handoff.md": {
       "installed_digest": "b938aff8f8e81e15ed0374de25aa5d0010a1506230b412e59d6a26de020718a9",
@@ -6402,12 +6426,12 @@
       "source_digest": "847a5660cd23ec834ededd6c23504911c697a7685d8b1eaaccf0d0744c1efac7"
     },
     "docs/reference/impacted-test-planning.md": {
-      "installed_digest": "bb13c1810ee40153a7c93c9420aec85545af2ffe507ac21f338cb291f5b226ee",
+      "installed_digest": "abebecdc4a0612d101cd3e5c76acb36cc57e617d86af15d3ad3aa66a162e66a7",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": "docs/reference/impacted-test-planning.md",
-      "source_digest": "bb13c1810ee40153a7c93c9420aec85545af2ffe507ac21f338cb291f5b226ee"
+      "source_digest": "abebecdc4a0612d101cd3e5c76acb36cc57e617d86af15d3ad3aa66a162e66a7"
     },
     "docs/reference/intent-compiler.md": {
       "installed_digest": "758757d253e4b9f675f7a77b5699c7e8fa95255194ce0e6eecf36129c5bc2d6f",
@@ -6442,12 +6466,12 @@
       "source_digest": "a8e0c7cf364033455e992df7ea13721937a13bda85f3185a5686588e75304b1f"
     },
     "docs/reference/outcome-controller-v0.md": {
-      "installed_digest": "573c825437a9203c590e156f8c56e767b6b1ef5842d05e4166eaf572be7c57a6",
+      "installed_digest": "db505eb3759516d60147c807133fcd85296093ecd100b70d0ee08a09f4750315",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": "docs/reference/outcome-controller-v0.md",
-      "source_digest": "573c825437a9203c590e156f8c56e767b6b1ef5842d05e4166eaf572be7c57a6"
+      "source_digest": "db505eb3759516d60147c807133fcd85296093ecd100b70d0ee08a09f4750315"
     },
     "docs/reference/promotion-policy.md": {
       "installed_digest": "3fb32d88abaaae321682800da169777ded4576e662441a4d7cf0b78fde092b78",
@@ -6514,12 +6538,12 @@
       "source_digest": "44631ea97380bea38f8ed7cac77f155b6d95b1f3f2fef9e46feecaf27cb59944"
     },
     "docs/reference/task-os-report-only-commands.md": {
-      "installed_digest": "5ec995acc4c52102cefb5b05be40a89c067b481816970fb573596e379d3e02ce",
+      "installed_digest": "e22d955a960a5e7b7ca664b61e96b4e0fb4e1b2e4fbd35ffc23a5c84275e5ce0",
       "kind": "managed_file",
       "local_overlay": false,
       "ownership": "aide_portable_managed",
       "source": "docs/reference/task-os-report-only-commands.md",
-      "source_digest": "5ec995acc4c52102cefb5b05be40a89c067b481816970fb573596e379d3e02ce"
+      "source_digest": "e22d955a960a5e7b7ca664b61e96b4e0fb4e1b2e4fbd35ffc23a5c84275e5ce0"
     },
     "docs/reference/task-os-v0.md": {
       "installed_digest": "ade87cf01c2e9614a821fb9788144beaf2cf6eb05357e58ea8fb752a77428c23",
@@ -6589,21 +6613,21 @@
   "mode": "safe",
   "network_calls": false,
   "pack": {
+    "checksums_digest": "806f5aa332ea394fbe14928d31dc301040f91ee36b51a23236fc4dd4dca48819",
+    "manifest_digest": "7d0a5ef79fba59e196490222f72fa38f6b085a5f86617365b84b843a3737ec5c",
+    "pack_id": "aide-lite-pack-v0",
+    "source_commit": "bf15170f5a0dc41385b732b8d0c0d443dfd55aee"
+  },
+  "pack_id": "aide-lite-pack-v0",
+  "plan_digest": "80fc4541a3089349a26e9f36da0dc5c53d8fc000a709ac3d941b275934128421",
+  "predecessor_pack": {
     "checksums_digest": "fc6675b2d448964bddd6d52d4f0253515d47809c1f06f5259d74f388c253caf7",
     "manifest_digest": "ead30896338da544471d0bc05a7e3f25d6f392e0b60627e68e6f428e221dd9b5",
     "pack_id": "aide-lite-pack-v0",
     "source_commit": "bbb153e26108b834d18cd9715e71a42a8e81b213"
   },
-  "pack_id": "aide-lite-pack-v0",
-  "plan_digest": "2a6ff3504ff14b49390de51148515a73c7c321aa793ecc9696b1f2a27a71b66b",
-  "predecessor_pack": {
-    "checksums_digest": "97898ece41a00f7d1b3c7182ee4fc1b81ad203f3aa55ebb91dfa5ad11905fa9f",
-    "manifest_digest": "71d1720abdacc4c37f4522b49ed590d52ad9dba8b8860b82087f5b48760bdcd8",
-    "pack_id": "aide-lite-pack-v0",
-    "source_commit": "a17cf4b3dbec5caa236c62ee2fa23b31aa09c8fc"
-  },
   "project_controls_digest": "missing",
   "provider_or_model_calls": false,
-  "receipt_digest": "e8798782084dac1daf56e1da13b0f710c26541468d80476d68d2fdb65381a694",
+  "receipt_digest": "7cbd657400a5fa142a3c0380daeef8869d88e06643244531558539b8c5ec0fc3",
   "schema_version": "aide.portable-import-receipt.v2"
 }

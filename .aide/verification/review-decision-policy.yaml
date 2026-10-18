@@ -2,7 +2,7 @@ schema_version: aide.review-decision-policy.v0
 policy_id: q13-evidence-review-workflow
 status: active-pending-review
 purpose: >
-  Define bounded evidence-review decisions so GPT-5.5 or a human reviewer
+  Define bounded evidence-review decisions so an authorized model or human reviewer
   can judge compact review packets without full chat history, whole repo
   dumps, automatic model calls, or unbounded architecture resynthesis.
 allowed_decisions:
@@ -39,6 +39,11 @@ decision_rules:
       - reviewer cannot decide without context that the packet should have provided
 reviewer_rules:
   evidence_only_by_default: true
+  relevant_source_and_contract_inspection_allowed: true
+  inspection_grants_execution_or_mutation: false
+  unrelated_cleanup_is_acceptance_blocker: false
+  no_actionable_findings_allowed: true
+  unknown_usage_remains_unknown: true
   do_not_request_full_history_unless_packet_insufficient: true
   do_not_approve_missing_validation_as_pass: true
   do_not_reward_scope_creep: true
@@ -51,6 +56,6 @@ reviewer_rules:
 non_goals:
   - no automatic GPT call
   - no LLM-as-judge automation
-  - no semantic diff analysis
+  - no automated semantic diff analyzer; authorized reviewers may reason over relevant source and contracts
   - no provider calls
   - no automatic repair

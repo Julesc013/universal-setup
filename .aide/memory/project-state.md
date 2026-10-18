@@ -8,12 +8,21 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR256 is normally merged into dev at660cc616, source tree5dcab359, after
+PR257 is normally merged into dev atae2f1b7, source tree85219be6, after
 six required core checks, specification validation, independent source review
-and the live branch gate. Thirteen checkpoints PR244-256 were integrated on
-18October2026; dev-push39076265669 also completed successfully. Main remains
-c048f7f1 and the next weekly target is19October when additional qualification
-passes. The current external task checkpoint binds changing local/remote facts.
+and the live branch gate. Fourteen checkpoints PR244-257 were integrated on
+18October2026. Accepted-dev push39080980364 and publisher run39079998427 are
+being observed by deterministic watchers. Main remainsc048f7f1; its weekly
+promotion target is19October when the additional qualification passes.
+
+Optional AIDE tooling is updated from pinned upstream main19e237c, exported
+sourcebf15170. The safe importer updates20 managed files, adds3 declared
+upstream tests and refreshes its receipt. Byte-level comparison preserves all
+other preexisting files, including project memory, queue, guidance and active
+bindings. The exact-source development-only policy and license attribution
+are refreshed without relaxing their predicates; provider/network/model
+execution and production runtime authority are not enabled. Local portable
+validation and independent review are pending in the current checkpoint.
 
 The owned-retirement implementation now has a fixed native owner and a separate
 historical object-role replay. It binds the complete held namespace, operation

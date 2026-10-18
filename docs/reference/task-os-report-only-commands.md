@@ -59,6 +59,24 @@ profile use exact source queue IDs to retain their historical routing.
 
 `task repair-plan`, `task requeue-plan`, and `task resume-plan` are planning aids. They may name suggested repair or resume paths, but they always record that no queue mutation, repair execution, target resume, or target mutation was applied.
 
+`task resume-plan --task-id <ID>` follows the named WorkUnit even when the latest
+packet changes. Without the option it uses the same selection as `task current`.
+It reuses that bounded observation of status, outcome, owner, next action,
+remaining obligations and evidence references. The human invocation writes only
+`task-os-resume-plan.md`; it no longer refreshes the unrelated command registry.
+Add `--json` for a read-only observation with no report writes. Missing task
+identity exits 1; exit 0 means a task was observed, not that execution is safe.
+
+Readiness is always unknown (`safe_to_resume: null` in JSON). The command does
+not inspect live ownership, effects, resources or current authorization. Its
+recommendation directs inspection of existing records: reconcile ambiguous
+attempts, inspect blocked/review conditions, or inspect completed evidence and
+remaining obligations. A present reference or matching digest does not prove
+evidence applicability or acceptance. Reuse valid evidence for unchanged subjects
+and dependencies; rerun only affected required checks. Preserve original failed
+attempts and reconcile uncertain effects before retrying through the execution
+owner. Ordinary inspection within existing authority needs no new permission.
+
 `wave status`, `wave plan`, `checkpoint status`, and `checkpoint plan` describe the current AIDE-only Task OS foundation wave and the planned X-OS-02 / AIDE-CHECK-OS-01 sequence. They do not create checkpoint branches or promote work to `main`.
 
 X-OS-02 adds a separate `capability` command group for capability reality scans, ledgers, overclaim reports, and validation. Those commands write `.aide/reports/capability-*` outputs and preserve the same report-only boundary.

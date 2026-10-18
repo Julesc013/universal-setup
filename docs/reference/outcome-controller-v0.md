@@ -37,6 +37,30 @@ Use `python` instead of `py -3` only when the Windows launcher is unavailable.
 - `.aide/controller/failure-taxonomy.yaml`: local warning/failure classes.
 - `.aide/policies/controller.yaml`: controller policy and safety boundary.
 
+## Preserving project metadata
+
+The ledger keeps unfamiliar JSON fields as opaque project data. Reading, adding an
+observation, or regenerating the current run preserves those fields when the existing
+`run_id`, `phase`, and `source` identify exactly one replacement. Metadata does not
+grant permissions or automatically change routing, evaluation, or recommendations.
+Keep source references and compact lessons here; raw prompts, responses and secrets
+remain forbidden by the storage policy.
+
+Malformed JSON, duplicate keys, non-object records, non-finite numbers, invalid known
+field types and missing identities stop updates with a line-specific diagnostic.
+The original ledger and existing reports remain untouched. Unmatched, ambiguous or
+conflicting metadata also stops regeneration. Inspect and reconcile the indicated
+record explicitly, preserving the original observation; the controller does not
+silently delete it or guess a repair. Valid older records retain optional defaults.
+
+The complete ledger is serialized before the existing atomic replacement helper
+publishes it. This prevents a failed replacement from leaving a partly written
+ledger; it does not establish concurrent-writer exclusion, a multi-file transaction,
+or power-loss recovery. Reports remain regenerable views. Updating the same identity
+and regenerating `q16.current` retain their existing replacement semantics. Use
+distinct run identities and the existing attempt evidence for historical failures;
+this ledger is not an immutable attempt log.
+
 ## Recommendation Rules
 
 The controller recommends repair before promotion when local signals show:

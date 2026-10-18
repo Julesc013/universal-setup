@@ -6,6 +6,7 @@ import io
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 
@@ -42,6 +43,7 @@ class AideLiteReviewPackTests(unittest.TestCase):
         self.assertIn(aide_lite.LATEST_VERIFICATION_REPORT_PATH, text)
         self.assertIn(aide_lite.default_evidence_dir(root), text)
         self.assertIn(aide_lite.REVIEW_DECISION_POLICY_PATH, text)
+        self.assertIn(aide_lite.REVIEW_PROMPT_PATH, text)
         self.assertEqual(packet.budget_status, "PASS")
 
     def test_review_packet_uses_refs_without_inline_source(self) -> None:
@@ -51,6 +53,30 @@ class AideLiteReviewPackTests(unittest.TestCase):
         self.assertNotIn("print('hello')", text)
         self.assertNotIn("SHOULD_NOT_APPEAR", text)
         self.assertNotIn("whole repo dump", text.lower())
+
+    def test_fixture_without_source_ignore_or_baselines_remains_verifiable(self) -> None:
+        source = aide_lite.repo_root_from_script()
+        omitted = {source / ".gitignore", source / aide_lite.TOKEN_BASELINES_PATH,
+                   source / aide_lite.TOKEN_LEDGER_PATH}
+        exists = Path.exists
+        with mock.patch.object(Path, "exists", lambda path: False if path in omitted else exists(path)):
+            root = self.make_repo()
+        self.assertTrue(aide_lite.gitignore_has_local_state_rules(root))
+        report = aide_lite.build_verification_report(root, task_packet_path=aide_lite.LATEST_PACKET_PATH)
+        self.assertIn(report.result, {"PASS", "WARN"}, report.findings)
+        for name in ("root_history_baseline", "review_baseline", "repo_context_baseline"):
+            baseline = aide_lite.baseline_by_name(root, name)
+            self.assertGreater(aide_lite.calculate_baseline(root, baseline).approx_tokens, 0)
+        aide_lite.write_review_packet(root)
+        summary = aide_lite.write_token_savings_summary(root, [], [])
+        self.assertTrue(summary.path.is_file())
+        self.assertEqual(aide_lite.read_ledger_records(root), [])
+        self.assertEqual(aide_lite.run_golden_token_ledger(root).result, "FAIL")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            exit_code = aide_lite.main(["--repo-root", str(root), "ledger", "scan"])
+        self.assertEqual(exit_code, 0)
+        measured = aide_lite.run_golden_token_ledger(root)
+        self.assertEqual(measured.result, "PASS", measured.errors)
 
     def test_review_pack_is_deterministic_for_same_state(self) -> None:
         root = self.make_repo()
@@ -67,6 +93,16 @@ class AideLiteReviewPackTests(unittest.TestCase):
         result, _packet = aide_lite.write_review_packet(root)
         findings = aide_lite.verify_review_packet(root, aide_lite.normalize_rel(result.path.relative_to(root)))
         self.assertTrue(any(finding.severity == "WARN" and "referenced path does not exist" in finding.message for finding in findings))
+
+        # Missing shared guidance must be reported by the real reference checker.
+        (root / aide_lite.REVIEW_PROMPT_PATH).unlink()
+        findings = aide_lite.verify_review_packet(root, aide_lite.normalize_rel(result.path.relative_to(root)))
+        self.assertTrue(any(finding.severity == "WARN" and "referenced path does not exist" in finding.message
+                            and finding.path == aide_lite.REVIEW_PROMPT_PATH for finding in findings))
+        aide_lite.write_text(result.path, aide_lite.read_text(result.path).replace(aide_lite.REVIEW_PROMPT_PATH, "omitted-guidance"))
+        findings = aide_lite.verify_review_packet(root, aide_lite.normalize_rel(result.path.relative_to(root)))
+        self.assertTrue(any(finding.severity == "WARN" and finding.message == f"review ref missing: {aide_lite.REVIEW_PROMPT_PATH}"
+                            for finding in findings))
 
     def test_malformed_review_packet_fails_validation_and_verify_command(self) -> None:
         root = self.make_repo()
