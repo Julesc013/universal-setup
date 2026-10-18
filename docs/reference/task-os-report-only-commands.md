@@ -59,6 +59,24 @@ profile use exact source queue IDs to retain their historical routing.
 
 `task repair-plan`, `task requeue-plan`, and `task resume-plan` are planning aids. They may name suggested repair or resume paths, but they always record that no queue mutation, repair execution, target resume, or target mutation was applied.
 
+`task resume-plan --task-id <ID>` follows the named WorkUnit even when the latest
+packet changes. Without the option it uses the same selection as `task current`.
+It reuses that bounded observation of status, outcome, owner, next action,
+remaining obligations and evidence references. The human invocation writes only
+`task-os-resume-plan.md`; it no longer refreshes the unrelated command registry.
+Add `--json` for a read-only observation with no report writes. Missing task
+identity exits 1; exit 0 means a task was observed, not that execution is safe.
+
+Readiness is always unknown (`safe_to_resume: null` in JSON). The command does
+not inspect live ownership, effects, resources or current authorization. Its
+recommendation directs inspection of existing records: reconcile ambiguous
+attempts, inspect blocked/review conditions, or inspect completed evidence and
+remaining obligations. A present reference or matching digest does not prove
+evidence applicability or acceptance. Reuse valid evidence for unchanged subjects
+and dependencies; rerun only affected required checks. Preserve original failed
+attempts and reconcile uncertain effects before retrying through the execution
+owner. Ordinary inspection within existing authority needs no new permission.
+
 `wave status`, `wave plan`, `checkpoint status`, and `checkpoint plan` describe the current AIDE-only Task OS foundation wave and the planned X-OS-02 / AIDE-CHECK-OS-01 sequence. They do not create checkpoint branches or promote work to `main`.
 
 X-OS-02 adds a separate `capability` command group for capability reality scans, ledgers, overclaim reports, and validation. Those commands write `.aide/reports/capability-*` outputs and preserve the same report-only boundary.
@@ -89,3 +107,46 @@ X-OS-01 is covered by:
 - six `capability_*` golden tasks added for seed coverage, command surface, ledger generation, overclaim reporting, no-apply boundaries, and export-pack inclusion
 
 The command reports are source-repository evidence only. Target repositories must generate their own status, blocker, wave, checkpoint, and capability-reality evidence after import.
+
+## Portable task-record handoff
+
+`task handoff export --task-id ID` emits one bounded JSON bundle on stdout.
+It captures the selected task's `task.yaml`, `status.yaml`, and `ExecPlan.md`,
+with original UTF-8 bytes (including line endings), SHA-256 identities and a
+captured `resume-plan` observation. Status/plan absence remains explicit.
+Evidence remains referenced. Other queue files, raw conversations, credentials
+and local runtime state are not copied. The secret detector refuses recognizable
+secret-like content; it cannot prove arbitrary project text is nonconfidential.
+
+Save stdout as bytes in an admitted repository location and calculate its SHA-256.
+Avoid shell redirection that converts output to UTF-16. Then, from the receiving
+project, use:
+
+```text
+py -3 -I -B .aide/scripts/aide_lite.py task handoff inspect --bundle handoff.json --sha256 <exact-file-sha256>
+```
+
+Add `--json` for the complete captured observation and per-record comparison.
+The bundle path is repository-relative. Inspect refuses traversal, local-secret
+paths, links, oversized input, duplicate JSON keys, altered content, incompatible
+schemas and unknown required features. Unknown optional fields are retained as
+uninterpreted data. Limits are 128 KiB per record, 1 MiB per bundle and JSON depth
+16. A source commit is provenance only; record digests identify actual captured
+bytes, which can include uncommitted work. Sequential rereads detect changes;
+they do not provide an atomic snapshot or isolation from concurrent writers.
+
+Inspection distinguishes matching, changed, missing, not-captured and unsafe or
+unreadable records. Exit 0 means a structurally valid bundle was inspected;
+changed/missing records are observations, not a failed validation claim.
+The checksum establishes integrity against the supplied digest, not authorship.
+Captured prose and extensions are untrusted observations. No files are imported,
+no completed effect is replayed, and no ownership, authorization, evidence
+applicability or safe-to-resume decision transfers. Reconcile current ownership
+and uncertain effects through the existing task owner before continuation.
+
+The command's pure codec has one source at `.aide/scripts/task_handoff.py`.
+The existing portable catalogue delivers it beside the CLI, including safe
+installs without `core/`. The CLI loads only that adjacent helper and refuses if
+it is absent. Source, extracted-pack and safe-installed operation are separate
+consumer checks. This finite record interchange does not claim automatic worker
+replacement, live message delivery, or full offline IDE support.

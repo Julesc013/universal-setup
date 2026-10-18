@@ -1,5 +1,32 @@
 # File Quality Ledger v0
 
+## Finding recorded owners, helpers and checks
+
+`quality explain-file <path>` shows a compact advisory view of the recorded owner,
+documentation, likely tests, local references and reuse candidates. Add `--json`
+for a deterministic machine-readable projection. The command reads only the
+existing quality ledger (maximum 16 MiB), does not scan source or regenerate
+reports, and limits each relation/candidate/peer list to 20 with omitted counts.
+Both formats also have a 64 KiB UTF-8 output ceiling. An explanation exceeding it
+returns `INVALID` without emitting a partial explanation or changing the report.
+
+Each relation explains its selection reason. Repeated helper names, matching
+content hashes and similar filenames are investigation leads; they do not prove
+shared meaning or authorize merging implementations. Test links are heuristic,
+not executed checks or a sufficient basis for narrowing validation.
+
+Freshness is explicitly `unverified`: the recorded source commit attributes the
+report but does not verify current bytes or dependencies. An empty recorded list
+means `not_found`; a missing file record or older ledger without reuse data means
+`unindexed`. Neither means known absent. Inspect relevant source and broaden
+checks when coverage is uncertain. `PASS` means the projection succeeded, not
+that the file passed quality or runtime checks.
+
+New `quality ledger` output retains its already-computed `reuse_report` as an
+optional object. Existing v0 ledgers remain valid. Lookup exit codes are 0 for a
+found record, 1 for a missing report/record, and 2 for invalid or oversized input.
+Report-generation commands remain separate explicit operations.
+
 ## Purpose
 
 Q38 adds AIDE's first deterministic File Quality Ledger. It consumes Q37 repo

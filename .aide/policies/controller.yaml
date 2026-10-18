@@ -64,6 +64,12 @@ storage_policy:
   raw_response_storage_default: false
   committed_controller_outputs_allowed: deterministic_metadata_and_reports
   secrets_forbidden: true
+  unfamiliar_json_metadata: preserve_as_opaque_data_not_authority
+  invalid_or_ambiguous_records: refuse_before_ledger_or_report_rewrite
+  replacement_identity: run_id_phase_source
+  metadata_replacement: require_unique_match_and_no_conflict
+  ledger_write: complete_serialization_then_existing_atomic_replace
+  current_run_regeneration: replaces_current_observations_not_immutable_attempt_history
 non_goals:
   - no_gateway
   - no_provider_calls
@@ -73,3 +79,15 @@ non_goals:
   - no_automatic_prompt_optimizer
   - no_automatic_policy_rewrite
   - no_automatic_route_rewrite
+
+lesson_selection:
+  command: outcome lessons --path EXACT_PATH
+  mode: read_only_advisory
+  source: existing_outcome_ledger_optional_lesson_metadata
+  identity: stable_id_contiguous_revision_predecessor_digest
+  correction_and_retirement: append_attributed_revision_preserve_original_rows
+  latest_unusable: exclude_without_fallback
+  freshness: exact_evidence_sha256_and_observed_snapshot_recheck
+  unfamiliar_required_semantics: refuse
+  optional_metadata: opaque_preserved_in_revision_identity
+  authority: no_authorship_truth_permission_or_evaluator_change_inferred

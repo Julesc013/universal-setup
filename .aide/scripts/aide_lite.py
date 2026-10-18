@@ -16,6 +16,7 @@ import fnmatch
 import gzip
 import hashlib
 import importlib
+import importlib.util
 import json
 import math
 import os
@@ -39,6 +40,9 @@ from typing import Callable, Iterable
 
 GENERATOR_NAME = "aide-lite"
 GENERATOR_VERSION = "q24.existing-tool-adapter-compiler.v0"
+# The exporter binds this declaration to the generated AIDE-owned module.
+WORK_EFFORT_MODULE_PATH = ".aide/scripts/aide_work_effort.py"
+PORTABLE_WORK_EFFORT_MODULE_PATH = ".aide/scripts/aide_work_effort.py"
 SNAPSHOT_PATH = ".aide/context/repo-snapshot.json"
 LATEST_PACKET_PATH = ".aide/context/latest-task-packet.md"
 REVIEW_PACKET_PATH = ".aide/context/latest-review-packet.md"
@@ -54,6 +58,7 @@ VERIFICATION_POLICY_PATH = ".aide/policies/verification.yaml"
 EVIDENCE_TEMPLATE_PATH = ".aide/verification/evidence-packet.template.md"
 REVIEW_TEMPLATE_PATH = ".aide/verification/review-packet.template.md"
 REVIEW_DECISION_POLICY_PATH = ".aide/verification/review-decision-policy.yaml"
+REVIEW_PROMPT_PATH = ".aide/prompts/evidence-review.md"
 DIFF_SCOPE_POLICY_PATH = ".aide/verification/diff-scope-policy.yaml"
 FILE_REFERENCE_POLICY_PATH = ".aide/verification/file-reference-policy.yaml"
 SECRET_SCAN_POLICY_PATH = ".aide/verification/secret-scan-policy.yaml"
@@ -873,6 +878,8 @@ Q36_REQUIRED_FILES = [
 ]
 
 Q36_PORTABLE_SOURCE_FILES = [
+    ".aide/scripts/task_handoff.py",
+    ".aide/scripts/outcome_lessons.py",
     INTENT_POLICY_PATH,
     WORKUNIT_SIZING_POLICY_PATH,
     TASK_CLASSES_POLICY_PATH,
@@ -2396,6 +2403,7 @@ PORTABLE_SOURCE_FILES = [
     "core/execution/registered_process.py",
     "core/execution/managed_workspace.py",
     "core/execution/retired_evidence.py",
+    "core/execution/work_effort.py",
     "core/execution/scoped_host.py",
     "core/protocol/__init__.py",
     "core/protocol/execution_receipt.py",
@@ -2801,6 +2809,7 @@ PORTABLE_REMOVAL_PLAN_SCHEMA = "aide.portable-removal-plan.v1"
 PORTABLE_REMOVAL_INTENT_SCHEMA = "aide.portable-removal-intent.v1"
 
 PORTABLE_TEMPLATE_MAP = {
+    "core/execution/work_effort.py": PORTABLE_WORK_EFFORT_MODULE_PATH,
     ".aide/templates/portable-apply/README.md": "core/apply/README.md",
     ".aide/templates/portable-apply/__init__.py": "core/apply/__init__.py",
     TARGET_PROFILE_TEMPLATE_PATH: ".aide/profile.template.yaml",
@@ -3820,6 +3829,7 @@ class OutcomeRecord:
     verifier_status: str
     recommendation_id: str
     notes: str
+    extra_fields: tuple[tuple[str, object], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -4465,7 +4475,115 @@ def parse_commit_trailers(message: str) -> dict[str, str]:
     return dict(reversed(list(trailers.items())))
 
 
+def commit_unfenced_lines(text: str) -> list[tuple[int, str]]:
+    """Metadata and presentation checks ignore examples in fenced code."""
+    result: list[tuple[int, str]] = []
+    fence = ""
+    for index, line in enumerate(text.splitlines()):
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if marker:
+            token = marker.group(1)
+            if not fence and not (token[0] == "`" and "`" in marker.group(2)):
+                fence = token
+            elif fence and token[0] == fence[0] and len(token) >= len(fence) and not marker.group(2).strip():
+                fence = ""
+            continue
+        if not fence:
+            result.append((index, line))
+    return result
+
+
+def has_compact_commit_marker(text: str) -> bool:
+    return any(re.match(r"^AIDE-Format\s*:", line, re.IGNORECASE)
+               for _, line in commit_unfenced_lines(text))
+
+
+def parse_compact_commit(text: str) -> tuple[dict[str, object], list[Check]]:
+    """One compact-v1 reader for checking and changelog projection; no inference."""
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").rstrip().split("\n")
+    visible = dict(commit_unfenced_lines("\n".join(lines)))
+    end = len(lines)
+    while end and (not lines[end - 1].strip() or lines[end - 1].startswith("#")):
+        end -= 1
+    trailing_comments = "\n".join(lines[end:]).strip()
+    lines = lines[:end]
+    checks: list[Check] = []
+    subject = lines[0] if lines else ""
+    info = parse_conventional_subject(subject)
+    check_pass(checks, bool(info["valid"]), "compact subject follows type[(scope)][!]: description")
+    check_pass(checks, info["type"] in COMMIT_ALLOWED_TYPES | {"style"}, "compact commit type is allowed")
+    check_pass(checks, bool(info["summary"]) and str(info["summary"]).lower() not in COMMIT_VAGUE_SUMMARIES,
+               "compact subject describes a specific change")
+    check_warn(checks, len(subject) <= 72, "compact subject fits the 72-character guideline")
+    check_warn(checks, not subject.endswith("."), "compact subject omits a trailing period")
+    check_pass(checks, len(lines) > 2 and not lines[1].strip(), "compact subject has a blank separator")
+    start = len(lines) - 1
+    while start > 0 and lines[start - 1].strip():
+        start -= 1
+    fields: dict[str, list[str]] = {}
+    last = ""
+    trailer = re.compile(r"^([A-Za-z][A-Za-z0-9-]*|BREAKING CHANGE):[ \t]*(.*)$")
+    valid_block = start > 1
+    for index in range(start, len(lines)):
+        line = lines[index]
+        match = trailer.fullmatch(line) if index in visible else None
+        if match:
+            key, value = match.groups()
+            last = "BREAKING CHANGE" if key == "BREAKING-CHANGE" else key
+            fields.setdefault(last, []).append(value)
+        elif last and line.startswith((" ", "\t")) and index in visible:
+            fields[last][-1] += "\n" + line.strip()
+        else:
+            valid_block = False
+    check_pass(checks, valid_block, "compact metadata is one final trailer block")
+    for key in ("AIDE-Format", "AIDE-Task", "Validation"):
+        values = fields.get(key, [])
+        check_pass(checks, len(values) == 1 and bool(values[0].strip()), f"compact singleton present: {key}")
+    for key in ("Risk", "Follow-up", "BREAKING CHANGE", *COMMIT_TRAILERS):
+        check_pass(checks, len(fields.get(key, [])) <= 1, f"compact singleton is unambiguous: {key}")
+    check_pass(checks, fields.get("AIDE-Format") == ["compact-v1"], "compact format is supported")
+    markers = [i for i, line in visible.items() if re.match(r"^AIDE-Format\s*:", line, re.IGNORECASE)]
+    check_pass(checks, len(markers) == 1 and markers[0] >= start, "compact format marker occurs once in trailers")
+    reserved = {"AIDE-Format", "AIDE-Task", "Validation", "Changelog", "Risk", "Follow-up", "BREAKING CHANGE", "BREAKING-CHANGE"}
+    check_pass(checks, not any((match := trailer.fullmatch(line)) and match.group(1) in reserved
+                              for i, line in visible.items() if 2 <= i < start),
+               "compact metadata is not duplicated or misplaced in prose")
+    body = "\n".join(lines[2:start]).strip()
+    prose = "\n".join(line for i, line in visible.items() if 2 <= i < start).strip()
+    check_pass(checks, bool(re.search(r"[A-Za-z0-9]", prose)) and prose.lower() not in {"todo", "tbd", "none"},
+               "compact body explains the change and rationale")
+    validation = "\n".join(fields.get("Validation", []))
+    check_pass(checks, bool(re.match(r"^(?:PASS|WARN|FAIL|NOT RUN)\b[ \t:;-]+\S", validation)),
+               "compact validation names an outcome and the actual checks or reason")
+    entries: dict[str, list[str]] = {}
+    for value in fields.get("Changelog", []):
+        category, separator, detail = value.partition(":")
+        valid = bool(separator and category in COMMIT_CHANGELOG_CATEGORIES and detail.strip())
+        check_pass(checks, valid, "compact changelog has a known category and description")
+        if valid:
+            entries.setdefault(category, []).append(detail.strip())
+    check_pass(checks, bool(entries), "compact changelog records at least one explicit entry")
+    breaking = "\n".join(fields.get("BREAKING CHANGE", []))
+    check_pass(checks, not info["breaking"] or bool(breaking.strip()), "compact breaking marker has an impact and migration explanation")
+    check_pass(checks, "BREAKING CHANGE" not in fields or bool(breaking.strip()), "compact breaking footer is not empty")
+    check_warn(checks, not any(re.match(r"^ {0,3}#{1,2}\s", line) for _, line in visible.items()),
+               "compact presentation avoids H1/H2; use plain text or H3/H4")
+    check_pass(checks, not any(ord(c) < 32 and c not in "\n\r\t" for c in text), "compact message excludes control characters")
+    for forbidden in ("raw_prompt_body", "raw_response_body", "begin private key", "openai_api_key",
+                      "anthropic_api_key", "deepseek_api_key", "sk-ant"):
+        check_pass(checks, forbidden not in text.lower(), f"commit message excludes {forbidden}")
+    return {"subject": subject, "info": info, "body": body, "fields": fields,
+            "entries": entries, "validation": validation, "breaking": bool(info["breaking"] or breaking),
+            "trailing_comments": trailing_comments}, checks
+
+
 def validate_commit_message_text(text: str) -> list[Check]:
+    if has_compact_commit_marker(text):
+        return parse_compact_commit(text)[1]
+    return validate_legacy_commit_message_text(text)
+
+
+def validate_legacy_commit_message_text(text: str) -> list[Check]:
     message = strip_commit_message_comments(text)
     lines = message.splitlines()
     checks: list[Check] = []
@@ -4528,6 +4646,8 @@ def commit_message_result(checks: Iterable[Check]) -> str:
 
 def normalize_commit_draft(message: str) -> str:
     """Mechanical layout only; never invent headings, claims or trailers."""
+    if has_compact_commit_marker(message):
+        return message.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n") + "\n"
     lines = message.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     headings = {heading.lower(): heading for heading in COMMIT_REQUIRED_BODY_HEADINGS}
     fence = ""
@@ -5044,8 +5164,11 @@ def evaluate_historical_commit_disposition(
     return result
 
 
+COMPACT_COMMIT_TEMPLATE = 'fix(component): describe the resulting behavior\n\nExplain the concrete problem and why this change solves it. Add bullets\nonly for distinct effects. Include material compatibility or recovery\ndetails when needed; omit empty sections.\n\nValidation: NOT RUN - replace with actual checks, outcomes or reason\nChangelog: Fixed: describe the user or operator impact\nAIDE-Task: <queue-id>\nAIDE-Format: compact-v1\n'
+
+
 def render_commit_template() -> str:
-    return read_text(repo_root_from_script() / COMMIT_TEMPLATE_PATH) if (repo_root_from_script() / COMMIT_TEMPLATE_PATH).exists() else COMMIT_GOOD_EXAMPLE
+    return read_text(repo_root_from_script() / COMMIT_TEMPLATE_PATH) if (repo_root_from_script() / COMMIT_TEMPLATE_PATH).exists() else COMPACT_COMMIT_TEMPLATE
 
 
 def current_hook_path(repo_root: Path) -> str:
@@ -5106,6 +5229,9 @@ def parse_conventional_subject(subject: str) -> dict[str, object]:
 
 
 def extract_changelog_entries(message: str) -> dict[str, list[str]]:
+    if has_compact_commit_marker(message):
+        parsed, checks = parse_compact_commit(message)
+        return parsed["entries"] if result_from_checks(checks) != "FAIL" else {}
     entries = {category: [] for category in COMMIT_CHANGELOG_CATEGORIES}
     section = markdown_heading_body(strip_commit_message_comments(message), "## Changelog")
     for line in section.splitlines():
@@ -5198,7 +5324,37 @@ def first_meaningful_line(text: str) -> str:
     return ""
 
 
+def compact_commit_for_changelog(commit_hash: str, subject: str, message: str) -> dict[str, object]:
+    parsed, checks = parse_compact_commit(message)
+    check_pass(checks, parsed["subject"] == subject, "compact subject matches the Git record")
+    info, fields = parsed["info"], parsed["fields"]
+    trailers = {key: "\n".join(values) for key, values in fields.items()}
+    failures = [check.message for check in checks if check.severity == "FAIL"]
+    sections = ["Body", *fields]
+    common = {"commit_sha": commit_hash, "commit": commit_hash[:12], "subject": subject,
+              "type": info["type"], "scope": info["scope"], "breaking": parsed["breaking"],
+              "validation": parsed["validation"], "risks": trailers.get("Risk", ""),
+              "follow_up": trailers.get("Follow-up", "")}
+    entries = []
+    if not failures:
+        for category, values in parsed["entries"].items():
+            for value in values:
+                entries.append({**common, "category": category, "summary": value, "entry": value,
+                                "message_format": "compact-v1",
+                                "aide_phase": trailers.get("AIDE-Phase", ""),
+                                "aide_result": trailers.get("AIDE-Result", ""),
+                                "source_sections_present": sections,
+                                "breaking_change": trailers.get("BREAKING CHANGE", "")})
+    return {**common, "summary": info["summary"], "trailers": trailers,
+            "sections_present": sections, "entries": entries, "malformed": bool(failures),
+            "malformed_reasons": failures, "warnings": [c.message for c in checks if c.severity == "WARN"],
+            "legacy": False, "ignored": False, "message_format": "compact-v1",
+            "trailing_comments": parsed["trailing_comments"]}
+
+
 def parse_commit_for_changelog(commit_hash: str, subject: str, message: str) -> dict[str, object]:
+    if has_compact_commit_marker(message):
+        return compact_commit_for_changelog(commit_hash, subject, message)
     clean = strip_commit_message_comments(message)
     subject_info = parse_conventional_subject(subject)
     trailers = parse_commit_trailers(clean)
@@ -5370,10 +5526,17 @@ def make_release_notes_preview_data(changelog_data: dict[str, object]) -> dict[s
     validation_summary = []
     risk_summary = []
     follow_up = []
+    breaking_changes = []
     for entry in entries:
-        validation_text = markdown_block_summary(str(entry.get("validation", "")), fallback="")
-        risk_text = markdown_block_summary(str(entry.get("risks", "")), fallback="")
-        follow_text = markdown_block_summary(str(entry.get("follow_up", "")), fallback="")
+        compact = entry.get("message_format") == "compact-v1"
+        def detail(key: str) -> str:
+            value = str(entry.get(key, ""))
+            return value.strip() if compact else markdown_block_summary(value, fallback="")
+        validation_text, risk_text, follow_text = detail("validation"), detail("risks"), detail("follow_up")
+        if compact and entry.get("breaking_change"):
+            item = {"commit": entry.get("commit", ""), "summary": entry["breaking_change"]}
+            if item not in breaking_changes:
+                breaking_changes.append(item)
         if validation_text:
             validation_summary.append({"commit": entry.get("commit", ""), "summary": validation_text})
         if risk_text and risk_text.lower() not in {"none", "`none`"}:
@@ -5391,6 +5554,7 @@ def make_release_notes_preview_data(changelog_data: dict[str, object]) -> dict[s
         "validation_summary": validation_summary,
         "risk_summary": risk_summary,
         "follow_up": follow_up,
+        **({"breaking_changes": breaking_changes} if breaking_changes else {}),
         "warnings": warnings,
         "preview_only": True,
     }
@@ -5431,6 +5595,12 @@ def render_changelog_preview(data: dict[str, object]) -> str:
                 if isinstance(item, dict):
                     breaking = " BREAKING" if item.get("breaking") else ""
                     lines.append(f"- {item.get('summary') or item.get('entry', '')} ({item.get('commit', '')} {item.get('subject', '')}{breaking})")
+                    if item.get("message_format") == "compact-v1":
+                        for key, label in (("validation", "Validation"), ("risks", "Risk"),
+                                           ("follow_up", "Follow-up"), ("breaking_change", "Breaking change")):
+                            if item.get(key):
+                                text = str(item[key]).replace("\n", "\n    ")
+                                lines.append(f"  - **{label}:** {text}")
             lines.append("")
     else:
         lines.extend(["## No Structured Entries", "", "- No structured changelog entries found in range.", ""])
@@ -5469,12 +5639,18 @@ def render_release_notes_preview(data: dict[str, object], release_data: dict[str
                 lines.append(f"- {item.get('category', 'Changed')}: {item.get('summary', '')} ({item.get('commit', '')}{breaking})")
     else:
         lines.append("- No release highlights were extracted from structured changelog entries.")
+    if release.get("breaking_changes"):
+        lines.extend(["", "### Breaking changes and migration", ""])
+        for item in release["breaking_changes"]:
+            text = str(item["summary"]).replace("\n", "\n  ")
+            lines.append(f"- {item['commit']}: {text}")
     lines.extend(["", "## Validation Summary", ""])
     validation = release.get("validation_summary", [])
     if isinstance(validation, list) and validation:
         for item in validation[:10]:
             if isinstance(item, dict):
-                lines.append(f"- {item.get('commit', '')}: {item.get('summary', '')}")
+                text = str(item.get('summary', '')).replace("\n", "\n  ")
+                lines.append(f"- {item.get('commit', '')}: {text}")
     else:
         lines.append("- No validation summaries were extracted.")
     lines.extend(["", "## Known Risks", ""])
@@ -5482,7 +5658,8 @@ def render_release_notes_preview(data: dict[str, object], release_data: dict[str
     if isinstance(risks, list) and risks:
         for item in risks[:10]:
             if isinstance(item, dict):
-                lines.append(f"- {item.get('commit', '')}: {item.get('summary', '')}")
+                text = str(item.get('summary', '')).replace("\n", "\n  ")
+                lines.append(f"- {item.get('commit', '')}: {text}")
     else:
         lines.append("- No risk summaries were extracted.")
     lines.extend(["", "## Follow-up", ""])
@@ -5490,7 +5667,8 @@ def render_release_notes_preview(data: dict[str, object], release_data: dict[str
     if isinstance(follow, list) and follow:
         for item in follow[:10]:
             if isinstance(item, dict):
-                lines.append(f"- {item.get('commit', '')}: {item.get('summary', '')}")
+                text = str(item.get('summary', '')).replace("\n", "\n  ")
+                lines.append(f"- {item.get('commit', '')}: {text}")
     else:
         lines.append("- No follow-up summaries were extracted.")
     warnings = release.get("warnings", [])
@@ -6596,27 +6774,32 @@ def task_os_render_requeue_plan(context: dict[str, object], classification: dict
 
 
 def task_os_render_resume_plan(context: dict[str, object]) -> str:
+    plan = context["resume_plan"]
+    view = plan["task"]
     lines = task_os_markdown_header("Task OS Resume Plan", "task resume-plan", context)
     lines.extend(
         [
             "## Current Task",
             "",
-            f"- latest_task_id: `{context.get('latest_task_id', '') or 'unknown'}`",
-            f"- latest_task_status: `{context.get('latest_task_status', '') or 'unknown'}`",
+            f"- latest_task_id: `{view['task_id'] or 'unknown'}`",
+            f"- latest_task_status: `{view['status']}`",
+            *[f"- {key}: {json.dumps(view[key], ensure_ascii=True)}" for key in
+              ("objective", "result", "owner", "next_action", "remaining_obligations", "scope")],
+            f"- recommendation: {plan['recommendation']}",
+            f"- reason: {plan['reason']}",
             "",
             "## Evidence To Inspect",
             "",
-            "- `.aide/context/latest-task-packet.md`",
-            "- `.aide/queue/X-OS-01-aide-task-os-report-only-commands/status.yaml`",
-            "- `.aide/queue/X-OS-01-aide-task-os-report-only-commands/evidence/`",
-            "- `.aide/reports/task-os-*.md`",
+            task_os_bullets(f"{key}: {value}" for key, value in sorted(view["sources"].items())),
+            *["- " + json.dumps(item, sort_keys=True, ensure_ascii=True) for item in view["evidence"]],
+            f"- record_issues: {json.dumps(view['issues'], sort_keys=True, ensure_ascii=True)}",
+            "- evidence_applicability: unverified; a matching digest does not establish acceptance",
             "",
             "## Validation To Run",
             "",
-            "- `py -3 .aide/scripts/aide_lite.py validate`",
-            "- `py -3 .aide/scripts/aide_lite.py test`",
-            "- `py -3 .aide/scripts/aide_lite.py eval run`",
-            "- all Task OS report-only commands",
+            "- inspect recorded checks against the current subject and relevant dependencies",
+            "- retain valid results; run affected required checks after changed or unknown inputs",
+            "- reconcile uncertain effects before retry; do not replay completed effects",
             "",
             "## Must Not Do",
             "",
@@ -6625,7 +6808,9 @@ def task_os_render_resume_plan(context: dict[str, object]) -> str:
             "",
             "## Safe To Resume",
             "",
-            "- yes, if the worktree and queue evidence match this report",
+            "- safe_to_resume: unknown",
+            "- execution_admitted: false; this report does not inspect live owners or effects",
+            "- continue authorized inspection; effect admission belongs to the existing execution owner",
             "",
         ]
     )
@@ -6834,9 +7019,10 @@ def write_task_os_requeue_plan(repo_root: Path) -> tuple[WriteResult, dict[str, 
     return result, data
 
 
-def write_task_os_resume_plan(repo_root: Path) -> tuple[WriteResult, dict[str, object]]:
-    context = task_os_context(repo_root)
-    write_task_os_command_status(repo_root, context)
+def write_task_os_resume_plan(repo_root: Path, task_id: str | None = None) -> tuple[WriteResult, dict[str, object]]:
+    plan = build_task_resume_plan(repo_root, task_id)
+    context = {"repo_root": str(repo_root), "latest_task_id": plan["task"]["task_id"],
+               "latest_task_status": plan["task"]["status"], "resume_plan": plan}
     result = write_text_if_changed(repo_root / TASK_OS_RESUME_PLAN_REPORT_PATH, task_os_render_resume_plan(context))
     return result, context
 
@@ -12297,7 +12483,8 @@ def write_quality_outputs(repo_root: Path, ledger: dict[str, object]) -> dict[st
     output_ledger.pop("docs_report", None)
     output_ledger.pop("test_report", None)
     output_ledger.pop("module_report", None)
-    output_ledger.pop("reuse_report", None)
+    # Preserve already-computed candidates for read-only discovery. Older ledgers
+    # without this optional field remain valid; absence is not negative evidence.
     return {
         "file_quality_ledger": write_text_if_changed(repo_root / FILE_QUALITY_LEDGER_JSON_PATH, stable_json_text(output_ledger)),
         "file_quality_summary": write_text_if_changed(repo_root / FILE_QUALITY_SUMMARY_MD_PATH, render_file_quality_summary(ledger)),
@@ -12446,29 +12633,121 @@ def command_quality_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def quality_file_explanation(ledger: dict[str, object], rel: str) -> dict[str, object]:
+    """Project recorded facts only; never infer completeness or current validity."""
+    if ledger.get("schema_version") != "aide.file-quality-ledger.v0" or not isinstance(ledger.get("records"), list):
+        raise ValueError("expected a v0 quality ledger with records")
+    records = ledger["records"]
+    if not isinstance(ledger.get("source_commit"), str):
+        raise ValueError("invalid source_commit")
+    if any(not isinstance(item, dict) or not isinstance(item.get("path"), str) or not item["path"] for item in records):
+        raise ValueError("invalid file record identity")
+    matches = [item for item in records if item["path"] == rel]
+    if len(matches) > 1:
+        raise ValueError("ambiguous duplicate file record")
+    result = {
+        "schema_version": "aide.quality-explanation.v1", "path": rel,
+        "result": "PASS" if matches else "MISSING", "ledger": FILE_QUALITY_LEDGER_JSON_PATH,
+        "source_commit": ledger.get("source_commit", ""), "freshness": "unverified",
+        "coverage": "heuristic_incomplete" if matches else "unindexed",
+        "caveats": ["Report revision is attribution, not current-byte verification.",
+                    "Missing links do not establish absence; do not narrow checks solely from this view.",
+                    "Similarity does not prove shared semantics or authorize refactoring."],
+    }
+    if not matches:
+        result["next_action"] = "inspect the target and existing inventory; no file record was found"
+        return result
+    record = matches[0]
+    for key in ("kind", "status", "owner", "quality_level", "recommended_next_action"):
+        value = record.get(key)
+        if not isinstance(value, str):
+            raise ValueError(f"invalid {key}")
+        result[key] = value
+
+    def bounded_strings(value: object) -> dict[str, object]:
+        if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+            raise ValueError("expected a list of string references")
+        items = sorted(set(value))
+        return {"items": items[:20], "omitted": max(0, len(items) - 20)}
+
+    relations = {}
+    for key, reason in (("docs_refs", "recorded documentation link"),
+                        ("test_refs", "heuristic likely test target; not an executed check"),
+                        ("dependency_refs", "recorded local reference; not complete impact analysis"),
+                        ("warnings", "recorded quality warning"),
+                        ("exemptions", "recorded lifecycle exemption")):
+        relation = bounded_strings(record.get(key))
+        relations[key] = {**relation, "reason": reason,
+                          "state": "found" if relation["items"] else "not_found"}
+    result["relations"] = relations
+    candidates = []
+    reuse = ledger.get("reuse_report")
+    if "reuse_report" in ledger:
+        if not isinstance(reuse, dict):
+            raise ValueError("invalid reuse report")
+        for group, key, reason in (("duplicate_hash_candidates", "sha256", "recorded identical content hash"),
+                                   ("repeated_helper_name_candidates", "helper_name", "repeated helper name"),
+                                   ("similar_filename_clusters", "name", "similar filename")):
+            entries = reuse.get(group)
+            if not isinstance(entries, list):
+                raise ValueError(f"invalid reuse group: {group}")
+            for entry in entries:
+                if not isinstance(entry, dict) or not isinstance(entry.get(key), str):
+                    raise ValueError(f"invalid reuse candidate: {group}")
+                paths = entry.get("paths")
+                bounded_strings(paths)  # Validate even candidates not selected.
+                if rel in paths:
+                    peers = bounded_strings([path for path in paths if path != rel])
+                    candidates.append({"reason": reason, "match": entry[key], "peers": peers})
+    result["reuse"] = {"state": "unindexed" if reuse is None else "found" if candidates else "not_found",
+                       "items": candidates[:20], "omitted": max(0, len(candidates) - 20)}
+    return result
+
+
+def build_quality_file_explanation(repo_root: Path, rel: str) -> dict[str, object]:
+    """Share the bounded report reader; never scan or regenerate source facts."""
+    try:
+        raw = task_view_read(repo_root, FILE_QUALITY_LEDGER_JSON_PATH, limit=16 * 1024 * 1024)
+        ledger = json.loads(raw)
+        if not isinstance(ledger, dict):
+            raise ValueError("quality ledger must be an object")
+        result = quality_file_explanation(ledger, rel)
+    except FileNotFoundError:
+        result = {"result": "MISSING", "path": rel, "coverage": "unindexed",
+                  "next_action": "run `repo inventory` then `quality ledger` when authorized"}
+    except (OSError, ValueError, RecursionError) as error:
+        result = {"result": "INVALID", "path": rel, "error": str(error),
+                  "next_action": "inspect the retained report; no regeneration was attempted"}
+    return result
+
+
 def command_quality_explain_file(args: argparse.Namespace) -> int:
-    rel = normalize_rel(args.path)
-    ledger = latest_or_missing_quality_ledger(args.repo_root)
-    print("AIDE Lite quality explain-file")
-    if ledger is None:
-        print("result: MISSING")
-        print("next_action: run `quality ledger`")
-        return 1
-    records = ledger.get("records", [])
-    record = next((item for item in records if isinstance(item, dict) and item.get("path") == rel), None) if isinstance(records, list) else None
-    if record is None:
-        print("result: MISSING")
-        print(f"path: {rel}")
-        return 1
-    print("result: PASS")
-    for key in ["path", "kind", "status", "owner", "quality_level", "recommended_next_action"]:
-        print(f"{key}: {record.get(key, '')}")
-    print(f"warnings: {', '.join(record.get('warnings', []))}")
-    print(f"exemptions: {', '.join(record.get('exemptions', []))}")
-    print(f"docs_refs: {', '.join(record.get('docs_refs', []))}")
-    print(f"test_refs: {', '.join(record.get('test_refs', []))}")
-    print(f"dependency_refs: {', '.join(record.get('dependency_refs', [])[:30])}")
-    return 0
+    result = build_quality_file_explanation(args.repo_root, normalize_rel(args.path))
+    if getattr(args, "json", False):
+        rendered = stable_json_text(result)
+    else:
+        lines = ["AIDE Lite quality explain-file"]
+        for key, value in result.items():
+            if key in {"relations", "reuse", "caveats"}:
+                continue
+            lines.append(f"{key}: {value}")
+        for key, relation in result.get("relations", {}).items():
+            lines.append(f"{key}: {', '.join(relation['items'])}")
+            lines.append(f"  {relation['state']}; {relation['reason']}; omitted: {relation['omitted']}")
+        reuse = result.get("reuse", {})
+        if reuse:
+            lines.append(f"reuse: {reuse['state']}; omitted: {reuse['omitted']}")
+            for item in reuse["items"]:
+                lines.append(f"- {item['reason']} ({item['match']}): {', '.join(item['peers']['items'])}; omitted peers: {item['peers']['omitted']}")
+        for caveat in result.get("caveats", []):
+            lines.append(f"caveat: {caveat}")
+        rendered = "\n".join(lines) + "\n"
+    if len(rendered.encode("utf-8", errors="replace")) > 64 * 1024:
+        result = {"result": "INVALID", "error": "explanation exceeds the 64 KiB UTF-8 output limit",
+                  "next_action": "inspect the retained report directly; no partial explanation was emitted"}
+        rendered = stable_json_text(result) if getattr(args, "json", False) else "\n".join(f"{key}: {value}" for key, value in result.items()) + "\n"
+    print(rendered, end="")
+    return {"PASS": 0, "MISSING": 1, "INVALID": 2}[result["result"]]
 
 
 def command_quality_report_file(args: argparse.Namespace, title: str, path: str) -> int:
@@ -19052,10 +19331,12 @@ def command_release_bundle(args: argparse.Namespace) -> int:
 
 STABLE_RELEASE_DIR = ".aide/release/stable"
 STABLE_RELEASE_PROFILE = "aide-lite-local-windows"
+STABLE_SUCCESSOR_PATH = ".aide/release/successor-candidate.json"
+STABLE_ASSET_MAX_BYTES = 8 * 1024 * 1024
 
 
 def stable_release_paths(version: str) -> dict[str, str]:
-    if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
+    if not isinstance(version, str) or len(version) > 32 or not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
         raise ValueError("stable release version must be MAJOR.MINOR.PATCH without leading zeros")
     base = f"{STABLE_RELEASE_DIR}/aide-lite-v{version}"
     return {
@@ -19085,7 +19366,7 @@ def stable_release_cli_forms(repo_root: Path) -> list[str]:
 
 
 def stable_release_source_tree(repo_root: Path, commit: str) -> str:
-    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ValueError("stable release pack source commit is not a full Git object")
     result = subprocess.run(
         ["git", "-C", str(repo_root), "show", "-s", "--format=%T", commit],
@@ -19097,10 +19378,151 @@ def stable_release_source_tree(repo_root: Path, commit: str) -> str:
     return tree
 
 
+def stable_release_record(repo_root: Path, relative: str) -> tuple[dict[str, object], str]:
+    """Bounded, duplicate-free metadata using the existing ordinary-file reader."""
+    data = task_view_read(repo_root, relative, limit=65536)
+    try:
+        value = json.loads(data, object_pairs_hook=_job_wait_unique_object,
+                           parse_constant=_job_wait_reject_constant)
+    except (ValueError, RecursionError) as exc:
+        raise ValueError("invalid stable release metadata") from exc
+    if not isinstance(value, dict):
+        raise ValueError("stable release metadata must be an object")
+    return value, hashlib.sha256(data).hexdigest()
+
+
+def stable_release_contract(repo_root: Path, version: str) -> dict[str, object]:
+    """Resolve a candidate declaration; historical pins are not current-pack checks."""
+    stable_release_paths(version)
+    baseline = stable_release_cli_forms(repo_root)
+    if version == "1.0.0":
+        return {"forms": baseline, "predecessors": [], "preserved": set(), "digest": None}
+    policy = read_text(repo_root / ".aide/policies/release-versioning.yaml")
+    refs = [line for line in policy.splitlines() if line.startswith("successor_candidate_ref:")]
+    if refs != [f"successor_candidate_ref: {STABLE_SUCCESSOR_PATH}"]:
+        raise ValueError("stable successor requires the exact policy candidate reference")
+    record, digest = stable_release_record(repo_root, STABLE_SUCCESSOR_PATH)
+    if (set(record) != {"schema_version", "version", "profile_id", "predecessor",
+                       "additional_cli_forms", "preserved_assets"}
+            or record["schema_version"] != "aide.stable-successor-candidate.v1"
+            or record["version"] != version or record["profile_id"] != STABLE_RELEASE_PROFILE):
+        raise ValueError("unsupported stable successor identity or fields")
+    predecessor = record["predecessor"]
+    if (not isinstance(predecessor, dict) or set(predecessor) != {"version", "tag_commit"}
+            or not isinstance(predecessor["tag_commit"], str)
+            or not re.fullmatch(r"[0-9a-f]{40}", predecessor["tag_commit"])):
+        raise ValueError("invalid predecessor identity")
+    previous = predecessor["version"]
+    stable_release_paths(previous)
+    current_numbers = tuple(map(int, version.split(".")))
+    previous_numbers = tuple(map(int, previous.split(".")))
+    if current_numbers[0] != previous_numbers[0] or current_numbers <= previous_numbers:
+        raise ValueError("successor must increase within the predecessor major version")
+    additions = record["additional_cli_forms"]
+    if (not isinstance(additions, list) or len(additions) > 64
+            or any(not isinstance(form, str) or not form or len(form) > 512
+                   or form != form.strip() or any(ord(c) < 32 for c in form) for form in additions)
+            or len(additions) != len(set(additions)) or set(additions) & set(baseline)):
+        raise ValueError("invalid or duplicate successor CLI forms")
+    forms = baseline + additions
+    assets = record["preserved_assets"]
+    if not isinstance(assets, list) or not 4 <= len(assets) <= 32:
+        raise ValueError("preserved asset list must contain 4 to 32 members")
+    pins: dict[str, dict[str, object]] = {}
+    versions: set[str] = set()
+    total = 0
+    for asset in assets:
+        if (not isinstance(asset, dict) or set(asset) != {"path", "size_bytes", "sha256"}
+                or not isinstance(asset["path"], str) or type(asset["size_bytes"]) is not int
+                or not 0 < asset["size_bytes"] <= STABLE_ASSET_MAX_BYTES
+                or not isinstance(asset["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", asset["sha256"])):
+            raise ValueError("invalid preserved asset pin")
+        relative = asset["path"]
+        match = re.fullmatch(re.escape(STABLE_RELEASE_DIR) + r"/aide-lite-v([0-9.]+)\.(zip|tar\.gz|manifest\.json|SHA256SUMS\.txt)", relative)
+        if not match or relative in pins:
+            raise ValueError("unknown or duplicate preserved asset path")
+        old_version = match[1]
+        stable_release_paths(old_version)
+        if tuple(map(int, old_version.split("."))) > previous_numbers:
+            raise ValueError("preserved version is newer than the immediate predecessor")
+        versions.add(old_version)
+        total += asset["size_bytes"]
+        if total > 32 * 1024 * 1024:
+            raise ValueError("preserved assets exceed the finite byte budget")
+        data = task_view_read(repo_root, relative, limit=STABLE_ASSET_MAX_BYTES)
+        if len(data) != asset["size_bytes"] or hashlib.sha256(data).hexdigest() != asset["sha256"]:
+            raise ValueError("preserved asset digest or size mismatch: " + relative)
+        pins[relative] = asset
+    if previous not in versions:
+        raise ValueError("immediate predecessor assets are missing")
+    historical = {}
+    for old_version in sorted(versions):
+        paths = stable_release_paths(old_version)
+        if not set(paths.values()) <= pins.keys():
+            raise ValueError("each preserved version requires all four assets")
+        manifest, _ = stable_release_record(repo_root, paths["manifest"])
+        identity = manifest.get("identity")
+        if (manifest.get("schema_version") != "aide.stable-release-candidate.v1"
+                or manifest.get("status") != "frozen_release_assets" or not isinstance(identity, dict)
+                or identity.get("schema_version") != "aide.stable-release-identity.v1"
+                or identity.get("version") != old_version or identity.get("tag") != f"aide-lite-v{old_version}"
+                or identity.get("profile_id") != STABLE_RELEASE_PROFILE
+                or identity.get("artifact_state") != "immutable_release_payload"
+                or identity.get("intended_channel") != "stable"):
+            raise ValueError("preserved historical manifest identity mismatch")
+        for field in ("source_commit", "source_tree"):
+            if not isinstance(identity.get(field), str) or not re.fullmatch(r"[0-9a-f]{40}", identity[field]):
+                raise ValueError("invalid historical source identity")
+        archives = {key: pins[paths[key]] for key in ("zip", "tar_gz")}
+        if manifest.get("archives") != archives:
+            raise ValueError("historical archive pins disagree with preserved manifest")
+        sums = "".join(f"{pins[paths[key]]['sha256']}  {Path(paths[key]).name}\n"
+                       for key in ("zip", "tar_gz", "manifest"))
+        if task_view_read(repo_root, paths["sha256sums"], limit=4096) != sums.encode("utf-8"):
+            raise ValueError("historical checksum file disagrees with pins")
+        historical[old_version] = identity
+    old_forms = historical[previous].get("public_cli_forms")
+    if (not isinstance(old_forms, list) or not old_forms or len(old_forms) > 128
+            or any(not isinstance(form, str) for form in old_forms)
+            or len(old_forms) != len(set(old_forms)) or not set(old_forms) <= set(forms)):
+        raise ValueError("successor removes or reinterprets a predecessor CLI form")
+    if current_numbers[1] == previous_numbers[1] and set(forms) != set(old_forms):
+        raise ValueError("additional public forms require a minor version increase")
+    tag = f"aide-lite-v{previous}"
+    observed = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}"],
+                              check=False, capture_output=True, text=True, encoding="utf-8")
+    tags = subprocess.run(["git", "-C", str(repo_root), "tag", "--list", "aide-lite-v*"],
+                          check=False, capture_output=True, text=True, encoding="utf-8")
+    if (observed.returncode or observed.stdout.strip() != predecessor["tag_commit"] or tags.returncode
+            or set(tags.stdout.splitlines()) - {f"aide-lite-v{v}" for v in versions | {version}}):
+        raise ValueError("local published lineage is missing, changed or undeclared")
+    matrix = [{"version": previous, "tag": tag, "tag_commit": predecessor["tag_commit"],
+               "manifest_sha256": pins[stable_release_paths(previous)["manifest"]]["sha256"],
+               "source_commit": historical[previous]["source_commit"],
+               "source_tree": historical[previous]["source_tree"], "profile_id": STABLE_RELEASE_PROFILE,
+               "assets": [pins[rel] for rel in stable_release_paths(previous).values()]}]
+    return {"forms": forms, "predecessors": matrix, "preserved": set(pins), "digest": digest}
+
+
+def stable_release_output_preflight(repo_root: Path, allowed: set[str]) -> None:
+    for relative in (".aide", ".aide/release", STABLE_RELEASE_DIR):
+        path = repo_root / relative
+        if path.exists() or path.is_symlink():
+            info = path.lstat()
+            if not stat.S_ISDIR(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+                raise ValueError("stable release output path is redirected or not a directory")
+    output = repo_root / STABLE_RELEASE_DIR
+    if output.exists():
+        for path in output.iterdir():
+            relative = normalize_rel(path.relative_to(repo_root))
+            if relative not in allowed:
+                raise ValueError("stable release output contains unknown material")
+            task_view_read(repo_root, relative, limit=STABLE_ASSET_MAX_BYTES)
+
+
 def build_stable_release_candidate(repo_root: Path, version: str) -> dict[str, object]:
     paths = stable_release_paths(version)
-    if version != "1.0.0":
-        raise ValueError("this first-stable builder requires 1.0.0 and an empty predecessor matrix")
+    contract = stable_release_contract(repo_root, version)
     existing_tag = subprocess.run(
         ["git", "-C", str(repo_root), "tag", "--list", f"aide-lite-v{version}"],
         check=False, capture_output=True, text=True, encoding="utf-8",
@@ -19108,17 +19530,8 @@ def build_stable_release_candidate(repo_root: Path, version: str) -> dict[str, o
     if existing_tag.returncode != 0 or existing_tag.stdout.strip():
         raise ValueError("stable release tag already exists or local tag state is unavailable")
     output_root = repo_root / STABLE_RELEASE_DIR
-    for path in (repo_root / ".aide", repo_root / ".aide/release", output_root):
-        if path.exists() and (path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)())):
-            raise ValueError("stable release output path is redirected")
     allowed_outputs = set(paths.values())
-    if output_root.exists():
-        for path in output_root.iterdir():
-            if (not path.is_file() or path.is_symlink()
-                    or bool(getattr(path, "is_junction", lambda: False)())
-                    or path.stat().st_nlink != 1
-                    or normalize_rel(path.relative_to(repo_root)) not in allowed_outputs):
-                raise ValueError("stable release output contains unknown or redirected material")
+    stable_release_output_preflight(repo_root, allowed_outputs | contract["preserved"])
     git_ok, changes, _error = git_status_short(repo_root)
     if not git_ok or any(normalize_rel(path).rstrip("/") not in (allowed_outputs | {STABLE_RELEASE_DIR}) for _status, path in changes):
         raise ValueError("stable release build requires clean source outside its exact output files")
@@ -19144,14 +19557,16 @@ def build_stable_release_candidate(repo_root: Path, version: str) -> dict[str, o
         "support_mode": "companion",
         "lifecycle_apply_platform": "Windows only; exact tested environment in effect evidence",
         "offline_scope": "local CLI after archive acquisition; no native network isolation claim",
-        "predecessor_matrix": [],
-        "public_cli_forms": stable_release_cli_forms(repo_root),
+        "predecessor_matrix": contract["predecessors"],
+        "public_cli_forms": contract["forms"],
         "version_policy_sha256": sha256_file(policy_path),
         "source_repo": scalars.get("source_repo", ""),
         "source_commit": source_commit,
         "source_tree": source_tree,
         "source_pack_checksums_sha256": sha256_file(pack_root / "checksums.json"),
     }
+    if contract["digest"] is not None:
+        marker["successor_contract_sha256"] = contract["digest"]
     output_root.mkdir(parents=True, exist_ok=True)
     with public_archive_fixture("aide-stable-pack-") as temp_name:
         projected = Path(temp_name) / RELEASE_ARCHIVE_ROOT
@@ -19191,19 +19606,29 @@ def validate_stable_release_candidate(repo_root: Path, version: str) -> dict[str
     paths = stable_release_paths(version)
     problems: list[str] = []
     try:
-        manifest = json.loads(read_text(repo_root / paths["manifest"]))
+        contract = stable_release_contract(repo_root, version)
+        stable_release_output_preflight(repo_root, set(paths.values()) | contract["preserved"])
+        manifest, _ = stable_release_record(repo_root, paths["manifest"])
         identity = manifest["identity"]
         archives = manifest["archives"]
     except (OSError, ValueError, KeyError, TypeError) as exc:
         return {"result": "FAIL", "problems": [f"stable manifest unavailable or malformed: {exc}"]}
     if not isinstance(manifest, dict) or not isinstance(identity, dict) or not isinstance(archives, dict):
         return {"result": "FAIL", "problems": ["stable manifest fields have invalid types"]}
-    if manifest.get("status") != "frozen_release_assets" or identity.get("version") != version:
+    if (manifest.get("schema_version") != "aide.stable-release-candidate.v1"
+            or manifest.get("status") != "frozen_release_assets" or identity.get("version") != version):
         problems.append("stable candidate identity or status mismatch")
+    if (identity.get("schema_version") != "aide.stable-release-identity.v1"
+            or identity.get("tag") != f"aide-lite-v{version}"
+            or identity.get("release_axis") != "aide_lite_portable_package"):
+        problems.append("stable identity schema, tag or release axis mismatch")
     if identity.get("profile_id") != STABLE_RELEASE_PROFILE or identity.get("artifact_state") != "immutable_release_payload" or identity.get("intended_channel") != "stable":
         problems.append("stable profile identity mismatch")
-    if identity.get("public_cli_forms") != stable_release_cli_forms(repo_root):
+    if identity.get("public_cli_forms") != contract["forms"]:
         problems.append("stable public CLI forms differ from version policy")
+    if (identity.get("predecessor_matrix") != contract["predecessors"]
+            or identity.get("successor_contract_sha256") != contract["digest"]):
+        problems.append("stable successor contract or predecessor identity mismatch")
     if identity.get("version_policy_sha256") != sha256_file(repo_root / ".aide/policies/release-versioning.yaml"):
         problems.append("stable version policy digest mismatch")
     pack_root = export_pack_root(repo_root, EXPORT_PACK_ID)
@@ -19223,7 +19648,7 @@ def validate_stable_release_candidate(repo_root: Path, version: str) -> dict[str
     for key in ("zip", "tar_gz"):
         path = repo_root / paths[key]
         recorded = archives.get(key, {}) if isinstance(archives, dict) else {}
-        if not path.is_file() or recorded.get("path") != paths[key]:
+        if not path.is_file() or not isinstance(recorded, dict) or recorded.get("path") != paths[key]:
             problems.append(f"stable {key} asset missing or path mismatch")
             continue
         if recorded.get("sha256") != sha256_file(path) or recorded.get("size_bytes") != path.stat().st_size:
@@ -27615,7 +28040,7 @@ def assert_controller_related_path(repo_root: Path, requested: str) -> str:
 
 
 def outcome_record_to_dict(record: OutcomeRecord) -> dict[str, object]:
-    return {
+    known = {
         "run_id": record.run_id,
         "phase": record.phase,
         "source": record.source,
@@ -27630,13 +28055,34 @@ def outcome_record_to_dict(record: OutcomeRecord) -> dict[str, object]:
         "recommendation_id": record.recommendation_id,
         "notes": record.notes,
     }
+    extra = dict(record.extra_fields)
+    if set(extra) & set(known):
+        raise ValueError("outcome metadata conflicts with a known field")
+    return {**extra, **known}
 
 
 def outcome_record_from_dict(data: dict[str, object]) -> OutcomeRecord:
+    if not isinstance(data, dict):
+        raise ValueError("outcome record must be an object")
+    text_fields = ("run_id", "phase", "source", "result", "failure_class", "severity",
+                   "budget_status", "golden_task_status", "verifier_status",
+                   "recommendation_id", "notes")
+    for key in text_fields:
+        if key in data and not isinstance(data[key], str):
+            raise ValueError(f"outcome field {key} must be text")
+    for key in ("run_id", "phase", "source"):
+        if not data.get(key, "").strip():
+            raise ValueError(f"outcome identity {key} is missing")
+    if data.get("result", "WARN") not in {"PASS", "WARN", "FAIL"}:
+        raise ValueError("outcome result is invalid")
+    if data.get("severity", "warning") not in {"info", "warning", "error"}:
+        raise ValueError("outcome severity is invalid")
     related = data.get("related_paths", [])
-    if not isinstance(related, list):
-        related = []
+    if not isinstance(related, list) or any(not isinstance(path, str) for path in related):
+        raise ValueError("outcome related_paths must be a list of text paths")
     approx = data.get("approx_tokens")
+    if approx is not None and (type(approx) is not int or approx < 0):
+        raise ValueError("outcome approx_tokens must be a nonnegative integer or null")
     return OutcomeRecord(
         run_id=str(data.get("run_id", "")),
         phase=str(data.get("phase", "")),
@@ -27651,7 +28097,22 @@ def outcome_record_from_dict(data: dict[str, object]) -> OutcomeRecord:
         verifier_status=str(data.get("verifier_status", "UNKNOWN")),
         recommendation_id=str(data.get("recommendation_id", "")),
         notes=str(data.get("notes", "")),
+        extra_fields=tuple((key, value) for key, value in data.items()
+                           if key not in (*text_fields, "related_paths", "approx_tokens")),
     )
+
+
+def _outcome_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def _outcome_json_constant(_value: str) -> None:
+    raise ValueError("non-finite JSON number")
 
 
 def read_outcome_records(repo_root: Path) -> list[OutcomeRecord]:
@@ -27659,29 +28120,57 @@ def read_outcome_records(repo_root: Path) -> list[OutcomeRecord]:
     if not path.exists():
         return []
     records: list[OutcomeRecord] = []
-    for line in read_text(path).splitlines():
+    for number, line in enumerate(read_text(path).splitlines(), 1):
         if not line.strip():
             continue
         try:
-            records.append(outcome_record_from_dict(json.loads(line)))
-        except (json.JSONDecodeError, TypeError, ValueError):
-            continue
+            data = json.loads(line, object_pairs_hook=_outcome_json_object,
+                              parse_constant=_outcome_json_constant)
+            json.dumps(data, allow_nan=False)  # Also reject exponent overflow to infinity.
+            records.append(outcome_record_from_dict(data))
+        except RecursionError as exc:
+            raise ValueError(f"invalid outcome ledger record at {OUTCOME_LEDGER_PATH}:{number}: JSON nesting exceeds reader capacity") from exc
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"invalid outcome ledger record at {OUTCOME_LEDGER_PATH}:{number}: {exc}") from exc
     return records
 
 
 def write_outcome_records(repo_root: Path, records: Iterable[OutcomeRecord]) -> WriteResult:
     sorted_records = sorted(records, key=lambda item: (item.run_id, item.phase, item.source, item.failure_class, item.recommendation_id))
-    lines = [
-        json.dumps(outcome_record_to_dict(record), sort_keys=True, separators=(",", ":"))
-        for record in sorted_records
-    ]
-    return write_text_if_changed(repo_root / OUTCOME_LEDGER_PATH, "\n".join(lines) + ("\n" if lines else ""))
+    lines = []
+    for record in sorted_records:
+        data = outcome_record_to_dict(record)
+        outcome_record_from_dict(data)  # Refuse newly constructed invalid records too.
+        lines.append(json.dumps(data, sort_keys=True, separators=(",", ":"), allow_nan=False))
+    data = ("\n".join(lines) + ("\n" if lines else "")).encode("utf-8")
+    return atomic_write_bytes_if_changed(repo_root / OUTCOME_LEDGER_PATH, data)
+
+
+def preserve_outcome_metadata(previous: Iterable[OutcomeRecord], replacements: Iterable[OutcomeRecord]) -> list[OutcomeRecord]:
+    """Carry opaque metadata only across an unambiguous existing update identity."""
+    old, new = list(previous), list(replacements)
+    identity = lambda record: (record.run_id, record.phase, record.source)
+    for record in old:
+        if not record.extra_fields:
+            continue
+        matches = [index for index, item in enumerate(new) if identity(item) == identity(record)]
+        if len(matches) != 1 or sum(identity(item) == identity(record) for item in old) != 1:
+            raise ValueError("outcome update would drop or ambiguously merge unfamiliar metadata; reconcile the recorded identity")
+        index = matches[0]
+        data = outcome_record_to_dict(new[index])
+        for key, value in record.extra_fields:
+            if key in data and json.dumps(data[key], sort_keys=True, allow_nan=False) != json.dumps(value, sort_keys=True, allow_nan=False):
+                raise ValueError("outcome update conflicts with unfamiliar metadata; reconcile it explicitly")
+            data[key] = value
+        new[index] = outcome_record_from_dict(data)
+    return new
 
 
 def merge_outcome_records(repo_root: Path, new_records: Iterable[OutcomeRecord], run_id: str = "q16.current") -> tuple[WriteResult, list[OutcomeRecord]]:
     existing = read_outcome_records(repo_root)
     retained = [record for record in existing if record.run_id != run_id]
-    merged = [*retained, *list(new_records)]
+    replaced = [record for record in existing if record.run_id == run_id]
+    merged = [*retained, *preserve_outcome_metadata(replaced, new_records)]
     return write_outcome_records(repo_root, merged), merged
 
 
@@ -29283,24 +29772,16 @@ def write_context_index(repo_root: Path, repo_map: dict[str, object], test_map: 
     return result, context_index
 
 
-def current_queue_ref(repo_root: Path) -> str:
-    for queue_id in [
-        "Q17-router-profile-v0",
-        "Q16-outcome-controller-v0",
-        "Q15-golden-tasks-v0",
-        "Q14-token-ledger-savings-report",
-        "Q13-evidence-review-workflow",
-        "Q12-verifier-v0",
-        "Q11-context-compiler-v0",
-        "Q10-aide-lite-hardening",
-        "Q09-token-survival-core",
-    ]:
-        if (repo_root / f".aide/queue/{queue_id}/status.yaml").exists():
-            return f".aide/queue/{queue_id}/"
-    return ".aide/queue/index.yaml"
+def current_queue_ref(repo_root: Path, task_view: dict[str, object] | None = None) -> str:
+    view = build_current_task_view(repo_root) if task_view is None else task_view
+    selected = view["task_id"]
+    return f".aide/queue/{selected}/" if selected else ".aide/queue/index.yaml"
 
 
 def render_context_packet(repo_root: Path, repo_map: dict[str, object], test_map: dict[str, object], context_index: dict[str, object], chars: int = 0, tokens: int = 0) -> str:
+    task_view = build_current_task_view(repo_root)
+    selection = task_view["selection"]
+    selection_issues = ", ".join(sorted({item["code"] for item in task_view["issues"]})) or "none"
     role_counts = context_index.get("role_counts", {})
     role_lines = []
     for role in ROLE_ORDER:
@@ -29350,8 +29831,16 @@ def render_context_packet(repo_root: Path, repo_map: dict[str, object], test_map
 
 ## CURRENT_QUEUE
 
-- current_queue_ref: `{current_queue_ref(repo_root)}`
+- current_queue_ref: `{current_queue_ref(repo_root, task_view)}`
 - queue_index: `.aide/queue/index.yaml`
+- selected_task: `{task_view['task_id'] or 'unresolved'}`
+- recorded_status: {json.dumps(task_view['status'], ensure_ascii=True)}
+- selection_mode: {selection['mode']}
+- selection_source: `{selection['source'] or 'unresolved'}`
+- selection_issues: {selection_issues}
+- acceptance_verified: false
+- Selection describes recorded context, not an active worker or permission to execute.
+- Reconcile selection issues before acting; a completed selected task is not a new assignment.
 
 ## EXACT_REFS
 
@@ -29843,67 +30332,41 @@ def test_validation_policy_paths() -> list[str]:
 
 
 def git_diff_name_only(repo_root: Path, from_ref: str) -> tuple[list[str], str]:
-    if not from_ref.strip():
-        return [], "missing_from_ref"
     paths: list[str] = []
+    warnings: list[str] = []
 
-    def add_lines(text: str) -> None:
-        for line in text.splitlines():
+    def observe(args: list[str], label: str) -> bool:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(repo_root), *args], check=False,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding="utf-8",
+            )
+        except OSError as exc:
+            warnings.append(f"{label}: {exc}")
+            return False
+        if result.returncode != 0:
+            warnings.append(f"{label}: {result.stderr.strip() or 'git observation failed'}")
+            return False
+        for line in result.stdout.splitlines():
             rel = normalize_rel(line)
             if rel and rel not in paths:
                 paths.append(rel)
+        return True
 
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(repo_root), "diff", "--name-only", f"{from_ref}...HEAD"],
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-        )
-    except OSError as exc:
-        return [], str(exc)
-    if result.returncode != 0:
-        try:
-            fallback = subprocess.run(
-                ["git", "-C", str(repo_root), "diff", "--name-only", f"{from_ref}..HEAD"],
-                check=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-            )
-        except OSError as exc:
-            return [], str(exc)
-        if fallback.returncode != 0:
-            return [], fallback.stderr.strip() or result.stderr.strip() or "git diff failed"
-        add_lines(fallback.stdout)
-    else:
-        add_lines(result.stdout)
-    extra_commands = [
-        ["git", "-C", str(repo_root), "diff", "--name-only"],
-        ["git", "-C", str(repo_root), "diff", "--name-only", "--cached"],
-        ["git", "-C", str(repo_root), "ls-files", "--others", "--exclude-standard"],
-    ]
-    warnings: list[str] = []
-    for command in extra_commands:
-        try:
-            extra = subprocess.run(
-                command,
-                check=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-            )
-        except OSError as exc:
-            warnings.append(str(exc))
-            continue
-        if extra.returncode != 0:
-            warnings.append(extra.stderr.strip() or f"{' '.join(command)} failed")
-            continue
-        add_lines(extra.stdout)
+    if not from_ref.strip():
+        warnings.append("missing_from_ref")
+    elif not observe(["diff", "--name-only", f"{from_ref}...HEAD"], "base_diff_unavailable"):
+        # Endpoint comparison can retain useful paths but does not establish the
+        # requested merge-base observation. Keep the original failure explicit.
+        if observe(["diff", "--name-only", f"{from_ref}..HEAD"], "endpoint_diff_unavailable"):
+            warnings.append("endpoint_comparison_fallback")
+    for args, label in [
+        (["diff", "--name-only"], "working_diff_unavailable"),
+        (["diff", "--name-only", "--cached"], "staged_diff_unavailable"),
+        (["ls-files", "--others", "--exclude-standard"], "untracked_paths_unavailable"),
+    ]:
+        observe(args, label)
     return paths, "; ".join(warnings)
 
 
@@ -30001,8 +30464,19 @@ def build_test_impact_plan(repo_root: Path, from_ref: str) -> dict[str, object]:
     warnings: list[str] = []
     if warning:
         warnings.append(warning)
-    if not changed:
+        # Failed observation is unknown scope, even if a subset was observed.
+        # Reuse the existing conservative fallback; this is not test admission.
+        tiers.append("T2")
+    elif not changed:
         warnings.append("no_changed_paths_detected")
+    observation = "incomplete" if warning else "available"
+    next_action = (
+        "Reconcile the missing changed-path observations before narrowing checks; "
+        "T2 is conservative advice, not complete impact coverage or execution authority."
+        if warning else
+        "Review heuristic mappings and applicable validation obligations; "
+        "observed paths do not establish complete dependency or test coverage."
+    )
     for rel in changed:
         tier, targets, mapped_commands, confidence, reason = impacted_test_mapping_for_path(rel)
         tiers.append(tier)
@@ -30031,6 +30505,9 @@ def build_test_impact_plan(repo_root: Path, from_ref: str) -> dict[str, object]:
         "from_ref": from_ref,
         "mode": "report_only",
         "proof_status": "plan_not_proof",
+        "changed_path_observation": observation,
+        "mapping_coverage": "heuristic_incomplete",
+        "next_action": next_action,
         "changed_paths": changed,
         "recommended_tier": max_test_tier(tiers),
         "entries": entries,
@@ -30046,6 +30523,9 @@ def render_test_impact_plan_md(plan: dict[str, object]) -> str:
         "",
         f"- mode: {plan.get('mode')}",
         f"- proof_status: {plan.get('proof_status')}",
+        f"- changed_path_observation: {plan.get('changed_path_observation')}",
+        f"- mapping_coverage: {plan.get('mapping_coverage')}",
+        f"- next_action: {plan.get('next_action')}",
         f"- from_ref: {plan.get('from_ref')}",
         f"- recommended_tier: {plan.get('recommended_tier')}",
         f"- changed_paths: {len(plan.get('changed_paths', [])) if isinstance(plan.get('changed_paths'), list) else 0}",
@@ -31985,7 +32465,7 @@ def render_review_packet(
 
 ## Review Objective
 
-Review the current AIDE queue phase from compact evidence only and decide whether it is ready to pass its review gate.
+Review the current AIDE queue phase starting from compact evidence and decide whether it is ready to pass its review gate.
 
 ## Decision Requested
 
@@ -32063,7 +32543,8 @@ Return exactly one of `PASS`, `PASS_WITH_NOTES`, `REQUEST_CHANGES`, or `BLOCKED`
 
 ## Reviewer Instructions
 
-- Review only this packet and the referenced evidence when needed.
+- Use `{REVIEW_PROMPT_PATH}` for the shared engineering review procedure.
+- Start from this packet; inspect relevant evidence, source, callers and contracts when needed within authorized access.
 - Do not request full chat history unless the packet is insufficient to judge correctness.
 - Do not re-summarize the whole project.
 - Do not reward scope creep.
@@ -32161,7 +32642,7 @@ def verify_review_packet(repo_root: Path, rel_path: str) -> list[VerificationFin
         findings.append(VerificationFinding("WARN", "review_packet", f"review packet over hard limit: {stats.approx_tokens}", rel_path))
     else:
         findings.append(VerificationFinding("INFO", "review_packet", f"review packet tokens: {stats.approx_tokens}", rel_path))
-    for required_ref in [LATEST_CONTEXT_PACKET_PATH, LATEST_VERIFICATION_REPORT_PATH, REVIEW_DECISION_POLICY_PATH]:
+    for required_ref in [LATEST_CONTEXT_PACKET_PATH, LATEST_VERIFICATION_REPORT_PATH, REVIEW_DECISION_POLICY_PATH, REVIEW_PROMPT_PATH]:
         if required_ref not in text:
             findings.append(VerificationFinding("WARN", "review_packet", f"review ref missing: {required_ref}", rel_path))
     findings.extend(verify_refs_in_text(repo_root, text, rel_path))
@@ -33523,7 +34004,30 @@ def command_doctor(args: argparse.Namespace) -> int:
 
 def command_validate(args: argparse.Namespace) -> int:
     ok, messages = validate_repo(args.repo_root)
-    return print_messages("AIDE Lite validate", ok, messages)
+    if getattr(args, "full", False):
+        return print_messages("AIDE Lite validate", ok, messages)
+    counts = dict.fromkeys(("PASS", "WARN", "FAIL", "OTHER"), 0)
+    findings = []
+    for message in messages:
+        severity = message.partition(" ")[0]
+        severity = severity if severity in ("PASS", "WARN", "FAIL") else "OTHER"
+        counts[severity] += 1
+        if severity != "PASS":
+            findings.append(message)
+    if getattr(args, "json", False):
+        print(json.dumps({"schema": "aide.validation-result.v1",
+                          "status": "PASS" if ok else "FAIL",
+                          "total": len(messages), "counts": counts,
+                          "messages": messages}, ensure_ascii=True))
+    else:
+        print("AIDE Lite validate")
+        print(f"status: {'PASS' if ok else 'FAIL'}")
+        print(f"checks: {len(messages)}; " + "; ".join(
+            f"{severity}: {count}" for severity, count in counts.items()))
+        for message in findings:
+            print(f"- {message}")
+        print(f"omitted PASS details: {counts['PASS']}; use validate --full or --json for all results")
+    return 0 if ok else 1
 
 
 def command_estimate(args: argparse.Namespace) -> int:
@@ -33960,7 +34464,7 @@ def command_commit_create(args: argparse.Namespace) -> int:
 def command_commit_template(args: argparse.Namespace) -> int:
     template_path = args.repo_root / COMMIT_TEMPLATE_PATH
     if not template_path.exists():
-        write_text_if_changed(template_path, COMMIT_GOOD_EXAMPLE)
+        write_text_if_changed(template_path, COMPACT_COMMIT_TEMPLATE)
     text = read_text(template_path)
     if args.output:
         target = safe_repo_path(args.repo_root, args.output)
@@ -39561,14 +40065,24 @@ def command_task_requeue_plan(args: argparse.Namespace) -> int:
 
 
 def command_task_resume_plan(args: argparse.Namespace) -> int:
-    result, context = write_task_os_resume_plan(args.repo_root)
+    task_id = getattr(args, "task_id", None)
+    if getattr(args, "json", False):
+        plan = build_task_resume_plan(args.repo_root, task_id)
+        print(json.dumps(plan, sort_keys=True, indent=2, ensure_ascii=True))
+        return 0 if plan["task"]["task_id"] else 1
+    result, context = write_task_os_resume_plan(args.repo_root, task_id)
+    plan = context["resume_plan"]
     print("AIDE Lite task resume-plan")
-    print("result: PASS")
+    print(f"result: {'PASS' if plan['task']['task_id'] else 'MISSING_TASK'}")
     print(f"latest_task_id: {context.get('latest_task_id', '') or 'unknown'}")
+    print(f"latest_task_status: {context['latest_task_status']}")
+    print(f"recommendation: {plan['recommendation']}")
+    print(f"reason: {plan['reason']}")
     print(f"report: {TASK_OS_RESUME_PLAN_REPORT_PATH} ({result.action})")
-    print("safe_to_resume: true")
+    print("safe_to_resume: unknown")
+    print("execution_admitted: false")
     print("report_only: true")
-    return 0
+    return 0 if plan["task"]["task_id"] else 1
 
 
 def command_task_next_plan(args: argparse.Namespace) -> int:
@@ -39655,8 +40169,8 @@ def command_task_evidence(args: argparse.Namespace) -> int:
     return 0
 
 
-def task_view_read(repo_root: Path, relative: str, *, limit: int = 131072) -> bytes:
-    """Read one bounded ordinary repository record; never follow a link."""
+def task_view_reference_parts(relative: str) -> list[str]:
+    """Validate a public reference without reading its target."""
     parts = relative.replace("\\", "/").split("/")
     public_queue_record = (len(parts) == 4 and parts[:2] == [".aide", "queue"]
                            and parts[-1] in ("task.yaml", "status.yaml"))
@@ -39667,6 +40181,12 @@ def task_view_read(repo_root: Path, relative: str, *, limit: int = 131072) -> by
                    or part.lower().startswith(".env") for part in parts)
             or (not public_queue_record and install_rel_is_secret_like(relative))):
         raise ValueError("unsafe_reference")
+    return parts
+
+
+def task_view_read(repo_root: Path, relative: str, *, limit: int = 131072) -> bytes:
+    """Read one bounded ordinary repository record; never follow a link."""
+    parts = task_view_reference_parts(relative)
     path = repo_root.resolve()
     for part in parts:
         path /= part
@@ -39781,7 +40301,8 @@ def build_current_task_view(repo_root: Path, task_id: str | None = None) -> dict
         "status": "missing", "result": None, "objective": None, "owner": None,
         "next_action": None, "remaining_obligations": None, "scope": {},
         "declared_status": None, "index_status": None, "evidence": [], "sources": {},
-        "issues": issues, "read_only": True, "acceptance_verified": False}
+        "issues": issues, "read_only": True, "acceptance_verified": False,
+        "selection": {"mode": "unresolved", "source": None}}
     def observe(relative: str, *, optional: bool = False, limit: int = 131072) -> str:
         try:
             text = task_view_read(repo_root, relative, limit=limit).decode("utf-8-sig")
@@ -39803,9 +40324,13 @@ def build_current_task_view(repo_root: Path, task_id: str | None = None) -> dict
     try:
         if task_id is None:
             raw, explicit = task_packet_identity(packet_text)
+            view["selection"] = {"mode": "task_packet" if raw or explicit else "queue_fallback",
+                                 "source": LATEST_PACKET_PATH if raw or explicit else ".aide/queue/index.yaml"}
             if explicit and not raw:
                 raise ValueError("invalid declared task identity")
             task_id = current_task_id(repo_root) or ""
+        else:
+            view["selection"] = {"mode": "explicit_request", "source": "request"}
         if not task_id:
             return view
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", task_id):
@@ -39883,6 +40408,136 @@ def build_current_task_view(repo_root: Path, task_id: str | None = None) -> dict
     return view
 
 
+def build_task_resume_plan(repo_root: Path, task_id: str | None = None) -> dict[str, object]:
+    """Continuation advice over existing observations; never an execution grant."""
+    view = build_current_task_view(repo_root, task_id)
+    status = view["status"]
+    if not view["task_id"] or view["issues"] or any(
+            item["availability"] != "present" for item in view["evidence"]):
+        recommendation = "reconcile_records"
+        reason = "Resolve missing, conflicting or unreadable records; preserve original evidence."
+    elif status in ("passed", "passed_with_notes", "complete", "completed", "superseded"):
+        recommendation = "inspect_completed_evidence"
+        reason = "Inspect recorded acceptance scope and remaining obligations; reuse valid results without replay."
+    elif status in ("blocked", "paused", "deferred"):
+        recommendation = "inspect_unblock_condition"
+        reason = "Inspect the recorded blocker or pause; retry only after a relevant change. Independent work may continue."
+    elif status == "needs_review":
+        recommendation = "inspect_review_gate"
+        reason = "Inspect the existing review decision; passing checks alone do not close the gate."
+    elif status in ("running", "claimed", "failed", "interrupted"):
+        recommendation = "reconcile_attempt"
+        reason = "Determine completed, pending and uncertain effects and current ownership before another attempt."
+    elif status in ("pending", "planning"):
+        recommendation = "inspect_plan"
+        reason = "Inspect the recorded scope and dependencies before admission through the existing owner."
+    else:
+        recommendation = "reconcile_records"
+        reason = "The recorded status has no known continuation rule; inspect it without inferring readiness."
+    return {"schema_version": "aide.task-resume-plan.v1", "task": view,
+            "recommendation": recommendation, "reason": reason, "safe_to_resume": None,
+            "execution_admitted": False, "report_only": True, "read_only": True}
+
+
+def task_handoff_codec():
+    # Binding follows the executing CLI, never a module in the selected project.
+    path = Path(__file__).resolve().with_name("task_handoff.py")
+    _job_wait_root(str(path.parent))
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+            or getattr(info, "st_file_attributes", 0) & 0x400 or info.st_size > 64 * 1024):
+        raise ValueError("task handoff helper is not an ordinary bounded module")
+    spec = importlib.util.spec_from_file_location("aide_task_handoff", path)
+    module = importlib.util.module_from_spec(spec)
+    previous = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
+    return module
+
+
+def task_handoff_records(repo_root: Path, paths: list[str], *, inspection=False):
+    records = {}
+    for path in paths:
+        try:
+            records[path] = task_view_read(repo_root, path)
+        except FileNotFoundError:
+            records[path] = None
+        except (OSError, ValueError):
+            if not inspection:
+                raise ValueError("unsafe or unreadable task record: " + path)
+            records[path] = "unsafe_or_unreadable"
+    return records
+
+
+def validate_handoff_identity(bundle):
+    selected = bundle["task_id"]
+    for name in ("task.yaml", "status.yaml"):
+        path = f".aide/queue/{selected}/{name}"
+        item = bundle["records"][path]
+        if item["state"] == "missing":
+            continue
+        issues = []
+        fields = task_view_fields(item["text"].lstrip("\ufeff"), path, issues)
+        if ((name == "task.yaml" and fields.get("id") != selected)
+                or any(fields[key] != selected for key in ("id", "task_id") if key in fields)
+                or any(x["field"] in ("id", "task_id") for x in issues)):
+            raise ValueError("handoff_record_identity_mismatch")
+
+
+def command_task_handoff_export(args: argparse.Namespace) -> int:
+    codec = task_handoff_codec()
+    paths = codec.record_paths(args.task_id)
+    before = task_handoff_records(args.repo_root, paths)
+    if before[paths[0]] is None:
+        raise ValueError("task record missing")
+    continuation = build_task_resume_plan(args.repo_root, args.task_id)
+    if continuation["task"]["task_id"] != args.task_id:
+        raise ValueError("task identity could not be observed")
+    records = {path: codec.record(raw) for path, raw in before.items()}
+    for path, item in records.items():
+        if item["text"] is not None and any(f.severity == "ERROR" for f in scan_secret_text(item["text"], path)):
+            raise ValueError("secret-like task content refused")
+    commit = safe_git_head_commit(args.repo_root)
+    bundle = {"schema_version": codec.SCHEMA, "required_features": sorted(codec.REQUIRED),
+              "task_id": args.task_id, "records": records,
+              "source": {"git_head": commit if re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", commit) else None},
+              "continuation": continuation, "read_only": True, "execution_admitted": False}
+    validate_handoff_identity(bundle)
+    data = codec.encode(bundle)
+    if before != task_handoff_records(args.repo_root, paths):
+        raise ValueError("task records changed during export")
+    print(data.decode("ascii"), end="")
+    return 0
+
+
+def command_task_handoff_inspect(args: argparse.Namespace) -> int:
+    codec = task_handoff_codec()
+    raw = task_view_read(args.repo_root, args.bundle, limit=codec.MAX_BUNDLE)
+    bundle = codec.decode(raw, args.sha256)
+    validate_handoff_identity(bundle)
+    local = task_handoff_records(args.repo_root, codec.record_paths(bundle["task_id"]), inspection=True)
+    data = {"schema_version": "aide.task-handoff-inspection.v1", "task_id": bundle["task_id"],
+            "bundle_sha256": codec.sha(raw), "records": codec.compare(bundle, local),
+            "captured_observation": bundle, "read_only": True, "execution_admitted": False,
+            "authorship_verified": False, "evidence_applicability_verified": False,
+            "safe_to_resume": None,
+            "next_action": "Inspect recorded obligations and reconcile current ownership before continuation."}
+    if args.json:
+        print(json.dumps(data, indent=2, ensure_ascii=True))
+    else:
+        print("AIDE Lite task handoff inspection")
+        print("task_id: " + bundle["task_id"])
+        for item in data["records"]:
+            print(item["comparison"] + ": " + item["path"])
+        print("safe_to_resume: unknown")
+        print("Captured text is untrusted observation; no import or authority transfer.")
+        print("next_action: " + data["next_action"])
+    return 0
+
+
 def command_task_current(args: argparse.Namespace) -> int:
     view = build_current_task_view(args.repo_root, getattr(args, "task_id", None))
     if getattr(args, "json", False):
@@ -39891,6 +40546,7 @@ def command_task_current(args: argparse.Namespace) -> int:
         print("AIDE Lite task current")
         print(f"task_id: {view['task_id']}")
         print(f"status: {view['status']}")
+        print("selection: " + json.dumps(view["selection"], sort_keys=True))
         for key in ("result", "objective", "owner", "next_action", "remaining_obligations"):
             print(f"{key}: {view[key] if view[key] is not None else 'unknown'}")
         print("scope: " + json.dumps(view["scope"], sort_keys=True))
@@ -39899,6 +40555,114 @@ def command_task_current(args: argparse.Namespace) -> int:
         if view["issues"]:
             print("issues: " + ", ".join(sorted({item["code"] for item in view["issues"]})))
     return 0 if view["task_id"] else 1
+
+
+def build_task_development_brief(repo_root: Path, task_id: str, path: str) -> dict[str, object]:
+    """Compose existing advisory readers for one explicit task and file."""
+    boundary = {"schema_version": "aide.task-brief.v1", "read_only": True,
+                "execution_admitted": False, "acceptance_verified": False,
+                "usage_coverage": "unknown", "snapshot": "bounded_sequential_observations"}
+
+    def refused(reason):
+        return {**boundary, "result": "REFUSED", "reason": reason,
+                "next_action": "reconcile the selected records before requesting another brief"}
+
+    try:
+        if not isinstance(task_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", task_id):
+            return refused("an explicit exact task identity is required")
+        outcome_lessons_codec().relative_path(path)
+        task_view_reference_parts(path)
+        task_ref = f".aide/queue/{task_id}/task.yaml"
+        status_ref = f".aide/queue/{task_id}/status.yaml"
+
+        def records():
+            observed = {}
+            for ref, limit in ((task_ref, 131072), (status_ref, 131072), (".aide/queue/index.yaml", 1048576)):
+                try:
+                    observed[ref] = task_view_read(repo_root, ref, limit=limit)
+                except FileNotFoundError:
+                    observed[ref] = None
+            return observed
+
+        before = records()
+        continuation = build_task_resume_plan(repo_root, task_id)
+        task = continuation["task"]
+        if task["task_id"] != task_id or task["issues"] or before[task_ref] is None or before[status_ref] is None:
+            return refused("selected task records are missing, conflicting or invalid")
+        quality = build_quality_file_explanation(repo_root, path)
+        try:
+            lessons = build_outcome_lessons(repo_root, path)
+            lesson_state = lessons["ledger_state"]
+        except (OSError, ValueError, RecursionError):
+            lessons = None
+            lesson_state = "invalid"
+        if before != records():
+            return refused("selected task records changed while assembling the brief")
+        partial = (quality["result"] != "PASS" or lesson_state != "observed"
+                   or any(item["availability"] != "present" for item in task["evidence"]))
+        invalid = quality["result"] == "INVALID" or lesson_state == "invalid"
+        result = {**boundary, "result": "PARTIAL" if partial else "OBSERVED", "path": path,
+                  "continuation": continuation, "quality": quality, "lessons": lessons,
+                  "lesson_state": lesson_state,
+                  "task_record_sha256s": {ref: hashlib.sha256(data).hexdigest() if data is not None else None
+                                         for ref, data in before.items()},
+                  "scope_ref": task_ref,
+                  "next_action": "reconcile invalid auxiliary records" if invalid else continuation["recommendation"],
+                  "limitations": ["No edit permission or task acceptance is established.",
+                                  "Quality links are incomplete and their freshness is unverified; do not narrow required checks.",
+                                  "Lessons retain unverified authorship and semantic correctness.",
+                                  "Missing information does not establish absence; no indexes were generated."]}
+        if len(json.dumps(result, ensure_ascii=True, allow_nan=False).encode("ascii")) > 65536:
+            return refused("brief exceeds the 64 KiB output bound; inspect the component views separately")
+        return result
+    except (OSError, ValueError, RecursionError):
+        return refused("unsafe, unreadable or invalid selected input")
+
+
+def render_task_development_brief(data: dict[str, object]) -> str:
+    def quote(value, limit=320):
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=True)
+        omitted = max(0, len(text) - limit)
+        return json.dumps(text[:limit], ensure_ascii=True) + (f" (+{omitted} characters; see --json)" if omitted else "")
+
+    lines = ["AIDE Lite task brief", "observation: " + data["result"]]
+    if data["result"] == "REFUSED":
+        return "\n".join([*lines, "reason: " + data["reason"], "next_action: " + data["next_action"]])
+    continuation = data["continuation"]
+    task = continuation["task"]
+    lines.extend(["task: " + quote(task["task_id"]), "file: " + quote(data["path"])])
+    for key in ("objective", "status", "result", "owner", "next_action", "remaining_obligations"):
+        lines.append("recorded_" + key + ": " + quote(task[key] if task[key] is not None else "unknown"))
+    lines.extend(["continuation: " + continuation["recommendation"], "reason: " + continuation["reason"],
+                  "scope_ref: " + quote(data["scope_ref"]), "file_owner: " + quote(data["quality"].get("owner", "unknown")),
+                  "quality: " + data["quality"]["result"] + "; freshness unverified; coverage incomplete"])
+    for name, relation in data["quality"].get("relations", {}).items():
+        lines.append(name + ": " + quote(relation["state"]) + "; " + relation["reason"])
+        lines.extend("- " + quote(ref) for ref in relation["items"][:3])
+        lines.append("omitted: " + str(relation["omitted"] + max(0, len(relation["items"]) - 3)))
+    reuse = data["quality"].get("reuse", {})
+    lines.append("reuse: " + quote(reuse.get("state", "unknown")) + "; inspect --json for candidates")
+    for item in reuse.get("items", [])[:3]:
+        lines.append("- " + item["reason"] + ": " + quote(item["match"]) + "; peers: "
+                     + quote(item["peers"]["items"][:3]))
+    lines.append("omitted reuse candidates: " + str(reuse.get("omitted", 0) + max(0, len(reuse.get("items", [])) - 3)))
+    lines.append("task evidence: " + (", ".join(quote(item["field"]) + "=" + quote(item["availability"])
+                                             for item in task["evidence"]) or "unknown"))
+    lessons = data["lessons"] or {"selected": [], "excluded": []}
+    lines.append("lessons: " + data["lesson_state"] + f"; {len(lessons['selected'])} selected; {len(lessons['excluded'])} excluded")
+    lines.extend("- " + quote(item["id"]) + f" revision {item['revision']}: " + quote(item["lesson"]["summary"])
+                 for item in lessons["selected"][:3])
+    lines.append("omitted lessons: " + str(max(0, len(lessons["selected"]) - 3)) + "; exclusion reasons and hashes: --json")
+    lines.extend(["next_action: " + data["next_action"], "usage: unknown; no execution or acceptance authority",
+                  *data["limitations"]])
+    return "\n".join(lines)
+
+
+def command_task_brief(args: argparse.Namespace) -> int:
+    data = build_task_development_brief(args.repo_root, args.task_id, args.path)
+    print(json.dumps(data, ensure_ascii=True, sort_keys=True, separators=(",", ":")) if args.json
+          else render_task_development_brief(data))
+    return {"OBSERVED": 0, "PARTIAL": 2, "REFUSED": 1}[data["result"]]
 
 
 def command_blocker_status(args: argparse.Namespace) -> int:
@@ -40207,6 +40971,93 @@ def command_git_prune(args: argparse.Namespace) -> int:
     return 0 if dry_run or plan.get("status") == "applied" else 1
 
 
+def outcome_lessons_codec():
+    # Bind to the executing distribution, never a selected project's module.
+    path = Path(__file__).resolve().with_name("outcome_lessons.py")
+    _job_wait_root(str(path.parent))
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+            or getattr(info, "st_file_attributes", 0) & 0x400 or info.st_size > 65536):
+        raise ValueError("outcome lesson helper is not an ordinary bounded module")
+    spec = importlib.util.spec_from_file_location("aide_outcome_lessons", path)
+    module = importlib.util.module_from_spec(spec)
+    previous = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
+    return module
+
+
+def build_outcome_lessons(repo_root: Path, path: str) -> dict[str, object]:
+    codec = outcome_lessons_codec()
+    codec.relative_path(path)
+    try:
+        raw = task_view_read(repo_root, OUTCOME_LEDGER_PATH, limit=codec.MAX_LEDGER)
+    except FileNotFoundError:
+        result = codec.select([], path, None)
+        return {**result, "ledger_state": "missing", "ledger_sha256": None}
+    lines = raw.decode("utf-8").splitlines()
+    if len(lines) > 2048:
+        raise ValueError("outcome lesson ledger row limit exceeded")
+    records = []
+    for number, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        try:
+            data = json.loads(line, object_pairs_hook=_outcome_json_object,
+                              parse_constant=_outcome_json_constant)
+            json.dumps(data, allow_nan=False)
+            outcome_record_from_dict(data)
+            records.append(data)
+        except (TypeError, ValueError, RecursionError) as exc:
+            raise ValueError(f"invalid lesson ledger row {number}: {type(exc).__name__}") from exc
+    observations = {}
+
+    def read_evidence(relative):
+        try:
+            data = task_view_read(repo_root, relative, limit=codec.MAX_EVIDENCE)
+            return "observed", hashlib.sha256(data).hexdigest()
+        except FileNotFoundError:
+            return "missing", None
+        except (OSError, ValueError):
+            return "unsafe_or_unreadable", None
+
+    def observe(relative):
+        if relative not in observations:
+            if len(observations) >= 128:
+                raise ValueError("lesson evidence read limit exceeded")
+            observations[relative] = read_evidence(relative)
+        return observations[relative]
+
+    try:
+        result = codec.select(records, path, observe)
+    except (RecursionError, TypeError) as exc:
+        raise ValueError("invalid lesson metadata structure") from exc
+    if raw != task_view_read(repo_root, OUTCOME_LEDGER_PATH, limit=codec.MAX_LEDGER):
+        raise ValueError("outcome ledger changed during lesson selection")
+    if any(read_evidence(relative) != value for relative, value in observations.items()):
+        raise ValueError("lesson evidence changed during selection")
+    return {**result, "ledger_state": "observed", "ledger_sha256": hashlib.sha256(raw).hexdigest()}
+
+
+def command_outcome_lessons(args: argparse.Namespace) -> int:
+    result = build_outcome_lessons(args.repo_root, args.path)
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=True))
+    else:
+        print("AIDE Lite outcome lessons")
+        print("ledger: " + result["ledger_state"])
+        print(f"selected: {len(result['selected'])}; excluded: {len(result['excluded'])}")
+        for item in result["selected"]:
+            print(f"- {item['id']} revision {item['revision']}: " + json.dumps(item["lesson"]["summary"], ensure_ascii=True))
+        for item in result["excluded"]:
+            print(f"- {item['id']} revision {item['revision']}: {item['reason']}")
+        print("Advisory observations only; no authorship, semantic correctness or execution authority established.")
+    return 0
+
+
 def command_outcome_add(args: argparse.Namespace) -> int:
     record = make_outcome_record(
         args.repo_root,
@@ -40220,6 +41071,9 @@ def command_outcome_add(args: argparse.Namespace) -> int:
         run_id=args.run_id,
     )
     existing = read_outcome_records(args.repo_root)
+    replaced = [item for item in existing
+                if (item.run_id, item.phase, item.source) == (record.run_id, record.phase, record.source)]
+    record = preserve_outcome_metadata(replaced, [record])[0]
     retained = [
         item
         for item in existing
@@ -41017,6 +41871,19 @@ def copy_pack_file(source: Path, destination: Path) -> WriteResult:
     return write_bytes_if_changed(destination, source.read_bytes())
 
 
+def portable_cli_text(source: str) -> str:
+    """Bind the delivered CLI at build time; never discover target-owned code."""
+    prefix = "WORK_EFFORT_MODULE_PATH = "
+    source_binding = prefix + json.dumps("core/execution/work_effort.py")
+    delivered_binding = prefix + json.dumps(PORTABLE_WORK_EFFORT_MODULE_PATH)
+    lines = source.splitlines()
+    bindings = [line for line in lines if line.startswith(prefix)]
+    if len(bindings) != 1 or bindings[0] not in (source_binding, delivered_binding):
+        raise ValueError("portable CLI work effort binding is missing or changed")
+    return "\n".join(delivered_binding if line == bindings[0] else line
+                     for line in lines) + "\n"
+
+
 def portable_agents_template() -> str:
     return """<!-- AIDE-PORTABLE:BEGIN section=aide-lite-pack-v0 mode=managed -->
 ## AIDE Lite Portable Guidance
@@ -41503,6 +42370,12 @@ def build_export_pack(repo_root: Path, name: str = EXPORT_PACK_ID, output: str |
                 and not validate_export_pack_boundary(pack_root)):
             prior_source = candidate
             prior_checksums = json.loads(read_text(pack_root / "checksums.json"))
+    # Validate the explicit source binding and its dependency before resetting
+    # a previously generated pack. A missing dependency must not yield a CLI
+    # which searches a consumer's project-owned core directory.
+    cli_source = repo_root / ".aide/scripts/aide_lite.py"
+    projected_cli = portable_cli_text(read_text(cli_source))
+    read_text(repo_root / "core/execution/work_effort.py")
     reset_export_contents(pack_root)
     files_root = pack_root / "files"
     files_root.mkdir(parents=True, exist_ok=True)
@@ -41511,7 +42384,10 @@ def build_export_pack(repo_root: Path, name: str = EXPORT_PACK_ID, output: str |
     copied: list[str] = []
     for rel in source_files:
         destination = files_root / rel
-        copy_pack_file(repo_root / rel, destination)
+        if rel == ".aide/scripts/aide_lite.py":
+            write_text_if_changed(destination, projected_cli)
+        else:
+            copy_pack_file(repo_root / rel, destination)
         copied.append(pack_rel(destination, pack_root))
 
     for template_source, destination_rel in PORTABLE_TEMPLATE_MAP.items():
@@ -44821,8 +45697,35 @@ def _write_minimal_repo(root: Path) -> None:
         write_text(root / rel, read_text(source) if source.exists() else f"schema_version: {rel}\n")
     for rel in Q14_REQUIRED_FILES:
         source = source_root / rel
-        if source.exists():
+        if rel == TOKEN_LEDGER_PATH:
+            # Measure this fixture's artifacts; source history is not evidence
+            # that this independent fixture contains every required surface.
+            write_text(root / rel, "")
+        elif source.exists():
             write_text(root / rel, read_text(source))
+        elif rel == TOKEN_BASELINES_PATH:
+            # Source reports are intentionally absent from portable packs. These
+            # synthetic inputs belong only to this disposable self-test fixture.
+            write_text(root / rel, """schema_version: aide.token-baselines.v0
+method: chars_divided_by_4
+all_baselines_are_estimates: true
+baselines:
+  - name: root_history_baseline
+    purpose: Synthetic self-test document baseline.
+    paths:
+      - README.md
+      - AGENTS.md
+  - name: review_baseline
+    purpose: Synthetic self-test review baseline.
+    paths:
+      - .aide/context/latest-task-packet.md
+      - .aide/context/latest-context-packet.md
+  - name: repo_context_baseline
+    purpose: Synthetic self-test context baseline.
+    paths:
+      - README.md
+      - AGENTS.md
+""")
         elif rel.endswith(".jsonl"):
             write_text(root / rel, "")
         else:
@@ -44856,6 +45759,10 @@ def _write_minimal_repo(root: Path) -> None:
             rel = normalize_rel(source.relative_to(source_root))
             write_text(root / rel, read_text(source))
     for rel in Q18_REQUIRED_FILES:
+        if rel == ".gitignore":
+            # Already copied or initialized above; a placeholder would erase
+            # the fixture's local-state rules when the source pack omits it.
+            continue
         source = source_root / rel
         if source.exists() and source.is_file():
             write_text(root / rel, read_text(source))
@@ -45150,7 +46057,10 @@ def run_selftest() -> tuple[bool, list[str]]:
         policy_findings = scan_secret_text("Mention api_key as policy text only.\n", ".aide/test.md")
         assert not any(finding.severity == "ERROR" for finding in policy_findings)
         verification = build_verification_report(root, task_packet_path=LATEST_PACKET_PATH)
-        assert verification.result in {"PASS", "WARN"}, verification.result
+        assert verification.result in {"PASS", "WARN"}, [
+            (finding.check, finding.message, finding.path)
+            for finding in verification.findings if finding.severity in {"ERROR", "FAIL"}
+        ]
         rendered_report = render_verification_report(verification)
         assert "## VERIFIER_RESULT" in rendered_report
         assert "print('hello')" not in rendered_report
@@ -45169,7 +46079,8 @@ def run_selftest() -> tuple[bool, list[str]]:
         selftest_record = ledger_record_for_file(root, LATEST_PACKET_PATH, surface="task_packet", run_id="selftest")
         assert selftest_record.approx_tokens > 0
         assert selftest_record.budget_status in {"within_budget", "near_budget", "over_budget"}
-        ledger_result, merged_records, old_records = merge_ledger_records(root, [selftest_record], "selftest")
+        fixture_records = build_ledger_scan_records(root, run_id="selftest")
+        ledger_result, merged_records, old_records = merge_ledger_records(root, fixture_records, "selftest")
         assert ledger_result.action in {"written", "unchanged"}
         assert not old_records or all("raw" not in record.path.lower() for record in old_records)
         read_records = read_ledger_records(root)
@@ -45189,7 +46100,10 @@ def run_selftest() -> tuple[bool, list[str]]:
         definitions = parse_golden_task_catalog(root)
         assert len(definitions) >= 5
         eval_run = run_golden_tasks(root, task_ids=SELFTEST_GOLDEN_TASK_IDS)
-        assert eval_run.result in {"PASS", "WARN"}, ", ".join(task.task_id for task in eval_run.tasks if task.result == "FAIL")
+        assert eval_run.result in {"PASS", "WARN"}, [
+            (task.task_id, task.errors)
+            for task in eval_run.tasks if task.result == "FAIL"
+        ]
         json_result, md_result = write_golden_run_reports(root, eval_run)
         assert json_result.action in {"written", "unchanged"}
         assert md_result.action in {"written", "unchanged"}
@@ -45890,6 +46804,99 @@ def summarize_codex_usage_attempts(path: Path) -> dict[str, object]:
             "coverage_gaps": sorted(gaps), "raw_prompt_or_response_retained": False}
 
 
+def _work_effort_path(root: Path, relative: object) -> Path:
+    if (not isinstance(relative, str) or len(relative) > 240
+            or not re.fullmatch(r"[A-Za-z0-9._/-]+", relative)
+            or any(part in ("", ".", "..") for part in relative.split("/"))):
+        raise ValueError("work effort requires an explicit contained relative path")
+    path = root / relative
+    _job_wait_root(str(path.parent))
+    return path
+
+
+def _work_effort_module():
+    # Implementation belongs to this CLI, never to the observed evidence root.
+    path = Path(__file__).resolve().parents[2] / WORK_EFFORT_MODULE_PATH
+    _job_wait_root(str(path.parent))
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+            or getattr(info, "st_file_attributes", 0) & 0x400 or info.st_size > 64 * 1024):
+        raise ValueError("work effort implementation is not an ordinary bounded module")
+    spec = importlib.util.spec_from_file_location("aide_work_effort_view", path)
+    module = importlib.util.module_from_spec(spec)
+    previous = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
+    return module
+
+
+def summarize_work_effort(repo_root: Path, work_set: str) -> dict[str, object]:
+    """Read only pinned supplied records; no session discovery or receipt paths."""
+    root = _job_wait_root(str(repo_root))
+    module = _work_effort_module()
+
+    def read(relative, maximum, expected=None):
+        result = _job_wait_read_json(_work_effort_path(root, relative), maximum)
+        if result is None:
+            raise ValueError("supplied work effort input is missing")
+        if expected is not None and result[1] != expected:
+            raise ValueError("supplied work effort digest mismatch")
+        return result
+
+    manifest, manifest_sha = read(work_set, 64 * 1024)
+    module.validate_work_set(manifest)
+    observations = []
+    for entry in manifest["receipts"]:
+        receipt, digest = read(entry["path"], 256 * 1024, entry["sha256"])
+        observations.append((receipt, digest, entry["phase"]))
+    usage = None
+    reference = manifest["usage_roster"]
+    if reference is not None:
+        roster, roster_sha = read(reference["path"], 64 * 1024, reference["sha256"])
+        if roster.get("work_id") != manifest["work_id"]:
+            raise ValueError("usage roster work identity mismatch")
+        roster_path = _work_effort_path(root, reference["path"])
+        attempts = roster.get("attempts")
+        if not isinstance(attempts, list) or not 1 <= len(attempts) <= 8:
+            raise ValueError("invalid usage roster attempts")
+        # The existing importer validates the roster and stream contents. Check
+        # ancestor redirections before its resolve(), without implementing counters.
+        for attempt in attempts:
+            if not isinstance(attempt, dict):
+                raise ValueError("invalid usage roster attempt")
+            if attempt.get("stream") is not None:
+                path = _work_effort_path(roster_path.parent, attempt["stream"])
+                info = path.lstat()
+                if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                        or getattr(info, "st_file_attributes", 0) & 0x400):
+                    raise ValueError("usage stream is redirected or not ordinary")
+        usage = summarize_codex_usage_attempts(roster_path)
+        if usage["roster_sha256"] != roster_sha or usage["work_id"] != manifest["work_id"]:
+            raise ValueError("usage roster changed during observation")
+    report = module.summarize(manifest["work_id"], observations, manifest_sha, usage)
+    if len(json.dumps(report).encode("utf-8")) > 64 * 1024:
+        raise ValueError("work effort output exceeds bound")
+    return report
+
+
+def command_job_effort(args: argparse.Namespace) -> int:
+    try:
+        report = summarize_work_effort(args.repo_root, args.work_set)
+    except (OSError, ValueError, RecursionError):
+        report = {"schema": "aide.work-effort.v1", "status": "REFUSED",
+                  "reason": "Invalid, missing, redirected, oversized or conflicting supplied evidence; check pins and schema."}
+    if args.json:
+        print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+    elif report["status"] == "REFUSED":
+        print("AIDE work effort: REFUSED\n" + report["reason"])
+    else:
+        print(_work_effort_module().human_report(report))
+    return 1 if report["status"] == "REFUSED" else 2
+
+
 def command_job_usage(args: argparse.Namespace) -> int:
     try:
         if getattr(args, "attempt_set", None):
@@ -46238,7 +47245,10 @@ def command_test_tier_plan(args: argparse.Namespace) -> int:
 def command_test_impact_plan(args: argparse.Namespace) -> int:
     json_result, md_result, plan = write_test_impact_plan(args.repo_root, args.from_ref)
     print("AIDE Lite test impact-plan")
-    print("result: PASS")
+    print("result: WARN" if plan["changed_path_observation"] == "incomplete" else "result: PASS")
+    print(f"changed_path_observation: {plan['changed_path_observation']}")
+    print(f"mapping_coverage: {plan['mapping_coverage']}")
+    print(f"next_action: {plan['next_action']}")
     print(f"from_ref: {args.from_ref}")
     print(f"recommended_tier: {plan['recommended_tier']}")
     print(f"changed_paths: {len(plan.get('changed_paths', [])) if isinstance(plan.get('changed_paths'), list) else 0}")
@@ -46305,7 +47315,11 @@ def build_parser(default_repo_root: Path) -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("doctor").set_defaults(handler=command_doctor)
-    subparsers.add_parser("validate").set_defaults(handler=command_validate)
+    validate_parser = subparsers.add_parser("validate")
+    validate_output = validate_parser.add_mutually_exclusive_group()
+    validate_output.add_argument("--full", action="store_true", help="Print every check in the legacy text format.")
+    validate_output.add_argument("--json", action="store_true", help="Print one JSON object containing every check.")
+    validate_parser.set_defaults(handler=command_validate)
 
     estimate_parser = subparsers.add_parser("estimate")
     estimate_parser.add_argument("--file", required=True)
@@ -46461,6 +47475,7 @@ def build_parser(default_repo_root: Path) -> argparse.ArgumentParser:
     quality_subparsers.add_parser("status").set_defaults(handler=command_quality_status)
     quality_explain_parser = quality_subparsers.add_parser("explain-file")
     quality_explain_parser.add_argument("path")
+    quality_explain_parser.add_argument("--json", action="store_true", help="emit the read-only evidence projection as JSON")
     quality_explain_parser.set_defaults(handler=command_quality_explain_file)
     quality_subparsers.add_parser("docs").set_defaults(handler=command_quality_docs)
     quality_subparsers.add_parser("tests").set_defaults(handler=command_quality_tests)
@@ -46620,7 +47635,10 @@ def build_parser(default_repo_root: Path) -> argparse.ArgumentParser:
     task_subparsers.add_parser("classify").set_defaults(handler=command_task_classify)
     task_subparsers.add_parser("repair-plan").set_defaults(handler=command_task_repair_plan)
     task_subparsers.add_parser("requeue-plan").set_defaults(handler=command_task_requeue_plan)
-    task_subparsers.add_parser("resume-plan").set_defaults(handler=command_task_resume_plan)
+    task_resume_parser = task_subparsers.add_parser("resume-plan")
+    task_resume_parser.add_argument("--task-id", help="Select an existing WorkUnit instead of the latest packet")
+    task_resume_parser.add_argument("--json", action="store_true", help="Inspect without writing the legacy report")
+    task_resume_parser.set_defaults(handler=command_task_resume_plan)
     task_next_plan_parser = task_subparsers.add_parser("next-plan")
     task_next_plan_parser.add_argument("--write-report", action="store_true", help="Explicitly refresh the tracked Task OS next-plan report")
     task_next_plan_parser.set_defaults(handler=command_task_next_plan)
@@ -46641,6 +47659,23 @@ def build_parser(default_repo_root: Path) -> argparse.ArgumentParser:
     task_current_parser.add_argument("--task-id", help="Queue task id. Defaults to current/latest task.")
     task_current_parser.add_argument("--json", action="store_true", help="Emit a bounded read-only task observation as JSON.")
     task_current_parser.set_defaults(handler=command_task_current)
+
+    task_brief_parser = task_subparsers.add_parser("brief")
+    task_brief_parser.add_argument("--task-id", required=True, help="Exact existing task identity.")
+    task_brief_parser.add_argument("--path", required=True, help="One canonical repository-relative file path.")
+    task_brief_parser.add_argument("--json", action="store_true", help="Show component observations and limitations.")
+    task_brief_parser.set_defaults(handler=command_task_brief)
+
+    handoff_parser = task_subparsers.add_parser("handoff")
+    handoff_commands = handoff_parser.add_subparsers(dest="handoff_command", required=True)
+    handoff_export = handoff_commands.add_parser("export")
+    handoff_export.add_argument("--task-id", required=True)
+    handoff_export.set_defaults(handler=command_task_handoff_export)
+    handoff_inspect = handoff_commands.add_parser("inspect")
+    handoff_inspect.add_argument("--bundle", required=True, help="Repository-relative ordinary JSON file")
+    handoff_inspect.add_argument("--sha256", required=True, help="Expected exact bundle SHA-256")
+    handoff_inspect.add_argument("--json", action="store_true")
+    handoff_inspect.set_defaults(handler=command_task_handoff_inspect)
 
     blocker_parser = subparsers.add_parser("blocker")
     blocker_subparsers = blocker_parser.add_subparsers(dest="blocker_command", required=True)
@@ -47292,6 +48327,10 @@ def build_parser(default_repo_root: Path) -> argparse.ArgumentParser:
     outcome_add_parser.set_defaults(handler=command_outcome_add)
 
     outcome_subparsers.add_parser("report").set_defaults(handler=command_outcome_report)
+    outcome_lessons_parser = outcome_subparsers.add_parser("lessons", help="Read current source-linked advice for one exact project path.")
+    outcome_lessons_parser.add_argument("--path", required=True)
+    outcome_lessons_parser.add_argument("--json", action="store_true")
+    outcome_lessons_parser.set_defaults(handler=command_outcome_lessons)
 
     optimize_parser = subparsers.add_parser("optimize")
     optimize_subparsers = optimize_parser.add_subparsers(dest="optimize_command", required=True)
@@ -47433,6 +48472,10 @@ def build_parser(default_repo_root: Path) -> argparse.ArgumentParser:
     usage_source.add_argument("--stream", action="append", help="Ordinary Codex exec --json file; repeat at most eight times.")
     usage_source.add_argument("--attempt-set", help="Bounded attributed attempt roster JSON; complete-work coverage remains unknown.")
     usage_parser.set_defaults(handler=command_job_usage)
+    effort_parser = job_subparsers.add_parser("effort", help="Observe pinned work receipts; incomplete accounting stays unknown.")
+    effort_parser.add_argument("--work-set", required=True, help="Repo-relative bounded JSON manifest of receipt paths, hashes and phases.")
+    effort_parser.add_argument("--json", action="store_true", help="Machine-readable identities, observations and unknowns.")
+    effort_parser.set_defaults(handler=command_job_effort)
     job_subparsers.add_parser("context", help="Summarize one supplied Codex prompt-input JSON stream without retaining text or starting a model.").set_defaults(handler=command_job_context)
     setup_parser = job_subparsers.add_parser("setup")
     setup_parser.add_argument("--config", required=True, help="Machine-local output config in an approved checkout.")

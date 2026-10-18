@@ -7,6 +7,10 @@ planning:
   proof_status: plan_not_proof
   changed_path_source: git diff --name-only <from>...HEAD
   target_test_execution: false
+  incomplete_observation: preserve_known_paths_require_reconciliation
+  incomplete_observation_tier: T2_advisory_not_complete_coverage
+  endpoint_fallback: retain_original_observation_failure
+  mapping_coverage: heuristic_incomplete
   target_specific_preservation: true
   must_not_overwrite_target_manifests: true
 

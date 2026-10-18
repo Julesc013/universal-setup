@@ -204,7 +204,10 @@ class Q27CommitRecoveryTests(unittest.TestCase):
         self.assertIn("commit check --message-file", hook)
         self.assertIn("provider", hook.lower())
         self.assertIn("network", hook.lower())
-        self.assertIn("## Changelog", template)
+        self.assertIn("Changelog:", template)
+        self.assertIn("AIDE-Format: compact-v1", template)
+        self.assertNotIn("## Changelog", template)
+        self.assertEqual(self.result_for(template.replace("<queue-id>", "EXAMPLE-01")), "PASS")
         self.assertNotIn("OPENAI_API_KEY=", hook)
         self.assertNotIn("BEGIN PRIVATE KEY", template)
 

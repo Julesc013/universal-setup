@@ -57,7 +57,7 @@ py -3 .aide/scripts/aide_lite.py release publication-boundary
 Those commands generate review material only. They do not create tags, call
 GitHub APIs, upload assets, or publish releases.
 
-## Separate First-Stable Candidate
+## Stable Candidates and Preserved Releases
 
 The bounded release-effect WorkUnit adds a separate candidate path. From a
 clean source checkout with a validated, clean-provenance export pack, run the
@@ -68,9 +68,11 @@ py -3 -B .aide/scripts/aide_lite.py release stable-build --version 1.0.0
 py -3 -B .aide/scripts/aide_lite.py release stable-validate --version 1.0.0
 ```
 
-`stable-build` permits only the conditional first stable `1.0.0` candidate;
-the actual version still depends on fresh tag/release history at freeze. It
-does not decide whether to publish. The command writes versioned ZIP/tar,
+Lite `1.0.0` is published. The commands above describe its original build route;
+an existing version tag now prevents rebuilding it. A successor uses the same
+commands with its explicitly declared candidate version. The actual version still
+depends on fresh tag/release history and the frozen contract. The builder does
+not decide whether to publish. The command writes versioned ZIP/tar,
 an immutable asset manifest and SHA256SUMS under `.aide/release/stable/`,
 leaving Q47/Q48 `dist/` previews untouched. Each archive retains the portable
 pack root and adds `stable-release.json` with version, profile, source commit
@@ -83,6 +85,40 @@ The final supported Windows environment, warning disposition, consumer
 qualification, independent release `ACCEPT`, main/tag/publication and
 downloaded-byte verification belong to the separate release-effect record.
 Do not upload the Q47/Q48 preview metadata as stable release evidence.
+
+The source-maintainer declaration `.aide/release/successor-candidate.json`,
+referenced by the versioning policy, currently proposes `1.1.0`. It adds 18 CLI
+forms to the original 38; this is a qualification plan, not a support claim.
+Current-task and continuation views, Git policy/detection/planning, engineering
+review and reuse views, and supplied-work effort observations are the proposed
+additions. Git observations do not grant branch mutation. Missing effort remains
+unknown; continuation advice does not admit execution. The declaration and old
+assets are maintainer inputs, not project-owned state to install into consumers.
+
+The strict declaration names one immediate predecessor and pins every retained
+published asset. It accepts at most 32 ordinary, single-link files, each at most
+8 MiB and together at most 32 MiB; metadata is bounded to 64 KiB. Missing files,
+unknown members, duplicate fields, aliases, changed digests, unsupported lineage
+or a changed local predecessor tag refuse before candidate writes. A successor
+must increase within the same major; added public forms require a minor increase.
+All predecessor forms remain present. A major transition needs a separately
+reviewed migration design. The local tag check is not proof of remote publication.
+
+Historical manifests and checksum files are checked against their pinned bytes.
+They are not validated as if they were produced by today's pack or version policy.
+The new manifest and both embedded markers bind the successor declaration digest,
+current pack provenance and exact immediate predecessor identity. Earlier preserved
+versions stay byte-identical. Candidate-only replay or repair is allowed before its
+tag exists; validation never grants a right to replace published bytes.
+
+`stable-validate` checks a candidate against its current declared inputs. Use the
+retained publication/acquisition evidence for historical claims. Before a new
+release, qualify the actual published `1.0.0` predecessor, customization and direct
+edits, a real upstream conflict and recorded resolution, interruption and rollback
+recovery, the original eight consumer families and all 56 proposed forms. Preserve
+any failures. Source fixtures and development-pack tests do not discharge these
+release obligations. Exact independent release ACCEPT, remote publication and
+downloaded-byte consumer checks remain separate gates.
 
 ## Artifact Layout
 

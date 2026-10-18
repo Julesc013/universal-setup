@@ -1,55 +1,10 @@
-# Commit Template
+fix(component): describe the resulting behavior
 
-Use this shape for AIDE-managed commits:
+Explain the concrete problem and why this change solves it. Add bullets
+only for distinct effects. Include material compatibility or recovery
+details when needed; omit empty sections.
 
-```text
-type(scope): concise summary
-
-## Summary
-
-- What changed at a glance.
-
-## Why
-
-- Why this change exists.
-
-## Changed
-
-- Concrete files or behaviors changed.
-
-## Validation
-
-- `command`: PASS | WARN | FAIL | NOT RUN.
-
-## Changelog
-
-- Added: user-visible or operator-visible addition.
-- Changed: changed behavior or policy.
-- Fixed: repaired issue.
-- Removed: removed behavior or file.
-- Deprecated: deprecated surface.
-- Security: security-relevant note.
-- Docs: documentation-only note.
-- Tests: test-only note.
-- Internal: internal-only note.
-- Risks: risk note for release notes.
-- Follow-up: future work.
-
-## Risks
-
-- Remaining risk or `None`.
-
-## Follow-up
-
-- Next action or `None`.
-
+Validation: NOT RUN - replace with actual checks, outcomes or reason
+Changelog: Fixed: describe the user or operator impact
 AIDE-Task: <queue-id>
-AIDE-Phase: <phase-id>
-AIDE-Result: PASS | WARN | FAIL | partial
-AIDE-Scope: <paths-or-domain>
-AIDE-Token-Impact: <summary>
-AIDE-Quality-Gate: <validation-summary>
-```
-
-Do not include raw prompts, raw responses, provider credentials, secrets, or
-local `.aide.local/` state in commit messages.
+AIDE-Format: compact-v1
