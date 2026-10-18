@@ -17,6 +17,7 @@ $sourceAtStart=if($SourcePath){
     (Get-FileHash -LiteralPath $SourcePath -Algorithm SHA256).Hash.ToLowerInvariant()
 }else{$null}
 $first=0L;$last=0L;$count=0;$maximumGap=0L
+$maximumObservedGap=[long]([Diagnostics.Stopwatch]::Frequency/5)
 $lastStagedOnlyStart=0L;$lastStagedOnlyEnd=0L
 $firstVisibleStart=0L;$firstVisibleEnd=0L;$ambiguousSamples=0
 $sawStage=$false;$visibleBeforeStage=$false;$stageAfterVisible=$false
@@ -42,6 +43,14 @@ while(-not [IO.File]::Exists($StopPath) -and [DateTime]::UtcNow -lt $deadline) {
         $ambiguousSamples++
     }
     if($staged) {
+        # A scheduling gap cannot support continuity. Keep the valid intervals
+        # on either side without joining them across that gap or relaxing the
+        # consumer's existing 200ms maximum.
+        if($count -gt 0 -and $tick-$last -gt $maximumObservedGap) {
+            if($runs.Count -ge 64){throw 'Stage observer interval bound exceeded'}
+            $runs.Add([ordered]@{first_tick=$first;last_tick=$last;samples=$count;maximum_gap_ticks=$maximumGap})
+            $first=0L;$last=0L;$count=0;$maximumGap=0L
+        }
         if($count -eq 0){$first=$tick}else{
             $gap=$tick-$last;if($gap -gt $maximumGap){$maximumGap=$gap}
         }

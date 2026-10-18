@@ -603,6 +603,13 @@ if(USK_BUILD_TESTS)
   target_link_libraries(usk_json_smoke PRIVATE usk_base_static)
   add_test(NAME usk_json_smoke COMMAND usk_json_smoke)
 
+  add_executable(usk_publisher_fixture_scm_wait_smoke
+    tests/native/usk_publisher_fixture_scm_wait_smoke.cpp)
+  target_compile_features(usk_publisher_fixture_scm_wait_smoke PRIVATE cxx_std_17)
+  usk_enable_strict_warnings(usk_publisher_fixture_scm_wait_smoke)
+  add_test(NAME usk_publisher_fixture_scm_wait_smoke COMMAND usk_publisher_fixture_scm_wait_smoke)
+  set_tests_properties(usk_publisher_fixture_scm_wait_smoke PROPERTIES TIMEOUT 10)
+
   add_executable(usk_stable_file_smoke tests/native/usk_stable_file_smoke.cpp)
   target_compile_features(usk_stable_file_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_stable_file_smoke PRIVATE usk_base_static)

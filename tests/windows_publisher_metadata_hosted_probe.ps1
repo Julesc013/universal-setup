@@ -2331,6 +2331,9 @@ try {
                     ($attackDiagnostic|ConvertTo-Json -Compress -Depth 5))
             }
             $concurrent=Get-Content -LiteralPath $concurrentOutput -Raw|ConvertFrom-Json
+            # Bounded producer data, retained even when its validation fails.
+            # Only the existing success field below denotes accepted evidence.
+            $receipt['concurrent_hostile_rights_candidate']=$concurrent
             $coverage=if($ProductionConcurrentRights) {
                 $nativeCall=$receipt.native.protected_anchors.publication_probe.native_rename_call
                 $nativeStart=[long]$nativeCall.start_tick
@@ -2451,6 +2454,7 @@ try {
                     throw ('Unrelated concurrent attacker failed: '+$diagnostic)
                 }
                 $unrelated=Get-Content -LiteralPath $unrelatedAttackOutput -Raw|ConvertFrom-Json
+                $receipt['unrelated_hostile_rights_candidate']=$unrelated
                 $unrelatedOverlap=$unrelated.concurrent.native_rename_overlap
                 $unrelatedAttempt=@($unrelatedOverlap.overlap_attempt)
                 $unrelatedStageCoverage=[ordered]@{}

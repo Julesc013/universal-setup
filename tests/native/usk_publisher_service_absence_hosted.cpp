@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_service_absence_internal.h"
+#include "usk_publisher_fixture_scm_wait.h"
 #include <objbase.h>
 #include <array>
 #include <chrono>
@@ -141,8 +142,25 @@ void qualify(SC_HANDLE manager) {
         std::cout << "held-query-handle completion: probes " << result.probes <<
             "; pending-deletion observations " << result.pending_deletion_observations << '\n';
     }
-    // Both native observations must converge only after the original observer
-    // was explicitly closed. Only a fresh 1060 may establish actual absence.
+    // CloseServiceHandle may return before SCM finishes deleting the stopped
+    // fixture record. Wait only for this fixture's confirmed deletion and closed
+    // handles; presence remains a product refusal throughout this interval.
+    const auto fixture_completion = usk::test::wait_for_fixture_service_deletion(
+        [&] {
+            ScmHandle probe(OpenServiceW(manager, service.name.c_str(), SERVICE_QUERY_CONFIG));
+            if (probe.value) {
+                probe.close_confirmed();
+                return usk::test::FixtureScmState::present;
+            }
+            const auto error = GetLastError();
+            if (error == ERROR_SERVICE_DOES_NOT_EXIST) return usk::test::FixtureScmState::absent;
+            if (error == ERROR_SERVICE_MARKED_FOR_DELETE) return usk::test::FixtureScmState::pending_deletion;
+            throw std::runtime_error("fixture SCM deletion observation failed; Win32 " + std::to_string(error));
+        }, [] { return GetTickCount64(); },
+        [](std::uint64_t duration) { Sleep(static_cast<DWORD>(duration)); });
+    std::cout << "fixture post-close completion: probes " << fixture_completion.probes <<
+        "; present " << fixture_completion.present << "; pending " << fixture_completion.pending << '\n';
+    // Both product helpers now make their own fresh, strict native1060 probes.
     native::require_publisher_service_absence(manager, service.name);
     const auto absent = native::wait_for_deleted_publisher_service_absence(manager, service.name);
     require(absent.probes == 1 && absent.pending_deletion_observations == 0,
