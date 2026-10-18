@@ -439,9 +439,11 @@ function Read-PublicBuildProfile([string]$Binary) {
     $build=Split-Path -Parent (Split-Path -Parent ([IO.Path]::GetFullPath($Binary)))
     $cachePath=Join-Path $build 'CMakeCache.txt'
     $cache=[IO.File]::ReadAllText($cachePath)
-    $diagnostics=@([regex]::Matches($cache,'(?m)^USK_QUALIFICATION_DIAGNOSTICS:BOOL=(ON|OFF)\r?$'))
-    if($diagnostics.Count -ne 1){throw 'Public qualification diagnostics mode is absent or ambiguous'}
-    $mode=$diagnostics[0].Groups[1].Value
+    $declarations=@([regex]::Matches($cache,'(?m)^[ \t]*USK_QUALIFICATION_DIAGNOSTICS(?=[ \t]*[:=])[^\r\n]*\r?$'))
+    if($declarations.Count -ne 1){throw 'Public qualification diagnostics mode is absent or ambiguous'}
+    $diagnostics=[regex]::Match($declarations[0].Value,'^USK_QUALIFICATION_DIAGNOSTICS:BOOL=(ON|OFF)\r?$')
+    if(-not $diagnostics.Success){throw 'Public qualification diagnostics mode is invalid'}
+    $mode=$diagnostics.Groups[1].Value
     if($ExpectedQualificationDiagnostics -ine 'any' -and $ExpectedQualificationDiagnostics -ine $mode) {
         throw 'Public qualification diagnostics mode differs from the selected cohort'
     }

@@ -74,6 +74,7 @@ function Read-Block($Block) {
     try {
         $env:GITHUB_EVENT_PATH=$eventPath
         foreach($case in @('off','on','any','expected_off','expected_on','duplicate','unknown',
+            'mixed_unknown','mixed_type','wrong_type',
             'missing','service_mismatch','machine_mismatch','wrong_value','trace_only','missing_trace')) {
             $mode=if($case -in @('on','expected_off','wrong_value','missing_trace')){'ON'}else{'OFF'}
             $ExpectedQualificationDiagnostics=switch($case){
@@ -82,6 +83,9 @@ function Read-Block($Block) {
             $cache='USK_QUALIFICATION_DIAGNOSTICS:BOOL='+$mode+"`n"
             if($case -ceq 'duplicate'){$cache+=$cache}
             if($case -ceq 'unknown'){$cache='USK_QUALIFICATION_DIAGNOSTICS:BOOL=unknown'}
+            if($case -ceq 'mixed_unknown'){$cache+='USK_QUALIFICATION_DIAGNOSTICS:BOOL=unknown'+"`n"}
+            if($case -ceq 'mixed_type'){$cache+='USK_QUALIFICATION_DIAGNOSTICS:STRING=OFF'+"`n"}
+            if($case -ceq 'wrong_type'){$cache='USK_QUALIFICATION_DIAGNOSTICS:STRING=OFF'}
             [IO.File]::WriteAllText($cachePath,$cache)
             if($case -ceq 'missing'){[IO.File]::Delete($cachePath)}
             foreach($frontend in @('usk_publisher_service','usk_machine')) {
