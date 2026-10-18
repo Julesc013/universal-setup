@@ -219,8 +219,9 @@ function Wait-StandardLauncherAcknowledgment {
 function Invoke-OwnedPublisherFixtureTask {
     param([string]$VhdPath,[string]$VolumeRoot,[string]$ServiceBinary,[string]$ServiceControlBinary,
         [string]$MachineBinary,[string]$OutputPath,[string]$LabRoot,
-        [string]$DeviceAclBinary,[string]$PublicApplyBinary,[string]$ClientBinary,
+        [string]$DeviceAclBinary,[string]$PublicApplyBinary,[string]$ClientBinary,[string]$PayloadBinary,
         [ValidateSet('SystemStandard','NamedController')][string]$ActorProfile='SystemStandard',
+        [switch]$PackagedAdmittedConsumer,
         [switch]$IdentityProbe,[switch]$BootstrapProcessLoss,
         [switch]$BootstrapPreservationProcessLoss,[switch]$ActiveInstallContention,[switch]$StalePlanQualification,[switch]$InstallationGuardConflict,
         [string]$ConstructedBootstrapPrefix='none',[string]$ConstructedBootstrapDurableState='none',
@@ -228,8 +229,12 @@ function Invoke-OwnedPublisherFixtureTask {
     # Both profiles use the same acknowledged process custody. Only the named
     # controller needs a generated account; the standard profile remains SYSTEM.
     $named=$ActorProfile -ceq 'NamedController'
+    if($PackagedAdmittedConsumer -and ($named -or $IdentityProbe -or -not $PayloadBinary -or
+        -not $DeviceAclBinary -or -not $PublicApplyBinary -or -not $ClientBinary)) {
+        throw 'Packaged admitted consumer requires the fixed SYSTEM fixture and actual client/payload inputs'
+    }
     if($IdentityProbe -and -not $named){throw 'Identity probe requires the named controller profile'}
-    if($named) {
+    if($named -or $PackagedAdmittedConsumer) {
         $principal=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
         if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
             -not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
@@ -293,7 +298,7 @@ function Invoke-OwnedPublisherFixtureTask {
     $acknowledgment=Join-Path $LabRoot ($taskName+'.acknowledged.json')
     $launcherHelpers=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'windows_publisher_standard_launcher.ps1'))
     $quote={param([string]$value) "'"+$value.Replace("'","''")+"'"}
-    $probe=Join-Path $PSScriptRoot $(if($named){'windows_publisher_metadata_hosted_probe.ps1'}else{'windows_publisher_standard_public_probe.ps1'})
+    $probe=Join-Path $PSScriptRoot $(if($named -or $PackagedAdmittedConsumer){'windows_publisher_metadata_hosted_probe.ps1'}else{'windows_publisher_standard_public_probe.ps1'})
     $probeSha256=(Get-FileHash -LiteralPath $probe -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant()
     $python=(Get-Command python -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
     if(-not [IO.Path]::IsPathRooted($python) -or -not [IO.File]::Exists($python)){throw 'Owned standard Python interpreter is unavailable'}
@@ -338,6 +343,16 @@ function Invoke-OwnedPublisherFixtureTask {
                 ' -OutputPath '+(& $quote $OutputPath)+' -ReviewedSource -RegisteredService -ControllerApply -ReuseRegistration -AdmittedTarget'
         }
         $body+=$invoke
+    } elseif($PackagedAdmittedConsumer) {
+        $body+=('$env:PATH='+(& $quote $env:PATH))
+        $body+=('if((Get-Command python -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source -cne '+(& $quote $python)+'){throw ''Packaged Python interpreter differs''}')
+        $body+=('if((Get-FileHash -LiteralPath '+(& $quote $probe)+' -Algorithm SHA256).Hash.ToLowerInvariant() -cne '+(& $quote $probeSha256)+'){throw ''Packaged fixture source changed''}; & '+
+            (& $quote $probe)+' -VhdPath '+(& $quote $VhdPath)+' -VolumeRoot '+(& $quote $VolumeRoot)+
+            ' -ServiceBinary '+(& $quote $ServiceBinary)+' -ServiceControlBinary '+(& $quote $ServiceControlBinary)+
+            ' -DeviceAclBinary '+(& $quote $DeviceAclBinary)+' -MachineBinary '+(& $quote $MachineBinary)+
+            ' -PublicApplyBinary '+(& $quote $PublicApplyBinary)+' -ClientBinary '+(& $quote $ClientBinary)+
+            ' -PayloadBinary '+(& $quote $PayloadBinary)+' -OutputPath '+(& $quote $OutputPath)+
+            ' -ReviewedSource -RegisteredService -ConsumerAccess -MachineRequestClient -ReuseRegistration -ProductionConcurrentRights -AdmittedTarget')
     } else {
         $body+=('& '+(& $quote $probe)+' -VhdPath '+(& $quote $VhdPath)+' -VolumeRoot '+(& $quote $VolumeRoot)+
             ' -ServiceBinary '+(& $quote $ServiceBinary)+' -ServiceControlBinary '+(& $quote $ServiceControlBinary)+

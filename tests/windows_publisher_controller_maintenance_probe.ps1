@@ -5,19 +5,39 @@
 # Successful uninstall remains separate from privileged publisher retirement.
 function Invoke-ControllerMaintenanceRequest {
     param([string]$RequestPath,[string]$RequestId,$Case)
-    $responsePath=$RequestPath+'.response';$failurePath=$RequestPath+'.error'
-    $nativePath=$RequestPath+'.native'
+    $outputPrefix=if($AdmittedTarget -and $admittedPackagedProfile){
+        Join-Path $consumerOutput (Split-Path -Leaf $RequestPath)
+    }else{$RequestPath}
+    $responsePath=$outputPrefix+'.response';$failurePath=$outputPrefix+'.error'
+    $nativePath=$outputPrefix+'.native';$identityPath=$outputPrefix+'.identity'
     $process=$null;$primary=$null;$cleanup=$null
     $script:clientCleanupConfirmed=$false
     try {
-        $process=Start-Process -FilePath $MachineBinary -ArgumentList @('--machine','--publisher',$service,
-            '--request-file',('"'+$RequestPath+'"'),'--publisher-observation-file',('"'+$nativePath+'"')) `
-            -WindowStyle Hidden -PassThru -RedirectStandardOutput $responsePath -RedirectStandardError $failurePath
+        $binaryDigest=(Get-FileHash -LiteralPath $MachineBinary -Algorithm SHA256).Hash.ToLowerInvariant()
+        $options=@{FilePath=$MachineBinary;ArgumentList=@('--machine','--publisher',$service,
+            '--request-file',('"'+$RequestPath+'"'),'--publisher-observation-file',('"'+$nativePath+'"'));
+            WindowStyle='Hidden';PassThru=$true;RedirectStandardOutput=$responsePath;RedirectStandardError=$failurePath}
+        if($AdmittedTarget -and $admittedPackagedProfile) {
+            $options.FilePath=(Get-Command pwsh).Source
+            $options.ArgumentList=@('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
+                '-File',('"'+$consumerScript+'"'),'-ExpectedUserSid',$consumerSid,
+                '-IdentityPath',('"'+$identityPath+'"'),'-ClientBinary',('"'+$MachineBinary+'"'),
+                '-ServiceName',$service,'-RequestFile',('"'+$RequestPath+'"'),
+                '-ClientMode','machine-public','-ExpectedClientSha256',$binaryDigest,
+                '-NativeObservationPath',('"'+$nativePath+'"'))
+            $options.Credential=$consumerCredential;$options.WorkingDirectory=$consumerOutput
+        }
+        $process=Start-OwnedMetadataProcess @options
         # The outer fixture must retain this exact owner even if local closure fails.
         $script:requestClient=[pscustomobject]@{process=$process}
         if(-not $process.WaitForExit(120000)){throw 'Owned public maintenance request timed out'}
         $process.WaitForExit()
         $Case['client_exit_code']=$process.ExitCode
+        if($AdmittedTarget -and $admittedPackagedProfile) {
+            $Case['caller_observation']=Assert-RequestClientImage ([pscustomobject]@{
+                identity=$identityPath;binary_path=[IO.Path]::GetFullPath($MachineBinary);
+                binary_sha256=$binaryDigest;client_mode='machine-public'})
+        }
         $file=Get-Item -LiteralPath $responsePath
         if($file.Length -eq 0 -or $file.Length -gt 4MB){throw 'Owned maintenance response exceeds its bound'}
         $Case['response_sha256']=(Get-FileHash -LiteralPath $responsePath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -80,9 +100,11 @@ function Assert-ControllerMaintenanceLeasePair {
 }
 
 function Invoke-ControllerOwnedUninstall {
-    if(-not $AdmittedTarget -or -not $ControllerApply -or -not $packageRoot -or
+    $actorSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $controllerRole=$ControllerApply -and $actorSid -ceq $callerSid
+    $packagedRole=$admittedPackagedProfile -and $actorSid -ceq 'S-1-5-18' -and $callerSid -ceq $consumerSid
+    if(-not $AdmittedTarget -or -not ($controllerRole -or $packagedRole) -or -not $packageRoot -or
         $env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
-        [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne $callerSid -or
         (Get-Service $service).Status -ne 'Stopped') {
         throw 'Owned uninstall requires the existing admitted hosted controller journey'
     }
@@ -131,7 +153,7 @@ function Invoke-ControllerOwnedUninstall {
     if(Test-Path -LiteralPath $sourceRoot){throw 'Owned maintenance source already exists'}
     New-Item -ItemType Directory -Path $sourceRoot|Out-Null
     $generated=& $PythonBinary -B (Join-Path $PSScriptRoot 'windows_publisher_metadata_inputs.py') `
-        --output $sourceRoot --target $visibleRoot --request-id ('owned.maintenance.source.'+$id)
+        --output $sourceRoot --target $visibleRoot --request-id ('owned.maintenance.source.'+$id) @fixtureArgs
     if($LASTEXITCODE -ne 0){throw 'Owned maintenance source authoring failed'}
     $replacement=($generated -join "`n")|ConvertFrom-Json
     # The package installs the canonical flat selected archive, not prefixed.zip.
@@ -299,7 +321,7 @@ function Invoke-ControllerOwnedUninstall {
 # Called only after the independent uninstall checks and service-end ACL check.
 # This fixture observation supplies no authority to the administrative command.
 function Invoke-ControllerOwnedRetirement {
-    if(-not $AdmittedTarget -or -not $ControllerApply -or -not $script:clientCleanupConfirmed -or
+    if(-not $AdmittedTarget -or -not ($ControllerApply -or $admittedPackagedProfile) -or -not $script:clientCleanupConfirmed -or
         $receipt.owned_uninstall.status -cne 'owned_uninstall_observed_retirement_pending' -or
         $receipt.owned_uninstall.cases.Count -ne 2 -or
         $receipt.owned_uninstall.cases[-1].status -cne 'observed_completed' -or

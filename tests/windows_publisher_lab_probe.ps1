@@ -49,9 +49,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-if($AdmittedTarget -and (-not $ControllerApply -or -not $RegisteredService -or
-    -not $ReviewedSource -or -not $ReuseRegistration -or $ConsumerAccess -or
-    $NonAdminClient -or $MachineRequestClient -or $ProductionConcurrentRights -or
+$admittedControllerProfile=$ControllerApply -and -not ($ConsumerAccess -or $NonAdminClient -or $MachineRequestClient -or $ProductionConcurrentRights)
+$admittedPackagedProfile=$ConsumerAccess -and $MachineRequestClient -and $ProductionConcurrentRights -and -not ($ControllerApply -or $NonAdminClient)
+if($AdmittedTarget -and (-not ($admittedControllerProfile -or $admittedPackagedProfile) -or -not $RegisteredService -or
+    -not $ReviewedSource -or -not $ReuseRegistration -or
     $PublicInstallation -or $InterruptDuringConsumerAccess -or $InterruptAfterVisibleRecord -or
     $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or
     $TerminateAtPoststage -or $TerminateAtPostrename -or $ProductionPostpublishRights -or
@@ -543,11 +544,12 @@ try {
         if (-not $DeviceAclBinary -and -not $PublicInstallation) { throw 'owned VHD device ACL helper is required' }
         $serviceOutput = Join-Path $lab 'service-probe.json'
         if($AdmittedTarget) {
-            Invoke-OwnedPublisherFixtureTask -ActorProfile NamedController `
+            $actorProfile=if($admittedPackagedProfile){'SystemStandard'}else{'NamedController'}
+            Invoke-OwnedPublisherFixtureTask -ActorProfile $actorProfile -PackagedAdmittedConsumer:$admittedPackagedProfile `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id -LabRoot $lab `
                 -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary `
                 -DeviceAclBinary $DeviceAclBinary -MachineBinary $MachineBinary `
-                -PublicApplyBinary $PublicApplyBinary -ClientBinary $ClientBinary -OutputPath $serviceOutput
+                -PublicApplyBinary $PublicApplyBinary -ClientBinary $ClientBinary -PayloadBinary $PayloadBinary -OutputPath $serviceOutput
         } elseif ($PublicStandardClient) {
             Invoke-OwnedPublisherFixtureTask -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary `
@@ -601,15 +603,15 @@ try {
         } catch {}
     }
 } finally {
-    if($AdmittedTarget){$receipt['controller_actor']=$controllerActorObservation}
+    if($AdmittedTarget -and $admittedControllerProfile){$receipt['controller_actor']=$controllerActorObservation}
     try {
         if($receipt.backing_image_provisioning -and $receipt.backing_image_provisioning.custody -ceq 'unknown') {
             throw 'Owned VHD image closure unconfirmed; retain backing file until runner VM disposal'
         }
-        if($PublicStandardClient -and -not $standardLauncherClosed){
+        if(($PublicStandardClient -or ($AdmittedTarget -and $admittedPackagedProfile)) -and -not $standardLauncherClosed){
             throw 'Owned SYSTEM launcher cleanup unconfirmed; retain backing volume until runner VM disposal'
         }
-        if($AdmittedTarget -and -not $controllerLauncherClosed){
+        if($AdmittedTarget -and $admittedControllerProfile -and -not $controllerLauncherClosed){
             throw 'Owned controller launcher closure unconfirmed; retain recovery volume and backing file'
         }
         if($receipt.service_observation -and $receipt.service_observation.client_cleanup_confirmed -eq $false){

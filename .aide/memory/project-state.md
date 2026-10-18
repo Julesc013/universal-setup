@@ -1,73 +1,37 @@
-Admitted product activation increment - 18October2026
-
-The accepted dev checkpoint is130a0f2 (PR259). The current source increment
-enables --start with --service-admitted-client only after the existing completed
-safe-original v3 target observation succeeds. Direct admitted activation cannot
-fall back to generic volume admission; protected image, exact stopped SCM/caller/
-mode binding, retained records/native custody and closing checks remain. Native
-start or closing-proof failures after possible dispatch report outcome unknown.
-Legacy --recover/--verify reconfiguration remains unavailable in this mode.
-
-The existing admitted controller journey now invokes product activation rather
-than raw SCM start. It adds direct missing/changed-admission and wrong-caller/
-mode refusals while stopped, then exercises real activation and its original
-request/maintenance/retirement journey. Local x64 compilation, native preflight,
-fixture reply/cleanup controls, read-only controller checks, inventory and strict
-checks pass. Actual changed-route hosted execution is still pending; exact
-source-review bindings are tracked externally. The legacy packaged concurrent-rights journey remains red and
-unchanged; its complete admission/consumer/scratch/cleanup migration is separate.
-
-The latest hosted49bd6ec producer reports both genuinely interrupted/source-retired
-repair recovery calls completed with cleanup. The request/native reply, captured
-client, independent104-row state and lease generation4-to-5 joins pass. Earlier120-second failures remain retained.
-Neither these samples nor this activation increment establish reliability,
-speedup, whole-publisher acceptance, main promotion or release readiness.
-Changing source/build/run/review bindings remain in the external checkpoint.
-
 # Universal Setup Project State
 
-Complete the existing **USK-SPEC-TO-RELEASE-01** goal. The first release is
-1.1.0 Local Setup Foundation; the wider specification has a separate completion predicate.
+Continue USK-SPEC-TO-RELEASE-01 from the existing implementation, engineering
+inventory and WorkUnit bindings. The first release is 1.1.0 Local Setup
+Foundation; completion of that release and the wider specification are separate.
+Use the sole FacMan worktree, reusable build and current laboratory. The external
+task checkpoint holds changing source, review, process and qualification pins.
 
-Resume the existing [campaign authority](../../release/index/campaign_authority.v1.toml),
-[engineering inventory](../../docs/architecture/specification_implementation_inventory.v1.json)
-and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
-The external FacMan task's compact continuation record holds the changing checkpoint.
+Accepted dev is b61e8409, the normal PR260 merge after seven core/specification
+checks and exact-source independent review. Main remains c048f7f1. Integrate
+reviewed/core-qualified checkpoints into dev daily; promote to main weekly when
+its additional qualification passes. An incomplete publisher run does not block
+a reviewed dev checkpoint or qualify main, deployment packages or a release.
 
-PR258 is normally merged into dev at2d8c050, source treeea05e8f7, after
-six required core checks, specification validation, independent source review
-and the live branch gate. Fifteen checkpoints PR244-258 were integrated on
-18October2026. Publisher run39083504428 and accepted-dev push39084471107 remain
-under deterministic observation; neither is claimed terminal here. Main remains
-c048f7f1 and the next weekly target is19October when additional qualification
-passes. The current external task checkpoint binds changing local/remote facts.
+Recent hosted samples complete ordinary public installation, selected process-loss
+recovery, standard-account entry, fresh maintenance and both interrupted,
+source-retired repair recoveries. Retained request/native reply, captured client,
+independent SYSTEM state, lease generation4-to-5 and cleanup joins pass. Earlier
+120-second failures remain retained. These samples establish neither reliability,
+a latency improvement nor whole-profile/release-default acceptance.
 
-The next bounded CI change admits ten existing public install/recovery/bootstrap
-groups after an actual successful publisher build, even when an earlier legacy
-journey failed. It reuses the same cancellation/build/Windows/same-repository PR
-guard as the four existing maintenance cohorts. Actor qualification remains
-before compilation; commands, deadlines, assertions, cleanup and old red results
-are unchanged. The finite Boolean matrix covers all14 selected conditions;
-preview-only positive and original-guard negative controls pass. This exposes
-the public path's actual result and does not waive any main or release gate.
+The current packaged qualification migration retains the actual standard-user
+candidate-service install client, concurrent denied-rights checks, source-free
+reentry and real repair/uninstall/owned retirement. It uses the acknowledged
+SYSTEM fixture and existing owned-standard native launcher; consumer request
+identity stays separate from the administrator. First-lock refusal belongs to
+empty-target provisioning. Attack scratch is created after admission and removed
+only after actor closure. The configured recovery account survives uncertain
+retirement. The original controller's real verification also requires product
+activation, with its authenticated controller request preserved. SCM fixture
+failures retain phase, expected refusal and bounded actual diagnostics.
 
-Publisher run39079998427/1 is terminal red: both fresh maintenance cohorts and
-both genuinely interrupted/source-retired repair recoveries pass, with matching
-request-bound native replies, independent SYSTEM state, ordinary verification
-and confirmed cleanup. These are samples from the diagnostic-enabled build,
-not a reliability, latency-improvement or release-default performance claim.
-The packaged startup journey still refuses; owned controller retirement now
-reports uncertain SCM absence, then observes service absent/image retained.
-The original generic error does not identify its phase, native error or holder.
-
-The current bounded repair distinguishes strict SCM revalidation from completion
-after confirmed DeleteService and original-handle close. Only error1072 may
-wait under81 probes/a2-second monotonic retry window; actual1060 and the full
-original custody proof remain mandatory before image disposition. Native RPC
-duration is not a hard2-second bound. Present service or any other error refuses.
-Strict x64/Win32 compilation, retirement-reader controls, inventory and policy
-checks pass. A hosted-only held-query-handle fixture exercises the actual helper;
-its native execution and the full retirement journey still require hosted evidence.
+This is an implementation candidate requiring focused checks, independent
+source review and hosted execution. No runtime or acceptance upgrade is implied.
 Inventory classifications and specification acceptance states are unchanged.
 
 The separately pushed optional AIDE checkpoint e58c65e on
