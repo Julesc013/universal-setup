@@ -34,6 +34,13 @@ This is an implementation candidate requiring focused checks, independent
 source review and hosted execution. No runtime or acceptance upgrade is implied.
 Inventory classifications and specification acceptance states are unchanged.
 
+PR261's first hosted Win32 core run failed in the inert maintenance-cleanup
+fixture before launch: it still named a nonexistent image and mocked the old
+launch function. The fixture now hashes its own readable script and mocks the
+current owned-launch boundary. Timeout, UNKNOWN, shared ownership and retirement
+assertions remain mandatory. This repair requires fresh exact-head core checks;
+the failed head has not merged and its publisher job was not qualified.
+
 The separately pushed optional AIDE checkpoint e58c65e on
 task/usk-aide-portable-19e237c remains HOLD and is not part of this product delta:
 its new work-effort command needs a core module excluded by the safe import.

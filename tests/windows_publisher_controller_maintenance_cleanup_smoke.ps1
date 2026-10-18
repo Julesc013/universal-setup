@@ -15,10 +15,14 @@ $functions=@($ast.FindAll({param($node)
 },$true))
 if($functions.Count -ne 1){throw 'Controller request helper is ambiguous'}
 . ([scriptblock]::Create($functions[0].Extent.Text))
-$MachineBinary='inert-machine.exe';$service='inert-service'
-function Start-Process {
+# Bind a real readable fixture image before the inert launch boundary. This
+# script is hashed by the request helper and is never executed as a client.
+$MachineBinary=$PSCommandPath;$service='inert-service'
+$AdmittedTarget=$false;$admittedPackagedProfile=$false
+function Start-OwnedMetadataProcess {
     param($FilePath,$ArgumentList,$WindowStyle,[switch]$PassThru,$RedirectStandardOutput,$RedirectStandardError)
-    if($ArgumentList -cnotcontains '--publisher' -or $WindowStyle -cne 'Hidden') {
+    if($FilePath -cne $MachineBinary -or
+        $ArgumentList -cnotcontains '--publisher' -or $WindowStyle -cne 'Hidden') {
         throw 'Controller request lost the public registered path or hidden execution'
     }
     if($script:launchFails){throw 'Injected uncertain launch failure'}
