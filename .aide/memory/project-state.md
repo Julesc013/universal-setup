@@ -59,8 +59,11 @@ rights, cleanup postconditions and the120-second request contract are unchanged.
 
 The publisher job's existing untraced cohorts still use diagnostic-enabled
 images. Additional release-default fresh maintenance and source-free recovery
-cohorts run only after the entire original profile passes. The same build reuses
-its libraries and rebuilds only machine/service frontends with diagnosticsOFF.
+cohorts run after all original producers and collectors finish or skip. A successful
+original build and successful diagnosticsOFF frontend rebuild admit independent
+observations even when earlier tests fail. Those failures remain red; OFF samples
+neither qualify omitted/failed groups nor explain tracing overhead. The same
+build reuses its libraries and rebuilds only machine/service frontends.
 The actual build-profile reader binds that cache setting and checks both projects'
 macros/trace source before provisioning a VHD; mismatched or ambiguous builds
 refuse. Original diagnostic/traced coverage remains. These are added positive

@@ -2755,7 +2755,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
@@ -3218,7 +3218,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
@@ -3681,7 +3681,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
@@ -4872,7 +4872,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4908,7 +4908,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4944,7 +4944,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -5671,7 +5671,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
@@ -5723,7 +5723,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
@@ -6195,7 +6195,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
@@ -6503,7 +6503,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
@@ -6762,7 +6762,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
@@ -7922,7 +7922,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
@@ -8175,7 +8175,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
