@@ -31,6 +31,7 @@
 #include "usk_publisher_consumer_access.h"
 #include "usk_publisher_token_observation.h"
 #include "usk_publisher_service_access.h"
+#include "usk_publisher_service_absence_internal.h"
 #include "usk_stable_file.h"
 #include "usk_record_io.h"
 #include "usk_json.h"
@@ -2839,10 +2840,7 @@ struct PublisherOwnedRetirementCustody::State {
             require_publisher_service_access(
                 observe_publisher_service_access(service->get(), utf8(caller)), utf8(caller));
         } else {
-            ServiceHandle probe(OpenServiceW(manager->get(), name.c_str(), SERVICE_QUERY_CONFIG));
-            const DWORD error = GetLastError();
-            if (probe.get() || error != ERROR_SERVICE_DOES_NOT_EXIST)
-                throw std::runtime_error("owned retirement SCM absence is uncertain");
+            detail::require_publisher_service_absence(manager->get(), name);
         }
     }
     void check_native_binding() const {
@@ -3307,6 +3305,12 @@ void PublisherOwnedRetirementCustody::retire_after_owned_validation() {
                 throw std::runtime_error("owned retirement original service handle close is unconfirmed; image retained; Win32 " +
                     std::to_string(error));
             }
+            // Other observers can still hold query-only service handles.
+            // Keep all original custody/guards while allowing only marked
+            // deletion to settle. This is neither absence nor image authority.
+            state_->require_owner();
+            (void)detail::wait_for_deleted_publisher_service_absence(state_->manager->get(), state_->name);
+            state_->require_owner();
         }
         state_->check_scm(); // Marked-for-delete is not confirmed absence.
         // Recheck all original records/namespace/native boundaries after SCM

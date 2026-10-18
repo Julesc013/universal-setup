@@ -91,6 +91,7 @@ if(WIN32)
     runtime/platform/windows/usk_publisher_process_boundary.cpp
     runtime/platform/windows/usk_publisher_worker_security.cpp
     runtime/platform/windows/usk_publisher_service_access.cpp
+    runtime/platform/windows/usk_publisher_service_absence_internal.cpp
     runtime/platform/windows/usk_publisher_request_channel.cpp
     runtime/platform/windows/usk_publisher_effect_worker_custody_internal.cpp
     runtime/platform/windows/usk_publisher_effect_broker_internal.cpp
@@ -747,12 +748,21 @@ if(USK_BUILD_TESTS)
       target_compile_features(usk_publisher_lab_device_acl PRIVATE cxx_std_17)
       target_link_libraries(usk_publisher_lab_device_acl PRIVATE advapi32 VirtDisk)
       usk_enable_strict_warnings(usk_publisher_lab_device_acl)
+      add_executable(usk_publisher_service_absence_hosted
+        tests/native/usk_publisher_service_absence_hosted.cpp)
+      target_compile_features(usk_publisher_service_absence_hosted PRIVATE cxx_std_17)
+      target_link_libraries(usk_publisher_service_absence_hosted PRIVATE usk_publisher_windows_static)
+      usk_enable_strict_warnings(usk_publisher_service_absence_hosted)
       # These service/consumer journeys are publisher qualification, including
       # actual payload execution and recovery. CI runs this label separately
       # from core tests; main requires the complete qualification job.
       if(TARGET usk_machine AND DEFINED ENV{GITHUB_ACTIONS} AND
           "$ENV{RUNNER_ENVIRONMENT}" STREQUAL "github-hosted" AND
           "$ENV{USK_TRUSTED_HOSTED_LAB}" STREQUAL "true")
+        add_test(NAME usk_publisher_service_absence_hosted
+          COMMAND usk_publisher_service_absence_hosted --trusted-hosted-scm-fixture)
+        set_tests_properties(usk_publisher_service_absence_hosted
+          PROPERTIES RUN_SERIAL TRUE TIMEOUT 15 LABELS publisher-qualification)
         add_test(NAME usk_machine_registered_candidate_hosted
           COMMAND pwsh -NoProfile -NonInteractive -File
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_lab_probe.ps1"

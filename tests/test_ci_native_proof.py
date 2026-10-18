@@ -110,10 +110,15 @@ class NativeCiProofTests(unittest.TestCase):
         self.assertIn("--label-regex '^publisher-qualification$' --no-tests=error", qualification)
         self.assertIn("id: publisher_hosted", qualification)
         cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
-        for name in ("usk_machine_registered_candidate_hosted", "usk_controller_registered_apply_hosted"):
+        for name, timeout in (
+            ("usk_machine_registered_candidate_hosted", 420),
+            ("usk_controller_registered_apply_hosted", 420),
+            ("usk_publisher_service_absence_hosted", 15),
+        ):
             properties = cmake.split("set_tests_properties(" + name, 1)[1].split(")", 1)[0]
-            self.assertIn("RUN_SERIAL TRUE TIMEOUT 420 LABELS publisher-qualification", properties)
-        self.assertEqual(cmake.count("LABELS publisher-qualification"), 2)
+            self.assertIn(f"RUN_SERIAL TRUE TIMEOUT {timeout} LABELS publisher-qualification", properties)
+        self.assertEqual(cmake.count("LABELS publisher-qualification"), 3)
+        self.assertIn("COMMAND usk_publisher_service_absence_hosted --trusted-hosted-scm-fixture", cmake)
         self.assertNotIn("Retain packaged machine service observation", core)
         self.assertIn("Retain packaged machine service observation", qualification)
         # Recovery must remain an executed qualification step on promotion even

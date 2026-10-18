@@ -8,12 +8,36 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR256 is normally merged into dev at660cc616, source tree5dcab359, after
+PR257 is normally merged into dev atae2f1b7, source tree85219be6, after
 six required core checks, specification validation, independent source review
-and the live branch gate. Thirteen checkpoints PR244-256 were integrated on
-18October2026; dev-push39076265669 also completed successfully. Main remains
+and the live branch gate. Fourteen checkpoints PR244-257 were integrated on
+18October2026; dev-push39080980364 also completed successfully. Main remains
 c048f7f1 and the next weekly target is19October when additional qualification
 passes. The current external task checkpoint binds changing local/remote facts.
+
+Publisher run39079998427/1 is terminal red: both fresh maintenance cohorts and
+both genuinely interrupted/source-retired repair recoveries pass, with matching
+request-bound native replies, independent SYSTEM state, ordinary verification
+and confirmed cleanup. These are samples from the diagnostic-enabled build,
+not a reliability, latency-improvement or release-default performance claim.
+The packaged startup journey still refuses; owned controller retirement now
+reports uncertain SCM absence, then observes service absent/image retained.
+The original generic error does not identify its phase, native error or holder.
+
+The current bounded repair distinguishes strict SCM revalidation from completion
+after confirmed DeleteService and original-handle close. Only error1072 may
+wait under81 probes/a2-second monotonic retry window; actual1060 and the full
+original custody proof remain mandatory before image disposition. Native RPC
+duration is not a hard2-second bound. Present service or any other error refuses.
+Strict x64/Win32 compilation, retirement-reader controls, inventory and policy
+checks pass. A hosted-only held-query-handle fixture exercises the actual helper;
+its native execution and the full retirement journey still require hosted evidence.
+Inventory classifications and specification acceptance states are unchanged.
+
+The separately pushed optional AIDE checkpoint e58c65e on
+task/usk-aide-portable-19e237c remains HOLD and is not part of this product delta:
+its new work-effort command needs a core module excluded by the safe import.
+Do not silently adopt it, copy broad core code or relax import ownership policy.
 
 The owned-retirement implementation now has a fixed native owner and a separate
 historical object-role replay. It binds the complete held namespace, operation
@@ -26,7 +50,7 @@ the whole custody, then invokes its private exact service/image finalization.
 The administrative --retire-owned command now calls this fixed owner; the hosted
 controller exercises refusal before uninstall and actual retirement only after
 independent retired/root-absence checks. Exact-source review approved the code.
-The current hosted controller completes actual retirement with service/image
+An earlier hosted controller sample completed actual retirement with service/image
 absence, confirmed client/launcher cleanup and143unchanged SYSTEM history rows.
 This is one fresh enrolled unmoved profile; whole-profile qualification is withheld.
 
