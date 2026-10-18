@@ -64,6 +64,40 @@ function Invoke-ControllerMaintenanceRequest {
         }
     } catch {
         $primary=$_;$Case['request_failure']=$_.Exception.Message
+        # The machine client may already have retained the service's actual
+        # reply before rejecting its public result. Preserve those bytes even
+        # on failure, without interpreting them as a terminal or replacing the
+        # original error. An absent/busy/oversized capture remains diagnostic.
+        $capture=[ordered]@{scope='diagnostic_only';state='unavailable'}
+        $Case['native_failure_capture']=$capture
+        $captureStream=$null;$captureHash=$null
+        try {
+            $captureStream=[IO.File]::Open($nativePath,[IO.FileMode]::Open,
+                [IO.FileAccess]::Read,[IO.FileShare]::Read)
+            $length=$captureStream.Length
+            if($length -le 0 -or $length -gt 4MB){throw 'Owned native failure capture exceeds its bound'}
+            $bytes=[byte[]]::new([int]$length);$offset=0
+            while($offset -lt $bytes.Length) {
+                $count=$captureStream.Read($bytes,$offset,$bytes.Length-$offset)
+                if($count -le 0){throw 'Owned native failure capture ended before its observed length'}
+                $offset+=$count
+            }
+            if($captureStream.Length -ne $length){throw 'Owned native failure capture length changed'}
+            $captureHash=[Security.Cryptography.SHA256]::Create()
+            $digest=[BitConverter]::ToString($captureHash.ComputeHash($bytes)).Replace('-','').ToLowerInvariant()
+            $encoded=[Convert]::ToBase64String($bytes)
+            $capture['byte_count']=$length;$capture['sha256']=$digest
+            $capture['content_base64']=$encoded;$capture.state='captured'
+        } catch {
+            $capture['capture_failure']=$_.Exception.Message
+        } finally {
+            if($captureHash) {
+                try {$captureHash.Dispose()} catch {$capture['hash_cleanup_failure']=$_.Exception.Message}
+            }
+            if($captureStream) {
+                try {$captureStream.Dispose()} catch {$capture['stream_cleanup_failure']=$_.Exception.Message}
+            }
+        }
     } finally {
         if($process) {
             try {

@@ -85,6 +85,7 @@ $temporary=[IO.Path]::Combine([IO.Path]::GetTempPath(),('usk-controller-client-'
 [IO.Directory]::CreateDirectory($temporary)|Out-Null
 $requestPath=Join-Path $temporary 'request.json'
 $responsePath=$requestPath+'.response'
+$nativePath=$requestPath+'.native'
 try {
     [IO.File]::WriteAllText($responsePath,(@{schema='usk.oneshot_response.v1';request_id='inert-request';
         status='unknown';result=$null;error=@{code='publisher_outcome_unknown'}}|ConvertTo-Json -Compress))
@@ -95,13 +96,78 @@ try {
         'Owned public maintenance request did not complete; retain its actual response and authority' -or
         $case.response.status -cne 'unknown' -or $null -ne $case.response.result -or
         $case.response.error.code -cne 'publisher_outcome_unknown' -or $case.response.request_id -cne 'inert-request' -or
-        -not $script:clientCleanupConfirmed -or $case.Contains('native_response')) {
+        -not $script:clientCleanupConfirmed -or $case.Contains('native_response') -or
+        $case.native_failure_capture.state -cne 'unavailable' -or
+        $case.native_failure_capture.scope -cne 'diagnostic_only') {
         throw ('Missing native capture erased UNKNOWN or manufactured another operation verdict: '+
             (@{caught=$caught.Exception.Message;response=$case.response;cleanup=$script:clientCleanupConfirmed;
                 failure=$case.client_cleanup_failure}|ConvertTo-Json -Depth 6 -Compress))
     }
+    # Preserve exact bytes independently of JSON validity or apparent success.
+    # Neither an unbound "pass" capture nor a malformed capture changes UNKNOWN.
+    $fixtures=@(
+        @{bytes=[Text.Encoding]::UTF8.GetBytes('{}');state='captured';
+            sha256='44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a'},
+        @{bytes=[byte[]]@(255,0,13,10);state='captured';
+            sha256='6375a1044d294c4efc761ce86b9c48d451d11bcf9ef4b586f56d833edb18f6da'},
+        @{bytes=[Text.Encoding]::UTF8.GetBytes('{"status":"pass","transaction_id":"another-request"}');state='captured'},
+        @{bytes=[byte[]]::new(4MB);state='captured'},
+        @{bytes=[byte[]]::new(0);state='unavailable'},
+        @{bytes=[byte[]]::new(4MB+1);state='unavailable'}
+    )
+    foreach($fixture in $fixtures) {
+        [IO.File]::WriteAllBytes($nativePath,$fixture.bytes)
+        $case=[ordered]@{response=$null};$caught=$null
+        try {Invoke-ControllerMaintenanceRequest -RequestPath $requestPath -RequestId 'inert-request' -Case $case}
+        catch {$caught=$_}
+        $capture=$case.native_failure_capture
+        if(-not $caught -or $caught.Exception.Message -cne
+            'Owned public maintenance request did not complete; retain its actual response and authority' -or
+            $case.response.status -cne 'unknown' -or $case.Contains('native_response') -or
+            $capture.scope -cne 'diagnostic_only' -or $capture.state -cne $fixture.state -or
+            -not $script:clientCleanupConfirmed -or $null -ne $script:requestClient) {
+            throw 'Optional native failure capture changed the primary verdict or process barrier'
+        }
+        if($fixture.state -ceq 'captured') {
+            if($capture.byte_count -ne $fixture.bytes.Length -or
+                $capture.content_base64 -cne [Convert]::ToBase64String($fixture.bytes) -or
+                ($fixture.ContainsKey('sha256') -and $capture.sha256 -cne $fixture.sha256)) {
+                throw 'Optional native capture lost its exact bytes, length or digest'
+            }
+        } elseif(-not $capture.capture_failure -or $capture.Contains('content_base64')) {
+            throw 'Invalid capture size manufactured retained bytes'
+        }
+    }
+    # An incompatible writer prevents observation; it never replaces UNKNOWN.
+    [IO.File]::WriteAllBytes($nativePath,[Text.Encoding]::UTF8.GetBytes('{}'))
+    $heldCapture=[IO.File]::Open($nativePath,[IO.FileMode]::Open,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+    try {
+        $case=[ordered]@{response=$null};$caught=$null
+        try {Invoke-ControllerMaintenanceRequest -RequestPath $requestPath -RequestId 'inert-request' -Case $case}
+        catch {$caught=$_}
+        if(-not $caught -or $caught.Exception.Message -cne
+            'Owned public maintenance request did not complete; retain its actual response and authority' -or
+            $case.response.status -cne 'unknown' -or $case.native_failure_capture.state -cne 'unavailable' -or
+            -not $case.native_failure_capture.capture_failure -or -not $script:clientCleanupConfirmed) {
+            throw 'Busy native capture masked the original request failure'
+        }
+    } finally {$heldCapture.Dispose()}
+    # Keep the original positive helper path and matching terminal requirement.
+    $script:inertProcess.ExitCode=0
+    $publicResult=@{schema='usk.command_response.v1';status='ok';payload=@{transaction_id='inert-request'}}
+    [IO.File]::WriteAllText($responsePath,(@{schema='usk.oneshot_response.v1';request_id='inert-request';
+        status='ok';result=$publicResult;error=$null}|ConvertTo-Json -Depth 8 -Compress))
+    [IO.File]::WriteAllText($nativePath,(@{schema='usk.publisher_lab_service_observation.v1';status='pass';
+        apply_response=$publicResult}|ConvertTo-Json -Depth 8 -Compress))
+    $case=[ordered]@{response=$null}
+    Invoke-ControllerMaintenanceRequest -RequestPath $requestPath -RequestId 'inert-request' -Case $case
+    if($case.response.status -cne 'ok' -or $case.native_response.status -cne 'pass' -or
+        $case.Contains('native_failure_capture') -or -not $script:clientCleanupConfirmed) {
+        throw 'Matching positive terminal lost the original success path'
+    }
 } finally {
     # Exact ordinary files created above; no recursive or product cleanup.
+    [IO.File]::Delete($nativePath)
     [IO.File]::Delete($responsePath)
     [IO.Directory]::Delete($temporary)
 }

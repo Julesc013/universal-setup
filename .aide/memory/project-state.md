@@ -6,11 +6,24 @@ Foundation; completion of that release and the wider specification are separate.
 Use the sole FacMan worktree, reusable build and current laboratory. The external
 task checkpoint holds changing source, review, process and qualification pins.
 
-Accepted dev is 2025d5a3, the normal PR267 merge after seven core/specification
+Accepted dev is 639e7b75, the normal PR268 merge after seven core/specification
 checks and exact-source independent review. Main remains c048f7f1. Integrate
 reviewed/core-qualified checkpoints into dev daily; promote to main weekly when
 its additional qualification passes. An incomplete publisher run does not block
 a reviewed dev checkpoint or qualify main, deployment packages or a release.
+
+The accepted 639e7b75 push passed all seven core/specification jobs. PR268's
+publisher run separately retains a passing original controller repair/uninstall
+and retirement journey, plus passing untraced fresh maintenance. Its packaged
+journey passes installation, source-free reentry, verification and the three
+live-retirement refusals, then returns recovery_required during the first repair
+of its deliberately damaged owned file. Uninstall has not started. The native
+failure reason is not retained by that helper, so neither a timeout nor a
+security-policy cause is established. Failure capture now preserves up to4MiB
+of the actual native file as exact bytes with length/digest, under a separate
+diagnostic-only field. Missing, busy or oversized captures retain their own
+observation failure without replacing the public verdict or process barriers.
+The successful response/native-terminal matching path remains unchanged.
 
 CI39097031751's retained traced and untraced interrupted, source-retired repair
 recoveries return current-request completion, then pass installed verification.
