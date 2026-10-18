@@ -61,30 +61,55 @@ function Read-BoundedDiagnostic([string]$Path,[int]$Limit) {
     try {
         $bytes=[byte[]]::new($Limit)
         $count=$stream.Read($bytes,0,$Limit)
-        return [Text.Encoding]::UTF8.GetString($bytes,0,$count)
+        # Redirection is shell-rendered text: Windows PowerShell may write a
+        # UTF16 BOM, while pwsh writes UTF8. Decode only this bounded byte prefix.
+        $buffer=[IO.MemoryStream]::new($bytes,0,$count,$false)
+        $reader=[IO.StreamReader]::new($buffer,[Text.UTF8Encoding]::new($false),$true)
+        try {return $reader.ReadToEnd()} finally {$reader.Dispose();$buffer.Dispose()}
     } finally {$stream.Dispose()}
 }
 function Invoke-ObservedPublisherControl {
     param([ValidateSet('target_admission','installation_enrollment','service_activation',
         'start_without_admission','start_wrong_caller','start_wrong_mode','start_changed_admission',
-        'target_admission_preopened')]
-        [string]$Phase,[string[]]$Arguments)
-    $errorPath=Join-Path $root ($Phase+'-'+$id+'.stderr.txt')
+        'target_admission_preopened','register_wrong_digest','start_control_lock',
+        'register_control_lock','changed_apply','start_preopened_root','recover_wrong_caller',
+        'unregister_control_lock','unregister_wrong_caller','retire_live_service',
+        'retire_wrong_digest','retire_wrong_sid')]
+        [string]$Phase,[string[]]$Arguments,[string]$DiagnosticPath='')
+    $errorPath=if($DiagnosticPath){$DiagnosticPath}else{Join-Path $root ($Phase+'-'+$id+'.stderr.txt')}
     $attempt=[ordered]@{phase=$Phase;service=$service;native_exit_code=$null;
-        stderr_observed_bytes=$null;stderr_prefix_limit_bytes=16384;stderr_prefix=$null;capture_failure=$null}
+        stderr_observed_bytes=$null;stderr_prefix_limit_bytes=16384;stderr_prefix=$null;
+        invocation_failure=$null;capture_failure=$null}
     $receipt.control_attempts.Add($attempt)
     # Clear the previous invocation's exit code before this command can run.
     # Neither an exception nor missing diagnostics establishes a native outcome.
     $global:LASTEXITCODE=$null
-    try {$output=@(& $ServiceControlBinary @Arguments 2>$errorPath)}
-    finally {
+    $priorPreference=$ErrorActionPreference;$invocationFailure=$null;$output=@()
+    try {
+        # Only native invocation uses Continue: PS5 otherwise turns expected
+        # stderr into a terminating error before its actual exit is available.
+        $ErrorActionPreference='Continue'
+        $output=@(& $ServiceControlBinary @Arguments 2>$errorPath)
         $attempt.native_exit_code=$global:LASTEXITCODE
+    } catch {
+        $invocationFailure=$_
+        $attempt.invocation_failure=$_.Exception.Message.Substring(0,[Math]::Min(1024,$_.Exception.Message.Length))
+    } finally {
+        # Restore the caller's policy before any diagnostic cmdlet or assertion.
+        $ErrorActionPreference=$priorPreference
         try {
             if(Test-Path -LiteralPath $errorPath -PathType Leaf) {
                 $attempt.stderr_observed_bytes=(Get-Item -LiteralPath $errorPath).Length
                 $attempt.stderr_prefix=Read-BoundedDiagnostic $errorPath 16384
             }
         } catch {$attempt.capture_failure=$_.Exception.Message.Substring(0,[Math]::Min(1024,$_.Exception.Message.Length))}
+    }
+    if($invocationFailure){throw $invocationFailure}
+    if($attempt.native_exit_code -isnot [int]) {
+        throw ('Publisher control has no actual native exit: '+$Phase)
+    }
+    if($attempt.capture_failure -or $null -eq $attempt.stderr_observed_bytes) {
+        throw ('Publisher control diagnostic capture is incomplete: '+$Phase)
     }
     [pscustomobject]@{native_exit_code=$attempt.native_exit_code;output=$output}
 }
@@ -1177,8 +1202,8 @@ try {
         if($registeredMode){$controlArgs+=$registeredMode}
         $wrongBinaryHash=@($controlArgs)
         $wrongBinaryHash[7]='0000000000000000000000000000000000000000000000000000000000000000'
-        & $ServiceControlBinary @wrongBinaryHash 2>$null|Out-Null
-        if($LASTEXITCODE -eq 0 -or
+        $wrongBinaryAttempt=Invoke-ObservedPublisherControl -Phase register_wrong_digest -Arguments $wrongBinaryHash
+        if($wrongBinaryAttempt.native_exit_code -eq 0 -or
             (Test-Path -LiteralPath $installedServiceBinary) -or
             (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $installedServiceBinary) ($service+'.registration-intent.json'))) -or
             (Get-Service $service -ErrorAction SilentlyContinue)) {
@@ -1231,8 +1256,8 @@ try {
             try {
                 $blockedStart=@('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid)
                 if($registeredMode){$blockedStart+=$registeredMode}
-                & $ServiceControlBinary @blockedStart 2>$null|Out-Null
-                if($LASTEXITCODE -eq 0 -or (Get-Service $service).Status -ne 'Stopped') {
+                $blockedStartAttempt=Invoke-ObservedPublisherControl -Phase start_control_lock -Arguments $blockedStart
+                if($blockedStartAttempt.native_exit_code -eq 0 -or (Get-Service $service).Status -ne 'Stopped') {
                     throw 'Publisher service start bypassed held control lock'
                 }
                 $otherFirstDigit=if($VolumeRoot[11] -ceq '0'){'1'}else{'0'}
@@ -1241,8 +1266,9 @@ try {
                 $crossVolumeArgs=@('--register',$service,$ServiceBinary,$otherVolume,
                     $envelope,$receipt.envelope_sha256,$callerSid,$sourceServiceHash)
                 if($registeredMode){$crossVolumeArgs+=$registeredMode}
-                & $ServiceControlBinary @crossVolumeArgs 2>$crossVolumeError|Out-Null
-                if($LASTEXITCODE -eq 0 -or
+                $crossVolumeAttempt=Invoke-ObservedPublisherControl -Phase register_control_lock `
+                    -Arguments $crossVolumeArgs -DiagnosticPath $crossVolumeError
+                if($crossVolumeAttempt.native_exit_code -eq 0 -or
                     -not ((Get-Content -LiteralPath $crossVolumeError -Raw) -clike '*control is active*')) {
                     throw 'Cross-volume registration did not use the service-name lock'
                 }
@@ -1471,8 +1497,9 @@ try {
         $changedArgs=@('--apply-registered',$service,$ServiceBinary,$VolumeRoot,
             $envelope,$receipt.envelope_sha256,$callerSid,$sourceServiceHash,$changedApply)
         if($AdmittedTarget){$changedArgs+=$registeredMode}
-        & $ServiceControlBinary @changedArgs 2>$changedError|Out-Null
-        if($LASTEXITCODE -ne 3 -or (Get-Service $service).Status -ne 'Stopped' -or
+        $changedApplyAttempt=Invoke-ObservedPublisherControl -Phase changed_apply `
+            -Arguments $changedArgs -DiagnosticPath $changedError
+        if($changedApplyAttempt.native_exit_code -ne 3 -or (Get-Service $service).Status -ne 'Stopped' -or
             (Test-Path -LiteralPath ($drive+'publication')) -or
             (Get-Content -LiteralPath $changedError -Raw) -notmatch 'apply request differs') {
             throw 'Changed reviewed apply reached the protected publisher'
@@ -1483,16 +1510,18 @@ try {
         $wrongStartError=Join-Path $root ('wrong-start-'+$id+'.txt')
         $wrongStartArgs=@('--start',$service,$ServiceBinary,$VolumeRoot,'S-1-5-18')
         if($registeredMode){$wrongStartArgs+=$registeredMode}
-        & $ServiceControlBinary @wrongStartArgs 2>$wrongStartError|Out-Null
-        if($LASTEXITCODE -eq 0 -or (Get-Service $service).Status -ne 'Stopped') {
+        $wrongStartAttempt=Invoke-ObservedPublisherControl -Phase start_wrong_caller `
+            -Arguments $wrongStartArgs -DiagnosticPath $wrongStartError
+        if($wrongStartAttempt.native_exit_code -eq 0 -or (Get-Service $service).Status -ne 'Stopped') {
             throw 'Registered publisher accepted a different start caller'
         }
         $receipt['wrong_caller_start_refused']=$true
         if($ConsumerAccess) {
             $wrongModeError=Join-Path $root ('wrong-mode-'+$id+'.txt')
-            & $ServiceControlBinary --start $service $ServiceBinary $VolumeRoot $callerSid `
-                --admit-client-observer 2>$wrongModeError|Out-Null
-            if($LASTEXITCODE -eq 0 -or (Get-Service $service).Status -ne 'Stopped') {
+            $wrongModeAttempt=Invoke-ObservedPublisherControl -Phase start_wrong_mode `
+                -Arguments @('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid,'--admit-client-observer') `
+                -DiagnosticPath $wrongModeError
+            if($wrongModeAttempt.native_exit_code -eq 0 -or (Get-Service $service).Status -ne 'Stopped') {
                 throw 'Registered publisher accepted a weaker caller mode'
             }
             $receipt['wrong_caller_mode_refused']=$true
@@ -1516,8 +1545,9 @@ try {
             $blockedStartError=Join-Path $root ('preopened-start-'+$id+'.txt')
             $blockedStartArgs=@('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid)
             if($registeredMode){$blockedStartArgs+=$registeredMode}
-            & $ServiceControlBinary @blockedStartArgs 2>$blockedStartError|Out-Null
-            if($LASTEXITCODE -eq 0 -or (Get-Service $service).Status -ne 'Stopped' -or
+            $preopenedStartAttempt=Invoke-ObservedPublisherControl -Phase start_preopened_root `
+                -Arguments $blockedStartArgs -DiagnosticPath $blockedStartError
+            if($preopenedStartAttempt.native_exit_code -eq 0 -or (Get-Service $service).Status -ne 'Stopped' -or
                 -not (Test-Path -LiteralPath $blockedStartError -PathType Leaf) -or
                 (Get-Item -LiteralPath $blockedStartError).Length -gt 16KB -or
                 (Get-Content -LiteralPath $blockedStartError -Raw) -notmatch
@@ -2572,8 +2602,9 @@ try {
         $wrongCallerError=Join-Path $root ('wrong-caller-'+$id+'.txt')
         $wrongArgs=@('--recover',$service,$ServiceBinary,$VolumeRoot,'S-1-5-18')
         if($registeredMode){$wrongArgs+=$registeredMode}
-        & $ServiceControlBinary @wrongArgs 2>$wrongCallerError|Out-Null
-        if($LASTEXITCODE -eq 0 -or
+        $wrongCallerAttempt=Invoke-ObservedPublisherControl -Phase recover_wrong_caller `
+            -Arguments $wrongArgs -DiagnosticPath $wrongCallerError
+        if($wrongCallerAttempt.native_exit_code -eq 0 -or
             (Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $beforeControl) {
             throw 'Registered recovery accepted a different caller or changed service configuration'
         }
@@ -3211,8 +3242,8 @@ try {
                 try {
                     $blockedRemove=@('--unregister',$service,$ServiceBinary,$VolumeRoot,$callerSid)
                     if($registeredMode){$blockedRemove+=$registeredMode}
-                    & $ServiceControlBinary @blockedRemove 2>$null|Out-Null
-                    if($LASTEXITCODE -eq 0 -or
+                    $blockedRemoveAttempt=Invoke-ObservedPublisherControl -Phase unregister_control_lock -Arguments $blockedRemove
+                    if($blockedRemoveAttempt.native_exit_code -eq 0 -or
                         -not (Get-Service $service -ErrorAction SilentlyContinue)) {
                         throw 'Publisher service unregister bypassed held control lock'
                     }
@@ -3220,12 +3251,13 @@ try {
                 $receipt['service_control_lock_unregister_refusal']=$true
                 $wrongRemove=@('--unregister',$service,$ServiceBinary,$VolumeRoot,'S-1-5-18')
                 if($registeredMode){$wrongRemove+=$registeredMode}
-                & $ServiceControlBinary @wrongRemove 2>$null|Out-Null
-                if($LASTEXITCODE -eq 0 -or -not (Get-Service $service -ErrorAction SilentlyContinue)) {
+                $wrongRemoveAttempt=Invoke-ObservedPublisherControl -Phase unregister_wrong_caller -Arguments $wrongRemove
+                if($wrongRemoveAttempt.native_exit_code -eq 0 -or -not (Get-Service $service -ErrorAction SilentlyContinue)) {
                     throw 'Publisher service accepted a different unregister caller'
                 }
-                & $ServiceControlBinary --retire-binary $service $installedServiceBinary $sourceServiceHash $sid 2>$null|Out-Null
-                if($LASTEXITCODE -eq 0 -or
+                $liveRetirementAttempt=Invoke-ObservedPublisherControl -Phase retire_live_service `
+                    -Arguments @('--retire-binary',$service,$installedServiceBinary,$sourceServiceHash,$sid)
+                if($liveRetirementAttempt.native_exit_code -eq 0 -or
                     -not (Test-Path -LiteralPath $installedServiceBinary -PathType Leaf)) {
                     throw 'Publisher service binary retired while its service was registered'
                 }
@@ -3267,15 +3299,17 @@ try {
                 (Get-FileHash -LiteralPath $installedServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant() -cne
                     $sourceServiceHash){throw 'Protected service cleanup identity differs'}
             $wrongDigest=if($sourceServiceHash -cne ('0'*64)){'0'*64}else{'1'*64}
-            & $ServiceControlBinary --retire-binary $service $installedServiceBinary $wrongDigest $sid 2>$null|Out-Null
-            if($LASTEXITCODE -eq 0 -or
+            $wrongRetireDigestAttempt=Invoke-ObservedPublisherControl -Phase retire_wrong_digest `
+                -Arguments @('--retire-binary',$service,$installedServiceBinary,$wrongDigest,$sid)
+            if($wrongRetireDigestAttempt.native_exit_code -eq 0 -or
                 -not (Test-Path -LiteralPath $installedServiceBinary -PathType Leaf)) {
                 throw 'Protected service retirement accepted an incorrect digest'
             }
             $wrongSid='S-1-5-80-1-2-3-4-5'
             if($wrongSid -ceq $sid){$wrongSid='S-1-5-80-5-4-3-2-1'}
-            & $ServiceControlBinary --retire-binary $service $installedServiceBinary $sourceServiceHash $wrongSid 2>$null|Out-Null
-            if($LASTEXITCODE -eq 0 -or
+            $wrongRetireSidAttempt=Invoke-ObservedPublisherControl -Phase retire_wrong_sid `
+                -Arguments @('--retire-binary',$service,$installedServiceBinary,$sourceServiceHash,$wrongSid)
+            if($wrongRetireSidAttempt.native_exit_code -eq 0 -or
                 -not (Test-Path -LiteralPath $installedServiceBinary -PathType Leaf)) {
                 throw 'Protected service retirement accepted a different service SID'
             }
