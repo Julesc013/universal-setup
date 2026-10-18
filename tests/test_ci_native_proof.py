@@ -127,6 +127,8 @@ class NativeCiProofTests(unittest.TestCase):
         ):
             properties = cmake.split("set_tests_properties(" + name, 1)[1].split(")", 1)[0]
             self.assertIn(f"RUN_SERIAL TRUE TIMEOUT {timeout} LABELS publisher-qualification", properties)
+            if name == "usk_publisher_service_absence_hosted":
+                self.assertIn('ENVIRONMENT "USK_TRUSTED_HOSTED_LAB=true"', properties)
         self.assertEqual(cmake.count("LABELS publisher-qualification"), 3)
         self.assertIn("COMMAND usk_publisher_service_absence_hosted --trusted-hosted-scm-fixture", cmake)
         self.assertNotIn("Retain packaged machine service observation", core)

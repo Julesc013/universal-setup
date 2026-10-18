@@ -762,7 +762,8 @@ if(USK_BUILD_TESTS)
         add_test(NAME usk_publisher_service_absence_hosted
           COMMAND usk_publisher_service_absence_hosted --trusted-hosted-scm-fixture)
         set_tests_properties(usk_publisher_service_absence_hosted
-          PROPERTIES RUN_SERIAL TRUE TIMEOUT 15 LABELS publisher-qualification)
+          PROPERTIES RUN_SERIAL TRUE TIMEOUT 15 LABELS publisher-qualification
+          ENVIRONMENT "USK_TRUSTED_HOSTED_LAB=true")
         add_test(NAME usk_machine_registered_candidate_hosted
           COMMAND pwsh -NoProfile -NonInteractive -File
             "${CMAKE_CURRENT_SOURCE_DIR}/tests/windows_publisher_lab_probe.ps1"
