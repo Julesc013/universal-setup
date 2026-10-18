@@ -470,3 +470,21 @@ Both-shell actual-helper and actual-predicate controls cover0/3/5, stderr with0,
 missing commands after a seeded success, capture failures and changed state. No SCM
 operation runs in these controls. Fresh hosted execution and final review are pending;
 production admission, rights, absence policy and deadlines are unchanged.
+
+
+PR263's latest source-retired repair.recover calls exceeded120seconds with and
+without the tracing wrapper after PR262's recorded passes. Both returned
+request-bound UNKNOWN without a native response file. Runtime sources are
+unchanged between those heads; neither cause nor reliable completion is proven.
+PR264's actual packaged run passes the original wrong-digest/held-lock controls,
+then rejects the expected start refusal because PowerShell5.1 wraps its diagnostic.
+The fixture now preserves the raw capture and compares whitespace-normalized
+diagnostic words while retaining native exit3, empty stdout, stopped/unchanged
+SCM configuration and absent completion checks. Definition-only retirement
+helpers load before the protected body, including early failure cleanup.
+That cleanup uses the fixed preopened actor's existing release marker and checked
+exit; a failed release retains unconfirmed cleanup and original failure.
+No process-tree kill fallback, production policy or deadline changes are made.
+Both-shell focused controls pass; independent source review and fresh hosted
+qualification remain required. Other PowerShell5.1 forced-tree cleanup paths
+retain their existing unsupported-method refusal rather than claiming closure.

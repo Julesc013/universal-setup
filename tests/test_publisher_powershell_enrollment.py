@@ -178,6 +178,179 @@ foreach($encoding in @([Text.UTF8Encoding]::new($false),[Text.UTF8Encoding]::new
                         self.assertNotIn('controlled diagnostic capture failure', row['message'])
                 self.assertEqual(observed['phases'], ['target_admission'] * 4 + ['installation_enrollment'] * 3)
 
+    def test_admitted_refusal_preserves_native_and_state_checks_across_host_wrapping(self):
+        code = r"""
+param([string]$Root,[string]$OutputRoot,[string]$Python)
+$ErrorActionPreference='Stop'
+# Match the hosted display width within this disposable test process.
+$PSDefaultParameterValues=@{'Out-File:Width'=80}
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $Root 'tests/windows_publisher_metadata_hosted_probe.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Fixture parse failed'}
+$functions=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $n.Name -cin @('Read-BoundedDiagnostic','Invoke-ObservedPublisherControl','Assert-AdmittedStartRefusal')},$true))
+if($functions.Count -ne 3){throw 'Exact admission helpers required'}
+foreach($function in $functions){. ([scriptblock]::Create($function.Extent.Text))}
+$root=$OutputRoot;$service='inert-service';$AdmittedTarget=$true
+$expectedRegisteredCommand='inert exact registered command'
+$diagnostic='service-admitted start requires completed safe-original target admission'
+function Get-CimInstance {
+    param($ClassName,$Filter,$ErrorAction)
+    if($ClassName -cne 'Win32_Service' -or $Filter -cne "Name='$service'"){throw 'Unexpected service lookup'}
+    $script:stateReads++
+    return [pscustomobject]@{
+        State=$(if($mode -ceq 'running' -and $script:stateReads -eq 2){'Running'}else{'Stopped'});
+        PathName=$(if($mode -ceq 'command' -and $script:stateReads -eq 2){'changed command'}else{$expectedRegisteredCommand});
+        StartName=$(if($mode -ceq 'account' -and $script:stateReads -eq 2){'changed account'}else{'inert account'});
+        ServiceType=$(if($mode -ceq 'type' -and $script:stateReads -eq 2){'changed type'}else{'Own Process'})}
+}
+$rows=@()
+foreach($mode in @('expected','wrapped','wrong_detail','zero','other_exit','stdout','running','command','account','type','native_file','missing')) {
+    $id=[guid]::NewGuid().ToString('N');$script:stateReads=0
+    $receipt=@{control_attempts=[Collections.Generic.List[object]]::new()}
+    $nativePath=Join-Path $OutputRoot ($id+'.native')
+    if($mode -ceq 'native_file'){[IO.File]::WriteAllText($nativePath,'owned test completion')}
+    $ServiceControlBinary=if($mode -ceq 'missing'){Join-Path $OutputRoot 'missing.exe'}else{$Python}
+    $global:LASTEXITCODE=3
+    $exit=if($mode -ceq 'zero'){0}elseif($mode -ceq 'other_exit'){5}else{3}
+    $caught=$null
+    try {
+        Assert-AdmittedStartRefusal -Phase start_without_admission -Diagnostic $diagnostic -Arguments @(
+            (Join-Path $OutputRoot 'admission-control.py'),$exit,$mode)
+    } catch {$caught=$_}
+    $rows+=@{mode=$mode;rejected=($null -ne $caught);state_reads=$script:stateReads;
+        native_exit=$(if($receipt.control_attempts.Count){$receipt.control_attempts[0].native_exit_code}else{$null});
+        preference_restored=($ErrorActionPreference -ceq 'Stop')}
+    if($mode -ceq 'native_file'){[IO.File]::Delete($nativePath)}
+}
+$rows|ConvertTo-Json -Compress
+"""
+        native = (
+            "import sys\n"
+            "mode=sys.argv[2]\n"
+            "message='service-admitted start requires completed safe-original target admission'\n"
+            "if mode=='wrapped': message=('host-width padding '*12)+message\n"
+            "if mode=='wrong_detail': message='different native refusal'\n"
+            "sys.stderr.write('usk_publisher_service_control: '+message+'\\n')\n"
+            "if mode=='stdout': sys.stdout.write('unexpected response')\n"
+            "sys.exit(int(sys.argv[1]))\n"
+        )
+        for shell in POWERSHELLS:
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory() as directory:
+                script = Path(directory) / 'admitted-refusal.ps1'
+                script.write_text(code, encoding='utf-8')
+                (Path(directory) / 'admission-control.py').write_text(native, encoding='utf-8')
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                    '-File', str(script), '-Root', str(ROOT), '-OutputRoot', directory,
+                    '-Python', sys.executable], capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                rows = json.loads(result.stdout)
+                self.assertEqual(len(rows), 12)
+                for row in rows:
+                    self.assertEqual(row['rejected'], row['mode'] not in ('expected', 'wrapped'), row)
+                    self.assertTrue(row['preference_restored'], row)
+                    if row['mode'] in ('expected', 'wrapped'):
+                        self.assertEqual(row['native_exit'], 3)
+                        self.assertEqual(row['state_reads'], 2)
+                    elif row['mode'] in ('native_file', 'missing'):
+                        self.assertIsNone(row['native_exit'], row)
+
+    def test_early_failure_cleanup_uses_loaded_retirement_and_graceful_preopened_release(self):
+        code = r"""
+param([string]$Root,[string]$OutputRoot,[string]$Python)
+$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $Root 'tests/windows_publisher_metadata_hosted_probe.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Fixture parse failed'}
+$outer=@($ast.EndBlock.Statements|Where-Object {$_ -is [Management.Automation.Language.TryStatementAst] -and $_.Finally})
+if($outer.Count -ne 1){throw 'Outer fixture cleanup is ambiguous'}
+$imports=@($ast.EndBlock.Statements|Where-Object {
+    $_.Extent.Text -ceq ". (Join-Path §$PSScriptRoot 'windows_publisher_controller_maintenance_probe.ps1')"})
+if($imports.Count -ne 1 -or $imports[0].Extent.EndOffset -ge $outer[0].Extent.StartOffset){
+    throw 'Retirement definitions must load before the outer protected body'}
+$module=Join-Path $Root 'tests/windows_publisher_controller_maintenance_probe.ps1'
+$moduleAst=[Management.Automation.Language.Parser]::ParseFile($module,[ref]$tokens,[ref]$errors)
+if($errors.Count -or @($moduleAst.EndBlock.Statements|Where-Object {
+    $_ -isnot [Management.Automation.Language.FunctionDefinitionAst]}).Count){
+    throw 'Early maintenance import must remain definitions only'}
+$early=& {
+    param($Source,$Module)
+    function Join-Path($Path,$ChildPath) {
+        if($ChildPath -cne 'windows_publisher_controller_maintenance_probe.ps1'){throw 'Unexpected imported module'}
+        return $Module
+    }
+    . ([scriptblock]::Create($Source))
+    $AdmittedTarget=$true;$ControllerApply=$true;$admittedPackagedProfile=$false
+    $script:clientCleanupConfirmed=$true;$receipt=@{}
+    try {Invoke-ControllerOwnedRetirement;throw 'Uninstalled-history precondition was bypassed'}
+    catch {
+        if($_.Exception.Message -cne 'Owned retirement requires the completed independently observed uninstall'){throw}
+    }
+    return 'retirement_precondition_retained'
+} $imports[0].Extent.Text $module
+$functions=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $n.Name -ceq 'Close-OwnedPreopenedRootProbe'},$true))
+if($functions.Count -ne 1){throw 'Exact preopened release helper required'}
+. ([scriptblock]::Create($functions[0].Extent.Text))
+. (Join-Path $Root 'tests/windows_publisher_owned_process.ps1')
+$cleanup=@($outer[0].Finally.Statements|Where-Object {
+    $_ -is [Management.Automation.Language.IfStatementAst] -and
+    $_.Clauses[0].Item1.Extent.Text -ceq '$preopenedRootProcess'})
+if($cleanup.Count -ne 1){throw 'Exact early-failure release caller required'}
+$cleanupBody=[scriptblock]::Create($cleanup[0].Extent.Text)
+$rows=@()
+foreach($exit in @(0,7)) {
+    $preopenedRelease=Join-Path $OutputRoot ('release-'+$exit+'.txt')
+    $info=[Diagnostics.ProcessStartInfo]::new();$info.FileName=$Python
+    $info.Arguments='"'+(Join-Path $OutputRoot 'release-actor.py')+'" "'+$preopenedRelease+'" '+$exit
+    $info.UseShellExecute=$false;$info.CreateNoWindow=$true
+    $preopenedRootProcess=[Diagnostics.Process]::Start($info);$saved=$preopenedRootProcess
+    $receipt=@{primary_failure='original refusal'};$failure=$null;$clientCleanupConfirmed=$true
+    try {
+        . $cleanupBody
+        $rows+=@{exit=$exit;cleared=($null -eq $preopenedRootProcess);
+            cleanup_confirmed=$clientCleanupConfirmed;failure=$failure;primary=$receipt.primary_failure;
+            release=[IO.File]::ReadAllText($preopenedRelease)}
+    } finally {
+        if($preopenedRootProcess){
+            if(-not $saved.WaitForExit(10000)){throw 'Owned test actor did not reach its bounded exit'}
+            $saved.Dispose();$preopenedRootProcess=$null
+        }
+    }
+}
+@{early=$early;cleanup=$rows}|ConvertTo-Json -Compress
+""".replace('§', chr(96))
+        actor = (
+            "import pathlib,sys,time\n"
+            "path=pathlib.Path(sys.argv[1]); deadline=time.monotonic()+8\n"
+            "while not path.exists() and time.monotonic()<deadline: time.sleep(.01)\n"
+            "assert path.read_text(encoding='utf-8')=='usk.publisher.release_preopened_root.v1\\n'\n"
+            "sys.exit(int(sys.argv[2]))\n"
+        )
+        for shell in POWERSHELLS:
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory() as directory:
+                script = Path(directory) / 'early-cleanup.ps1'
+                script.write_text(code, encoding='utf-8')
+                (Path(directory) / 'release-actor.py').write_text(actor, encoding='utf-8')
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                    '-File', str(script), '-Root', str(ROOT), '-OutputRoot', directory,
+                    '-Python', sys.executable], capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                observed = json.loads(result.stdout)
+                self.assertEqual(observed['early'], 'retirement_precondition_retained')
+                self.assertEqual(len(observed['cleanup']), 2)
+                for row in observed['cleanup']:
+                    self.assertEqual(row['cleared'], row['exit'] == 0, row)
+                    self.assertEqual(row['cleanup_confirmed'], row['exit'] == 0, row)
+                    self.assertEqual(row['primary'], 'original refusal')
+                    self.assertEqual(row['release'], 'usk.publisher.release_preopened_root.v1\n')
+                    if row['exit'] == 0:
+                        self.assertIsNone(row['failure'])
+                    else:
+                        self.assertIn('Preopened-root attacker failed after release', row['failure'])
+
     def test_existing_refusal_predicates_reject_success_unknown_and_changed_state(self):
         # Execute each actual condition with an actual shared-helper result.
         # Only the read-only service/file lookups inside the predicate are inert.

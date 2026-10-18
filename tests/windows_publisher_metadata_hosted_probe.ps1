@@ -212,6 +212,7 @@ $recoveryDecision=if($InterruptAfterStage){'snapshot_only_completed_forward'}els
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_owned_payload_damage.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_controller_maintenance_probe.ps1')
 $principal=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
     -not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -677,7 +678,11 @@ function Assert-AdmittedStartRefusal([string]$Phase,[string[]]$Arguments,[string
     $after=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
     if($attempt.native_exit_code -ne 3 -or $attempt.output.Count -ne 0 -or
         $capture.capture_failure -or -not $capture.stderr_prefix -or
-        -not $capture.stderr_prefix.Contains($Diagnostic) -or
+        # Windows PowerShell renders native errors with host-width line wraps.
+        # Keep the original capture and all native/state checks; compare only
+        # the diagnostic's words across those display-only whitespace changes.
+        -not ([regex]::Replace($capture.stderr_prefix,'\s+',' ')).Contains(
+            [regex]::Replace($Diagnostic,'\s+',' ')) -or
         $after.State -cne 'Stopped' -or $after.PathName -cne $before.PathName -or
         $after.StartName -cne $before.StartName -or $after.ServiceType -cne $before.ServiceType -or
         (Test-Path -LiteralPath $nativePath)) {
@@ -3123,7 +3128,6 @@ try {
             if(Test-Path -LiteralPath $scratch){throw 'Owned attacker scratch remains after removal'}
             $receipt['same_volume_attacker_source_removed']=$true
         }
-        . (Join-Path $PSScriptRoot 'windows_publisher_controller_maintenance_probe.ps1')
         $null=Invoke-ControllerOwnedUninstall
     }
     if($ReviewedSource) {
@@ -3163,7 +3167,11 @@ try {
         catch {$clientCleanupConfirmed=$false;$failure='Unrelated attacker cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
     }
     if($preopenedRootProcess) {
-        try {$closed=Stop-OwnedPublisherProcessTree $preopenedRootProcess;if($closed.confirmed -ne $true){throw 'Owned actor closure is unconfirmed'}}
+        # This fixed actor releases its handle and exits on the existing exact
+        # marker. Confirm that protocol before the normal closed-process check;
+        # Windows PowerShell cannot call Process.Kill(bool). Failed release
+        # remains unconfirmed and retains the account and laboratory material.
+        try {Close-OwnedPreopenedRootProbe}
         catch {$clientCleanupConfirmed=$false;$failure='Preopened-root attacker cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
     }
     if($stageObserver -and -not $stageObserver.removed) {
