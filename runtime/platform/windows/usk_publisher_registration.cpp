@@ -2461,26 +2461,40 @@ void request_start(const std::wstring& name, const std::wstring& binary,
     std::unique_ptr<RegisteredTargetStartObservation> start_observation;
     if (command_arguments(config.binary_path)[5] != L"--verify-installed") {
         start_observation = observe_registered_target_for_start(name, config.binary_path, volume);
-        if (!start_observation) require_exclusive_volume_admission(name, volume);
+        if (!start_observation && (exact_command || mode != L"--service-admitted-client"))
+            require_exclusive_volume_admission(name, volume);
     }
-    if (!StartServiceW(service.get(), 0, nullptr)) {
-        const DWORD error = GetLastError();
-        if (exact_command) {
-            // SCM may have spawned the worker before returning a timeout.
-            // The reviewed caller must recover this same registration rather
-            // than interpreting an unconfirmed start as no publication effect.
-            throw usk::platform::windows::PublisherRequestOutcomeUnknown(
-                "reviewed publisher start outcome is uncertain; Win32 ", error);
+    const bool admitted_start = !exact_command && mode == L"--service-admitted-client";
+    if (admitted_start && !start_observation)
+        throw std::runtime_error("service-admitted start requires completed safe-original target admission");
+    // Preflight is complete before SCM can dispatch. Neither a failed native
+    // start nor a failed closing observation establishes that no worker ran.
+    // The fixed exception also preserves uncertainty on allocation failure.
+    try {
+        if (!StartServiceW(service.get(), 0, nullptr)) {
+            const DWORD error = GetLastError();
+            if (exact_command || admitted_start)
+                throw PublisherRequestOutcomeUnknown("reviewed publisher start outcome is uncertain; Win32 ", error);
+            throw std::runtime_error("matching publisher service could not start; Win32 " +
+                std::to_string(error));
         }
-        throw std::runtime_error("matching publisher service could not start; Win32 " +
-            std::to_string(error));
-    }
-    if (start_observation) {
-        const auto after = query_configuration(service.get());
-        require_profile(after);
-        if (after.binary_path != config.binary_path)
-            throw std::runtime_error("registered start configuration changed");
-        start_observation->verify(name, after.binary_path);
+        if (start_observation) {
+            const auto after = query_configuration(service.get());
+            require_profile(after);
+            if (after.binary_path != config.binary_path)
+                throw std::runtime_error("registered start configuration changed");
+            start_observation->verify(name, after.binary_path);
+        }
+    } catch (const PublisherRequestOutcomeUnknown&) {
+        throw;
+    } catch (const std::exception& error) {
+        if (exact_command || admitted_start)
+            throw PublisherRequestOutcomeUnknown("reviewed publisher activation may have started: ", error.what());
+        throw;
+    } catch (...) {
+        if (exact_command || admitted_start)
+            throw PublisherRequestOutcomeUnknown("reviewed publisher activation may have started; closing proof failed");
+        throw;
     }
 }
 
@@ -4092,7 +4106,7 @@ int publisher_service_control_main(int argc, wchar_t** argv) {
         (!start || (argc != 6 && argc != 7)) &&
         (!unregister || (argc != 6 && argc != 7)) &&
         (!retire || argc != 6)) {
-        std::wcerr << L"usage: usk_publisher_service_control (--register NAME SOURCE_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 | --apply-registered NAME INSTALLED_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 APPLY_FILE | --recover-registered NAME INSTALLED_BINARY VOLUME CALLER_SID BINARY_SHA256 REQUEST_FILE | --verify-registered NAME INSTALLED_BINARY VOLUME CALLER_SID BINARY_SHA256 REQUEST_FILE | --recover NAME INSTALLED_BINARY VOLUME CALLER_SID | --verify NAME INSTALLED_BINARY VOLUME CALLER_SID | --start NAME INSTALLED_BINARY VOLUME CALLER_SID | --unregister NAME INSTALLED_BINARY VOLUME CALLER_SID) [--admit-client-observer|--grant-client-read] | --service-admitted-client is additionally available for register/apply-registered/recover-registered/verify-registered/unregister | --retire-binary NAME INSTALLED_BINARY BINARY_SHA256 SERVICE_SID | --enroll-reviewed-operation NAME ENVELOPE SHA256 APPLY_FILE\n";
+        std::wcerr << L"usage: usk_publisher_service_control (--register NAME SOURCE_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 | --apply-registered NAME INSTALLED_BINARY VOLUME ENVELOPE SHA256 CALLER_SID BINARY_SHA256 APPLY_FILE | --recover-registered NAME INSTALLED_BINARY VOLUME CALLER_SID BINARY_SHA256 REQUEST_FILE | --verify-registered NAME INSTALLED_BINARY VOLUME CALLER_SID BINARY_SHA256 REQUEST_FILE | --recover NAME INSTALLED_BINARY VOLUME CALLER_SID | --verify NAME INSTALLED_BINARY VOLUME CALLER_SID | --start NAME INSTALLED_BINARY VOLUME CALLER_SID | --unregister NAME INSTALLED_BINARY VOLUME CALLER_SID) [--admit-client-observer|--grant-client-read] | --service-admitted-client is additionally available for register/apply-registered/recover-registered/verify-registered/start/unregister | --retire-binary NAME INSTALLED_BINARY BINARY_SHA256 SERVICE_SID | --enroll-reviewed-operation NAME ENVELOPE SHA256 APPLY_FILE\n";
         return 2;
     }
     try {
@@ -4107,7 +4121,7 @@ int publisher_service_control_main(int argc, wchar_t** argv) {
             (has_mode && mode != L"--admit-client-observer" &&
                 mode != L"--grant-client-read" && mode != L"--service-admitted-client") ||
             (mode == L"--service-admitted-client" && !registration && !unregister &&
-                !apply && !run_recovery && !run_verify)) {
+                !apply && !run_recovery && !run_verify && !start)) {
             throw std::runtime_error("service name or caller access mode is invalid");
         }
         if (!retire) {
@@ -4134,9 +4148,26 @@ int publisher_service_control_main(int argc, wchar_t** argv) {
         } else {
             request_unregister(name, binary, volume, caller, mode);
         }
-        std::wcout << L"{\"schema\":\"usk.publisher_service_control.v1\",\"status\":\""
-            << (retire ? L"binary_retired" : registration ? L"registered" : recovery ? L"recovery_configured" : verify ? L"verify_configured" : start ? L"start_requested" : L"removal_requested")
-            << L"\",\"service\":\"" << name << L"\"}\n";
+        try {
+            std::wcout << L"{\"schema\":\"usk.publisher_service_control.v1\",\"status\":\""
+                << (retire ? L"binary_retired" : registration ? L"registered" : recovery ? L"recovery_configured" : verify ? L"verify_configured" : start ? L"start_requested" : L"removal_requested")
+                << L"\",\"service\":\"" << name << L"\"}\n";
+            if (start && mode == L"--service-admitted-client") {
+                std::wcout.flush();
+                if (!std::wcout)
+                    throw PublisherRequestOutcomeUnknown("reviewed publisher activation reply unavailable after start");
+            }
+        } catch (const PublisherRequestOutcomeUnknown&) {
+            throw;
+        } catch (const std::exception& error) {
+            if (start && mode == L"--service-admitted-client")
+                throw PublisherRequestOutcomeUnknown("reviewed publisher activation reporting failed after start: ", error.what());
+            throw;
+        } catch (...) {
+            if (start && mode == L"--service-admitted-client")
+                throw PublisherRequestOutcomeUnknown("reviewed publisher activation reporting failed after start");
+            throw;
+        }
         return 0;
     } catch (const usk::platform::windows::PublisherRequestOutcomeUnknown& error) {
         std::cerr << "usk_publisher_service_control: outcome unknown; " << error.what() << '\n';

@@ -64,7 +64,9 @@ function Read-BoundedDiagnostic([string]$Path,[int]$Limit) {
     } finally {$stream.Dispose()}
 }
 function Invoke-ObservedPublisherControl {
-    param([ValidateSet('target_admission','installation_enrollment')][string]$Phase,[string[]]$Arguments)
+    param([ValidateSet('target_admission','installation_enrollment','service_activation',
+        'start_without_admission','start_wrong_caller','start_wrong_mode','start_changed_admission')]
+        [string]$Phase,[string[]]$Arguments)
     $errorPath=Join-Path $root ($Phase+'-'+$id+'.stderr.txt')
     $attempt=[ordered]@{phase=$Phase;service=$service;native_exit_code=$null;
         stderr_observed_bytes=$null;stderr_prefix_limit_bytes=16384;stderr_prefix=$null;capture_failure=$null}
@@ -596,22 +598,15 @@ function Read-ClientObservation($client) {
 function Start-RegisteredPublisher {
     if($script:controllerPending){return}
     if($AdmittedTarget) {
-        # Preserve the existing raw client actor for the negative/replay calls.
-        # SCM activation supplies no request authority: the actual service must
-        # establish its private admission before opening its authenticated pipe.
-        $before=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
-        if($before.PathName -cne $expectedRegisteredCommand -or $before.State -cne 'Stopped' -or
-            $before.StartName -cne 'LocalSystem' -or $before.ServiceType -cne 'Own Process' -or
-            (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\$service").ServiceSidType -ne 3) {
-            throw 'Owned admitted activation differs from the exact stopped registration'
-        }
-        & sc.exe start $service|Out-Null
-        if($LASTEXITCODE -ne 0){throw 'Owned admitted SCM activation failed'}
-        $after=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
-        if($after.PathName -cne $before.PathName -or $after.StartName -cne $before.StartName -or
-            $after.ServiceType -cne $before.ServiceType -or
-            (Get-ItemProperty "HKLM:\SYSTEM\CurrentControlSet\Services\$service").ServiceSidType -ne 3) {
-            throw 'Owned admitted configuration changed across SCM activation'
+        # Product activation keeps protected target records and native custody
+        # through its closing proof. It supplies no client-request authority.
+        $activation=Invoke-ObservedPublisherControl -Phase service_activation `
+            -Arguments @('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid,'--service-admitted-client')
+        if($activation.native_exit_code -ne 0){throw 'Owned admitted product activation did not complete'}
+        $response=($activation.output -join "`n")|ConvertFrom-Json
+        if($response.schema -cne 'usk.publisher_service_control.v1' -or
+            $response.status -cne 'start_requested' -or $response.service -cne $service) {
+            throw 'Owned admitted product activation reply differs'
         }
         return
     }
@@ -620,6 +615,61 @@ function Start-RegisteredPublisher {
     $started=& $ServiceControlBinary @startArgs
     if($LASTEXITCODE -ne 0 -or ($started|ConvertFrom-Json).status -ne 'start_requested') {
         throw 'Product service control did not start the matching publisher'
+    }
+}
+function Assert-AdmittedStartRefusal([string]$Phase,[string[]]$Arguments,[string]$Diagnostic) {
+    $before=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+    if(-not $AdmittedTarget -or $before.State -cne 'Stopped' -or
+        $before.PathName -cne $expectedRegisteredCommand -or (Test-Path -LiteralPath $nativePath)) {
+        throw 'Admitted start refusal lacks its untouched stopped registration'
+    }
+    $attempt=Invoke-ObservedPublisherControl -Phase $Phase -Arguments $Arguments
+    $capture=$receipt.control_attempts[$receipt.control_attempts.Count-1]
+    $after=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+    if($attempt.native_exit_code -ne 3 -or $attempt.output.Count -ne 0 -or
+        $capture.capture_failure -or -not $capture.stderr_prefix -or
+        -not $capture.stderr_prefix.Contains($Diagnostic) -or
+        $after.State -cne 'Stopped' -or $after.PathName -cne $before.PathName -or
+        $after.StartName -cne $before.StartName -or $after.ServiceType -cne $before.ServiceType -or
+        (Test-Path -LiteralPath $nativePath)) {
+        throw ('Admitted start did not refuse before activation: '+$Phase)
+    }
+}
+function Assert-ChangedAdmissionStartRefusal {
+    # Mutate only this fresh fixture's owned record while SCM is stopped.
+    $admittedPath=Join-Path (Split-Path -Parent $ServiceBinary) ($service+'.target-admitted.json')
+    $admittedBytes=[IO.File]::ReadAllBytes($admittedPath)
+    $admittedSddl=(Get-Acl -LiteralPath $admittedPath).Sddl
+    $changedAdmission=[Text.Encoding]::UTF8.GetString($admittedBytes)|ConvertFrom-Json
+    $changedAdmission.identity.registration_sha256='0'*64
+    $control=[ordered]@{primary_failure=$null;restoration_status='not_attempted';restoration_failure=$null}
+    $receipt['changed_admission_start_control']=$control
+    $primaryError=$null
+    try {
+        [IO.File]::WriteAllText($admittedPath,($changedAdmission|ConvertTo-Json -Depth 32 -Compress)+"`n",
+            [Text.UTF8Encoding]::new($false))
+        Assert-AdmittedStartRefusal -Phase start_changed_admission `
+            -Arguments @('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid,'--service-admitted-client') `
+            -Diagnostic 'registered start protected admission identity differs'
+    } catch {
+        $primaryError=$_
+        $control.primary_failure=$_.Exception.Message
+    } finally {
+        try {
+            [IO.File]::WriteAllBytes($admittedPath,$admittedBytes)
+            if([Convert]::ToBase64String([IO.File]::ReadAllBytes($admittedPath)) -cne
+                [Convert]::ToBase64String($admittedBytes) -or (Get-Acl -LiteralPath $admittedPath).Sddl -cne $admittedSddl) {
+                throw 'Owned admission fixture did not restore its exact bytes and security'
+            }
+            $control.restoration_status='restored'
+        } catch {
+            $control.restoration_status='unconfirmed'
+            $control.restoration_failure=$_.Exception.Message
+        }
+    }
+    if($primaryError){throw $primaryError}
+    if($control.restoration_status -cne 'restored') {
+        throw 'Owned admission record restoration is unconfirmed; retain authority'
     }
 }
 function Start-RequestClient($submitted=$applyRequest) {
@@ -1146,6 +1196,9 @@ try {
         # Provision only the still-empty, exactly owned target. No lab ACL
         # writer substitutes for the product's retained admission protocol.
         Assert-OwnedVolume
+        Assert-AdmittedStartRefusal -Phase start_without_admission `
+            -Arguments @('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid,'--service-admitted-client') `
+            -Diagnostic 'service-admitted start requires completed safe-original target admission'
         $admissionAttempt=Invoke-ObservedPublisherControl -Phase target_admission `
             -Arguments @('--provision-target',$service,'--confirm-empty-volume')
         if($admissionAttempt.native_exit_code -ne 0){throw 'Product target admission did not complete'}
@@ -1166,6 +1219,14 @@ try {
             throw 'Product reviewed installation enrollment response differs'
         }
         $receipt['original_installation_enrollment']=$enrollment
+        $differentCaller=if($callerSid -ceq 'S-1-5-18'){'S-1-5-19'}else{'S-1-5-18'}
+        Assert-AdmittedStartRefusal -Phase start_wrong_caller `
+            -Arguments @('--start',$service,$ServiceBinary,$VolumeRoot,$differentCaller,'--service-admitted-client') `
+            -Diagnostic 'existing authorized caller differs'
+        Assert-AdmittedStartRefusal -Phase start_wrong_mode `
+            -Arguments @('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid,'--admit-client-observer') `
+            -Diagnostic 'existing caller access mode differs'
+        Assert-ChangedAdmissionStartRefusal
     }
     if(-not $ExpectUnprotectedRefusal -and -not $AdmittedTarget) {
         $acl=[Security.AccessControl.DirectorySecurity]::new()
@@ -2906,6 +2967,10 @@ try {
             if($AdmittedTarget) {
                 # Keep authority when product retirement refuses. Never use
                 # sc-delete or erase retained lifecycle evidence to pass cleanup.
+                if($receipt.changed_admission_start_control -and
+                    $receipt.changed_admission_start_control.restoration_status -cne 'restored') {
+                    throw 'Owned admission record restoration is unconfirmed; retain authority'
+                }
                 Invoke-ControllerOwnedRetirement
             } elseif($ProductionConcurrentRights -and $receipt.status -eq 'protected_metadata_observed') {
                 $held=[IO.File]::Open($controlLock,[IO.FileMode]::Open,
