@@ -36,9 +36,10 @@ param(
     [switch]$HostilePostrename
 )
 $ErrorActionPreference='Stop'
-if($AdmittedTarget -and (-not $ControllerApply -or -not $RegisteredService -or
-    -not $ReviewedSource -or -not $ReuseRegistration -or $ConsumerAccess -or
-    $NonAdminClient -or $MachineRequestClient -or $ProductionConcurrentRights -or
+$admittedControllerProfile=$ControllerApply -and -not ($ConsumerAccess -or $NonAdminClient -or $MachineRequestClient -or $ProductionConcurrentRights)
+$admittedPackagedProfile=$ConsumerAccess -and $MachineRequestClient -and $ProductionConcurrentRights -and -not ($ControllerApply -or $NonAdminClient)
+if($AdmittedTarget -and (-not ($admittedControllerProfile -or $admittedPackagedProfile) -or -not $RegisteredService -or
+    -not $ReviewedSource -or -not $ReuseRegistration -or
     $InterruptDuringConsumerAccess -or $InterruptAfterVisibleRecord -or
     $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or
     $TerminateAtPoststage -or $TerminateAtPostrename -or $ProductionPostpublishRights -or
@@ -65,7 +66,8 @@ function Read-BoundedDiagnostic([string]$Path,[int]$Limit) {
 }
 function Invoke-ObservedPublisherControl {
     param([ValidateSet('target_admission','installation_enrollment','service_activation',
-        'start_without_admission','start_wrong_caller','start_wrong_mode','start_changed_admission')]
+        'start_without_admission','start_wrong_caller','start_wrong_mode','start_changed_admission',
+        'target_admission_preopened')]
         [string]$Phase,[string[]]$Arguments)
     $errorPath=Join-Path $root ($Phase+'-'+$id+'.stderr.txt')
     $attempt=[ordered]@{phase=$Phase;service=$service;native_exit_code=$null;
@@ -547,6 +549,10 @@ $concurrentCompleted=''
 $stageObserver=$null
 $postrenameObserver=$null
 $clientCleanupConfirmed=$true
+$ownedStandardLaunches=[Collections.Generic.List[object]]::new()
+$ownedStandardLaunchFailed=$false
+$ownedActorSourceRoot=$null
+$receipt['owned_standard_actor_launches']=[Collections.Generic.List[object]]::new()
 $consumerOutput=Join-Path $root 'consumer-output'
 $consumerScript=Join-Path $root 'consumer-client.ps1'
 function Read-NativeReceipt([string]$Path) {
@@ -596,7 +602,12 @@ function Read-ClientObservation($client) {
     return [pscustomobject]@{service=$parsed.result;envelope=$parsed}
 }
 function Start-RegisteredPublisher {
-    if($script:controllerPending){return}
+    param([switch]$ActivateBeforeControllerRequest)
+    if($ActivateBeforeControllerRequest -and -not ($AdmittedTarget -and $ControllerApply -and
+        $script:controllerPending -and $script:controllerMode -ceq 'verify')) {
+        throw 'Explicit activation requires the existing admitted controller verification'
+    }
+    if($script:controllerPending -and -not $ActivateBeforeControllerRequest){return}
     if($AdmittedTarget) {
         # Product activation keeps protected target records and native custody
         # through its closing proof. It supplies no client-request authority.
@@ -633,6 +644,166 @@ function Assert-AdmittedStartRefusal([string]$Phase,[string[]]$Arguments,[string
         $after.StartName -cne $before.StartName -or $after.ServiceType -cne $before.ServiceType -or
         (Test-Path -LiteralPath $nativePath)) {
         throw ('Admitted start did not refuse before activation: '+$Phase)
+    }
+}
+function Close-OwnedPreopenedRootProbe {
+    [IO.File]::WriteAllText($preopenedRelease,
+        "usk.publisher.release_preopened_root.v1`n",[Text.UTF8Encoding]::new($false))
+    if(-not $preopenedRootProcess.WaitForExit(30000)) {
+        throw 'Preopened-root attacker did not release its held handle'
+    }
+    $preopenedRootProcess.WaitForExit()
+    if($preopenedRootProcess.ExitCode -ne 0){throw 'Preopened-root attacker failed after release'}
+    $closed=Stop-OwnedPublisherProcessTree $preopenedRootProcess
+    if($closed.confirmed -ne $true){throw 'Preopened-root actor closure is unconfirmed'}
+    $preopenedRootProcess.Dispose()
+    $script:preopenedRootProcess=$null
+}
+function New-OwnedMetadataActorBody {
+    param([string]$ActorScript,[string[]]$ActorArguments,[string]$ScriptHash)
+    $quote={param([string]$value) "'"+$value.Replace("'","''")+"'"}
+    $invocation='& '+(& $quote $ActorScript)
+    foreach($argument in $ActorArguments) {
+        $invocation+=' '+$(if($argument -cmatch '^-[A-Za-z][A-Za-z0-9]*$'){$argument}else{& $quote $argument})
+    }
+    return (@('$ErrorActionPreference=''Stop''',
+        ('$env:GITHUB_ACTIONS='+(& $quote $env:GITHUB_ACTIONS)),
+        ('$env:RUNNER_ENVIRONMENT='+(& $quote $env:RUNNER_ENVIRONMENT)),
+        ('$env:RUNNER_TEMP='+(& $quote $env:RUNNER_TEMP)),
+        ('if((Get-FileHash -LiteralPath '+(& $quote $ActorScript)+' -Algorithm SHA256).Hash.ToLowerInvariant() -cne '+(& $quote $ScriptHash)+'){throw ''Owned actor script changed''}'),
+        $invocation) -join "`n")
+}
+function Set-OwnedMetadataServiceInputAccess {
+    $acl=Get-Acl -LiteralPath $root
+    # Registered admitted mode uses --no-receipt. Its selected sources need read
+    # access; it must not be able to alter the packaged actor code or wrappers.
+    $rights=if($AdmittedTarget -and $admittedPackagedProfile){'ReadAndExecute'}else{'Modify'}
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+        [Security.Principal.SecurityIdentifier]::new($sid),$rights,
+        'ContainerInherit,ObjectInherit','None','Allow'))
+    Set-Acl -LiteralPath $root -AclObject $acl
+}
+function Grant-OwnedMetadataActorParentRead {
+    param([string]$ActorSid)
+    if(-not ($AdmittedTarget -and $admittedPackagedProfile)){return}
+    # Both ancestors are inspected by the child. These noninheriting grants
+    # permit metadata checks without listing, data reads or mutation.
+    foreach($path in @((Split-Path -Parent $root),$root)) {
+        $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+        $acl=Get-Acl -LiteralPath $path
+        if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -cnotin @('S-1-5-18','S-1-5-32-544')) {
+            throw 'Owned actor parent metadata is not controlled by the fixture'
+        }
+        $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+            [Security.Principal.SecurityIdentifier]::new($ActorSid),
+            'ReadPermissions,ReadAttributes,Traverse','None','None','Allow'))
+        Set-Acl -LiteralPath $path -AclObject $acl
+    }
+}
+function Grant-OwnedMetadataActorScriptRead {
+    param([string]$ActorSid,[string]$ActorScript,[string]$Wrapper)
+    $copiedActors=@('windows_publisher_preopened_root_probe.ps1','windows_publisher_unprivileged_probe.ps1')|
+        ForEach-Object {Join-Path $script:ownedActorSourceRoot $_}
+    if(($ActorScript -cne $consumerScript -and $ActorScript -cnotin $copiedActors) -or
+        (Split-Path -Parent $Wrapper) -cne $root -or
+        (Split-Path -Leaf $Wrapper) -cnotmatch ('^'+[regex]::Escape((Split-Path -Leaf $ActorScript))+'\.owned-[0-9a-f]{32}\.ps1$')) {
+        throw 'Owned actor read grant requires its fixed script and exact wrapper'
+    }
+    $entries=@(@{path=$ActorScript;rights='ReadAndExecute'},@{path=$Wrapper;rights='ReadAndExecute'})
+    if($ActorScript -cne $consumerScript) {
+        $entries+=@(@{path=$script:ownedActorSourceRoot;rights='ReadPermissions,ReadAttributes,Traverse'},
+            @{path=(Join-Path $script:ownedActorSourceRoot 'windows_publisher_owned_process.ps1');rights='ReadAndExecute'})
+    }
+    foreach($entry in $entries) {
+        $item=Get-Item -LiteralPath $entry.path -Force -ErrorAction Stop
+        $acl=Get-Acl -LiteralPath $entry.path
+        if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -cnotin @('S-1-5-18','S-1-5-32-544')) {
+            throw 'Owned actor source type or owner differs before read grant'
+        }
+        $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+            [Security.Principal.SecurityIdentifier]::new($ActorSid),$entry.rights,'None','None','Allow'))
+        Set-Acl -LiteralPath $entry.path -AclObject $acl
+    }
+}
+function Start-OwnedMetadataProcess {
+    [CmdletBinding()]
+    param([string]$FilePath,[string[]]$ArgumentList,[Management.Automation.PSCredential]$Credential,
+        [switch]$PassThru,[string]$WindowStyle,[string]$WorkingDirectory,
+        [string]$RedirectStandardOutput,[string]$RedirectStandardError)
+    if(-not ($AdmittedTarget -and $admittedPackagedProfile -and $Credential)) {
+        return Microsoft.PowerShell.Management\Start-Process @PSBoundParameters
+    }
+    if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18' -or -not $PassThru) {
+        throw 'Owned standard metadata launch requires the acknowledged SYSTEM fixture'
+    }
+    $accountName=($Credential.UserName -split '\\')[-1]
+    $expectedSid=if($accountName -ceq $consumerName){$consumerSid}
+        elseif($accountName -ceq $unrelatedAccountName){$unrelatedSid}else{throw 'Owned standard actor is not registered'}
+    Initialize-PublisherMetadataNativeTypes
+    $outputFolder=if($RedirectStandardOutput){Split-Path -Parent $RedirectStandardOutput}
+        elseif($RedirectStandardError){Split-Path -Parent $RedirectStandardError}else{$consumerOutput}
+    $prefix=Join-Path $outputFolder ('owned-launch-'+[guid]::NewGuid().ToString('N'))
+    if(-not $RedirectStandardOutput){$RedirectStandardOutput=$prefix+'.stdout'}
+    if(-not $RedirectStandardError){$RedirectStandardError=$prefix+'.stderr'}
+    if($ArgumentList.Count -lt 7 -or ($ArgumentList[0..4] -join '|') -cne
+        '-NoProfile|-NonInteractive|-ExecutionPolicy|Bypass|-File') {
+        throw 'Owned standard actor requires the fixed PowerShell script invocation'
+    }
+    $actorScript=$ArgumentList[5].Trim('"')
+    $allowedScripts=@($consumerScript,(Join-Path $PSScriptRoot 'windows_publisher_preopened_root_probe.ps1'),
+        (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_probe.ps1'))
+    if($actorScript -cnotin $allowedScripts){throw 'Owned standard actor script is not in the fixed profile'}
+    $actorArguments=@($ArgumentList[6..($ArgumentList.Count-1)]|ForEach-Object {$_.Trim('"')})
+    if($actorScript -cne $consumerScript){$actorArguments+=@('-OwnedHostedLabRoot',$root)}
+    if(-not $script:ownedActorSourceRoot) {
+        $sourceRoot=Join-Path $root 'owned-actor-sources'
+        if(Test-Path -LiteralPath $sourceRoot){throw 'Owned actor source directory is not fresh'}
+        New-Item -ItemType Directory -Path $sourceRoot -ErrorAction Stop|Out-Null
+        # Freeze both actor scripts and their sole helper before any actor starts.
+        # These copies inherit the protected input root, never consumer Modify.
+        foreach($name in @('windows_publisher_preopened_root_probe.ps1',
+            'windows_publisher_unprivileged_probe.ps1','windows_publisher_owned_process.ps1')) {
+            $source=Join-Path $PSScriptRoot $name;$copy=Join-Path $sourceRoot $name
+            $bytes=[IO.File]::ReadAllBytes($source)
+            $stream=[IO.File]::Open($copy,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+            try {$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+        }
+        $script:ownedActorSourceRoot=$sourceRoot
+    }
+    if($actorScript -cne $consumerScript){$actorScript=Join-Path $script:ownedActorSourceRoot (Split-Path -Leaf $actorScript)}
+    $scriptHash=(Get-FileHash -LiteralPath $actorScript -Algorithm SHA256).Hash.ToLowerInvariant()
+    # Isolated logon environments intentionally exclude arbitrary parent values.
+    # Supply only verified hosted context through this protected, fixed wrapper.
+    $wrapper=Join-Path $root ((Split-Path -Leaf $actorScript)+'.owned-'+[guid]::NewGuid().ToString('N')+'.ps1')
+    $body=New-OwnedMetadataActorBody $actorScript $actorArguments $scriptHash
+    $stream=[IO.File]::Open($wrapper,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    try {$bytes=[Text.UTF8Encoding]::new($false).GetBytes($body);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+    Grant-OwnedMetadataActorScriptRead $expectedSid $actorScript $wrapper
+    $nativeArguments='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$wrapper+'"'
+    $attempt=[ordered]@{account_sid=$expectedSid;image=[IO.Path]::GetFullPath($FilePath);
+        process_id=$null;creation_file_time=$null;status='creating';primary_token=$null;launcher_token=$null;
+        stdout=$RedirectStandardOutput;stderr=$RedirectStandardError;script=$actorScript;script_sha256=$scriptHash;
+        wrapper=$wrapper;wrapper_sha256=(Get-FileHash -LiteralPath $wrapper -Algorithm SHA256).Hash.ToLowerInvariant()}
+    $receipt.owned_standard_actor_launches.Add($attempt)
+    try {
+        $launch=[UskPublisherPausedClient]::CreateOwnedStandard($FilePath,$nativeArguments,
+            $RedirectStandardOutput,$RedirectStandardError,$accountName,$Credential.Password,$expectedSid)
+        # Retain the native owner before opening or resuming the process. A failed
+        # resume/close must not permit account, service or volume retirement.
+        $script:ownedStandardLaunches.Add([pscustomobject]@{owner=$launch;receipt=$attempt})
+        $process=Get-Process -Id $launch.ProcessId -ErrorAction Stop;$null=$process.Handle
+        if($process.StartTime.ToUniversalTime().ToFileTimeUtc() -ne $launch.CreationFileTime) {
+            throw 'Owned standard actor birth identity differs'
+        }
+        $attempt.process_id=$launch.ProcessId;$attempt.creation_file_time=$launch.CreationFileTime.ToString()
+        $attempt.primary_token=$launch.OwnedStandardPrimaryFacts;$attempt.launcher_token=$launch.OwnedStandardLauncherFacts
+        $launch.Resume();$attempt.status='resumed'
+        return $process
+    } catch {
+        $script:ownedStandardLaunchFailed=$true;$script:clientCleanupConfirmed=$false
+        $attempt.status='uncertain';throw
     }
 }
 function Assert-ChangedAdmissionStartRefusal {
@@ -720,7 +891,7 @@ function Start-RequestClient($submitted=$applyRequest) {
         $options['Credential']=$consumerCredential
         $options['WorkingDirectory']=$consumerOutput
     }
-    $process=Start-Process @options
+    $process=Start-OwnedMetadataProcess @options
     if($controllerRequest){$script:controllerPending=$false}
     return [pscustomobject]@{process=$process;response=$prefix+'-response.json';error=$prefix+'-error.txt';
         identity=$identityPath;binary_path=[IO.Path]::GetFullPath($requestBinary);
@@ -740,7 +911,7 @@ function Assert-RequestClientImage($client) {
 }
 function Complete-RequestClient($client,[bool]$expectSuccess,[bool]$requireFailureResponse=$false) {
     if(-not $client.process.WaitForExit(120000)) {
-        Stop-OwnedPublisherProcessTree $client.process|Out-Null;throw 'Owned request client timed out'
+        $closed=Stop-OwnedPublisherProcessTree $client.process;if($closed.confirmed -ne $true){throw 'Owned actor closure is unconfirmed'};throw 'Owned request client timed out'
     }
     $client.process.WaitForExit()
     if(($client.process.ExitCode -eq 0) -ne $expectSuccess) {
@@ -778,12 +949,17 @@ function Complete-RequestClient($client,[bool]$expectSuccess,[bool]$requireFailu
     return $result
 }
 try {
+    if($AdmittedTarget -and $admittedPackagedProfile -and
+        [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18') {
+        throw 'Admitted packaged fixture requires its acknowledged SYSTEM launcher'
+    }
     if($ConsumerAccess -or $NonAdminClient) {
-        $consumerName='USKUSR_'+[guid]::NewGuid().ToString('N').Substring(0,13)
+        $consumerName=$(if($AdmittedTarget -and $admittedPackagedProfile){'USKCLI_'}else{'USKUSR_'})+[guid]::NewGuid().ToString('N').Substring(0,13)
         if(Get-LocalUser -Name $consumerName -ErrorAction SilentlyContinue){throw 'Consumer account collision'}
         $secure=ConvertTo-SecureString ('Aa1!'+[guid]::NewGuid().ToString('N')) -AsPlainText -Force
         $account=New-LocalUser -Name $consumerName -Password $secure -PasswordNeverExpires
         $consumerCreated=$true;$consumerSid=$account.SID.Value
+        Grant-OwnedMetadataActorParentRead $consumerSid
         Add-LocalGroupMember -Group (Get-LocalGroup -SID 'S-1-5-32-545').Name -Member $account
         $consumerCredential=[Management.Automation.PSCredential]::new($env:COMPUTERNAME+'\'+$consumerName,$secure)
         $receipt['consumer_account_sid']=$consumerSid
@@ -982,7 +1158,7 @@ try {
             ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+
             $(if($AdmittedTarget){' --service-admitted-client'}elseif($NonAdminClient){' --admit-client-observer'}else{''})+
             ' --authorized-client-sid '+$callerSid+
-            $(if($ConsumerAccess){' --grant-client-read'}else{''})
+            $(if($ConsumerAccess -and -not $AdmittedTarget){' --grant-client-read'}else{''})
         $controlArgs=@('--register',$service,$ServiceBinary,$VolumeRoot,$envelope,
             $receipt.envelope_sha256,$callerSid,$sourceServiceHash)
         if($registeredMode){$controlArgs+=$registeredMode}
@@ -1070,13 +1246,7 @@ try {
     $created=$true
     $sid=[Security.Principal.NTAccount]::new('NT SERVICE\'+$service).Translate([Security.Principal.SecurityIdentifier]).Value
     $receipt.service_sid=$sid
-    # Only this newly created input directory in the disposable hosted VM is
-    # writable by the service. The independent observer lives elsewhere.
-    $acl=Get-Acl -LiteralPath $root
-    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
-        [Security.Principal.SecurityIdentifier]::new($sid),'Modify',
-        'ContainerInherit,ObjectInherit','None','Allow'))
-    Set-Acl -LiteralPath $root -AclObject $acl
+    Set-OwnedMetadataServiceInputAccess
     if($ReviewedSource) {
         $sourceAcl=Get-Acl -LiteralPath $sourceDir
         $sourceAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
@@ -1097,34 +1267,6 @@ try {
         Set-Acl -LiteralPath $path -AclObject $acl
     }
     Assert-OwnedVolume
-    if($ProductionConcurrentRights) {
-        # The attack originates from a writable file on this same disposable
-        # NTFS volume. Its ACL is explicit; the volume root stays protected.
-        $scratch=Join-Path $drive 'attacker-scratch'
-        $scratchFile=Join-Path $scratch 'replacement.bin'
-        if((Test-Path -LiteralPath $scratch) -or (Test-Path -LiteralPath $scratchFile)) {
-            throw 'Owned same-volume attack source is not fresh'
-        }
-        New-Item -ItemType Directory -Path $scratch -ErrorAction Stop|Out-Null
-        [IO.File]::WriteAllBytes($scratchFile,[byte[]]@(0x42))
-        $scratchSha256=(Get-FileHash -LiteralPath $scratchFile -Algorithm SHA256).Hash.ToLowerInvariant()
-        $consumerIdentity=[Security.Principal.SecurityIdentifier]::new($consumerSid)
-        $systemIdentity=[Security.Principal.SecurityIdentifier]::new('S-1-5-18')
-        foreach($path in @($scratch,$scratchFile)) {
-            $scratchAcl=Get-Acl -LiteralPath $path
-            $scratchAcl.SetAccessRuleProtection($true,$false)
-            $inherit=if($path -ceq $scratch){'ContainerInherit,ObjectInherit'}else{'None'}
-            $scratchAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
-                $systemIdentity,'FullControl',$inherit,'None','Allow'))
-            $scratchAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
-                $consumerIdentity,'Modify',$inherit,'None','Allow'))
-            Set-Acl -LiteralPath $path -AclObject $scratchAcl
-        }
-        $attackSource=$VolumeRoot+'attacker-scratch\replacement.bin'
-        $receipt['same_volume_attacker_source']=[ordered]@{
-            path=$attackSource;volume_root=$VolumeRoot;size_bytes=1;
-            sha256=$scratchSha256}
-    }
     $receipt['root_acl_before']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
     if($ExpectPreexistingAnchorRefusal) {
         # This object is created only on the newly formatted campaign VHD.
@@ -1161,7 +1303,7 @@ try {
             throw 'Preopened-root attacker markers are not fresh'
         }
         $preopenedScript=Join-Path $PSScriptRoot 'windows_publisher_preopened_root_probe.ps1'
-        $preopenedRootProcess=Start-Process -FilePath (Get-Command pwsh).Source `
+        $preopenedRootProcess=Start-OwnedMetadataProcess -FilePath (Get-Command pwsh).Source `
             -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
                 '-File',('"'+$preopenedScript+'"'),'-VolumeRoot',('"'+$VolumeRoot.TrimEnd('\')+'"'),
                 '-ExpectedUserSid',$consumerSid,'-ServiceSid',$sid,
@@ -1199,6 +1341,25 @@ try {
         Assert-AdmittedStartRefusal -Phase start_without_admission `
             -Arguments @('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid,'--service-admitted-client') `
             -Diagnostic 'service-admitted start requires completed safe-original target admission'
+        if($ProductionConcurrentRights) {
+            # The first exclusive lock belongs to target provisioning. Admitted
+            # starts intentionally observe the completed boundary without relocking.
+            $rootBefore=(Get-Acl -LiteralPath $VolumeRoot).Sddl
+            $protectedHome=Split-Path -Parent $ServiceBinary
+            Assert-AdmittedStartRefusal -Phase target_admission_preopened `
+                -Arguments @('--provision-target',$service,'--confirm-empty-volume') `
+                -Diagnostic 'target volume has open handles or cannot be exclusively admitted'
+            if((Get-Acl -LiteralPath $VolumeRoot).Sddl -cne $rootBefore -or
+                (Test-Path -LiteralPath (Join-Path $protectedHome ($service+'.target-intent.json'))) -or
+                (Test-Path -LiteralPath (Join-Path $protectedHome ($service+'.target-admitted.json'))) -or
+                (Test-Path -LiteralPath ($drive+'publication')) -or
+                (Test-Path -LiteralPath ($drive+'setup-state'))) {
+                throw 'Refused target provisioning changed the empty target or retained admission'
+            }
+            $receipt['preopened_root_refusal']=[ordered]@{status='admission_refused_before_effects';
+                controller_error=$receipt.control_attempts[$receipt.control_attempts.Count-1].stderr_prefix}
+            Close-OwnedPreopenedRootProbe
+        }
         $admissionAttempt=Invoke-ObservedPublisherControl -Phase target_admission `
             -Arguments @('--provision-target',$service,'--confirm-empty-volume')
         if($admissionAttempt.native_exit_code -ne 0){throw 'Product target admission did not complete'}
@@ -1227,6 +1388,34 @@ try {
             -Arguments @('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid,'--admit-client-observer') `
             -Diagnostic 'existing caller access mode differs'
         Assert-ChangedAdmissionStartRefusal
+    }
+    if($ProductionConcurrentRights) {
+        # The attack originates from a writable file on this same disposable
+        # NTFS volume. Its ACL is explicit; the volume root stays protected.
+        $scratch=Join-Path $drive 'attacker-scratch'
+        $scratchFile=Join-Path $scratch 'replacement.bin'
+        if((Test-Path -LiteralPath $scratch) -or (Test-Path -LiteralPath $scratchFile)) {
+            throw 'Owned same-volume attack source is not fresh'
+        }
+        New-Item -ItemType Directory -Path $scratch -ErrorAction Stop|Out-Null
+        [IO.File]::WriteAllBytes($scratchFile,[byte[]]@(0x42))
+        $scratchSha256=(Get-FileHash -LiteralPath $scratchFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        $consumerIdentity=[Security.Principal.SecurityIdentifier]::new($consumerSid)
+        $systemIdentity=[Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+        foreach($path in @($scratch,$scratchFile)) {
+            $scratchAcl=Get-Acl -LiteralPath $path
+            $scratchAcl.SetAccessRuleProtection($true,$false)
+            $inherit=if($path -ceq $scratch){'ContainerInherit,ObjectInherit'}else{'None'}
+            $scratchAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                $systemIdentity,'FullControl',$inherit,'None','Allow'))
+            $scratchAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                $consumerIdentity,'Modify',$inherit,'None','Allow'))
+            Set-Acl -LiteralPath $path -AclObject $scratchAcl
+        }
+        $attackSource=$VolumeRoot+'attacker-scratch\replacement.bin'
+        $receipt['same_volume_attacker_source']=[ordered]@{
+            path=$attackSource;volume_root=$VolumeRoot;size_bytes=1;
+            sha256=$scratchSha256}
     }
     if(-not $ExpectUnprotectedRefusal -and -not $AdmittedTarget) {
         $acl=[Security.AccessControl.DirectorySecurity]::new()
@@ -1308,7 +1497,7 @@ try {
                 throw 'Owned fault-test service command readback differs'
             }
             try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
-        } elseif($ProductionConcurrentRights) {
+        } elseif($ProductionConcurrentRights -and -not $AdmittedTarget) {
             # This elevated product controller must refuse SCM start while the
             # non-admin process retains its pre-hardening volume-root handle.
             $blockedStartError=Join-Path $root ('preopened-start-'+$id+'.txt')
@@ -1327,16 +1516,7 @@ try {
             $receipt['preopened_root_refusal']=[ordered]@{
                 status='start_refused_before_effects';
                 controller_error=(Get-Content -LiteralPath $blockedStartError -Raw)}
-            [IO.File]::WriteAllText($preopenedRelease,
-                "usk.publisher.release_preopened_root.v1`n",[Text.UTF8Encoding]::new($false))
-            if(-not $preopenedRootProcess.WaitForExit(30000)) {
-                throw 'Preopened-root attacker did not release its held handle'
-            }
-            $preopenedRootProcess.WaitForExit()
-            if($preopenedRootProcess.ExitCode -ne 0) {
-                throw 'Preopened-root attacker failed after release'
-            }
-            $preopenedRootProcess=$null
+            Close-OwnedPreopenedRootProbe
             Start-RegisteredPublisher
             $receipt['preopened_root_clean_retry_started']=$true
         } else { Start-RegisteredPublisher }
@@ -1402,7 +1582,7 @@ try {
         $concurrentReady=Join-Path $consumerOutput 'concurrent-ready.txt'
         $concurrentCompleted=Join-Path $consumerOutput 'concurrent-completed.txt'
         $stageObserver=Start-StageObserver
-        $unrelatedAccountName='USKATK_'+[guid]::NewGuid().ToString('N').Substring(0,13)
+        $unrelatedAccountName=$(if($AdmittedTarget -and $admittedPackagedProfile){'USKCLI_'}else{'USKATK_'})+[guid]::NewGuid().ToString('N').Substring(0,13)
         if(Get-LocalUser -Name $unrelatedAccountName -ErrorAction SilentlyContinue){
             throw 'Unrelated production attacker account collision'
         }
@@ -1412,6 +1592,7 @@ try {
             -Password $unrelatedPassword -PasswordNeverExpires -ErrorAction Stop
         $unrelatedAccountCreated=$true
         $unrelatedSid=$unrelatedAccount.SID.Value
+        Grant-OwnedMetadataActorParentRead $unrelatedSid
         if($unrelatedSid -ceq $consumerSid){throw 'Unrelated attacker reused the client SID'}
         # The same-volume replacement source was initially granted only to
         # the submitting login. Give the second login the identical narrow
@@ -1460,7 +1641,7 @@ try {
             '-PayloadRelativePath',$attackRelative,'-VisibleLeaf',$visibleLeaf,
             '-SameVolumeSource',('"'+$attackSource+'"'),
             '-ExpectedSameVolumeSourceSha256',$scratchSha256)
-        $concurrentAttacker=Start-Process -FilePath (Get-Command pwsh).Source `
+        $concurrentAttacker=Start-OwnedMetadataProcess -FilePath (Get-Command pwsh).Source `
             -ArgumentList $attackArgs -Credential $consumerCredential -PassThru `
             -WindowStyle Hidden -WorkingDirectory $consumerOutput `
             -RedirectStandardError $concurrentError -ErrorAction Stop
@@ -1472,7 +1653,7 @@ try {
             '-PayloadRelativePath',$attackRelative,'-VisibleLeaf',$visibleLeaf,
             '-SameVolumeSource',('"'+$attackSource+'"'),
             '-ExpectedSameVolumeSourceSha256',$scratchSha256,'-UnrelatedConcurrent')
-        $unrelatedAttacker=Start-Process -FilePath (Get-Command pwsh).Source `
+        $unrelatedAttacker=Start-OwnedMetadataProcess -FilePath (Get-Command pwsh).Source `
             -ArgumentList $unrelatedArgs -Credential $unrelatedCredential -PassThru `
             -WindowStyle Hidden -WorkingDirectory $unrelatedOutputRoot `
             -RedirectStandardError $unrelatedError -ErrorAction Stop
@@ -1685,7 +1866,7 @@ try {
                 '-ServiceSid',$sid,'-OutputPath',('"'+$concurrentOutput+'"'),
                 '-Stage','Concurrent','-ReleasePath',('"'+$release+'"'),
                 '-PayloadRelativePath',$attackRelative)
-            $concurrentAttacker=Start-Process -FilePath (Get-Command pwsh).Source `
+            $concurrentAttacker=Start-OwnedMetadataProcess -FilePath (Get-Command pwsh).Source `
                 -ArgumentList $attackArgs -Credential $consumerCredential -PassThru `
                 -WindowStyle Hidden -WorkingDirectory $consumerOutput `
                 -RedirectStandardError $concurrentError -ErrorAction Stop
@@ -2262,9 +2443,9 @@ try {
                 $receipt['production_unrelated_concurrent_hostile_rights']=$unrelated
                 $receipt['concurrent_qualification_limit']=
                     'two_local_nonadmin_sids_denied_during_staging_and_native_rename_staged_replace_source_delete_denied_not_target_proof_other_profile_cases_remain'
-                $unrelatedAttacker=$null
+                if(-not $AdmittedTarget){$unrelatedAttacker=$null}
             }
-            $concurrentAttacker=$null
+            if(-not $AdmittedTarget){$concurrentAttacker=$null}
         }
     } else {
         $deadline=[DateTime]::UtcNow.AddSeconds(90)
@@ -2501,7 +2682,9 @@ try {
                 throw 'Product service control did not configure read-only verification'
             }
         }
-        Start-RegisteredPublisher
+        # This existing successful verification must positively exercise product
+        # activation while retaining the controller's authenticated request.
+        Start-RegisteredPublisher -ActivateBeforeControllerRequest:($AdmittedTarget -and $ControllerApply)
         $requestClient=Start-RequestClient $verifyRequest
         $verifyClient=$requestClient
         if(-not $verifyClient.process.WaitForExit(120000)){throw 'Registered verification client timed out'}
@@ -2844,12 +3027,12 @@ try {
         $accessPath=Join-Path $consumerOutput 'payload-access.json'
         $accessError=Join-Path $consumerOutput 'payload-access-error.txt'
         $accessStdout=Join-Path $consumerOutput 'payload-access-output.txt'
-        $consumerProcess=Start-Process -FilePath (Get-Command pwsh).Source -ArgumentList @(
+        $consumerProcess=Start-OwnedMetadataProcess -FilePath (Get-Command pwsh).Source -ArgumentList @(
             '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$consumerScript,
             '-ExpectedUserSid',$consumerSid,'-IdentityPath',$identityPath,
             '-PayloadRoot',$visibleRoot,'-AccessReceipt',$accessPath) -Credential $consumerCredential -PassThru -WindowStyle Hidden -WorkingDirectory $consumerOutput `
             -RedirectStandardError $accessError -RedirectStandardOutput $accessStdout
-        if(-not $consumerProcess.WaitForExit(45000)){Stop-OwnedPublisherProcessTree $consumerProcess|Out-Null;throw 'Consumer payload probe timed out'}
+        if(-not $consumerProcess.WaitForExit(45000)){$closed=Stop-OwnedPublisherProcessTree $consumerProcess;if($closed.confirmed -ne $true){throw 'Owned actor closure is unconfirmed'};throw 'Consumer payload probe timed out'}
         $consumerProcess.WaitForExit()
         if($consumerProcess.ExitCode -ne 0){
             throw ('Non-admin payload access probe failed: '+
@@ -2868,6 +3051,34 @@ try {
         $receipt['consumer_attempts_observer_removed']=$afterAccess.observer_task_removed
     }
     if($AdmittedTarget) {
+        if($admittedPackagedProfile) {
+            # Every attacker and consumer must be positively closed before its
+            # exact scratch namespace can be removed for owned retirement.
+            $script:clientCleanupConfirmed=$false
+            foreach($owned in @($concurrentAttacker,$unrelatedAttacker,$consumerProcess)) {
+                if($owned) {
+                    $closed=Stop-OwnedPublisherProcessTree $owned
+                    if($closed.confirmed -ne $true){throw 'Packaged fixture actor closure is unconfirmed'}
+                    $owned.Dispose()
+                }
+            }
+            $concurrentAttacker=$null;$unrelatedAttacker=$null;$consumerProcess=$null
+            $script:clientCleanupConfirmed=$true
+            Assert-OwnedVolume
+            if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18' -or
+                [IO.Path]::GetFullPath($scratch) -cne ($drive+'attacker-scratch') -or
+                ((Get-Item -LiteralPath $scratch -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+                ((Get-Item -LiteralPath $scratchFile -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+                @((Get-ChildItem -LiteralPath $scratch -Force)).Count -ne 1 -or
+                (Get-Item -LiteralPath $scratchFile -Force).Length -ne 1 -or
+                (Get-FileHash -LiteralPath $scratchFile -Algorithm SHA256).Hash.ToLowerInvariant() -cne $scratchSha256) {
+                throw 'Owned scratch identity, namespace or original bytes changed before retirement'
+            }
+            Remove-Item -LiteralPath $scratchFile -Force -ErrorAction Stop
+            Remove-Item -LiteralPath $scratch -Force -ErrorAction Stop
+            if(Test-Path -LiteralPath $scratch){throw 'Owned attacker scratch remains after removal'}
+            $receipt['same_volume_attacker_source_removed']=$true
+        }
         . (Join-Path $PSScriptRoot 'windows_publisher_controller_maintenance_probe.ps1')
         $null=Invoke-ControllerOwnedUninstall
     }
@@ -2879,6 +3090,12 @@ try {
             throw 'Reviewed-source service changed the preprotected volume root ACL'
         }
     }
+    if($AdmittedTarget) {
+        $activations=@($receipt.control_attempts|Where-Object {
+            $_.phase -ceq 'service_activation' -and $_.native_exit_code -eq 0})
+        if($activations.Count -lt 1){throw 'Admitted journey never completed actual product activation'}
+        $receipt['admitted_product_activation_observed']=$true
+    }
     $receipt.status='protected_metadata_observed'
     }
 } catch {
@@ -2886,23 +3103,23 @@ try {
     if($AdmittedTarget){$receipt['primary_failure']=$failure}
 } finally {
     if($requestClient) {
-        try { Stop-OwnedPublisherProcessTree $requestClient.process|Out-Null }
+        try { $closed=Stop-OwnedPublisherProcessTree $requestClient.process;if($closed.confirmed -ne $true){throw 'Owned actor closure is unconfirmed'} }
         catch { $clientCleanupConfirmed=$false;$failure='Owned client cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
     }
     if($consumerProcess) {
-        try {Stop-OwnedPublisherProcessTree $consumerProcess|Out-Null}
+        try {$closed=Stop-OwnedPublisherProcessTree $consumerProcess;if($closed.confirmed -ne $true){throw 'Owned actor closure is unconfirmed'}}
         catch {$clientCleanupConfirmed=$false;$failure='Consumer payload process cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
     }
     if($concurrentAttacker) {
-        try {Stop-OwnedPublisherProcessTree $concurrentAttacker|Out-Null}
+        try {$closed=Stop-OwnedPublisherProcessTree $concurrentAttacker;if($closed.confirmed -ne $true){throw 'Owned actor closure is unconfirmed'}}
         catch {$clientCleanupConfirmed=$false;$failure='Concurrent attacker cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
     }
     if($unrelatedAttacker) {
-        try {Stop-OwnedPublisherProcessTree $unrelatedAttacker|Out-Null}
+        try {$closed=Stop-OwnedPublisherProcessTree $unrelatedAttacker;if($closed.confirmed -ne $true){throw 'Owned actor closure is unconfirmed'}}
         catch {$clientCleanupConfirmed=$false;$failure='Unrelated attacker cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
     }
     if($preopenedRootProcess) {
-        try {Stop-OwnedPublisherProcessTree $preopenedRootProcess|Out-Null}
+        try {$closed=Stop-OwnedPublisherProcessTree $preopenedRootProcess;if($closed.confirmed -ne $true){throw 'Owned actor closure is unconfirmed'}}
         catch {$clientCleanupConfirmed=$false;$failure='Preopened-root attacker cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
     }
     if($stageObserver -and -not $stageObserver.removed) {
@@ -2926,13 +3143,16 @@ try {
             $receipt.failure=$failure;$receipt.status='failed'
         }
     }
-    $receipt['client_cleanup_confirmed']=$clientCleanupConfirmed
-    if($consumerCreated -and $clientCleanupConfirmed) {
-        try {Remove-LocalUser -Name $consumerName -ErrorAction Stop;$receipt['consumer_account_removed']=$true}
-        catch {$failure='Owned consumer account cleanup failed';$receipt.failure=$failure;$receipt.status='failed'}
+    foreach($nativeLaunch in $ownedStandardLaunches) {
+        try {$nativeLaunch.owner.Dispose();$nativeLaunch.receipt.status='closed'}
+        catch {$clientCleanupConfirmed=$false;$nativeLaunch.receipt.status='closure_unconfirmed';$receipt['standard_actor_cleanup_failure']=$_.Exception.Message;$receipt.status='failed'}
+        if($nativeLaunch.receipt.status -ceq 'closed') {
+            try {$nativeLaunch.receipt['stderr_prefix']=Read-BoundedDiagnostic $nativeLaunch.receipt.stderr 2048}
+            catch {$nativeLaunch.receipt['stderr_capture_failure']=$_.Exception.Message}
+        }
     }
-    if($consumerCreated -and -not $clientCleanupConfirmed){$receipt['consumer_account_retained']=$consumerName}
-    $consumerCredential=$null
+    if($ownedStandardLaunchFailed){$clientCleanupConfirmed=$false}
+    $receipt['client_cleanup_confirmed']=$clientCleanupConfirmed
     if($unrelatedAccountCreated -and $clientCleanupConfirmed) {
         try {
             Remove-LocalUser -Name $unrelatedAccountName -ErrorAction Stop
@@ -3063,6 +3283,13 @@ try {
                 [bool](Test-Path -LiteralPath $installedServiceBinary -ErrorAction SilentlyContinue)
         }
     }
+    $callerRetirementConfirmed=-not $AdmittedTarget -or ([object]::Equals($receipt.service_removed,$true) -and [object]::Equals($receipt.protected_service_binary_removed,$true) -and -not $receipt.retirement_cleanup_failure)
+    if($consumerCreated -and $clientCleanupConfirmed -and $callerRetirementConfirmed) {
+        try {Remove-LocalUser -Name $consumerName -ErrorAction Stop;$receipt['consumer_account_removed']=$true}
+        catch {$failure='Owned consumer account cleanup failed';$receipt.failure=$failure;$receipt.status='failed'}
+    }
+    if($consumerCreated -and (-not $clientCleanupConfirmed -or -not $callerRetirementConfirmed)){$receipt['consumer_account_retained']=$consumerName}
+    if($clientCleanupConfirmed -and $callerRetirementConfirmed){$consumerCredential=$null}
     if($receipt.status -in @('protected_metadata_observed','preprotected_boundary_refusal_observed',
         'preexisting_anchor_recovery_required_observed') -and $receipt.service_removed) {
         try {

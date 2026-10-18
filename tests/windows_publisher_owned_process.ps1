@@ -1,5 +1,35 @@
 # SPDX-FileCopyrightText: 2026 Jules C
 # SPDX-License-Identifier: MIT
+function Get-OwnedPublisherActorRoot {
+    param([string]$OwnedHostedLabRoot)
+    if(-not $OwnedHostedLabRoot){return 'C:\USK-Lab'}
+    $owned=[IO.Path]::GetFullPath($OwnedHostedLabRoot).TrimEnd('\')
+    $lab=Split-Path -Parent $owned
+    $temporary=[IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\')+'\'
+    $computer=Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+    if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted' -or
+        $computer.Manufacturer -cne 'Microsoft Corporation' -or $computer.Model -cne 'Virtual Machine' -or
+        (Split-Path -Leaf $owned) -cne 'controller-inputs' -or
+        (Split-Path -Leaf $lab) -cnotmatch '^usk-wu006-[0-9a-f]{32}$' -or
+        -not $lab.StartsWith($temporary,[StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Actor output requires the exact owned hosted lab root'
+    }
+    $trusted=@('S-1-5-18','S-1-5-32-544')
+    $mutation=[Security.AccessControl.FileSystemRights]'Write,Delete,DeleteSubdirectoriesAndFiles,ChangePermissions,TakeOwnership'
+    foreach($path in @($lab,$owned)) {
+        $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+        $acl=Get-Acl -LiteralPath $path -ErrorAction Stop
+        if(-not $item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -cnotin $trusted) {
+            throw 'Actor lab root type or owner differs'
+        }
+        foreach($ace in $acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])) {
+            if($ace.AccessControlType -eq 'Allow' -and $ace.IdentityReference.Value -cnotin $trusted -and
+                ($ace.FileSystemRights -band $mutation)) {throw 'Actor lab root permits an untrusted writer'}
+        }
+    }
+    return $owned
+}
 function Stop-OwnedPublisherProcessTree {
     param([Parameter(Mandatory=$true)][Diagnostics.Process]$Process,
         [switch]$RequireLiveKill)

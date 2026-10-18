@@ -9,10 +9,13 @@ param(
     [string]$ExpectedSameVolumeSourceSha256 = '',
     [switch]$UnrelatedConcurrent,
     [ValidateSet('payload.bin', 'bin/core.bin', 'bin/core.exe', 'bin/addon.bin')][string]$PayloadRelativePath = 'payload.bin',
-    [ValidateSet('visible', 'selected-app')][string]$VisibleLeaf = 'visible'
+    [ValidateSet('visible', 'selected-app')][string]$VisibleLeaf = 'visible',
+    [string]$OwnedHostedLabRoot = ''
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1')
+$actorRoot=Get-OwnedPublisherActorRoot $OwnedHostedLabRoot
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $principal = [Security.Principal.WindowsPrincipal]$identity
 $root = $VolumeRoot.TrimEnd('\') + '\'
@@ -139,17 +142,18 @@ try {
             [IO.Path]::GetFileName($output) -cne 'concurrent-attack.json' -or
             [IO.Path]::GetFileName($folder) -cne
                 $(if($UnrelatedConcurrent){'unrelated-output'}else{'consumer-output'}) -or
-            [IO.Path]::GetFullPath([IO.Path]::GetDirectoryName($folder)) -cne 'C:\USK-Lab' -or
+            [IO.Path]::GetFullPath([IO.Path]::GetDirectoryName($folder)) -cne $actorRoot -or
             $(if($UnrelatedConcurrent) {
                 $releaseMarker -cne [IO.Path]::Combine($folder,'production-start.txt')
               } else {
-                [IO.Path]::GetDirectoryName($releaseMarker) -cne 'C:\USK-Lab' -or
+                [IO.Path]::GetDirectoryName($releaseMarker) -cne $actorRoot -or
                 -not [IO.Path]::GetFileName($releaseMarker).EndsWith(
                     $(if ($Stage -eq 'ProductionConcurrent') {'-production-start.txt'}
                       else {'-prepublish-release.txt'}), [StringComparison]::Ordinal)
               })) {
             throw 'concurrent attacker requires the owned hosted consumer output'
         }
+        $env:TEMP=$folder;$env:TMP=$folder
         $ready = Join-Path $folder 'concurrent-ready.txt'
         $completed = Join-Path $folder 'concurrent-completed.txt'
         if ((Test-Path -LiteralPath $ready) -or

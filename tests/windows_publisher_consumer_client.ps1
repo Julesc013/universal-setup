@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory=$true)][string]$ExpectedUserSid,
     [Parameter(Mandatory=$true)][string]$IdentityPath,
     [string]$ClientBinary='', [string]$ServiceName='', [string]$RequestFile='',
-    [ValidateSet('service','candidate-service','machine-one-shot')][string]$ClientMode='service',
+    [ValidateSet('service','candidate-service','machine-one-shot','machine-public')][string]$ClientMode='service',
+    [string]$NativeObservationPath='',
     [string]$ExpectedClientSha256='',
     [string]$PayloadRoot='', [string]$AccessReceipt=''
 )
@@ -83,7 +84,10 @@ $observed['client_binary_path']=$clientPath
 $observed['client_binary_sha256']=$clientDigest
 $observed['client_mode']=$ClientMode
 $observed|ConvertTo-Json -Depth 4|Set-Content -LiteralPath $IdentityPath -Encoding utf8
-if($ClientMode -eq 'machine-one-shot') {
+if($ClientMode -eq 'machine-public') {
+    if(-not $NativeObservationPath){throw 'Public maintenance requires a native observation path'}
+    & $clientPath --machine --publisher $ServiceName --request-file $RequestFile --publisher-observation-file $NativeObservationPath
+} elseif($ClientMode -eq 'machine-one-shot') {
     & $clientPath --machine --candidate-service $ServiceName --request-file $RequestFile
 } else {
     & $clientPath ('--'+$ClientMode) $ServiceName --request-file $RequestFile

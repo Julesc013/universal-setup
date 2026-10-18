@@ -5,9 +5,13 @@ param(
     [Parameter(Mandatory=$true)][string]$ExpectedUserSid,
     [Parameter(Mandatory=$true)][string]$ServiceSid,
     [Parameter(Mandatory=$true)][string]$ReadyPath,
-    [Parameter(Mandatory=$true)][string]$ReleasePath
+    [Parameter(Mandatory=$true)][string]$ReleasePath,
+    [string]$OwnedHostedLabRoot=''
 )
 $ErrorActionPreference='Stop'
+. (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1')
+$actorRoot=Get-OwnedPublisherActorRoot $OwnedHostedLabRoot
+$actorOutput=Join-Path $actorRoot 'consumer-output'
 $VolumeRoot=$VolumeRoot.TrimEnd('\')+'\'
 $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
 $principal=[Security.Principal.WindowsPrincipal]$identity
@@ -18,9 +22,9 @@ if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted
     $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator) -or
     @($identity.Groups|Where-Object Value -ceq $ServiceSid).Count -ne 0 -or
     [IO.Path]::GetFullPath([IO.Path]::GetDirectoryName($ReadyPath)) -cne
-        'C:\USK-Lab\consumer-output' -or
+        $actorOutput -or
     [IO.Path]::GetFullPath([IO.Path]::GetDirectoryName($ReleasePath)) -cne
-        'C:\USK-Lab\consumer-output' -or
+        $actorOutput -or
     [IO.Path]::GetFileName($ReadyPath) -cne 'preopened-root-ready.txt' -or
     [IO.Path]::GetFileName($ReleasePath) -cne 'preopened-root-release.txt' -or
     (Test-Path -LiteralPath $ReadyPath) -or (Test-Path -LiteralPath $ReleasePath)) {

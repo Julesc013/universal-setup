@@ -67,35 +67,40 @@ struct OwnedService {
 };
 
 template<typename Function>
-std::string refused(Function&& function, const char* expected) {
+std::string refused(const char* phase, Function&& function, const char* expected) {
     std::string diagnostic;
     try { function(); }
     catch (const std::exception& error) { diagnostic = error.what(); }
-    require(!diagnostic.empty() && diagnostic.find(expected) != std::string::npos,
-        "fixture did not receive the required refusal diagnostic");
+    if (diagnostic.empty() || diagnostic.find(expected) == std::string::npos) {
+        constexpr std::size_t diagnostic_limit = 2048;
+        if (diagnostic.size() > diagnostic_limit) diagnostic.resize(diagnostic_limit);
+        throw std::runtime_error(std::string("fixture phase ") + phase +
+            ": expected refusal containing [" + expected + "]; observed [" +
+            (diagnostic.empty() ? "operation returned without a refusal" : diagnostic) + "]");
+    }
     return diagnostic;
 }
 
 void qualify(SC_HANDLE manager) {
     OwnedService service(manager);
-    refused([&] { native::require_publisher_service_absence(manager, service.name); }, "service is present");
-    refused([&] { (void)native::wait_for_deleted_publisher_service_absence(manager, service.name); },
+    refused("strict present", [&] { native::require_publisher_service_absence(manager, service.name); }, "service is present");
+    refused("wait present", [&] { (void)native::wait_for_deleted_publisher_service_absence(manager, service.name); },
         "service is present");
     // A native error other than 1060/1072 must refuse immediately.
-    refused([&] { (void)native::wait_for_deleted_publisher_service_absence(manager, L"invalid/name"); },
+    refused("invalid name", [&] { (void)native::wait_for_deleted_publisher_service_absence(manager, L"invalid/name"); },
         "Win32 123; probes 1; pending-deletion observations 0");
 
     ScmHandle observer(OpenServiceW(manager, service.name.c_str(), SERVICE_QUERY_CONFIG));
     require(observer.value != nullptr, "fixture query-only handle unavailable");
     service.mark_and_close();
-    refused([&] { native::require_publisher_service_absence(manager, service.name); }, "Win32 1072");
+    refused("strict held deletion", [&] { native::require_publisher_service_absence(manager, service.name); }, "Win32 1072");
 
-    const auto waiting = refused([&] {
+    const auto waiting = refused("wait held deletion", [&] {
         (void)native::wait_for_deleted_publisher_service_absence(manager, service.name);
     }, "post-delete-and-close SCM completion: SCM absence is unconfirmed; Win32 1072");
     std::cout << "held-query-handle timeout: " << waiting << '\n';
     // It remains pending after timeout; no fallback is projected as absence.
-    refused([&] { native::require_publisher_service_absence(manager, service.name); }, "Win32 1072");
+    refused("strict after deadline", [&] { native::require_publisher_service_absence(manager, service.name); }, "Win32 1072");
 
     // Execute the exact product helper while the original query-only handle
     // still exists. The returned count must positively establish entry through

@@ -776,7 +776,7 @@ if(USK_BUILD_TESTS)
             -ClientBinary "$<TARGET_FILE:usk_publisher_client>"
             -PayloadBinary "$<TARGET_FILE:usk_neutral_payload>"
             -ReviewedSource -RegisteredService -ConsumerAccess
-            -MachineRequestClient -ReuseRegistration -ProductionConcurrentRights)
+            -MachineRequestClient -ReuseRegistration -ProductionConcurrentRights -AdmittedTarget)
         set_tests_properties(usk_machine_registered_candidate_hosted
           PROPERTIES RUN_SERIAL TRUE TIMEOUT 420 LABELS publisher-qualification)
         add_test(NAME usk_controller_registered_apply_hosted
