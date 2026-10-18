@@ -95,10 +95,12 @@ targeted at least weekly when its additional publisher qualification and
 applicable acceptance checks pass. A development checkpoint can retain a
 failed publisher qualification; it does not establish deployment readiness.
 
-As of 2026-10-17, genuinely interrupted, source-free Windows repair recovery
-still intermittently exceeds its 120-second request contract. This remains
-unqualified for production deployment; [PR #237](https://github.com/Julesc013/universal-setup/pull/237)
-retains the exact source and qualification evidence. The separate
+As of 2026-10-18, the latest publisher run for the source integrated by
+[PR #257](https://github.com/Julesc013/universal-setup/pull/257) passed both
+source-free Windows repair recovery cohorts within the unchanged request
+contract, but failed packaged startup and owned service retirement. Earlier
+recovery timeouts remain retained; production deployment is still unqualified.
+The separate
 `publisher-qualification` check reports that work without preventing core
 build/test results from being produced.
 
