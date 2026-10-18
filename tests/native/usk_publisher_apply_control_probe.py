@@ -29,6 +29,7 @@ def verify_fixture_retention(repository: Path, root: Path) -> None:
     driver.write_text(r'''
 param([string]$Repository,[string]$Scratch)
 $ErrorActionPreference='Stop'
+Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
 function Read-OuterTry([string]$Name) {
     $tokens=$null;$errors=$null
     $ast=[Management.Automation.Language.Parser]::ParseFile(
@@ -163,6 +164,87 @@ if($script:accountDeletes -or -not $controllerActorObservation.account_retained 
     $actorOriginalError.Exception.Message -cne 'original actor failure') {
     throw 'Account cleanup erased original failure or removed an uncertain account'
 }
+# Execute the real activation helper without native effects. Its success must
+# bind the product reply to this service; a prior exit code cannot admit it.
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $Repository 'tests\windows_publisher_metadata_hosted_probe.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Activation fixture parse failed'}
+$activation=@($ast.EndBlock.Statements|Where-Object {
+    $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq 'Start-RegisteredPublisher'})
+if($activation.Count -ne 1){throw 'Activation fixture helper missing'}
+. ([scriptblock]::Create($activation[0].Extent.Text))
+$service='USK_PUB_0123456789abcdef0123456789abcdef';$ServiceBinary='owned-publisher.exe'
+$VolumeRoot='owned-volume';$callerSid='S-1-5-21-1-2-3-1001';$AdmittedTarget=$true
+$script:controllerPending=$false
+function Invoke-ObservedPublisherControl([string]$Phase,[string[]]$Arguments) {
+    $script:activationCalls++
+    if($Phase -cne 'service_activation' -or ($Arguments -join '|') -cne
+        (@('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid,'--service-admitted-client') -join '|')) {
+        throw 'Activation did not use the exact product command'
+    }
+    return [pscustomobject]@{native_exit_code=$script:activationExit;output=@($script:activationReply)}
+}
+$reply=@{schema='usk.publisher_service_control.v1';status='start_requested';service=$service}
+foreach($case in @('valid','wrong_service','wrong_status','wrong_schema','unknown','missing_exit')) {
+    $script:activationCalls=0;$script:activationExit=0;$current=$reply.Clone()
+    switch($case) {
+        'wrong_service' {$current.service=$service+'.different'}
+        'wrong_status' {$current.status='registered'}
+        'wrong_schema' {$current.schema='usk.other.v1'}
+        'unknown' {$script:activationExit=5}
+        'missing_exit' {$script:activationExit=$null}
+    }
+    $script:activationReply=$current|ConvertTo-Json -Compress
+    $caught=$null
+    try {Start-RegisteredPublisher} catch {$caught=$_}
+    if($script:activationCalls -ne 1 -or (($null -eq $caught) -ne ($case -ceq 'valid'))) {
+        throw ('Product activation reply validation differs: '+$case)
+    }
+}
+$script:controllerPending=$true;$script:activationCalls=0
+Start-RegisteredPublisher
+if($script:activationCalls){throw 'Pending controller dispatch started a second worker'}
+# A native refusal failure and an uncertain restore have separate receipts.
+# Only an owned temporary file is changed; no registered service is present.
+$mutation=@($ast.EndBlock.Statements|Where-Object {
+    $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq 'Assert-ChangedAdmissionStartRefusal'})
+if($mutation.Count -ne 1){throw 'Admission mutation fixture helper missing'}
+. ([scriptblock]::Create($mutation[0].Extent.Text))
+$ServiceBinary=Join-Path $Scratch 'owned-publisher.exe'
+$ownedRecord=Join-Path $Scratch ($service+'.target-admitted.json')
+$originalBytes=[Text.Encoding]::UTF8.GetBytes('{"identity":{"registration_sha256":"original"}}')
+function Assert-AdmittedStartRefusal([string]$Phase,[string[]]$Arguments,[string]$Diagnostic) {
+    if($Phase -cne 'start_changed_admission' -or
+        ([IO.File]::ReadAllText($ownedRecord)|ConvertFrom-Json).identity.registration_sha256 -cne ('0'*64)) {
+        throw 'Changed record did not reach the intended refusal'
+    }
+    if($script:failRestore){[IO.File]::SetAttributes($ownedRecord,[IO.FileAttributes]::ReadOnly)}
+    if($script:failNative){throw 'synthetic native refusal failure'}
+}
+foreach($case in @('success','native_failure','native_and_restore_failure')) {
+    [IO.File]::WriteAllBytes($ownedRecord,$originalBytes)
+    $receipt=[ordered]@{};$script:failNative=$case -cne 'success'
+    $script:failRestore=$case -ceq 'native_and_restore_failure';$caught=$null
+    try {Assert-ChangedAdmissionStartRefusal} catch {$caught=$_}
+    finally {[IO.File]::SetAttributes($ownedRecord,[IO.FileAttributes]::Normal)}
+    $control=$receipt.changed_admission_start_control
+    if($script:failNative) {
+        if(-not $caught -or $caught.Exception.Message -cne 'synthetic native refusal failure' -or
+            $control.primary_failure -cne 'synthetic native refusal failure') {
+            throw 'Admission restore replaced the primary native failure'
+        }
+    } elseif($caught -or $control.primary_failure) {
+        throw ('Successful refusal acquired a primary failure: '+$caught.Exception.Message+'; '+$control.primary_failure)
+    }
+    if($script:failRestore) {
+        if($control.restoration_status -cne 'unconfirmed' -or -not $control.restoration_failure) {
+            throw 'Failed admission restore was not separately retained'
+        }
+    } elseif($control.restoration_status -cne 'restored' -or $control.restoration_failure -or
+        [Convert]::ToBase64String([IO.File]::ReadAllBytes($ownedRecord)) -cne
+        [Convert]::ToBase64String($originalBytes)) {throw 'Exact admission restoration differs'}
+}
 ''', encoding="utf-8")
     result = subprocess.run(
         ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
@@ -234,9 +316,8 @@ def main() -> int:
         )
         if result.returncode != 3 or "caller differs from this process identity" not in result.stderr:
             raise AssertionError(f"admitted controller did not reject the actual caller mismatch: {result}")
-        # The mode is deliberately unavailable on legacy configure/start verbs.
-        # Opting in must never turn these into SCM mutations for an admitted target.
-        for operation in ("--recover", "--verify", "--start"):
+        # Legacy reconfiguration remains unavailable for admitted registrations.
+        for operation in ("--recover", "--verify"):
             result = subprocess.run(
                 [str(executable), operation, service, str(executable), volume,
                  caller, "--service-admitted-client"],
@@ -244,6 +325,15 @@ def main() -> int:
             )
             if result.returncode != 3 or "caller access mode is invalid" not in result.stderr:
                 raise AssertionError(f"admitted mode reached legacy {operation}: {result}")
+        # Admitted activation is parsed, but an ordinary build executable is
+        # still refused at the native protected-image fence before SCM access.
+        result = subprocess.run(
+            [str(executable), "--start", service, str(executable), volume,
+             caller, "--service-admitted-client"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        if result.returncode != 3 or "outside the protected installation directory" not in result.stderr:
+            raise AssertionError(f"admitted start bypassed protected-image custody: {result}")
         after = subprocess.run(["sc.exe", "query", service],
                                capture_output=True, timeout=10, check=False)
         if after.returncode != 1060:

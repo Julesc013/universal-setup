@@ -1,3 +1,29 @@
+Admitted product activation increment - 18October2026
+
+The accepted dev checkpoint is130a0f2 (PR259). The current source increment
+enables --start with --service-admitted-client only after the existing completed
+safe-original v3 target observation succeeds. Direct admitted activation cannot
+fall back to generic volume admission; protected image, exact stopped SCM/caller/
+mode binding, retained records/native custody and closing checks remain. Native
+start or closing-proof failures after possible dispatch report outcome unknown.
+Legacy --recover/--verify reconfiguration remains unavailable in this mode.
+
+The existing admitted controller journey now invokes product activation rather
+than raw SCM start. It adds direct missing/changed-admission and wrong-caller/
+mode refusals while stopped, then exercises real activation and its original
+request/maintenance/retirement journey. Local x64 compilation, native preflight,
+fixture reply/cleanup controls, read-only controller checks, inventory and strict
+checks pass. Actual changed-route hosted execution is still pending; exact
+source-review bindings are tracked externally. The legacy packaged concurrent-rights journey remains red and
+unchanged; its complete admission/consumer/scratch/cleanup migration is separate.
+
+The latest hosted49bd6ec producer reports both genuinely interrupted/source-retired
+repair recovery calls completed with cleanup. The request/native reply, captured
+client, independent104-row state and lease generation4-to-5 joins pass. Earlier120-second failures remain retained.
+Neither these samples nor this activation increment establish reliability,
+speedup, whole-publisher acceptance, main promotion or release readiness.
+Changing source/build/run/review bindings remain in the external checkpoint.
+
 # Universal Setup Project State
 
 Complete the existing **USK-SPEC-TO-RELEASE-01** goal. The first release is
