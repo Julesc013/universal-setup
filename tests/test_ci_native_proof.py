@@ -47,7 +47,7 @@ class NativeCiProofTests(unittest.TestCase):
         self.assertNotIn("continue-on-error", qualification)
 
         def value(node: ast.AST):
-            # Evaluate only the Boolean/string subset used by these four actual
+            # Evaluate only the Boolean/string subset used by the selected actual
             # conditions. This is a data test, not a general Actions interpreter.
             if isinstance(node, ast.Constant) and type(node.value) in (bool, str):
                 return node.value
@@ -61,6 +61,16 @@ class NativeCiProofTests(unittest.TestCase):
             raise AssertionError("Unsupported cohort condition syntax: " + ast.dump(node))
 
         cohort_ids = (
+            "install_reconnect_verify_and_recover_through_the_ordinary_publisher_client",
+            "recover_ordinary_public_requests_after_prepared_and_visible_production_loss",
+            "retain_ordinary_public_state_after_payload_drift_and_metadata_collision",
+            "qualify_standard_account_public_installation_and_source_free_reentry",
+            "observe_original_shared_initial_maintenance_intent_before_staging",
+            "qualify_registered_bootstrap_process_loss_takeover_and_preservation",
+            "qualify_registered_reentry_after_interruption_of_bootstrap_preservation",
+            "qualify_native_recovery_of_constructed_ordered_bootstrap_prefixes",
+            "qualify_recovery_of_constructed_durable_bootstrap_states",
+            "qualify_native_installation_mutex_through_the_authenticated_public_client",
             "fresh_untraced",
             "observe_standard_account_fresh_repair_move_and_uninstall",
             "recovery_untraced",
@@ -117,6 +127,8 @@ class NativeCiProofTests(unittest.TestCase):
         ):
             properties = cmake.split("set_tests_properties(" + name, 1)[1].split(")", 1)[0]
             self.assertIn(f"RUN_SERIAL TRUE TIMEOUT {timeout} LABELS publisher-qualification", properties)
+            if name == "usk_publisher_service_absence_hosted":
+                self.assertIn('ENVIRONMENT "USK_TRUSTED_HOSTED_LAB=true"', properties)
         self.assertEqual(cmake.count("LABELS publisher-qualification"), 3)
         self.assertIn("COMMAND usk_publisher_service_absence_hosted --trusted-hosted-scm-fixture", cmake)
         self.assertNotIn("Retain packaged machine service observation", core)
