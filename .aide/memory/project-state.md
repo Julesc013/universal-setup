@@ -8,12 +8,22 @@ Resume the existing [campaign authority](../../release/index/campaign_authority.
 and active WorkUnit bindings. Keep the sole FacMan worktree, reused build and laboratory.
 The external FacMan task's compact continuation record holds the changing checkpoint.
 
-PR257 is normally merged into dev atae2f1b7, source tree85219be6, after
+PR258 is normally merged into dev at2d8c050, source treeea05e8f7, after
 six required core checks, specification validation, independent source review
-and the live branch gate. Fourteen checkpoints PR244-257 were integrated on
-18October2026; dev-push39080980364 also completed successfully. Main remains
+and the live branch gate. Fifteen checkpoints PR244-258 were integrated on
+18October2026. Publisher run39083504428 and accepted-dev push39084471107 remain
+under deterministic observation; neither is claimed terminal here. Main remains
 c048f7f1 and the next weekly target is19October when additional qualification
 passes. The current external task checkpoint binds changing local/remote facts.
+
+The next bounded CI change admits ten existing public install/recovery/bootstrap
+groups after an actual successful publisher build, even when an earlier legacy
+journey failed. It reuses the same cancellation/build/Windows/same-repository PR
+guard as the four existing maintenance cohorts. Actor qualification remains
+before compilation; commands, deadlines, assertions, cleanup and old red results
+are unchanged. The finite Boolean matrix covers all14 selected conditions;
+preview-only positive and original-guard negative controls pass. This exposes
+the public path's actual result and does not waive any main or release gate.
 
 Publisher run39079998427/1 is terminal red: both fresh maintenance cohorts and
 both genuinely interrupted/source-retired repair recoveries pass, with matching

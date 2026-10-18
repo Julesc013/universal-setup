@@ -130,9 +130,12 @@ jobs:
           name: usk-wu006-controller-apply-bridge
           path: ${{ runner.temp }}\usk-wu006-controller-apply-bridge.json
           if-no-files-found: error
+      # Each public group owns separate targets and cleanup. An earlier legacy
+      # failure must not suppress the connected public path. Its original red
+      # result remains; only a successful build admits these existing groups.
       - name: Install, reconnect, verify and recover through the ordinary publisher client
         id: install_reconnect_verify_and_recover_through_the_ordinary_publisher_client
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-public-install-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation
       - name: Retain ordinary publisher client observation
@@ -144,7 +147,7 @@ jobs:
           if-no-files-found: warn
       - name: Recover ordinary public requests after prepared and visible production loss
         id: recover_ordinary_public_requests_after_prepared_and_visible_production_loss
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: |
           $failures=@()
@@ -163,7 +166,7 @@ jobs:
           if-no-files-found: error
       - name: Retain ordinary public state after payload drift and metadata collision
         id: retain_ordinary_public_state_after_payload_drift_and_metadata_collision
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: |
           $failures=@()
@@ -182,7 +185,7 @@ jobs:
           if-no-files-found: error
       - name: Qualify standard-account public installation and source-free reentry
         id: qualify_standard_account_public_installation_and_source_free_reentry
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-standard-public-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardActiveInstallContention -PublicStandardStalePlanQualification
       - name: Retain standard-account public observation
@@ -264,7 +267,7 @@ jobs:
           retention-days: 7
       - name: Observe original shared initial maintenance intent before staging
         id: observe_original_shared_initial_maintenance_intent_before_staging
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-standard-maintenance-initial-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardMaintenanceInitialQualification
       - name: Retain initial shared intent and conservative source-free refusal observation
@@ -276,7 +279,7 @@ jobs:
           if-no-files-found: error
       - name: Qualify registered bootstrap process-loss takeover and preservation
         id: qualify_registered_bootstrap_process_loss_takeover_and_preservation
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-standard-bootstrap-loss-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardBootstrapLoss
       - name: Retain registered standard-account bootstrap process-loss observation
@@ -288,7 +291,7 @@ jobs:
           if-no-files-found: error
       - name: Qualify registered reentry after interruption of bootstrap preservation
         id: qualify_registered_reentry_after_interruption_of_bootstrap_preservation
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-standard-preservation-loss-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardBootstrapPreservationLoss
       - name: Retain registered bootstrap preservation interruption observation
@@ -300,7 +303,7 @@ jobs:
           if-no-files-found: error
       - name: Qualify native recovery of constructed ordered bootstrap prefixes
         id: qualify_native_recovery_of_constructed_ordered_bootstrap_prefixes
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: |
           $cases=@('anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')
@@ -321,7 +324,7 @@ jobs:
           if-no-files-found: error
       - name: Qualify recovery of constructed durable bootstrap states
         id: qualify_recovery_of_constructed_durable_bootstrap_states
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: |
           $cases=@('move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')
@@ -343,7 +346,7 @@ jobs:
           if-no-files-found: error
       - name: Qualify native installation mutex through the authenticated public client
         id: qualify_native_installation_mutex_through_the_authenticated_public_client
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-installation-guard-public-response.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardInstallationGuardConflict
       - name: Retain native installation mutex public response observation
