@@ -114,16 +114,18 @@ $retirementFunctions=@($ast.FindAll({param($node)
 if($retirementFunctions.Count -ne 1){throw 'Controller retirement helper is ambiguous'}
 . ([scriptblock]::Create($retirementFunctions[0].Extent.Text))
 $AdmittedTarget=$true;$ControllerApply=$true;$service='inert-service'
-$installedServiceBinary='inert-protected.exe';$ServiceControlBinary='Invoke-InertRetirementControl'
+$installedServiceBinary='inert-protected.exe'
 $drive='inert-drive';$vhd='inert-volume.vhdx';$root=$temporary
-function Invoke-InertRetirementControl {
-    param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Arguments)
-    if($Arguments.Count -ne 2 -or $Arguments[0] -cne '--retire-owned' -or $Arguments[1] -cne $service) {
+function Invoke-ObservedPublisherControl {
+    param([string]$Phase,[string[]]$Arguments,[string]$DiagnosticPath)
+    if($Phase -cne 'owned_retirement' -or
+        $DiagnosticPath -cne (Join-Path $root 'owned-retirement-error.txt') -or
+        $Arguments.Count -ne 2 -or $Arguments[0] -cne '--retire-owned' -or $Arguments[1] -cne $service) {
         throw 'Retirement dispatch lost its fixed owner and service'
     }
     $script:retirementDispatchCount++
-    $global:LASTEXITCODE=$script:retirementExitCode
-    @{schema='usk.publisher_service_control.v1';status='owned_retired';service=$service}|ConvertTo-Json -Compress
+    [pscustomobject]@{native_exit_code=$script:retirementExitCode;
+        output=(@{schema='usk.publisher_service_control.v1';status='owned_retired';service=$service}|ConvertTo-Json -Compress)}
 }
 function Get-Service {
     param($Name,$ErrorAction)
@@ -158,6 +160,11 @@ foreach($kind in @('uncertain-client','incomplete-uninstall','native-failure','s
     }
     $caught=$null
     try {Invoke-ControllerOwnedRetirement} catch {$caught=$_}
+    if($kind -ceq 'native-failure' -and ($null -eq $caught -or
+        $caught.Exception.Message -cne 'Owned publisher retirement incomplete; retain its actual state for revalidation' -or
+        $receipt.product_retirement_failure -cne 'inert incomplete native retirement')) {
+        throw 'Inert native failure lost its actual retirement diagnostic or failure boundary'
+    }
     if($kind -ceq 'completed') {
         if($caught -or $script:retirementDispatchCount -ne 1 -or
             $receipt.owned_uninstall.status -cne 'owned_uninstall_and_retirement_observed' -or

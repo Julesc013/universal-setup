@@ -6,7 +6,7 @@ Foundation; completion of that release and the wider specification are separate.
 Use the sole FacMan worktree, reusable build and current laboratory. The external
 task checkpoint holds changing source, review, process and qualification pins.
 
-Accepted dev is 26d16b11, the normal PR266 merge after seven core/specification
+Accepted dev is 2025d5a3, the normal PR267 merge after seven core/specification
 checks and exact-source independent review. Main remains c048f7f1. Integrate
 reviewed/core-qualified checkpoints into dev daily; promote to main weekly when
 its additional qualification passes. An incomplete publisher run does not block
@@ -32,23 +32,35 @@ retirement. The original controller's real verification also requires product
 activation, with its authenticated controller request preserved. SCM fixture
 failures retain phase, expected refusal and bounded actual diagnostics.
 
-The accepted 26d16b11 push passed all seven core checks; publisher qualification
-is skipped for that push and remains separate. PR266's native SCM fixture and
-all six extended hostile-coverage stages pass after the bounded observation
-repair. Its packaged apply and source-free reentry succeed, then the deliberately
-stale recovery check fails. The actual generated actor wrapper loses a child
-script's refusal4 and recovery-required5 exits and returns0 under PS5.1 and7.
-The next repair resets LASTEXITCODE before invocation and explicitly propagates
-it afterward. Actual child-process controls preserve0/1/4/5, implicit success,
-exceptions, response bytes, literal arguments, environment and changed-source
-refusal. Test-only child module paths bind their own PowerShell version.
-The real product refusal predicates and120-second request contract are unchanged.
-PR266's controller owned retirement separately reports service presence after
-deletion/closure; its handle owner is not established and its binary is retained.
-The latest traced and untraced recovery producer receipts report completion;
-independent current-request/state reconciliation and whole-profile acceptance
-remain separate. Neither intermittent passes nor the rejected pureJSON previews
-establish reliability or a recovery latency improvement.
+The accepted 2025d5a3 push passed all seven core checks; publisher qualification
+is skipped for that push and remains separate. PR267's wrapper fix carries the
+packaged client through source-free reentry, stale-request refusals and real
+installed verification. The original controller journey also completes owned
+uninstall/retirement with service and image absence. The packaged journey then
+fails at its first intentional live-retirement refusal: PS5.1 terminates on native
+stderr before the fixture checks the actual nonzero exit. All three live-refusal
+controls now use the existing bounded native collector. Positive maintenance
+enrollment, owned retirement and final binary retirement use it too, preserving
+actual exits/diagnostics before the original predicates. Product policy, custody,
+rights, cleanup postconditions and the120-second request contract are unchanged.
+
+The publisher job's existing untraced cohorts still use diagnostic-enabled
+images. Additional release-default fresh maintenance and source-free recovery
+cohorts run only after the entire original profile passes. The same build reuses
+its libraries and rebuilds only machine/service frontends with diagnosticsOFF.
+The actual build-profile reader binds that cache setting and checks both projects'
+macros/trace source before provisioning a VHD; mismatched or ambiguous builds
+refuse. Original diagnostic/traced coverage remains. These are added positive
+qualification runs, not evidence that they have executed or that latency improved.
+Actual data-only controls cover both modes and contradictions under PS5.1 and7;
+the retirement controls exercise the real collector with inert native outcomes.
+Independent review and fresh hosted qualification remain required.
+
+PR266's two source-free repair recoveries independently reconcile captured
+requests, native completion, ended original pairs, installed state and lease
+generation4-to-5. Earlier controller SCM-presence and120-second failures remain
+retained. No handle owner is established by presence alone. Intermittent passes
+and rejected pureJSON previews establish neither reliability nor a latency gain.
 Inventory classifications and specification acceptance states are unchanged.
 
 PR261's first publisher group failed in the packaged SYSTEM fixture before its

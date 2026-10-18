@@ -22,6 +22,7 @@ param(
     [switch]$ControllerApply,
     [switch]$AdmittedTarget,
     [switch]$PublicInstallation,
+    [ValidateSet('any','ON','OFF')][string]$ExpectedQualificationDiagnostics='any',
     [switch]$PublicStandardClient,
     [switch]$PublicStandardBootstrapLoss,
     [switch]$PublicStandardBootstrapPreservationLoss,
@@ -59,6 +60,9 @@ if($AdmittedTarget -and (-not ($admittedControllerProfile -or $admittedPackagedP
     $ProductionPostrenameTermination -or $ProductionPreparedTermination -or
     $ExpectUnprotectedRefusal -or $ExpectPreexistingAnchorRefusal -or $HostileRights -or $HostilePostrename)) {
     throw 'Admitted target currently requires the uninterrupted registered controller profile'
+}
+if($ExpectedQualificationDiagnostics -ine 'any' -and -not $PublicInstallation) {
+    throw 'A diagnostics expectation requires the public installation fixture'
 }
 if($PublicStandardMaintenanceInitialQualification -and $PublicStandardMaintenanceRecoveryQualification) {
     throw 'Initial maintenance and published recovery require separate owned fixtures'
@@ -433,6 +437,26 @@ function Protect-NewOwnedVhdImage([string]$ImagePath,[Collections.IDictionary]$R
 
 function Read-PublicBuildProfile([string]$Binary) {
     $build=Split-Path -Parent (Split-Path -Parent ([IO.Path]::GetFullPath($Binary)))
+    $cachePath=Join-Path $build 'CMakeCache.txt'
+    $cache=[IO.File]::ReadAllText($cachePath)
+    $declarations=@([regex]::Matches($cache,'(?m)^[ \t]*USK_QUALIFICATION_DIAGNOSTICS(?=[ \t]*[:=])[^\r\n]*\r?$'))
+    if($declarations.Count -ne 1){throw 'Public qualification diagnostics mode is absent or ambiguous'}
+    $diagnostics=[regex]::Match($declarations[0].Value,'^USK_QUALIFICATION_DIAGNOSTICS:BOOL=(ON|OFF)\r?$')
+    if(-not $diagnostics.Success){throw 'Public qualification diagnostics mode is invalid'}
+    $mode=$diagnostics.Groups[1].Value
+    if($ExpectedQualificationDiagnostics -ine 'any' -and $ExpectedQualificationDiagnostics -ine $mode) {
+        throw 'Public qualification diagnostics mode differs from the selected cohort'
+    }
+    foreach($frontend in @('usk_publisher_service','usk_machine')) {
+        $definitions=[IO.File]::ReadAllText((Join-Path $build ($frontend+'.vcxproj')))
+        $names=[regex]::Matches($definitions,'\bUSK_QUALIFICATION_DIAGNOSTICS\b').Count
+        $enabled=[regex]::Matches($definitions,'\bUSK_QUALIFICATION_DIAGNOSTICS=1(?=;|<)').Count
+        $trace=$definitions.Contains('usk_qualification_trace_internal.cpp')
+        if(($mode -ceq 'OFF' -and ($names -ne 0 -or $trace)) -or
+            ($mode -ceq 'ON' -and ($names -eq 0 -or $enabled -ne $names -or -not $trace))) {
+            throw 'Public qualification frontend diagnostics differs from its CMake cache'
+        }
+    }
     $projectPath=Join-Path $build 'usk_publisher_service.vcxproj'
     $compilerFiles=@(Get-ChildItem -LiteralPath (Join-Path $build 'CMakeFiles') -Directory|ForEach-Object {
         $candidate=Join-Path $_.FullName 'CMakeCXXCompiler.cmake'
@@ -458,6 +482,8 @@ function Read-PublicBuildProfile([string]$Binary) {
         windows_sdk=[string]$sdk[0];platform_toolset=[string]$toolset[0];compiler_id=$compilerId;compiler_version=$version;
         compiler_definition_sha256=(Get-FileHash -LiteralPath $compilerFiles[0] -Algorithm SHA256).Hash.ToLowerInvariant();
         project_sha256=(Get-FileHash -LiteralPath $projectPath -Algorithm SHA256).Hash.ToLowerInvariant();
+        qualification_diagnostics=($mode -ceq 'ON');
+        diagnostics_cache_sha256=(Get-FileHash -LiteralPath $cachePath -Algorithm SHA256).Hash.ToLowerInvariant();
         probe_powershell=$PSVersionTable.PSVersion.ToString();probe_clr=[Environment]::Version.ToString()}
 }
 

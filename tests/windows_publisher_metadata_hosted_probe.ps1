@@ -74,7 +74,9 @@ function Invoke-ObservedPublisherControl {
         'target_admission_preopened','register_wrong_digest','start_control_lock',
         'register_control_lock','changed_apply','start_preopened_root','recover_wrong_caller',
         'unregister_control_lock','unregister_wrong_caller','retire_live_service',
-        'retire_wrong_digest','retire_wrong_sid')]
+        'retire_wrong_digest','retire_wrong_sid','owned_live_unregister',
+        'owned_live_binary_retirement','owned_live_retirement',
+        'owned_maintenance_enrollment','owned_retirement','retire_binary')]
         [string]$Phase,[string[]]$Arguments,[string]$DiagnosticPath='')
     $errorPath=if($DiagnosticPath){$DiagnosticPath}else{Join-Path $root ($Phase+'-'+$id+'.stderr.txt')}
     $attempt=[ordered]@{phase=$Phase;service=$service;native_exit_code=$null;
@@ -3329,8 +3331,10 @@ try {
                 -not (Test-Path -LiteralPath $installedServiceBinary -PathType Leaf)) {
                 throw 'Protected service retirement accepted a different service SID'
             }
-            $retired=& $ServiceControlBinary --retire-binary $service $installedServiceBinary $sourceServiceHash $sid
-            if($LASTEXITCODE -ne 0 -or
+            $retireAttempt=Invoke-ObservedPublisherControl -Phase retire_binary `
+                -Arguments @('--retire-binary',$service,$installedServiceBinary,$sourceServiceHash,$sid)
+            $retired=$retireAttempt.output
+            if($retireAttempt.native_exit_code -ne 0 -or
                 ($retired|ConvertFrom-Json).status -cne 'binary_retired' -or
                 (Test-Path -LiteralPath $installedServiceBinary)) {
                 throw 'Product control did not retire its protected service binary'
