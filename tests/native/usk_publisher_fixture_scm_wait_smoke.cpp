@@ -34,6 +34,9 @@ int main() {
             require(result.present == static_cast<unsigned>(std::count(sequence.begin(), sequence.end(), State::present)));
             require(result.pending == static_cast<unsigned>(std::count(sequence.begin(), sequence.end(), State::pending_deletion)));
         }
+        // A runtime-valued stalled clock retains the real callback shape. A
+        // literal-zero callback triggers template warningC4127 on MSVC19.44.
+        volatile std::uint64_t frozen_tick = 0;
         for (const auto state : {State::present, State::pending_deletion}) {
             unsigned calls = 0, sleeps = 0;
             std::uint64_t tick = 0;
@@ -43,7 +46,7 @@ int main() {
             require(calls == 80 && sleeps == 80 && tick == 2000);
             calls = 0;
             refused([&] { (void)usk::test::wait_for_fixture_service_deletion(
-                [&] { ++calls; return state; }, [] { return std::uint64_t{0}; },
+                [&] { ++calls; return state; }, [&] { return frozen_tick; },
                 [](std::uint64_t) {}); }, "81-probe");
             require(calls == 81); // A stalled clock cannot make the wait unbounded.
         }
@@ -51,9 +54,13 @@ int main() {
         refused([&] { (void)usk::test::wait_for_fixture_service_deletion(
             [&] { tick = 2000; return State::absent; }, [&] { return tick; },
             [](std::uint64_t) {}); }, "2000ms"); // Late absence is not timely completion.
-        refused([] { (void)usk::test::wait_for_fixture_service_deletion(
-            []() -> State { throw std::runtime_error("native close unconfirmed"); },
-            [] { return std::uint64_t{0}; }, [](std::uint64_t) {}); }, "native close unconfirmed");
+        volatile bool fail_observation = true;
+        refused([&] { (void)usk::test::wait_for_fixture_service_deletion(
+            [&]() -> State {
+                if (fail_observation) throw std::runtime_error("native close unconfirmed");
+                return State::absent;
+            },
+            [&] { return frozen_tick; }, [](std::uint64_t) {}); }, "native close unconfirmed");
         // Elapsed subtraction remains bounded across the native tick wrap.
         tick = (std::numeric_limits<std::uint64_t>::max)() - 10;
         unsigned calls = 0;

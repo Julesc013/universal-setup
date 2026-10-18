@@ -499,3 +499,11 @@ No process-tree kill fallback, production policy or deadline changes are made.
 Both-shell focused controls pass; independent source review and fresh hosted
 qualification remain required. Other PowerShell5.1 forced-tree cleanup paths
 retain their existing unsupported-method refusal rather than claiming closure.
+
+PR266's first head fails strict MSVC19.44 x64/x86 compilation because a
+literal-zero synthetic clock causes template warningC4127. Installed14.44
+reproduces both failures and exposes an x86 unreachable-code warning in the
+always-throwing test callback. The negative controls now read runtime-valued
+frozen clock and failure inputs; their exact81-probe cap, deadline and failed-close
+assertions remain. Production helpers and warning settings are unchanged. Fresh compile,
+control execution and exact-source review remain required before resubmission.
