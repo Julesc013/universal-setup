@@ -6,7 +6,7 @@ Foundation; completion of that release and the wider specification are separate.
 Use the sole FacMan worktree, reusable build and current laboratory. The external
 task checkpoint holds changing source, review, process and qualification pins.
 
-Accepted dev is b61e8409, the normal PR260 merge after seven core/specification
+Accepted dev is 7d65f170, the normal PR261 merge after seven core/specification
 checks and exact-source independent review. Main remains c048f7f1. Integrate
 reviewed/core-qualified checkpoints into dev daily; promote to main weekly when
 its additional qualification passes. An incomplete publisher run does not block
@@ -30,21 +30,28 @@ retirement. The original controller's real verification also requires product
 activation, with its authenticated controller request preserved. SCM fixture
 failures retain phase, expected refusal and bounded actual diagnostics.
 
-This is an implementation candidate requiring focused checks, independent
-source review and hosted execution. No runtime or acceptance upgrade is implied.
+The accepted dev push also passed all seven core checks. Publisher qualification
+remains separate; no runtime or acceptance upgrade is implied.
 Inventory classifications and specification acceptance states are unchanged.
 
-PR261's first hosted Win32 core run failed in the inert maintenance-cleanup
-fixture before launch: it still named a nonexistent image and mocked the old
-launch function. The fixture now hashes its own readable script and mocks the
-current owned-launch boundary. Timeout, UNKNOWN, shared ownership and retirement
-assertions remain mandatory. This repair requires fresh exact-head core checks;
-the failed head has not merged and its publisher job was not qualified.
+PR261's first publisher group failed in the packaged SYSTEM fixture before its
+inner receipt. Actual Windows descriptors reproduce the cause: SYSTEM and the
+runner are the same principal, so duplicate ACEs collapse into one while the
+fixture required two. The observer now binds the distinct expected SID set,
+validates exact full-control/inheritance/allow rules, owner and protected DACL,
+and refuses missing or extra principals and changed permissions. Its actual
+setup block is tested with both runner identities and adverse ACL readbacks.
+The original controller's actual activation and owned retirement succeeded in
+that group; whole-profile, packaged and release qualification remain withheld.
+The old head's failed core run and all recovery failures remain retained.
 
-The separately pushed optional AIDE checkpoint e58c65e on
-task/usk-aide-portable-19e237c remains HOLD and is not part of this product delta:
-its new work-effort command needs a core module excluded by the safe import.
-Do not silently adopt it, copy broad core code or relax import ownership policy.
+The separately pushed optional AIDE checkpoint dfd228e0 on
+task/usk-aide-portable-8fe2d12 preserves project state and supplies its owned
+portable work-effort helper. Policy, strict and actual pinned-pack consumer
+controls pass, but broader functional adoption remains HOLD: inherited gateway
+verification imports code from the observed repository before checking flags.
+The earlier e58c65e checkpoint is preserved. Neither candidate is integrated;
+do not copy broad core code or relax import ownership policy.
 
 The owned-retirement implementation now has a fixed native owner and a separate
 historical object-role replay. It binds the complete held namespace, operation

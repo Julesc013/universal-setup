@@ -45,6 +45,82 @@ function Read-Block($Block) {
     $source=$Block.Extent.Text
     return [scriptblock]::Create($source.Substring(1,$source.Length-2))
 }
+# Exercise the real observer ACL setup with Windows descriptors, without
+# changing filesystem permissions. SYSTEM is also the runner in one profile.
+& {
+    $tokens=$null;$errors=$null
+    $metadataAst=[Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $Repository 'tests\windows_publisher_metadata_hosted_probe.ps1'),[ref]$tokens,[ref]$errors)
+    if($errors.Count){throw 'Observer ACL fixture parse failed'}
+    $statements=@($metadataAst.EndBlock.Statements)
+    $runnerIndex=@(0..($statements.Count-1)|Where-Object {
+        $statements[$_] -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $statements[$_].Left.Extent.Text -ceq '$runnerSid'})
+    $receiptIndex=@(0..($statements.Count-1)|Where-Object {
+        $statements[$_] -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $statements[$_].Left.Extent.Text -ceq '$receipt'})
+    if($runnerIndex.Count -ne 1 -or $receiptIndex.Count -ne 1 -or
+        $receiptIndex[0] -le $runnerIndex[0]+1){throw 'Observer ACL setup missing or ambiguous'}
+    $setup=[scriptblock]::Create(($statements[($runnerIndex[0]+1)..($receiptIndex[0]-1)]|
+        ForEach-Object {$_.Extent.Text}) -join "`n")
+    $observerRoot='in-memory-observer-acl-only'
+    $namedSid='S-1-5-21-101-102-103-1001';$unexpectedSid='S-1-5-32-545'
+    function Set-Acl([string]$LiteralPath,[Security.AccessControl.DirectorySecurity]$AclObject) {
+        if($LiteralPath -cne $observerRoot){throw 'Unexpected observer ACL write'}
+        $script:observerAclWrites++
+        $script:storedObserverAcl=[Security.AccessControl.DirectorySecurity]::new()
+        $script:storedObserverAcl.SetSecurityDescriptorBinaryForm($AclObject.GetSecurityDescriptorBinaryForm())
+    }
+    function Get-Acl([string]$LiteralPath) {
+        if($LiteralPath -cne $observerRoot){throw 'Unexpected observer ACL read'}
+        $script:observerAclReads++
+        $acl=$script:storedObserverAcl
+        switch($case) {
+            'missing_system' {$acl.PurgeAccessRules([Security.Principal.SecurityIdentifier]'S-1-5-18')}
+            'missing_runner' {$acl.PurgeAccessRules([Security.Principal.SecurityIdentifier]$runnerSid)}
+            'extra' {$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                [Security.Principal.SecurityIdentifier]$unexpectedSid,'FullControl','ContainerInherit,ObjectInherit','None','Allow'))}
+            'rights' {$acl.SetAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                [Security.Principal.SecurityIdentifier]$runnerSid,'Read','ContainerInherit,ObjectInherit','None','Allow'))}
+            'inheritance' {$acl.SetAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                [Security.Principal.SecurityIdentifier]$runnerSid,'FullControl','ContainerInherit','None','Allow'))}
+            'propagation' {$acl.SetAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                [Security.Principal.SecurityIdentifier]$runnerSid,'FullControl','ContainerInherit,ObjectInherit','InheritOnly','Allow'))}
+            'deny' {$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                [Security.Principal.SecurityIdentifier]$runnerSid,'FullControl','ContainerInherit,ObjectInherit','None','Deny'))}
+            'unprotected' {$acl.SetAccessRuleProtection($false,$true)}
+            'owner' {$acl.SetOwner([Security.Principal.SecurityIdentifier]$unexpectedSid)}
+            'inherited_extra' {$acl.SetSecurityDescriptorSddlForm(
+                $acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::All)+
+                '(A;OICIID;FA;;;'+$unexpectedSid+')')}
+            'inherited_runner' {$acl.SetSecurityDescriptorSddlForm(
+                $acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::All)+
+                '(A;OICIID;FA;;;'+$runnerSid+')')}
+        }
+        if($case -in @('inherited_extra','inherited_runner') -and
+            (-not $acl.AreAccessRulesProtected -or
+                @($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])|
+                    Where-Object {$_.IsInherited}).Count -ne 1)) {
+            throw 'Inherited observer ACL fixture did not reach its intended boundary'
+        }
+        return $acl
+    }
+    foreach($case in @('system','named','missing_system','missing_runner','extra',
+        'rights','inheritance','propagation','deny','unprotected','owner','inherited_extra','inherited_runner')) {
+        $runnerSid=if($case -ceq 'system'){'S-1-5-18'}else{$namedSid}
+        $script:observerAclWrites=0;$script:observerAclReads=0;$caught=$null
+        try {. $setup} catch {$caught=$_}
+        $accept=$case -in @('system','named')
+        if($script:observerAclWrites -ne 1 -or $script:observerAclReads -ne 1 -or
+            (($null -eq $caught) -ne $accept)) {
+            throw ('Observer ACL protection differs: '+$case+'; '+$caught.Exception.Message)
+        }
+        if(-not $accept -and $caught.Exception.Message -cne
+            'Owned SYSTEM observer output directory has an unexpected ACL') {
+            throw ('Observer ACL control failed at the wrong boundary: '+$case)
+        }
+    }
+}
 function Get-DiskImage([string]$ImagePath,[object]$ErrorAction) {
     if($ImagePath -cne $vhd){throw 'Unexpected cleanup image'}
     $script:imageQueries++

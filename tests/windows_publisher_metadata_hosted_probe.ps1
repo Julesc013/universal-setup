@@ -499,15 +499,28 @@ if((Split-Path -Parent $out) -ine (Split-Path -Parent $vhd) -or
     (Test-Path -LiteralPath $observerRoot)) { throw 'Owned root ACL observer output root differs' }
 New-Item -ItemType Directory -Path $observerRoot -ErrorAction Stop|Out-Null
 $runnerSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$observerSids=@(@('S-1-5-18',$runnerSid)|Select-Object -Unique)
+$observerDacl=($observerSids|ForEach-Object {'(A;OICI;FA;;;'+$_+')'}) -join ''
 $observerAcl=[Security.AccessControl.DirectorySecurity]::new()
 $observerAcl.SetSecurityDescriptorSddlForm('O:'+$runnerSid+'G:'+$runnerSid+
-    'D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;'+$runnerSid+')')
+    'D:P'+$observerDacl)
 Set-Acl -LiteralPath $observerRoot -AclObject $observerAcl
 $observedAcl=Get-Acl -LiteralPath $observerRoot
-$observerRules=@($observedAcl.GetAccessRules($true,$false,[Security.Principal.SecurityIdentifier]))
-if(-not $observedAcl.AreAccessRulesProtected -or $observerRules.Count -ne 2 -or
-    @($observerRules|Where-Object {$_.IdentityReference.Value -eq 'S-1-5-18'}).Count -ne 1 -or
-    @($observerRules|Where-Object {$_.IdentityReference.Value -eq $runnerSid}).Count -ne 1) {
+$observerRules=@($observedAcl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+if(-not $observedAcl.AreAccessRulesProtected -or $observerRules.Count -ne $observerSids.Count -or
+    $observedAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -cne $runnerSid -or
+    @($observerRules|Where-Object {
+        $observerSids -cnotcontains $_.IdentityReference.Value -or $_.IsInherited -or
+        $_.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+        $_.FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl -or
+        $_.InheritanceFlags -ne ([Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
+            [Security.AccessControl.InheritanceFlags]::ObjectInherit) -or
+        $_.PropagationFlags -ne [Security.AccessControl.PropagationFlags]::None
+    }).Count -ne 0 -or
+    @($observerSids|Where-Object {
+        $sid=$_
+        @($observerRules|Where-Object {$_.IdentityReference.Value -ceq $sid}).Count -ne 1
+    }).Count -ne 0) {
     throw 'Owned SYSTEM observer output directory has an unexpected ACL'
 }
 $receipt=[ordered]@{schema='usk.publisher.metadata_vm_probe.v1';status='not_run';vm_id=$vmId;
