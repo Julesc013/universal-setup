@@ -122,20 +122,23 @@ function Invoke-ControllerOwnedUninstall {
     Assert-OwnedVolume
     # These unpublished-only commands must retain authority for a live install.
     $errorFile=Join-Path $root 'owned-live-unregister-error.txt'
-    & $ServiceControlBinary --unregister $service $ServiceBinary $VolumeRoot $callerSid $registeredMode 2>$errorFile|Out-Null
-    if($LASTEXITCODE -eq 0 -or -not (Get-Service $service -ErrorAction SilentlyContinue)) {
+    $unregisterAttempt=Invoke-ObservedPublisherControl -Phase owned_live_unregister -DiagnosticPath $errorFile `
+        -Arguments @('--unregister',$service,$ServiceBinary,$VolumeRoot,$callerSid,$registeredMode)
+    if($unregisterAttempt.native_exit_code -eq 0 -or -not (Get-Service $service -ErrorAction SilentlyContinue)) {
         throw 'Installed publisher unexpectedly lost its service through unpublished retirement'
     }
     $result['live_unregister_refusal']=Read-BoundedDiagnostic $errorFile 4096
     $errorFile=Join-Path $root 'owned-live-binary-retirement-error.txt'
-    & $ServiceControlBinary --retire-binary $service $installedServiceBinary $sourceServiceHash $sid 2>$errorFile|Out-Null
-    if($LASTEXITCODE -eq 0 -or -not (Test-Path -LiteralPath $installedServiceBinary -PathType Leaf)) {
+    $binaryAttempt=Invoke-ObservedPublisherControl -Phase owned_live_binary_retirement -DiagnosticPath $errorFile `
+        -Arguments @('--retire-binary',$service,$installedServiceBinary,$sourceServiceHash,$sid)
+    if($binaryAttempt.native_exit_code -eq 0 -or -not (Test-Path -LiteralPath $installedServiceBinary -PathType Leaf)) {
         throw 'Installed publisher unexpectedly lost its protected executable'
     }
     $result['live_binary_retirement_refusal']=Read-BoundedDiagnostic $errorFile 4096
     $errorFile=Join-Path $root 'owned-live-retirement-error.txt'
-    & $ServiceControlBinary --retire-owned $service 2>$errorFile|Out-Null
-    if($LASTEXITCODE -eq 0 -or -not (Get-Service $service -ErrorAction SilentlyContinue) -or
+    $ownedAttempt=Invoke-ObservedPublisherControl -Phase owned_live_retirement -DiagnosticPath $errorFile `
+        -Arguments @('--retire-owned',$service)
+    if($ownedAttempt.native_exit_code -eq 0 -or -not (Get-Service $service -ErrorAction SilentlyContinue) -or
         -not (Test-Path -LiteralPath $installedServiceBinary -PathType Leaf)) {
         throw 'Owned retirement accepted an installation with live payload'
     }
@@ -242,8 +245,10 @@ function Invoke-ControllerOwnedUninstall {
             plan_request=$planRequest;reviewed_plan_digest=$apply.reviewed_plan_digest;apply_request=$apply}|
             ConvertTo-Json -Depth 64 -Compress)+"`n",$utf8)
         $envelopeDigest=(Get-FileHash -LiteralPath $envelopePath -Algorithm SHA256).Hash.ToLowerInvariant()
-        $enrolled=& $ServiceControlBinary --enroll-reviewed-operation $service $envelopePath $envelopeDigest $applyPath
-        $enrollmentExit=$LASTEXITCODE
+        $enrollmentAttempt=Invoke-ObservedPublisherControl -Phase owned_maintenance_enrollment `
+            -Arguments @('--enroll-reviewed-operation',$service,$envelopePath,$envelopeDigest,$applyPath)
+        $enrolled=$enrollmentAttempt.output
+        $enrollmentExit=$enrollmentAttempt.native_exit_code
         $case.enrollment=($enrolled -join "`n")|ConvertFrom-Json
         if($enrollmentExit -ne 0 -or $case.enrollment.status -cne 'reviewed_operation_enrolled' -or
             $case.enrollment.service -cne $service) {throw 'Owned maintenance enrollment differs'}
@@ -330,8 +335,10 @@ function Invoke-ControllerOwnedRetirement {
     }
     $baseline=$receipt.owned_uninstall.cases[-1].after.independent.rows
     $errorFile=Join-Path $root 'owned-retirement-error.txt'
-    $retired=& $ServiceControlBinary --retire-owned $service 2>$errorFile
-    if($LASTEXITCODE -ne 0) {
+    $retirementAttempt=Invoke-ObservedPublisherControl -Phase owned_retirement -DiagnosticPath $errorFile `
+        -Arguments @('--retire-owned',$service)
+    $retired=$retirementAttempt.output
+    if($retirementAttempt.native_exit_code -ne 0) {
         $receipt['product_retirement_failure']=Read-BoundedDiagnostic $errorFile 16384
         throw 'Owned publisher retirement incomplete; retain its actual state for revalidation'
     }

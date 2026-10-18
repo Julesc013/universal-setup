@@ -2695,7 +2695,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "4f98167bc511835d950403d5391253bae9ddbb6e602df3a87e5aaa0512c06528"
+          "sha256": "4ce6f5143eb071682c9fdec9e682aa45d361c81132d96cdcfae28acf922fae8c"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -2755,7 +2755,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "c2d002776b14fd9adbb622c629ad98b0b0a729c732b6fee89608740ecaa5ef29"
+          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
@@ -3158,7 +3158,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "4f98167bc511835d950403d5391253bae9ddbb6e602df3a87e5aaa0512c06528"
+          "sha256": "4ce6f5143eb071682c9fdec9e682aa45d361c81132d96cdcfae28acf922fae8c"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -3218,7 +3218,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "c2d002776b14fd9adbb622c629ad98b0b0a729c732b6fee89608740ecaa5ef29"
+          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
@@ -3621,7 +3621,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "4f98167bc511835d950403d5391253bae9ddbb6e602df3a87e5aaa0512c06528"
+          "sha256": "4ce6f5143eb071682c9fdec9e682aa45d361c81132d96cdcfae28acf922fae8c"
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
@@ -3681,7 +3681,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "c2d002776b14fd9adbb622c629ad98b0b0a729c732b6fee89608740ecaa5ef29"
+          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
@@ -4872,7 +4872,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "c2d002776b14fd9adbb622c629ad98b0b0a729c732b6fee89608740ecaa5ef29"
+          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4908,7 +4908,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "c2d002776b14fd9adbb622c629ad98b0b0a729c732b6fee89608740ecaa5ef29"
+          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4944,7 +4944,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "c2d002776b14fd9adbb622c629ad98b0b0a729c732b6fee89608740ecaa5ef29"
+          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -5327,7 +5327,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "4f98167bc511835d950403d5391253bae9ddbb6e602df3a87e5aaa0512c06528"
+          "sha256": "4ce6f5143eb071682c9fdec9e682aa45d361c81132d96cdcfae28acf922fae8c"
         },
         {
           "path": "apps/daemon/usk_publisher_lab_service.cpp",
@@ -5431,7 +5431,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "9c5ad4086fea60fe0e4afad02144fe51e9b5d9777056b73fb36e9a71d77149bf"
+          "sha256": "50fcc3e7b765b6bde4548db0996af64205a70e7708010836a73db3489560cb50"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
@@ -5671,7 +5671,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "c2d002776b14fd9adbb622c629ad98b0b0a729c732b6fee89608740ecaa5ef29"
+          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
@@ -5723,7 +5723,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "c2d002776b14fd9adbb622c629ad98b0b0a729c732b6fee89608740ecaa5ef29"
+          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
@@ -5935,7 +5935,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "9c5ad4086fea60fe0e4afad02144fe51e9b5d9777056b73fb36e9a71d77149bf"
+          "sha256": "50fcc3e7b765b6bde4548db0996af64205a70e7708010836a73db3489560cb50"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
@@ -6195,7 +6195,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "c2d002776b14fd9adbb622c629ad98b0b0a729c732b6fee89608740ecaa5ef29"
+          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
@@ -6283,7 +6283,7 @@
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "4f98167bc511835d950403d5391253bae9ddbb6e602df3a87e5aaa0512c06528"
+          "sha256": "4ce6f5143eb071682c9fdec9e682aa45d361c81132d96cdcfae28acf922fae8c"
         },
         {
           "path": "tests/test_publisher_vhd_image_security.py",
@@ -6503,11 +6503,11 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "c2d002776b14fd9adbb622c629ad98b0b0a729c732b6fee89608740ecaa5ef29"
+          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "4f98167bc511835d950403d5391253bae9ddbb6e602df3a87e5aaa0512c06528"
+          "sha256": "4ce6f5143eb071682c9fdec9e682aa45d361c81132d96cdcfae28acf922fae8c"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
@@ -6762,11 +6762,11 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "c2d002776b14fd9adbb622c629ad98b0b0a729c732b6fee89608740ecaa5ef29"
+          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "4f98167bc511835d950403d5391253bae9ddbb6e602df3a87e5aaa0512c06528"
+          "sha256": "4ce6f5143eb071682c9fdec9e682aa45d361c81132d96cdcfae28acf922fae8c"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
@@ -7922,11 +7922,11 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "c2d002776b14fd9adbb622c629ad98b0b0a729c732b6fee89608740ecaa5ef29"
+          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "4f98167bc511835d950403d5391253bae9ddbb6e602df3a87e5aaa0512c06528"
+          "sha256": "4ce6f5143eb071682c9fdec9e682aa45d361c81132d96cdcfae28acf922fae8c"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",
@@ -8175,11 +8175,11 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "c2d002776b14fd9adbb622c629ad98b0b0a729c732b6fee89608740ecaa5ef29"
+          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
-          "sha256": "4f98167bc511835d950403d5391253bae9ddbb6e602df3a87e5aaa0512c06528"
+          "sha256": "4ce6f5143eb071682c9fdec9e682aa45d361c81132d96cdcfae28acf922fae8c"
         },
         {
           "path": "tests/windows_publisher_standard_public_probe.ps1",

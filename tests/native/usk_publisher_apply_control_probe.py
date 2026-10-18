@@ -46,6 +46,145 @@ function Read-Block($Block) {
     $source=$Block.Extent.Text
     return [scriptblock]::Create($source.Substring(1,$source.Length-2))
 }
+# Execute the public build-profile reader without native installation effects.
+# The release-default cohort must reject a diagnostic or contradictory build.
+& {
+    $tokens=$null;$errors=$null
+    $ast=[Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $Repository 'tests\windows_publisher_lab_probe.ps1'),[ref]$tokens,[ref]$errors)
+    if($errors.Count){throw 'Public build-profile fixture parse failed'}
+    $reader=@($ast.EndBlock.Statements|Where-Object {
+        $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $_.Name -ceq 'Read-PublicBuildProfile'})
+    if($reader.Count -ne 1){throw 'Actual public build-profile reader is missing or ambiguous'}
+    . ([scriptblock]::Create($reader[0].Extent.Text))
+    $build=Join-Path $Scratch 'build-profile'
+    $compilerDirectory=Join-Path $build 'CMakeFiles\4.0.1'
+    [IO.Directory]::CreateDirectory($compilerDirectory)|Out-Null
+    [IO.File]::WriteAllText((Join-Path $compilerDirectory 'CMakeCXXCompiler.cmake'),
+        'set(CMAKE_CXX_COMPILER_VERSION "19.44.35228")'+"`n"+'set(CMAKE_CXX_COMPILER_ID "MSVC")')
+    $eventPath=Join-Path $build 'event.json'
+    [IO.File]::WriteAllText($eventPath,'{"pull_request":{"head":{"sha":"'+('c'*40)+'"}}}')
+    $oldEvent=$env:GITHUB_EVENT_PATH
+    function git {
+        $global:LASTEXITCODE=0
+        if($args[-1] -ceq 'HEAD^{tree}'){return 'b'*40}
+        return 'a'*40
+    }
+    try {
+        $env:GITHUB_EVENT_PATH=$eventPath
+        foreach($case in @('off','on','any','expected_off','expected_on','duplicate','unknown',
+            'missing','service_mismatch','machine_mismatch','wrong_value','trace_only','missing_trace')) {
+            $mode=if($case -in @('on','expected_off','wrong_value','missing_trace')){'ON'}else{'OFF'}
+            $ExpectedQualificationDiagnostics=switch($case){
+                'off' {'OFF'} 'on' {'ON'} 'expected_off' {'OFF'} 'expected_on' {'ON'} default {'any'}}
+            $cachePath=Join-Path $build 'CMakeCache.txt'
+            $cache='USK_QUALIFICATION_DIAGNOSTICS:BOOL='+$mode+"`n"
+            if($case -ceq 'duplicate'){$cache+=$cache}
+            if($case -ceq 'unknown'){$cache='USK_QUALIFICATION_DIAGNOSTICS:BOOL=unknown'}
+            [IO.File]::WriteAllText($cachePath,$cache)
+            if($case -ceq 'missing'){[IO.File]::Delete($cachePath)}
+            foreach($frontend in @('usk_publisher_service','usk_machine')) {
+                $enabled=$mode -ceq 'ON' -or
+                    ($case -ceq 'service_mismatch' -and $frontend -ceq 'usk_publisher_service') -or
+                    ($case -ceq 'machine_mismatch' -and $frontend -ceq 'usk_machine')
+                $flag=if($enabled){'USK_QUALIFICATION_DIAGNOSTICS='+$(if($case -ceq 'wrong_value'){'0'}else{'1'})+';'}else{''}
+                $trace=if(($enabled -or $case -ceq 'trace_only') -and $case -cne 'missing_trace'){
+                    '<ItemGroup><ClCompile Include="usk_qualification_trace_internal.cpp"/></ItemGroup>'}else{''}
+                [IO.File]::WriteAllText((Join-Path $build ($frontend+'.vcxproj')),
+                    '<Project><PropertyGroup><WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>'+
+                    '<PlatformToolset>v143</PlatformToolset></PropertyGroup><ItemDefinitionGroup><ClCompile>'+
+                    '<PreprocessorDefinitions>'+$flag+'%(PreprocessorDefinitions)</PreprocessorDefinitions>'+
+                    '</ClCompile></ItemDefinitionGroup>'+$trace+'</Project>')
+            }
+            $caught=$null;$profile=$null
+            try {$profile=Read-PublicBuildProfile (Join-Path $build 'Release\usk_publisher_service.exe')}catch{$caught=$_}
+            $accepted=$case -in @('off','on','any')
+            if(($null -eq $caught) -ne $accepted){throw ('Public diagnostics profile admission differs: '+$case)}
+            if($accepted -and ($profile.qualification_diagnostics -ne ($mode -ceq 'ON') -or
+                $profile.diagnostics_cache_sha256 -cne
+                    (Get-FileHash -LiteralPath $cachePath -Algorithm SHA256).Hash.ToLowerInvariant())) {
+                throw 'Public diagnostics profile did not retain its actual mode/cache hash'
+            }
+        }
+    } finally {$env:GITHUB_EVENT_PATH=$oldEvent}
+}
+# Execute the real three live-retirement controls and native collector. Only
+# the product process/SCM observations are inert; cmd emits fixed stderr/exits.
+& {
+    $tokens=$null;$errors=$null
+    $metadata=[Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $Repository 'tests\windows_publisher_metadata_hosted_probe.ps1'),[ref]$tokens,[ref]$errors)
+    if($errors.Count){throw 'Native control fixture parse failed'}
+    foreach($name in @('Read-BoundedDiagnostic','Invoke-ObservedPublisherControl')) {
+        $node=@($metadata.EndBlock.Statements|Where-Object {
+            $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq $name})
+        if($node.Count -ne 1){throw 'Actual native control helper missing or ambiguous'}
+        if($name -ceq 'Invoke-ObservedPublisherControl'){$nativeCollector=Read-Block $node[0].Body}
+        else {. ([scriptblock]::Create($node[0].Extent.Text))}
+    }
+    $maintenance=[Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $Repository 'tests\windows_publisher_controller_maintenance_probe.ps1'),[ref]$tokens,[ref]$errors)
+    if($errors.Count){throw 'Owned maintenance fixture parse failed'}
+    $owner=@($maintenance.EndBlock.Statements|Where-Object {
+        $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq 'Invoke-ControllerOwnedUninstall'})
+    if($owner.Count -ne 1){throw 'Actual owned uninstall fixture missing'}
+    $statements=@($owner[0].Body.EndBlock.Statements)
+    $first=@(0..($statements.Count-1)|Where-Object {
+        $statements[$_] -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $statements[$_].Left.Extent.Text -ceq '$errorFile' -and
+        $statements[$_].Right.Extent.Text.Contains('owned-live-unregister-error.txt')})
+    $last=@(0..($statements.Count-1)|Where-Object {
+        $statements[$_] -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $statements[$_].Left.Extent.Text -ceq '$afterRefusals'})
+    if($first.Count -ne 1 -or $last.Count -ne 1 -or $last[0] -le $first[0]) {
+        throw 'Actual live retirement control sequence missing or ambiguous'
+    }
+    $controls=[scriptblock]::Create(($statements[$first[0]..($last[0]-1)]|
+        ForEach-Object {$_.Extent.Text}) -join "`n")
+    $root=Join-Path $Scratch 'live-retirement-controls';[IO.Directory]::CreateDirectory($root)|Out-Null
+    $installedServiceBinary=Join-Path $root 'retained-image-sentinel'
+    [IO.File]::WriteAllText($installedServiceBinary,'retained image')
+    $ServiceControlBinary=Join-Path $env:WINDIR 'System32\cmd.exe'
+    $service='USK_PUB_fixture';$ServiceBinary='original.exe';$VolumeRoot='owned-volume'
+    $callerSid='S-1-5-21-1-2-3-1001';$registeredMode='--service-admitted-client';$sourceServiceHash='a'*64;$sid='fixture-service-sid'
+    function Get-Service {if($case -cne 'service_absent'){return [pscustomobject]@{Status='Stopped'}}}
+    function Test-Path([string]$LiteralPath,[object]$PathType) {
+        if($LiteralPath -ceq $installedServiceBinary -and $case -ceq 'image_absent'){return $false}
+        return Microsoft.PowerShell.Management\Test-Path -LiteralPath $LiteralPath
+    }
+    function Invoke-ObservedPublisherControl([string]$Phase,[string[]]$Arguments,[string]$DiagnosticPath) {
+        $expected=switch($Phase) {
+            'owned_live_unregister' {@('--unregister',$service,$ServiceBinary,$VolumeRoot,$callerSid,$registeredMode)}
+            'owned_live_binary_retirement' {@('--retire-binary',$service,$installedServiceBinary,$sourceServiceHash,$sid)}
+            'owned_live_retirement' {@('--retire-owned',$service)}
+            default {throw 'Unexpected live retirement command phase'}
+        }
+        if(($Arguments -join '|') -cne ($expected -join '|')){throw 'Live retirement command arguments changed'}
+        $exitCode=if($case -ceq $Phase){0}else{3}
+        # Fixed command text only: no product command or caller data is executed.
+        & $nativeCollector -Phase $Phase -Arguments @('/d','/c',('echo simulated retirement refusal 1>&2 & exit /b '+$exitCode)) -DiagnosticPath $DiagnosticPath
+    }
+    foreach($case in @('refusals','owned_live_unregister','owned_live_binary_retirement',
+        'owned_live_retirement','service_absent','image_absent')) {
+        $receipt=[ordered]@{control_attempts=[Collections.Generic.List[object]]::new()}
+        $result=[ordered]@{};$caught=$null
+        try {. $controls} catch {$caught=$_}
+        if(($null -eq $caught) -ne ($case -ceq 'refusals') -or $ErrorActionPreference -cne 'Stop') {
+            throw ('Actual live retirement outcome or error policy differs: '+$case)
+        }
+        if($case -ceq 'refusals' -and ($receipt.control_attempts.Count -ne 3 -or $result.Count -ne 3)) {
+            throw 'Live retirement did not retain all three actual native refusals'
+        }
+        foreach($attempt in $receipt.control_attempts) {
+            if($attempt.native_exit_code -isnot [int] -or
+                $attempt.stderr_prefix -notmatch 'simulated retirement refusal' -or
+                $attempt.invocation_failure -or $attempt.capture_failure) {
+                throw 'Live retirement native exit or diagnostic capture differs'
+            }
+        }
+    }
+}
 # Exercise the real observer ACL setup with Windows descriptors, without
 # changing filesystem permissions. SYSTEM is also the runner in one profile.
 & {
