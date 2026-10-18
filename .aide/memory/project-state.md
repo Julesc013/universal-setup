@@ -6,18 +6,20 @@ Foundation; completion of that release and the wider specification are separate.
 Use the sole FacMan worktree, reusable build and current laboratory. The external
 task checkpoint holds changing source, review, process and qualification pins.
 
-Accepted dev is a1572771, the normal PR262 merge after seven core/specification
+Accepted dev is 6d35bb97, the normal PR263 merge after seven core/specification
 checks and exact-source independent review. Main remains c048f7f1. Integrate
 reviewed/core-qualified checkpoints into dev daily; promote to main weekly when
 its additional qualification passes. An incomplete publisher run does not block
 a reviewed dev checkpoint or qualify main, deployment packages or a release.
 
-Recent hosted samples complete ordinary public installation, selected process-loss
-recovery, standard-account entry, fresh maintenance and both interrupted,
-source-retired repair recoveries. Retained request/native reply, captured client,
-independent SYSTEM state, lease generation4-to-5 and cleanup joins pass. Earlier
-120-second failures remain retained. These samples establish neither reliability,
-a latency improvement nor whole-profile/release-default acceptance.
+CI39097031751's retained traced and untraced interrupted, source-retired repair
+recoveries return current-request completion, then pass installed verification.
+Independent narrow replay joins the original native pair closure, completed
+journal/seal/installed state, captured request and lease generation4-to-5.
+The general standard-profile reconciler excludes this maintenance request set;
+its refusal remains retained. Whole-profile acceptance and cleanup qualification
+are separate. Earlier120-second failures remain historical. These passing samples
+establish neither reliability nor a latency improvement or release-default acceptance.
 
 The current packaged qualification migration retains the actual standard-user
 candidate-service install client, concurrent denied-rights checks, source-free
@@ -456,3 +458,15 @@ NameError while importing its synthetic gateway fixture under Python3.14 and3.11
 The previous6f2 pack also fails its selftest, with a caught assertion instead of
 this exception. These are retained failures, not passing compatibility evidence;
 no AIDE execution pool, provider call or GitHub protection change is enabled.
+
+The packaged SYSTEM fixture now reaches its intentional wrong-digest registration
+control. Windows PowerShell5.1 turns its redirected native stderr into an exception
+before the refusal assertions; PowerShell7 reaches them. The common capture helper
+now scopes Continue only around native invocation, restores the caller policy before
+diagnostics, and requires a fresh integer exit. All13 direct refusal controls retain
+their original file/service/configuration checks through that helper. Bounded text
+capture recognizes UTF8/UTF16 BOMs; it is shell-rendered diagnostic evidence.
+Both-shell actual-helper and actual-predicate controls cover0/3/5, stderr with0,
+missing commands after a seeded success, capture failures and changed state. No SCM
+operation runs in these controls. Fresh hosted execution and final review are pending;
+production admission, rights, absence policy and deadlines are unchanged.

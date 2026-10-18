@@ -11,6 +11,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 POWERSHELL = shutil.which('pwsh') or shutil.which('powershell')
+POWERSHELLS = tuple(dict.fromkeys(filter(None, (shutil.which('powershell'), shutil.which('pwsh')))))
 SCRIPT = r'''
 param([string]$Root)
 $ErrorActionPreference='Stop'
@@ -69,9 +70,9 @@ ConvertTo-Json -InputObject @($results) -Depth 8 -Compress
 @unittest.skipUnless(POWERSHELL, 'PowerShell unavailable on this platform')
 class PublisherPowerShellEnrollmentTests(unittest.TestCase):
     def test_controller_attempt_retains_native_failure_without_stale_success(self):
-        # Execute the actual diagnostic helper with an inert native Python child.
-        # No registration, volume or privileged operation is invoked.
-        code = r'''
+        # Run the actual capture helpers on each installed supported shell.
+        # Native children are inert Python fixtures, never product controllers.
+        code = r"""
 param([string]$Root,[string]$OutputRoot,[string]$Python)
 $ErrorActionPreference='Stop'
 $tokens=$null;$errors=$null
@@ -83,50 +84,212 @@ $functions=@($ast.FindAll({param($node)
     $node.Name -cin @('Read-BoundedDiagnostic','Invoke-ObservedPublisherControl')
 },$true))
 if($functions.Count -ne 2){throw 'Exact diagnostic helpers required'}
-# Preserve the reader's parameters declared outside its function body.
 foreach($function in $functions){. ([scriptblock]::Create($function.Extent.Text))}
+$readerDefinition=@($functions|Where-Object Name -ceq 'Read-BoundedDiagnostic')[0].Extent.Text
 $root=$OutputRoot;$service='synthetic_service';$ServiceControlBinary=$Python
 $receipt=@{control_attempts=[Collections.Generic.List[object]]::new()};$results=@()
-foreach($exitCode in @(0,3,5)) {
+$native=Join-Path $OutputRoot 'native-control.py'
+foreach($case in @(@(0,0),@(0,1),@(3,1),@(5,1))) {
+    $exitCode=$case[0];$noisy=$case[1]
     $id=[guid]::NewGuid().ToString('N');$global:LASTEXITCODE=0
-    $native="import sys;sys.stdout.write('native stdout');sys.stderr.write('native admission detail:'+('x'*20000) if $exitCode else '');sys.exit($exitCode)"
-    $observed=Invoke-ObservedPublisherControl -Phase target_admission -Arguments @('-c',$native)
+    $observed=Invoke-ObservedPublisherControl -Phase target_admission -Arguments @($native,$exitCode,$noisy)
     $attempt=$receipt.control_attempts[$receipt.control_attempts.Count-1]
-    $results+=@{requested=$exitCode;observed=$observed.native_exit_code;recorded=$attempt.native_exit_code;
-        stdout=($observed.output -join "`n");stderr_bytes=$attempt.stderr_observed_bytes;
-        prefix_chars=([string]$attempt.stderr_prefix).Length;native_prefix=([string]$attempt.stderr_prefix).StartsWith('native admission detail:');
-        capture_failure=$attempt.capture_failure}
+    $results+=@{requested=$exitCode;noisy=$noisy;observed=$observed.native_exit_code;recorded=$attempt.native_exit_code;
+        typed_exit=($observed.native_exit_code -is [int]);preference_restored=($ErrorActionPreference -ceq 'Stop');
+        stdout=($observed.output -join "§n");stderr_bytes=$attempt.stderr_observed_bytes;
+        prefix_chars=([string]$attempt.stderr_prefix).Length;
+        native_prefix=([string]$attempt.stderr_prefix).Contains('native admission detail:');
+        capture_failure=$attempt.capture_failure;invocation_failure=$attempt.invocation_failure}
 }
-$ServiceControlBinary=Join-Path $OutputRoot 'missing-native-command.exe'
-$id=[guid]::NewGuid().ToString('N');$global:LASTEXITCODE=0;$refused=$false
-try{Invoke-ObservedPublisherControl -Phase installation_enrollment -Arguments @('unused')|Out-Null}catch{$refused=$true}
-$attempt=$receipt.control_attempts[$receipt.control_attempts.Count-1]
-@{native=@($results);missing_refused=$refused;missing_exit=$attempt.native_exit_code;
+$failures=@()
+foreach($scenario in @('missing','capture','missing_and_capture')) {
+    $ServiceControlBinary=if($scenario -ceq 'capture'){$Python}else{Join-Path $OutputRoot 'missing-native-command.exe'}
+    if($scenario -cne 'missing'){function Read-BoundedDiagnostic {throw 'controlled diagnostic capture failure'}}
+    $id=[guid]::NewGuid().ToString('N');$global:LASTEXITCODE=0;$refused=$false;$message=$null
+    if($scenario -ceq 'missing_and_capture'){
+        [IO.File]::WriteAllText((Join-Path $root ('installation_enrollment-'+$id+'.stderr.txt')),'seeded diagnostic')
+    }
+    try{Invoke-ObservedPublisherControl -Phase installation_enrollment -Arguments @($native,3,1)|Out-Null}
+    catch{$refused=$true;$message=$_.Exception.Message}
+    $attempt=$receipt.control_attempts[$receipt.control_attempts.Count-1]
+    $failures+=@{scenario=$scenario;refused=$refused;exit_code=$attempt.native_exit_code;message=$message;
+        invocation_failure=$attempt.invocation_failure;capture_failure=$attempt.capture_failure;
+        preference_restored=($ErrorActionPreference -ceq 'Stop')}
+    . ([scriptblock]::Create($readerDefinition))
+}
+$encodingResults=@()
+$expected='bounded-'+[char]0x03c0+[char]0x4e2d
+foreach($encoding in @([Text.UTF8Encoding]::new($false),[Text.UTF8Encoding]::new($true),[Text.Encoding]::Unicode)) {
+    $file=Join-Path $OutputRoot ('encoding-'+[guid]::NewGuid().ToString('N')+'.txt')
+    [IO.File]::WriteAllText($file,$expected,$encoding)
+    $encodingResults+=@((Read-BoundedDiagnostic $file 16384) -ceq $expected)
+}
+@{native=@($results);failures=@($failures);encoding_results=@($encodingResults);
+    powershell=$PSVersionTable.PSVersion.ToString();
     phases=@($receipt.control_attempts|ForEach-Object phase)}|ConvertTo-Json -Depth 5 -Compress
-'''
-        with tempfile.TemporaryDirectory() as directory:
-            script = Path(directory) / 'control-observation.ps1'
-            script.write_text(code, encoding='utf-8')
-            result = subprocess.run([POWERSHELL, '-NoProfile', '-ExecutionPolicy', 'Bypass',
-                '-File', str(script), '-Root', str(ROOT), '-OutputRoot', directory,
-                '-Python', sys.executable], capture_output=True, text=True, timeout=30)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        observed = json.loads(result.stdout)
-        self.assertEqual(len(observed['native']), 3)
-        for row in observed['native']:
-            self.assertEqual(row['observed'], row['requested'])
-            self.assertEqual(row['recorded'], row['requested'])
-            self.assertEqual(row['stdout'], 'native stdout')
-            self.assertIsNone(row['capture_failure'])
-            if row['requested']:
-                self.assertGreater(row['stderr_bytes'], 16384)
-                self.assertEqual(row['prefix_chars'], 16384)
-                self.assertTrue(row['native_prefix'])
-            else:
-                self.assertEqual((row['stderr_bytes'], row['prefix_chars']), (0, 0))
-        self.assertTrue(observed['missing_refused'])
-        self.assertIsNone(observed['missing_exit'])
-        self.assertEqual(observed['phases'], ['target_admission'] * 3 + ['installation_enrollment'])
+""".replace('§', chr(96))
+        native = ("import sys\n"
+                  "sys.stdout.write('native stdout')\n"
+                  "if int(sys.argv[2]): sys.stderr.write('native admission detail:'+('x'*20000))\n"
+                  "sys.exit(int(sys.argv[1]))\n")
+        for shell in POWERSHELLS:
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory() as directory:
+                script = Path(directory) / 'control-observation.ps1'
+                script.write_text(code, encoding='utf-8')
+                (Path(directory) / 'native-control.py').write_text(native, encoding='utf-8')
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                    '-File', str(script), '-Root', str(ROOT), '-OutputRoot', directory,
+                    '-Python', sys.executable], capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                observed = json.loads(result.stdout)
+                self.assertEqual(len(observed['native']), 4)
+                for row in observed['native']:
+                    self.assertEqual(row['observed'], row['requested'])
+                    self.assertEqual(row['recorded'], row['requested'])
+                    self.assertTrue(row['typed_exit'])
+                    self.assertTrue(row['preference_restored'])
+                    self.assertEqual(row['stdout'], 'native stdout')
+                    self.assertIsNone(row['capture_failure'])
+                    self.assertIsNone(row['invocation_failure'])
+                    if row['noisy']:
+                        self.assertGreater(row['stderr_bytes'], 16384)
+                        self.assertGreater(row['prefix_chars'], 0)
+                        self.assertLessEqual(row['prefix_chars'], 16384)
+                        self.assertTrue(row['native_prefix'])
+                        if observed['powershell'].startswith('7.'):
+                            self.assertEqual(row['prefix_chars'], 16384)
+                    else:
+                        self.assertEqual(row['prefix_chars'], 0)
+                        self.assertIn(row['stderr_bytes'], (0, 2))
+                self.assertEqual(observed['encoding_results'], [True] * 3)
+                self.assertEqual(len(observed['failures']), 3)
+                for row in observed['failures']:
+                    self.assertTrue(row['refused'])
+                    self.assertTrue(row['preference_restored'])
+                    if row['scenario'] == 'capture':
+                        self.assertEqual(row['exit_code'], 3)
+                        self.assertIn('capture is incomplete', row['message'])
+                    else:
+                        self.assertIsNone(row['exit_code'])
+                    if row['scenario'] != 'missing':
+                        self.assertIn('controlled diagnostic capture failure', row['capture_failure'])
+                    if row['scenario'] == 'missing_and_capture':
+                        self.assertEqual(row['message'][:1024], row['invocation_failure'])
+                        self.assertNotIn('controlled diagnostic capture failure', row['message'])
+                self.assertEqual(observed['phases'], ['target_admission'] * 4 + ['installation_enrollment'] * 3)
+
+    def test_existing_refusal_predicates_reject_success_unknown_and_changed_state(self):
+        # Execute each actual condition with an actual shared-helper result.
+        # Only the read-only service/file lookups inside the predicate are inert.
+        code = r"""
+param([string]$Root,[string]$OutputRoot,[string]$Python)
+$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $Root 'tests/windows_publisher_metadata_hosted_probe.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Fixture parse failed'}
+$functions=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $n.Name -cin @('Read-BoundedDiagnostic','Invoke-ObservedPublisherControl')},$true))
+if($functions.Count -ne 2){throw 'Exact native helpers required'}
+foreach($function in $functions){. ([scriptblock]::Create($function.Extent.Text))}
+$cases=@(
+    @('wrongBinaryAttempt','register_wrong_digest'),
+    @('blockedStartAttempt','start_control_lock'),
+    @('crossVolumeAttempt','register_control_lock'),
+    @('changedApplyAttempt','changed_apply'),
+    @('wrongStartAttempt','start_wrong_caller'),
+    @('wrongModeAttempt','start_wrong_mode'),
+    @('preopenedStartAttempt','start_preopened_root'),
+    @('wrongCallerAttempt','recover_wrong_caller'),
+    @('blockedRemoveAttempt','unregister_control_lock'),
+    @('wrongRemoveAttempt','unregister_wrong_caller'),
+    @('liveRetirementAttempt','retire_live_service'),
+    @('wrongRetireDigestAttempt','retire_wrong_digest'),
+    @('wrongRetireSidAttempt','retire_wrong_sid'))
+$root=$OutputRoot;$service='synthetic_service';$drive='V:\'
+$installedServiceBinary=Join-Path $root 'synthetic-installed.exe'
+$beforeControl='fixed configuration'
+$crossVolumeError='cross-volume.txt';$changedError='changed.txt';$blockedStartError='blocked.txt'
+$receipt=@{control_attempts=[Collections.Generic.List[object]]::new()}
+$native=Join-Path $OutputRoot 'native-refusal.py'
+function Test-Predicate([scriptblock]$Predicate) {
+    function Get-Service {
+        param($Name,$ErrorAction)
+        if($phase -ceq 'register_wrong_digest' -and $mode -cne 'changed'){return $null}
+        if($mode -ceq 'changed' -and $phase -cin @('unregister_control_lock','unregister_wrong_caller')){return $null}
+        [pscustomobject]@{Status=$(if($mode -ceq 'changed'){'Running'}else{'Stopped'})}
+    }
+    function Get-CimInstance {param($ClassName,$Filter,$ErrorAction)
+        [pscustomobject]@{PathName=$(if($mode -ceq 'changed'){'substituted configuration'}else{$beforeControl})}}
+    function Test-Path {
+        param($LiteralPath,$PathType)
+        if($LiteralPath -ceq $installedServiceBinary){
+            if($phase -ceq 'register_wrong_digest'){return $mode -ceq 'changed'}
+            return $mode -cne 'changed'
+        }
+        if($LiteralPath -ceq $blockedStartError){return $true}
+        return $mode -ceq 'changed'
+    }
+    function Get-Item {param($LiteralPath) [pscustomobject]@{Length=32}}
+    function Get-Content {param($LiteralPath,[switch]$Raw)
+        if($mode -ceq 'changed'){return 'substituted diagnostic'}
+        return 'control is active; apply request differs; pre-opened file or cannot be locked'
+    }
+    & $Predicate
+}
+$results=@()
+foreach($case in $cases) {
+    $variable=$case[0];$phase=$case[1]
+    $assignments=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $n.Left.Extent.Text -ceq ('$'+$variable)},$true))
+    if($assignments.Count -ne 1){throw 'Actual refusal invocation is ambiguous'}
+    $assignment=$assignments[0]
+    if($assignment.Right.Extent.Text -cnotmatch ('^Invoke-ObservedPublisherControl -Phase '+$phase+'\b')){
+        throw 'Actual refusal bypassed the shared native helper'}
+    $siblings=@($assignment.Parent.Statements);$index=[array]::IndexOf($siblings,$assignment)
+    if($index -lt 0 -or $siblings[$index+1] -isnot [Management.Automation.Language.IfStatementAst]){
+        throw 'Actual refusal condition is no longer adjacent'}
+    $predicate=[scriptblock]::Create($siblings[$index+1].Extent.Text)
+    foreach($mode in @('refusal','zero','changed','missing')) {
+        $id=[guid]::NewGuid().ToString('N');$global:LASTEXITCODE=0
+        $ServiceControlBinary=if($mode -ceq 'missing'){Join-Path $root 'missing-native-command.exe'}else{$Python}
+        $refused=$false;$reached=$false;$observedExit=$null
+        try {
+            $attempt=Invoke-ObservedPublisherControl -Phase $phase -Arguments @($native,$(if($mode -ceq 'zero'){0}else{3}))
+            $observedExit=$attempt.native_exit_code
+            Set-Variable -Name $variable -Value $attempt -Scope Script
+            $reached=$true;Test-Predicate $predicate
+        } catch {$refused=$true}
+        $results+=@{phase=$phase;mode=$mode;refused=$refused;reached=$reached;exit_code=$observedExit;
+            preference_restored=($ErrorActionPreference -ceq 'Stop')}
+    }
+}
+ConvertTo-Json -InputObject @($results) -Depth 4 -Compress
+"""
+        for shell in POWERSHELLS:
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory() as directory:
+                script = Path(directory) / 'refusal-predicates.ps1'
+                script.write_text(code, encoding='utf-8')
+                (Path(directory) / 'native-refusal.py').write_text(
+                    "import sys\nsys.stderr.write('controlled refusal')\nsys.exit(int(sys.argv[1]))\n",
+                    encoding='utf-8')
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+                    '-File', str(script), '-Root', str(ROOT), '-OutputRoot', directory,
+                    '-Python', sys.executable], capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                rows = json.loads(result.stdout)
+                self.assertEqual(len(rows), 52)
+                self.assertEqual(len({row['phase'] for row in rows}), 13)
+                for row in rows:
+                    with self.subTest(phase=row['phase'], mode=row['mode']):
+                        self.assertEqual(row['refused'], row['mode'] != 'refusal')
+                        self.assertTrue(row['preference_restored'])
+                        if row['mode'] == 'missing':
+                            self.assertFalse(row['reached'])
+                            self.assertIsNone(row['exit_code'])
+                        else:
+                            self.assertTrue(row['reached'])
+                            self.assertEqual(row['exit_code'], 0 if row['mode'] == 'zero' else 3)
 
     def test_original_enrollment_precedes_source_free_work_for_every_fixture(self):
         # No service, target, token or approval is created by this test.
