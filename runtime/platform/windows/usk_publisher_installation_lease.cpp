@@ -217,9 +217,10 @@ Value read_record(HANDLE parent, const PublisherDirectoryEntry& entry, const std
 }
 } // namespace
 
-std::optional<Value> observe_publisher_completed_installation_lease(HANDLE state_root,
+static std::optional<Value> observe_existing_installation_lease_history(HANDLE state_root,
     const std::wstring& volume_root, const std::wstring& service_name,
-    const PublisherInstallOperationGuard& guard, const Value& original_active)
+    const PublisherInstallOperationGuard& guard, const Value& original_active,
+    PublisherInstallLeaseHistoryObservation* observation)
 {
     require_install_lease_record(original_active);
     const auto& install_id = original_active.at("install_id").as_string();
@@ -281,7 +282,34 @@ std::optional<Value> observe_publisher_completed_installation_lease(HANDLE state
     const auto completed = select_completed_install_lease_history(history, original_active);
     if (!equal(Value(history), Value(read_history()))) throw InstallLeaseStale();
     fence();
+    if (observation) {
+        // Selection validated the complete sequence and exact original member.
+        // Assemble data only after recheck; no writer/recovery grant is made.
+        if (history.empty()) throw InstallLeaseStale();
+        PublisherInstallLeaseHistoryObservation result{
+            usk::json::sha256_canonical(Value(history)), history.back(), completed,
+            static_cast<std::uint64_t>(history.size())};
+        *observation = std::move(result);
+    }
     return completed;
+}
+
+PublisherInstallLeaseHistoryObservation observe_publisher_installation_lease_history(HANDLE state_root,
+    const std::wstring& volume_root, const std::wstring& service_name,
+    const PublisherInstallOperationGuard& guard, const Value& original_active)
+{
+    PublisherInstallLeaseHistoryObservation result;
+    (void)observe_existing_installation_lease_history(state_root, volume_root,
+        service_name, guard, original_active, &result);
+    return result;
+}
+
+std::optional<Value> observe_publisher_completed_installation_lease(HANDLE state_root,
+    const std::wstring& volume_root, const std::wstring& service_name,
+    const PublisherInstallOperationGuard& guard, const Value& original_active)
+{
+    return observe_existing_installation_lease_history(state_root, volume_root,
+        service_name, guard, original_active, nullptr);
 }
 
 static Value observe_original_maintenance_custody(HANDLE state_root,

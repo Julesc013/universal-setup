@@ -798,9 +798,64 @@ int bounded_write_batches(Fixture& fixture)
     return 0;
 }
 
+int journal_history_from_retained_bytes()
+{
+    Fixture fixture;
+    const auto spec = fixture.spec("retained-journal-history");
+    using Value = usk::json::Value;
+    const Value source(Value::Object{{"purpose", Value("retained-journal-history")}});
+    const auto source_context = usk::json::canonical(source);
+    const auto source_digest = usk::json::sha256_canonical(source);
+    auto session = TransactionSession::begin_streaming(spec, source_digest, source_context);
+    const auto text = read_text(session->journal_path());
+    const auto baseline = TransactionSession::inspect_recovery(spec);
+    const auto history = TransactionSession::decode_journal_history(spec, text);
+    if (history.current_state != "staging" || history.current_state != baseline.current_state ||
+        history.journal_digest != baseline.journal_digest ||
+        history.snapshot_sha256 != baseline.snapshot_sha256 || history.recorded_at != baseline.recorded_at ||
+        history.commit_started || history.commit_confirmed || !history.retained_stream_cleanup ||
+        history.retained_commit_cleanup || history.stream.source_digest != source_digest ||
+        history.stream.source_context != source_context) return 240;
+    if (!throws([&] { (void)TransactionSession::decode_completed_history(spec, text); })) return 241;
+    const auto whitespace = TransactionSession::decode_journal_history(spec, text + "\n");
+    if (whitespace.journal_digest != history.journal_digest ||
+        whitespace.snapshot_sha256 == history.snapshot_sha256) return 242;
+    const std::vector<std::function<void(Value&)>> changes{
+        [](Value& v) { v.as_object().at("schema") = Value("usk.transaction_journal.v999"); },
+        [](Value& v) { v.as_object().at("transaction_id") = Value("another.transaction"); },
+        [](Value& v) { v.as_object().at("plan_id") = Value("another.plan"); },
+        [](Value& v) { v.as_object().at("plan_digest") = Value(std::string(64, '0')); },
+        [](Value& v) { v.as_object().at("operation") = Value("repair"); },
+        [](Value& v) { v.as_object().at("roots").as_array().front().as_object().at("root") = Value("unrelated"); },
+        [](Value& v) { v.as_object().at("roots").as_array().push_back(v.at("roots").as_array().front()); },
+        [](Value& v) { v.as_object().at("current_state") = Value("completed"); },
+        [](Value& v) { v.as_object().at("journal_digest") = Value(std::string(64, '0')); },
+        [](Value& v) { v.as_object().at("transitions").as_array().front().as_object().at("sequence") = Value(std::uint64_t{1}); }
+    };
+    for (const auto& change : changes) {
+        auto altered = usk::json::parse(text); change(altered);
+        if (!throws([&] { (void)TransactionSession::decode_journal_history(spec,
+                usk::json::canonical(altered)); })) return 243;
+    }
+    if (!throws([&] { (void)TransactionSession::decode_journal_history(spec,
+            text + std::string(4u * 1024u * 1024u + 1u, ' ')); })) return 244;
+    // All four original roots are now absent. Decoding must still use only
+    // supplied bytes, leaving the retained journal and namespace untouched.
+    for (const auto& root : {fixture.staging, fixture.targets, fixture.state, fixture.audit})
+        fs::rename(root, root.string() + ".withheld");
+    const auto absent = TransactionSession::decode_journal_history(spec, text);
+    if (absent.snapshot_sha256 != history.snapshot_sha256 || absent.stream.source_digest != source_digest ||
+        fs::exists(fixture.staging) || fs::exists(fixture.targets) || fs::exists(fixture.state) ||
+        fs::exists(fixture.audit) ||
+        read_text(fs::path(fixture.state.string() + ".withheld") / "transactions" /
+            (spec.transaction_id + ".journal.json")) != text) return 245;
+    return 0;
+}
+
 int main()
 {
     Fixture fixture;
+    if (int result = journal_history_from_retained_bytes()) return result;
     if (int result = bounded_write_batches(fixture)) return result;
 #if defined(_WIN32)
     // Real ordinary sessions produce these journals. The internal validator
