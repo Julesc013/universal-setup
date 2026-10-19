@@ -9,10 +9,15 @@ task checkpoint holds changing source, review, process and qualification pins.
 Accepted dev is f67b9f996f897064954388f2196f9d04ee755a19, the normal PR274 merge
 after seven core/specification checks and exact-source independent review.
 PR270/271/272/273 are integrated; the exact f67b9f9 push passed all seven checks.
-Main remains c048f7f1ae2e5922c15a08ee572bdafc29027c63. Draft PR275 proposes the
-existing dev tree for main, with seven exact-head core/specification passes and
-an independent bounded source-readiness review. Its full publisher qualification
-and final live promotion gates remain pending; main has not been promoted.
+Main remains c048f7f1ae2e5922c15a08ee572bdafc29027c63. PR275 is closed unmerged
+after run39239386800 failed publisher qualification despite seven core/specification
+passes. All three source-retired repair recovery requests exceeded their deadlines,
+including release-default diagnostics-off, without matching native completion.
+Packaged damaged-file repair expired at30,058ms during file0 streaming at20,119,552
+bytes; fresh source preparation had completed at727ms. Earlier positive cohorts
+remain narrow observations. No unchanged-source rerun, main or release acceptance
+is inferred. Keep the30-second phase and120-second request contracts while
+measuring repeated native validation separately from source reading.
 Integrate reviewed/core-qualified checkpoints into dev daily; promote to main
 weekly when its additional qualification passes.
 
@@ -31,18 +36,52 @@ both attacker checks and before client creation, preserving its120-second bound
 and every coverage/refusal condition. PR274 run39235789654 now reports completed
 packaged32MiB damaged-file repair, uninstall and owned retirement, with the
 actual stopped SYSTEM stage observer admitted. Its controller cohort also reports
-repair/uninstall/retirement completed. The whole publisher job remains pending;
-raw producer results do not establish omitted recovery/cleanup obligations.
+repair/uninstall/retirement completed. That whole publisher job completed red at the later registered-service start
+assertion. All three source-retired repair recovery cohorts also pass the existing
+strict request/native/independent-state reconciler on this exact submitted source.
+The failed start has no retained positive invocation exit/reply; its cause is not
+established. Later dependent scenarios were skipped, not executed failures.
 Rejected bounded observer candidates and original failures remain retained.
 
-The next SDK component extracts the CLI's existing pure publisher reply decoder
-into a client-only internal static target. A standalone positive/refusal consumer
-links only that target and base; existing one-shot and machine tests also pass
-strict local x64 and Win32 builds. This preserves operation/report checks,
-response bounds, authenticated transport ownership and prebuilt post-dispatch
-UNKNOWN handling. No public C SDK factory/transport, ABI, native authority or
-service request semantics are changed. Public SDK connection and consumer
-qualification remain unfinished; decoder extraction is only their first boundary.
+PR276's published e3e1d73 reply-codec checkpoint has all seven required core/
+specification checks passing. Its next registered-client component is physically
+separated from the service channel, registration writer, ACL grant implementation
+and publisher engine. The CLI and ordinary client share fresh per-request SCM
+configuration, caller, image-path and service-access checks. Shared pipe I/O keeps
+the original first-write and allocation-free UNKNOWN boundary. The client has
+no privileged legacy fallback and no generic catch that downgrades post-write
+failure. Consolidated review found the new SCM allocation-before-owner leak and
+two inherited command-line/known-folder allocation cleanup gaps. Stack ownership
+now covers both SCM callsites and both native buffers before throwing allocation;
+the native calls, rights, checks, returned content and dispatch handling remain. Its actual query token has a small private owner; full file/device-handle
+control stays with the controller. Selected moved validation bodies and native
+observations remain; no authority or admission result is cached across requests.
+
+Strict x64 and Win32 builds and five affected client/channel/SID/service-
+access/volume-grammar tests per architecture pass after the finite lifetime repair. The x64 service/controller builds
+also pass; those service executables are intentionally not Win32 targets.
+The standalone consumer links only client/base/Windows libraries. It establishes
+binding/link closure and pre-dispatch refusal, not actual service installation.
+The first extraction build missed two direct server Io uses; unchanged owner
+definitions are now shared. A later runner asked for x64-only service targets
+in Win32; the corrected selection preserves the actual supported target scope.
+Those original failed receipts remain retained.
+
+The public C SDK factory, installed positive SDK path, current-invocation fallback
+ownership and full public recovery semantics remain unfinished. No C ABI/export,
+public request mapping, native policy, rights, observation sampling or deadline
+is changed by this component. Source review and fresh hosted qualification remain
+separate; prior e3 checks do not qualify this later source.
+
+Separate PR277 at137a287 records legacy registered-start native exit/stderr and a
+4096-character stdout prefix before checking exit/schema/status/service. Its
+independent source review and seven core/specification checks pass; the actual
+hosted startup cause remains unknown. Matched PS5.1/7 controls did not reproduce
+a stale-exit hypothesis. This capture repair and its continuing publisher run
+are separate from the current client boundary. The failed main PR275 is now
+closed unmerged so ongoing development does not repeatedly execute an unchanged
+failed promotion. Reviewed/core-qualified development integration can continue. No pending source or
+development check implies main, release or complete1.1 acceptance.
 
 The frozen AIDE Lite1.1 optional tooling update is integrated, preserving local
 customizations. Its portable self-test has the synthetic gateway NameError

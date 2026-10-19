@@ -74,6 +74,21 @@ if(WIN32)
 endif()
 
 if(WIN32)
+  # Ordinary authenticated pipe client plus shared message I/O. The service
+  # channel, registration controller and publisher engine stay in their owners.
+  add_library(usk_publisher_transport_client_static STATIC
+    runtime/platform/windows/usk_publisher_channel_io_internal.cpp
+    runtime/platform/windows/usk_publisher_client_channel_internal.cpp
+    runtime/platform/windows/usk_publisher_registration_query_internal.cpp
+    runtime/platform/windows/usk_publisher_service_access_query_internal.cpp
+    runtime/platform/windows/usk_publisher_registered_client_internal.cpp)
+  target_compile_features(usk_publisher_transport_client_static PUBLIC cxx_std_17)
+  target_include_directories(usk_publisher_transport_client_static PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/platform/windows")
+  target_link_libraries(usk_publisher_transport_client_static PUBLIC usk_base_static advapi32 shell32 ole32)
+  set_target_properties(usk_publisher_transport_client_static PROPERTIES EXCLUDE_FROM_ALL ON)
+  usk_enable_strict_warnings(usk_publisher_transport_client_static)
+
   add_library(usk_publisher_windows_static STATIC
     runtime/platform/windows/usk_publisher_anchor_create.cpp
     runtime/platform/windows/usk_publisher_staged_stream.cpp
@@ -110,7 +125,7 @@ if(WIN32)
     USK_PUBLISHER_BUILD_SDK_VERSION="${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}")
   target_include_directories(usk_publisher_windows_static PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/platform/windows")
-  target_link_libraries(usk_publisher_windows_static PUBLIC usk_base_static usk_transaction_static advapi32 bcrypt shell32 ole32)
+  target_link_libraries(usk_publisher_windows_static PUBLIC usk_base_static usk_transaction_static advapi32 bcrypt shell32 ole32 usk_publisher_transport_client_static)
   set_target_properties(usk_publisher_windows_static PROPERTIES EXCLUDE_FROM_ALL ON)
   usk_enable_strict_warnings(usk_publisher_windows_static)
 endif()
@@ -551,6 +566,15 @@ endif()
 
 if(USK_BUILD_TESTS)
   enable_testing()
+
+  if(WIN32)
+    # Link the actual client transport without service channel/controller/engine.
+    add_executable(usk_publisher_transport_client_smoke tests/native/usk_publisher_transport_client_smoke.cpp)
+    target_compile_features(usk_publisher_transport_client_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_transport_client_smoke PRIVATE usk_publisher_transport_client_static)
+    usk_enable_strict_warnings(usk_publisher_transport_client_smoke)
+    add_test(NAME usk_publisher_transport_client_smoke COMMAND usk_publisher_transport_client_smoke)
+  endif()
 
   # This consumer links the reply codec and base only, without C API dispatch
   # or the privileged publisher library. The ordinary CLI is checked below.
