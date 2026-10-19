@@ -6,12 +6,25 @@ Foundation; completion of that release and the wider specification are separate.
 Use the sole FacMan worktree, reusable build and current laboratory. The external
 task checkpoint holds changing source, review, process and qualification pins.
 
-Accepted dev is a7257a8a, the normal PR270 merge after seven core/specification
-checks and exact-source independent review. Its accepted push also passed all
-seven core/specification jobs. Main remains c048f7f1. Integrate reviewed/core-qualified
-checkpoints into dev daily; promote to main weekly when its additional
-qualification passes. An incomplete publisher run does not qualify main,
-deployment packages or a release.
+Accepted dev is 451dab21, the normal PR272 merge after seven core/specification
+checks and exact-source independent review. PR270 and PR271 are integrated.
+Main remains c048f7f1. Integrate reviewed/core-qualified checkpoints into dev
+daily; promote to main weekly when its additional qualification passes.
+
+The retained PR270 run39216132810 has three request-bound source-retired repair
+recovery passes, including release-default diagnostics-off, with independent
+state verification. This is one passing set, not reliability qualification.
+PR271 still refuses packaged damaged-file repair at its extraction deadline.
+Source inspection confirms that this public apply route supplies an empty
+cancellation callback. The diagnostic increment locates deadline expiry at an
+existing check and read offset without moving the clock or weakening checks.
+
+The frozen AIDE Lite1.1 optional tooling update is integrated, preserving local
+customizations. Its portable self-test fails with the same synthetic gateway
+NameError reproduced in the previous actual safe installation. Functional
+adoption remains incomplete; the upstream owner request is
+USK-AIDE-LITE-SAFE-SELFTEST-20261019-01 on AIDE issue6. Main, deployment packages
+and release qualification remain separate.
 
 The current increment re-admits the exact repair archive immediately before
 staging, after existing maintenance setup. Its private one-shot source owner

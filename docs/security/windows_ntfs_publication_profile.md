@@ -2180,6 +2180,14 @@ bounds. These are separate bounds, not a claim of a fixed total-memory ceiling.
 Local source controls alone do not establish packaged repair, source-free recovery,
 a deadline improvement or main/release qualification.
 
+Extraction expiry diagnostics identify the checkpoint, elapsed phase time, prior
+successful clock check and completed preparation time. At a selected read they
+also identify its ordered file index, offset and capacity. These use the existing
+clock samples; they add no deadline, reset, authorization input or fallback. An
+interval between checks includes intervening caller work and blocking I/O; its
+duration does not attribute exclusive cost to the archive or native staging.
+Cancellation is reported separately without sampling the clock after it fires.
+
 The shared deadline is observed at the archive's existing hashing/decoding
 checkpoints and before/after returned reads. Blocking native I/O is not made
 preemptible. The archive's retained checker refers back to its source owner

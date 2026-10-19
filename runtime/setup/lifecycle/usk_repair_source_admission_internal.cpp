@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <stdexcept>
 #include <thread>
@@ -29,8 +30,15 @@ struct RepairSource final {
     const std::thread::id owner = std::this_thread::get_id();
     std::atomic<bool> failed{false};
     bool attempted = false, ready = false, checking = false;
-    std::chrono::steady_clock::time_point deadline{};
+    std::chrono::steady_clock::time_point started{}, deadline{};
     LifecycleCancellation cancellation;
+    // Diagnostic observations only. Use the existing clock samples, without
+    // extending the phase or adding a security observation or authority input.
+    const char* checkpoint = "before_inspection";
+    std::int64_t previous_check_elapsed_ms = -1, preparation_elapsed_ms = -1;
+    bool reading = false;
+    std::size_t read_index = 0, read_capacity = 0;
+    std::uint64_t read_offset = 0;
 
     RepairSource(std::string input, std::string strip,
         const archive::StreamingStoredArchivePayload& original,
@@ -68,10 +76,22 @@ struct RepairSource final {
         }
         checking = true;
         try {
-            if ((cancellation && cancellation()) || now() > deadline)
-                throw std::runtime_error("repair archive extraction phase expired or was cancelled");
+            if (cancellation && cancellation())
+                throw std::runtime_error(std::string("repair archive extraction phase cancelled;checkpoint=") + checkpoint);
+            const auto observed = now();
+            const auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(observed - started).count();
+            if (observed > deadline) {
+                std::string message = std::string("repair archive extraction phase expired;checkpoint=") + checkpoint +
+                    ";elapsed_ms=" + std::to_string(elapsed_ms) +
+                    ";previous_check_elapsed_ms=" + std::to_string(previous_check_elapsed_ms) +
+                    ";preparation_elapsed_ms=" + std::to_string(preparation_elapsed_ms);
+                if (reading) message += ";file_index=" + std::to_string(read_index) +
+                    ";offset=" + std::to_string(read_offset) + ";capacity=" + std::to_string(read_capacity);
+                throw std::runtime_error(message);
+            }
             // A caller callback cannot swallow a nested owner's failure.
             require_owner();
+            previous_check_elapsed_ms = elapsed_ms;
             checking = false;
         } catch (...) {
             checking = false;
@@ -87,16 +107,19 @@ struct RepairSource final {
             cancellation = std::move(cancel);
             // This deadline includes the new identity, full archive hash,
             // metadata/CRC/expanded-boundary checks and all selected reads.
-            deadline = now() + budget;
+            started = now();
+            deadline = started + budget;
             check_phase();
             // Archive readers retain this checker, but this owner owns those
             // readers. A raw back-reference avoids a shared_ptr ownership cycle;
             // the outer callable retains this owner throughout every invocation.
+            checkpoint = "inspecting_archive";
             auto fresh = archive::inspect_streaming_payload(request, prefix,
                 archive::streaming_payload_buffer_bytes, nullptr, [this] {
                     check_phase();
                     return false;
                 });
+            checkpoint = "after_archive_inspection";
             check_phase();
             if (fresh.source_sha256 != source_sha256 ||
                 fresh.source_identity_digest != source_identity ||
@@ -114,8 +137,11 @@ struct RepairSource final {
             }
             if (std::any_of(readers.begin(), readers.end(), [](const auto& reader) { return !reader; }))
                 throw std::runtime_error("repair source omitted a reviewed replacement");
+            checkpoint = "validating_source";
             fresh.validate_source();
+            checkpoint = "after_source_validation";
             check_phase();
+            preparation_elapsed_ms = previous_check_elapsed_ms;
             ready = true;
         } catch (...) {
             failed.store(true);
@@ -127,8 +153,15 @@ struct RepairSource final {
             require_owner();
             if (!ready || index >= readers.size())
                 throw std::runtime_error("repair replacement read preceded source admission");
+            reading = true;
+            read_index = index;
+            read_offset = offset;
+            read_capacity = capacity;
+            checkpoint = "before_replacement_read";
             check_phase();
+            checkpoint = "inside_replacement_read";
             const auto count = readers[index](offset, output, capacity);
+            checkpoint = "after_replacement_read";
             check_phase();
             return count;
         } catch (...) {
