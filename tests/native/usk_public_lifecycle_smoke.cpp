@@ -122,6 +122,10 @@ void repair_source_admission_proof(const fs::path& root)
         try { action(); } catch (const std::exception&) { return true; }
         return false;
     };
+    const auto refusal_message = [](const std::function<void()>& action) {
+        try { action(); } catch (const std::exception& error) { return std::string(error.what()); }
+        return std::string{};
+    };
     for (const bool deflated : {false, true}) {
         const auto archive = root / (deflated ? "readmission-deflate.zip" : "readmission-stored.zip");
         write_zip(archive, deflated);
@@ -183,6 +187,36 @@ void repair_source_admission_proof(const fs::path& root)
         time -= std::chrono::milliseconds(1001);
         require(refuses([&] { (void)reader_copy(0, &probe, 1); }) &&
             refuses([&] { bounded.prepare_payload({}); }), "failed phase became usable again");
+
+        // Locate expiry using the same clock checks that enforce it. A
+        // prepared source can age while its caller performs native staging;
+        // a reported read boundary is not attribution of that interval's cost.
+        for (const std::string boundary : {"before_replacement_read", "inside_replacement_read", "after_replacement_read"}) {
+            if (deflated && boundary == "after_replacement_read") continue;
+            auto observed = make_plan();
+            auto observed_time = Clock::now();
+            bool active = false;
+            unsigned checks = 0;
+            const unsigned expire_at = boundary == "before_replacement_read" ? 1u :
+                boundary == "inside_replacement_read" ? 2u : 3u;
+            usk::lifecycle::detail::bind_repair_source_admission(observed, request, "product", inspected,
+                std::chrono::milliseconds(1000), [&] {
+                    if (active && ++checks == expire_at) observed_time += std::chrono::milliseconds(1001);
+                    return observed_time;
+                });
+            observed.prepare_payload({});
+            const auto& file = observed.replacement_files.front();
+            // One completed read distinguishes a later offset from entry.
+            require(file.reader(0, &probe, 1) == 1, "diagnostic control did not read actual source bytes");
+            active = true;
+            const auto message = refusal_message([&] { (void)file.reader(1, &probe, 1); });
+            require(message.find("expired;checkpoint=" + boundary + ";elapsed_ms=1001;") != std::string::npos &&
+                message.find("previous_check_elapsed_ms=0;preparation_elapsed_ms=0;file_index=0;offset=1;capacity=1") != std::string::npos,
+                "extraction expiry diagnostic lost its actual boundary or prior clock observations");
+            observed_time -= std::chrono::milliseconds(1001);
+            require(refuses([&] { (void)file.reader(1, &probe, 1); }) &&
+                refuses([&] { observed.prepare_payload({}); }), "diagnostic expiry lost sticky failure");
+        }
 
         for (const std::string failure : {"early_read", "cancel", "exception", "preparation_budget",
                 "wrong_thread", "read_failure", "reentrant", "abandon", "identity", "selection"}) {
