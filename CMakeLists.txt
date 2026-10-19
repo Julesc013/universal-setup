@@ -115,6 +115,16 @@ if(WIN32)
   usk_enable_strict_warnings(usk_publisher_windows_static)
 endif()
 
+# Shared, client-only reply validation. No C API dispatch or publisher engine.
+add_library(usk_publisher_response_static STATIC
+  runtime/command/usk_publisher_response_internal.cpp)
+target_compile_features(usk_publisher_response_static PRIVATE cxx_std_17)
+target_include_directories(usk_publisher_response_static PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/command")
+target_link_libraries(usk_publisher_response_static PUBLIC usk_base_static)
+set_target_properties(usk_publisher_response_static PROPERTIES EXCLUDE_FROM_ALL ON)
+usk_enable_strict_warnings(usk_publisher_response_static)
+
 add_library(usk_verify_static STATIC runtime/setup/verify/usk_package_verify.cpp)
 target_compile_features(usk_verify_static PUBLIC cxx_std_17)
 target_include_directories(usk_verify_static PUBLIC
@@ -475,7 +485,7 @@ if(USK_BUILD_APPS)
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base"
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/package"
     "${CMAKE_CURRENT_SOURCE_DIR}/include")
-  target_link_libraries(usk_machine PRIVATE usk_static usk_base_static usk_archive_static)
+  target_link_libraries(usk_machine PRIVATE usk_static usk_base_static usk_archive_static usk_publisher_response_static)
   if(WIN32)
     target_link_libraries(usk_machine PRIVATE usk_publisher_windows_static shell32)
     if(USK_QUALIFICATION_DIAGNOSTICS)
@@ -542,6 +552,14 @@ endif()
 if(USK_BUILD_TESTS)
   enable_testing()
 
+  # This consumer links the reply codec and base only, without C API dispatch
+  # or the privileged publisher library. The ordinary CLI is checked below.
+  add_executable(usk_publisher_response_smoke tests/native/usk_publisher_response_smoke.cpp)
+  target_compile_features(usk_publisher_response_smoke PRIVATE cxx_std_17)
+  target_link_libraries(usk_publisher_response_smoke PRIVATE usk_publisher_response_static)
+  usk_enable_strict_warnings(usk_publisher_response_smoke)
+  add_test(NAME usk_publisher_response_smoke COMMAND usk_publisher_response_smoke)
+
   add_executable(usk_one_shot_smoke
     tests/native/usk_one_shot_smoke.cpp
     runtime/command/usk_one_shot.cpp)
@@ -550,7 +568,7 @@ if(USK_BUILD_TESTS)
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/command"
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base"
     "${CMAKE_CURRENT_SOURCE_DIR}/include")
-  target_link_libraries(usk_one_shot_smoke PRIVATE usk_static usk_base_static)
+  target_link_libraries(usk_one_shot_smoke PRIVATE usk_static usk_base_static usk_publisher_response_static)
   usk_enable_strict_warnings(usk_one_shot_smoke)
   add_test(NAME usk_one_shot_smoke COMMAND usk_one_shot_smoke)
   if(USK_BUILD_APPS)
@@ -678,7 +696,7 @@ if(USK_BUILD_TESTS)
       tests/native/usk_publisher_registered_contention_probe.cpp runtime/command/usk_one_shot.cpp)
     target_compile_features(usk_publisher_registered_contention_probe PRIVATE cxx_std_17)
     target_include_directories(usk_publisher_registered_contention_probe PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/runtime/command")
-    target_link_libraries(usk_publisher_registered_contention_probe PRIVATE usk_publisher_windows_static usk_static)
+    target_link_libraries(usk_publisher_registered_contention_probe PRIVATE usk_publisher_windows_static usk_static usk_publisher_response_static)
     usk_enable_strict_warnings(usk_publisher_registered_contention_probe)
     add_executable(usk_neutral_payload tests/fixtures/authoring/neutral_one_file/hello.c)
     target_compile_features(usk_publisher_request_channel_smoke PRIVATE cxx_std_17)
@@ -1046,7 +1064,7 @@ if(USK_BUILD_TESTS)
   target_compile_features(usk_public_lifecycle_smoke PRIVATE cxx_std_17)
   target_include_directories(usk_public_lifecycle_smoke PRIVATE ${USK_PRIVATE_INCLUDE_DIRS}
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/command")
-  target_link_libraries(usk_public_lifecycle_smoke PRIVATE usk_static usk_base_static)
+  target_link_libraries(usk_public_lifecycle_smoke PRIVATE usk_static usk_base_static usk_publisher_response_static)
   add_test(NAME usk_public_lifecycle_smoke COMMAND usk_public_lifecycle_smoke)
 
   if(USK_BUILD_APPS)

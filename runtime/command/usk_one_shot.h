@@ -4,6 +4,8 @@
 #ifndef USK_ONE_SHOT_H
 #define USK_ONE_SHOT_H
 
+#include "usk_publisher_response_internal.h"
+
 #include <iosfwd>
 #include <functional>
 #include <string>
@@ -11,7 +13,7 @@
 namespace usk::command {
 
 inline constexpr std::size_t max_request_bytes = 1024u * 1024u;
-inline constexpr std::size_t max_response_bytes = 16u * 1024u * 1024u;
+inline constexpr std::size_t max_response_bytes = detail::publisher_response_max_bytes;
 
 struct OneShotResult {
     std::string document;
