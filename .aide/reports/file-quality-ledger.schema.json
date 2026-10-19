@@ -15,6 +15,7 @@
     "source_commit": { "type": "string" },
     "source_repo_intelligence": { "type": "object" },
     "summary": { "type": "object" },
-    "records": { "type": "array" }
+    "records": { "type": "array" },
+    "reuse_report": { "type": "object", "description": "Optional recorded heuristic reuse candidates; absent in older ledgers." }
   }
 }

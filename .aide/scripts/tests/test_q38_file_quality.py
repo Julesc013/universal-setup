@@ -164,5 +164,129 @@ class Q38FileQualityTests(unittest.TestCase):
         self.assertIn("auto_fixes: false", result.stdout)
 
 
+    def explain(self, root, path, *options):
+        return subprocess.run([sys.executable, "-B", str(MODULE_PATH), "--repo-root", str(root),
+                               "quality", "explain-file", path, *options],
+                              capture_output=True, text=True, check=False)
+
+    def test_discovery_owner_docs_checks_and_unverified_freshness(self):
+        root = self.make_repo()
+        ledger = self.ledger(root)
+        result = self.explain(root, "app/main.py", "--json")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads(result.stdout)
+        self.assertEqual(data["owner"], self.record(ledger, "app/main.py")["owner"])
+        self.assertIn("docs/guide.md", data["relations"]["docs_refs"]["items"])
+        self.assertIn("app/tests/test_main.py", data["relations"]["test_refs"]["items"])
+        self.assertIn("not an executed check", data["relations"]["test_refs"]["reason"])
+        self.assertEqual(data["coverage"], "heuristic_incomplete")
+        self.assertEqual(data["freshness"], "unverified")
+        human = self.explain(root, "app/main.py")
+        self.assertEqual(human.returncode, 0)
+        self.assertIn("app/tests/test_main.py", human.stdout)
+        self.assertIn("freshness: unverified", human.stdout)
+        self.write(root, "app/main.py", "raise RuntimeError('changed after inventory')\n")
+        self.assertEqual(self.explain(root, "app/main.py", "--json").stdout, result.stdout)
+
+    def test_reuse_links_distinct_helpers_without_claiming_equivalence(self):
+        root = self.make_repo()
+        self.ledger(root)
+        data = json.loads(self.explain(root, "app/helper.py", "--json").stdout)
+        helper = next(item for item in data["reuse"]["items"] if item["match"] == "shared_helper")
+        self.assertIn("lib/other_helper.py", helper["peers"]["items"])
+        self.assertEqual(helper["reason"], "repeated helper name")
+        self.assertTrue(any("does not prove shared semantics" in item for item in data["caveats"]))
+        duplicate = json.loads(self.explain(root, "app/duplicate_a.py", "--json").stdout)
+        self.assertTrue(any(item["reason"] == "recorded identical content hash" and
+                            "app/duplicate_b.py" in item["peers"]["items"]
+                            for item in duplicate["reuse"]["items"]))
+
+    def test_old_ledger_and_empty_results_are_not_negative_proof(self):
+        root = self.make_repo()
+        ledger = self.ledger(root)
+        empty = json.loads(self.explain(root, "app/untested.py", "--json").stdout)
+        self.assertEqual(empty["relations"]["test_refs"]["state"], "not_found")
+        self.assertEqual(empty["reuse"]["state"], "not_found")
+        ledger.pop("reuse_report")
+        aide_lite.write_quality_outputs(root, ledger)
+        self.assertEqual(aide_lite.result_from_checks(aide_lite.validate_quality_files(root, require_latest=True)), "PASS")
+        old = json.loads(self.explain(root, "app/helper.py", "--json").stdout)
+        self.assertEqual(old["reuse"]["state"], "unindexed")
+        missing = self.explain(root, "not-indexed.py", "--json")
+        self.assertEqual(missing.returncode, 1)
+        self.assertEqual(json.loads(missing.stdout)["coverage"], "unindexed")
+
+    def test_lookup_is_deterministic_and_does_not_require_target_source(self):
+        root = self.make_repo()
+        self.ledger(root)
+        (root / "app/helper.py").unlink()
+        def contents():
+            return {p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+                    for p in root.rglob("*") if p.is_file()}
+        before = contents()
+        first = self.explain(root, "app/helper.py", "--json")
+        self.assertEqual(first.returncode, 0)
+        self.assertEqual(first.stdout, self.explain(root, "app/helper.py", "--json").stdout)
+        self.assertEqual(before, contents())
+        (root / aide_lite.FILE_QUALITY_LEDGER_JSON_PATH).unlink()
+        missing = self.explain(root, "app/helper.py", "--json")
+        self.assertEqual(missing.returncode, 1)
+        self.assertFalse((root / aide_lite.FILE_QUALITY_LEDGER_JSON_PATH).exists())
+
+    def test_discovery_reports_omitted_relations_and_peers(self):
+        root = self.make_repo()
+        ledger = self.ledger(root)
+        self.record(ledger, "app/helper.py")["test_refs"] = [f"tests/check_{i:02d}.py" for i in range(25)]
+        ledger["reuse_report"]["repeated_helper_name_candidates"] = [
+            {"helper_name": f"helper_{i:02d}", "paths": ["app/helper.py"] +
+             [f"lib/peer_{j:02d}.py" for j in range(23)]} for i in range(22)]
+        aide_lite.write_quality_outputs(root, ledger)
+        data = json.loads(self.explain(root, "app/helper.py", "--json").stdout)
+        self.assertEqual(len(data["relations"]["test_refs"]["items"]), 20)
+        self.assertEqual(data["relations"]["test_refs"]["omitted"], 5)
+        self.assertEqual(len(data["reuse"]["items"]), 20)
+        self.assertEqual(data["reuse"]["omitted"], 2)
+        self.assertEqual(data["reuse"]["items"][0]["peers"]["omitted"], 3)
+
+    def test_discovery_refuses_malformed_and_oversized_reports_without_repair(self):
+        root = self.make_repo()
+        ledger = self.ledger(root)
+        bad_record = json.loads(json.dumps(ledger))
+        self.record(bad_record, "app/main.py")["test_refs"] = "invalid"
+        bad_reuse = json.loads(json.dumps(ledger))
+        bad_reuse["reuse_report"] = None
+        bad_missing = json.loads(json.dumps(ledger))
+        self.record(bad_missing, "app/main.py").pop("test_refs")
+        bad_identity = json.loads(json.dumps(ledger))
+        bad_identity["records"].append({"path": None})
+        bad_revision = {**ledger, "source_commit": {"invalid": "revision"}}
+        report = root / aide_lite.FILE_QUALITY_LEDGER_JSON_PATH
+        for text in ("{", "[]", '{"schema_version":"unknown","records":[]}',
+                     json.dumps(bad_record), json.dumps(bad_reuse), json.dumps(bad_missing),
+                     json.dumps(bad_identity), json.dumps(bad_revision), " " * (16 * 1024 * 1024 + 1)):
+            with self.subTest(size=len(text)):
+                report.write_text(text, encoding="utf-8")
+                digest = hashlib.sha256(report.read_bytes()).hexdigest()
+                result = self.explain(root, "app/main.py", "--json")
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertEqual(json.loads(result.stdout)["result"], "INVALID")
+                self.assertEqual(hashlib.sha256(report.read_bytes()).hexdigest(), digest)
+
+    def test_discovery_bounds_human_and_json_output_bytes(self):
+        root = self.make_repo()
+        ledger = self.ledger(root)
+        # Item counts alone cannot bound a large scalar or reference string.
+        self.record(ledger, "app/main.py")["owner"] = "x" * (65 * 1024)
+        aide_lite.write_quality_outputs(root, ledger)
+        report = root / aide_lite.FILE_QUALITY_LEDGER_JSON_PATH
+        before = report.read_bytes()
+        for options in ((), ("--json",)):
+            result = self.explain(root, "app/main.py", *options)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("64 KiB", result.stdout)
+            self.assertLessEqual(len(result.stdout.encode("utf-8")), 64 * 1024)
+            self.assertEqual(before, report.read_bytes())
+
+
 if __name__ == "__main__":
     unittest.main()

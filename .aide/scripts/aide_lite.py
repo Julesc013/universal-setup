@@ -16,6 +16,7 @@ import fnmatch
 import gzip
 import hashlib
 import importlib
+import importlib.util
 import json
 import math
 import os
@@ -39,6 +40,9 @@ from typing import Callable, Iterable
 
 GENERATOR_NAME = "aide-lite"
 GENERATOR_VERSION = "q24.existing-tool-adapter-compiler.v0"
+# The exporter binds this declaration to the generated AIDE-owned module.
+WORK_EFFORT_MODULE_PATH = ".aide/scripts/aide_work_effort.py"
+PORTABLE_WORK_EFFORT_MODULE_PATH = ".aide/scripts/aide_work_effort.py"
 SNAPSHOT_PATH = ".aide/context/repo-snapshot.json"
 LATEST_PACKET_PATH = ".aide/context/latest-task-packet.md"
 REVIEW_PACKET_PATH = ".aide/context/latest-review-packet.md"
@@ -54,6 +58,7 @@ VERIFICATION_POLICY_PATH = ".aide/policies/verification.yaml"
 EVIDENCE_TEMPLATE_PATH = ".aide/verification/evidence-packet.template.md"
 REVIEW_TEMPLATE_PATH = ".aide/verification/review-packet.template.md"
 REVIEW_DECISION_POLICY_PATH = ".aide/verification/review-decision-policy.yaml"
+REVIEW_PROMPT_PATH = ".aide/prompts/evidence-review.md"
 DIFF_SCOPE_POLICY_PATH = ".aide/verification/diff-scope-policy.yaml"
 FILE_REFERENCE_POLICY_PATH = ".aide/verification/file-reference-policy.yaml"
 SECRET_SCAN_POLICY_PATH = ".aide/verification/secret-scan-policy.yaml"
@@ -2396,6 +2401,7 @@ PORTABLE_SOURCE_FILES = [
     "core/execution/registered_process.py",
     "core/execution/managed_workspace.py",
     "core/execution/retired_evidence.py",
+    "core/execution/work_effort.py",
     "core/execution/scoped_host.py",
     "core/protocol/__init__.py",
     "core/protocol/execution_receipt.py",
@@ -2801,6 +2807,7 @@ PORTABLE_REMOVAL_PLAN_SCHEMA = "aide.portable-removal-plan.v1"
 PORTABLE_REMOVAL_INTENT_SCHEMA = "aide.portable-removal-intent.v1"
 
 PORTABLE_TEMPLATE_MAP = {
+    "core/execution/work_effort.py": PORTABLE_WORK_EFFORT_MODULE_PATH,
     ".aide/templates/portable-apply/README.md": "core/apply/README.md",
     ".aide/templates/portable-apply/__init__.py": "core/apply/__init__.py",
     TARGET_PROFILE_TEMPLATE_PATH: ".aide/profile.template.yaml",
@@ -6596,27 +6603,32 @@ def task_os_render_requeue_plan(context: dict[str, object], classification: dict
 
 
 def task_os_render_resume_plan(context: dict[str, object]) -> str:
+    plan = context["resume_plan"]
+    view = plan["task"]
     lines = task_os_markdown_header("Task OS Resume Plan", "task resume-plan", context)
     lines.extend(
         [
             "## Current Task",
             "",
-            f"- latest_task_id: `{context.get('latest_task_id', '') or 'unknown'}`",
-            f"- latest_task_status: `{context.get('latest_task_status', '') or 'unknown'}`",
+            f"- latest_task_id: `{view['task_id'] or 'unknown'}`",
+            f"- latest_task_status: `{view['status']}`",
+            *[f"- {key}: {json.dumps(view[key], ensure_ascii=True)}" for key in
+              ("objective", "result", "owner", "next_action", "remaining_obligations", "scope")],
+            f"- recommendation: {plan['recommendation']}",
+            f"- reason: {plan['reason']}",
             "",
             "## Evidence To Inspect",
             "",
-            "- `.aide/context/latest-task-packet.md`",
-            "- `.aide/queue/X-OS-01-aide-task-os-report-only-commands/status.yaml`",
-            "- `.aide/queue/X-OS-01-aide-task-os-report-only-commands/evidence/`",
-            "- `.aide/reports/task-os-*.md`",
+            task_os_bullets(f"{key}: {value}" for key, value in sorted(view["sources"].items())),
+            *["- " + json.dumps(item, sort_keys=True, ensure_ascii=True) for item in view["evidence"]],
+            f"- record_issues: {json.dumps(view['issues'], sort_keys=True, ensure_ascii=True)}",
+            "- evidence_applicability: unverified; a matching digest does not establish acceptance",
             "",
             "## Validation To Run",
             "",
-            "- `py -3 .aide/scripts/aide_lite.py validate`",
-            "- `py -3 .aide/scripts/aide_lite.py test`",
-            "- `py -3 .aide/scripts/aide_lite.py eval run`",
-            "- all Task OS report-only commands",
+            "- inspect recorded checks against the current subject and relevant dependencies",
+            "- retain valid results; run affected required checks after changed or unknown inputs",
+            "- reconcile uncertain effects before retry; do not replay completed effects",
             "",
             "## Must Not Do",
             "",
@@ -6625,7 +6637,9 @@ def task_os_render_resume_plan(context: dict[str, object]) -> str:
             "",
             "## Safe To Resume",
             "",
-            "- yes, if the worktree and queue evidence match this report",
+            "- safe_to_resume: unknown",
+            "- execution_admitted: false; this report does not inspect live owners or effects",
+            "- continue authorized inspection; effect admission belongs to the existing execution owner",
             "",
         ]
     )
@@ -6834,9 +6848,10 @@ def write_task_os_requeue_plan(repo_root: Path) -> tuple[WriteResult, dict[str, 
     return result, data
 
 
-def write_task_os_resume_plan(repo_root: Path) -> tuple[WriteResult, dict[str, object]]:
-    context = task_os_context(repo_root)
-    write_task_os_command_status(repo_root, context)
+def write_task_os_resume_plan(repo_root: Path, task_id: str | None = None) -> tuple[WriteResult, dict[str, object]]:
+    plan = build_task_resume_plan(repo_root, task_id)
+    context = {"repo_root": str(repo_root), "latest_task_id": plan["task"]["task_id"],
+               "latest_task_status": plan["task"]["status"], "resume_plan": plan}
     result = write_text_if_changed(repo_root / TASK_OS_RESUME_PLAN_REPORT_PATH, task_os_render_resume_plan(context))
     return result, context
 
@@ -12297,7 +12312,8 @@ def write_quality_outputs(repo_root: Path, ledger: dict[str, object]) -> dict[st
     output_ledger.pop("docs_report", None)
     output_ledger.pop("test_report", None)
     output_ledger.pop("module_report", None)
-    output_ledger.pop("reuse_report", None)
+    # Preserve already-computed candidates for read-only discovery. Older ledgers
+    # without this optional field remain valid; absence is not negative evidence.
     return {
         "file_quality_ledger": write_text_if_changed(repo_root / FILE_QUALITY_LEDGER_JSON_PATH, stable_json_text(output_ledger)),
         "file_quality_summary": write_text_if_changed(repo_root / FILE_QUALITY_SUMMARY_MD_PATH, render_file_quality_summary(ledger)),
@@ -12446,29 +12462,120 @@ def command_quality_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def quality_file_explanation(ledger: dict[str, object], rel: str) -> dict[str, object]:
+    """Project recorded facts only; never infer completeness or current validity."""
+    if ledger.get("schema_version") != "aide.file-quality-ledger.v0" or not isinstance(ledger.get("records"), list):
+        raise ValueError("expected a v0 quality ledger with records")
+    records = ledger["records"]
+    if not isinstance(ledger.get("source_commit"), str):
+        raise ValueError("invalid source_commit")
+    if any(not isinstance(item, dict) or not isinstance(item.get("path"), str) or not item["path"] for item in records):
+        raise ValueError("invalid file record identity")
+    matches = [item for item in records if item["path"] == rel]
+    if len(matches) > 1:
+        raise ValueError("ambiguous duplicate file record")
+    result = {
+        "schema_version": "aide.quality-explanation.v1", "path": rel,
+        "result": "PASS" if matches else "MISSING", "ledger": FILE_QUALITY_LEDGER_JSON_PATH,
+        "source_commit": ledger.get("source_commit", ""), "freshness": "unverified",
+        "coverage": "heuristic_incomplete" if matches else "unindexed",
+        "caveats": ["Report revision is attribution, not current-byte verification.",
+                    "Missing links do not establish absence; do not narrow checks solely from this view.",
+                    "Similarity does not prove shared semantics or authorize refactoring."],
+    }
+    if not matches:
+        result["next_action"] = "inspect the target and existing inventory; no file record was found"
+        return result
+    record = matches[0]
+    for key in ("kind", "status", "owner", "quality_level", "recommended_next_action"):
+        value = record.get(key)
+        if not isinstance(value, str):
+            raise ValueError(f"invalid {key}")
+        result[key] = value
+
+    def bounded_strings(value: object) -> dict[str, object]:
+        if not isinstance(value, list) or any(not isinstance(item, str) for item in value):
+            raise ValueError("expected a list of string references")
+        items = sorted(set(value))
+        return {"items": items[:20], "omitted": max(0, len(items) - 20)}
+
+    relations = {}
+    for key, reason in (("docs_refs", "recorded documentation link"),
+                        ("test_refs", "heuristic likely test target; not an executed check"),
+                        ("dependency_refs", "recorded local reference; not complete impact analysis"),
+                        ("warnings", "recorded quality warning"),
+                        ("exemptions", "recorded lifecycle exemption")):
+        relation = bounded_strings(record.get(key))
+        relations[key] = {**relation, "reason": reason,
+                          "state": "found" if relation["items"] else "not_found"}
+    result["relations"] = relations
+    candidates = []
+    reuse = ledger.get("reuse_report")
+    if "reuse_report" in ledger:
+        if not isinstance(reuse, dict):
+            raise ValueError("invalid reuse report")
+        for group, key, reason in (("duplicate_hash_candidates", "sha256", "recorded identical content hash"),
+                                   ("repeated_helper_name_candidates", "helper_name", "repeated helper name"),
+                                   ("similar_filename_clusters", "name", "similar filename")):
+            entries = reuse.get(group)
+            if not isinstance(entries, list):
+                raise ValueError(f"invalid reuse group: {group}")
+            for entry in entries:
+                if not isinstance(entry, dict) or not isinstance(entry.get(key), str):
+                    raise ValueError(f"invalid reuse candidate: {group}")
+                paths = entry.get("paths")
+                bounded_strings(paths)  # Validate even candidates not selected.
+                if rel in paths:
+                    peers = bounded_strings([path for path in paths if path != rel])
+                    candidates.append({"reason": reason, "match": entry[key], "peers": peers})
+    result["reuse"] = {"state": "unindexed" if reuse is None else "found" if candidates else "not_found",
+                       "items": candidates[:20], "omitted": max(0, len(candidates) - 20)}
+    return result
+
+
 def command_quality_explain_file(args: argparse.Namespace) -> int:
     rel = normalize_rel(args.path)
-    ledger = latest_or_missing_quality_ledger(args.repo_root)
-    print("AIDE Lite quality explain-file")
-    if ledger is None:
-        print("result: MISSING")
-        print("next_action: run `quality ledger`")
-        return 1
-    records = ledger.get("records", [])
-    record = next((item for item in records if isinstance(item, dict) and item.get("path") == rel), None) if isinstance(records, list) else None
-    if record is None:
-        print("result: MISSING")
-        print(f"path: {rel}")
-        return 1
-    print("result: PASS")
-    for key in ["path", "kind", "status", "owner", "quality_level", "recommended_next_action"]:
-        print(f"{key}: {record.get(key, '')}")
-    print(f"warnings: {', '.join(record.get('warnings', []))}")
-    print(f"exemptions: {', '.join(record.get('exemptions', []))}")
-    print(f"docs_refs: {', '.join(record.get('docs_refs', []))}")
-    print(f"test_refs: {', '.join(record.get('test_refs', []))}")
-    print(f"dependency_refs: {', '.join(record.get('dependency_refs', [])[:30])}")
-    return 0
+    try:
+        # This lookup reads one bounded report, never target source or new indexes.
+        with (args.repo_root / FILE_QUALITY_LEDGER_JSON_PATH).open("rb") as stream:
+            raw = stream.read(16 * 1024 * 1024 + 1)
+        if len(raw) > 16 * 1024 * 1024:
+            raise ValueError("quality ledger exceeds the 16 MiB lookup limit")
+        ledger = json.loads(raw)
+        if not isinstance(ledger, dict):
+            raise ValueError("quality ledger must be an object")
+        result = quality_file_explanation(ledger, rel)
+    except FileNotFoundError:
+        result = {"result": "MISSING", "path": rel, "coverage": "unindexed",
+                  "next_action": "run `repo inventory` then `quality ledger` when authorized"}
+    except (OSError, ValueError, RecursionError) as error:
+        result = {"result": "INVALID", "path": rel, "error": str(error),
+                  "next_action": "inspect the retained report; no regeneration was attempted"}
+    if getattr(args, "json", False):
+        rendered = stable_json_text(result)
+    else:
+        lines = ["AIDE Lite quality explain-file"]
+        for key, value in result.items():
+            if key in {"relations", "reuse", "caveats"}:
+                continue
+            lines.append(f"{key}: {value}")
+        for key, relation in result.get("relations", {}).items():
+            lines.append(f"{key}: {', '.join(relation['items'])}")
+            lines.append(f"  {relation['state']}; {relation['reason']}; omitted: {relation['omitted']}")
+        reuse = result.get("reuse", {})
+        if reuse:
+            lines.append(f"reuse: {reuse['state']}; omitted: {reuse['omitted']}")
+            for item in reuse["items"]:
+                lines.append(f"- {item['reason']} ({item['match']}): {', '.join(item['peers']['items'])}; omitted peers: {item['peers']['omitted']}")
+        for caveat in result.get("caveats", []):
+            lines.append(f"caveat: {caveat}")
+        rendered = "\n".join(lines) + "\n"
+    if len(rendered.encode("utf-8", errors="replace")) > 64 * 1024:
+        result = {"result": "INVALID", "error": "explanation exceeds the 64 KiB UTF-8 output limit",
+                  "next_action": "inspect the retained report directly; no partial explanation was emitted"}
+        rendered = stable_json_text(result) if getattr(args, "json", False) else "\n".join(f"{key}: {value}" for key, value in result.items()) + "\n"
+    print(rendered, end="")
+    return {"PASS": 0, "MISSING": 1, "INVALID": 2}[result["result"]]
 
 
 def command_quality_report_file(args: argparse.Namespace, title: str, path: str) -> int:
@@ -19052,10 +19159,12 @@ def command_release_bundle(args: argparse.Namespace) -> int:
 
 STABLE_RELEASE_DIR = ".aide/release/stable"
 STABLE_RELEASE_PROFILE = "aide-lite-local-windows"
+STABLE_SUCCESSOR_PATH = ".aide/release/successor-candidate.json"
+STABLE_ASSET_MAX_BYTES = 8 * 1024 * 1024
 
 
 def stable_release_paths(version: str) -> dict[str, str]:
-    if not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
+    if not isinstance(version, str) or len(version) > 32 or not re.fullmatch(r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", version):
         raise ValueError("stable release version must be MAJOR.MINOR.PATCH without leading zeros")
     base = f"{STABLE_RELEASE_DIR}/aide-lite-v{version}"
     return {
@@ -19085,7 +19194,7 @@ def stable_release_cli_forms(repo_root: Path) -> list[str]:
 
 
 def stable_release_source_tree(repo_root: Path, commit: str) -> str:
-    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+    if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ValueError("stable release pack source commit is not a full Git object")
     result = subprocess.run(
         ["git", "-C", str(repo_root), "show", "-s", "--format=%T", commit],
@@ -19097,10 +19206,151 @@ def stable_release_source_tree(repo_root: Path, commit: str) -> str:
     return tree
 
 
+def stable_release_record(repo_root: Path, relative: str) -> tuple[dict[str, object], str]:
+    """Bounded, duplicate-free metadata using the existing ordinary-file reader."""
+    data = task_view_read(repo_root, relative, limit=65536)
+    try:
+        value = json.loads(data, object_pairs_hook=_job_wait_unique_object,
+                           parse_constant=_job_wait_reject_constant)
+    except (ValueError, RecursionError) as exc:
+        raise ValueError("invalid stable release metadata") from exc
+    if not isinstance(value, dict):
+        raise ValueError("stable release metadata must be an object")
+    return value, hashlib.sha256(data).hexdigest()
+
+
+def stable_release_contract(repo_root: Path, version: str) -> dict[str, object]:
+    """Resolve a candidate declaration; historical pins are not current-pack checks."""
+    stable_release_paths(version)
+    baseline = stable_release_cli_forms(repo_root)
+    if version == "1.0.0":
+        return {"forms": baseline, "predecessors": [], "preserved": set(), "digest": None}
+    policy = read_text(repo_root / ".aide/policies/release-versioning.yaml")
+    refs = [line for line in policy.splitlines() if line.startswith("successor_candidate_ref:")]
+    if refs != [f"successor_candidate_ref: {STABLE_SUCCESSOR_PATH}"]:
+        raise ValueError("stable successor requires the exact policy candidate reference")
+    record, digest = stable_release_record(repo_root, STABLE_SUCCESSOR_PATH)
+    if (set(record) != {"schema_version", "version", "profile_id", "predecessor",
+                       "additional_cli_forms", "preserved_assets"}
+            or record["schema_version"] != "aide.stable-successor-candidate.v1"
+            or record["version"] != version or record["profile_id"] != STABLE_RELEASE_PROFILE):
+        raise ValueError("unsupported stable successor identity or fields")
+    predecessor = record["predecessor"]
+    if (not isinstance(predecessor, dict) or set(predecessor) != {"version", "tag_commit"}
+            or not isinstance(predecessor["tag_commit"], str)
+            or not re.fullmatch(r"[0-9a-f]{40}", predecessor["tag_commit"])):
+        raise ValueError("invalid predecessor identity")
+    previous = predecessor["version"]
+    stable_release_paths(previous)
+    current_numbers = tuple(map(int, version.split(".")))
+    previous_numbers = tuple(map(int, previous.split(".")))
+    if current_numbers[0] != previous_numbers[0] or current_numbers <= previous_numbers:
+        raise ValueError("successor must increase within the predecessor major version")
+    additions = record["additional_cli_forms"]
+    if (not isinstance(additions, list) or len(additions) > 64
+            or any(not isinstance(form, str) or not form or len(form) > 512
+                   or form != form.strip() or any(ord(c) < 32 for c in form) for form in additions)
+            or len(additions) != len(set(additions)) or set(additions) & set(baseline)):
+        raise ValueError("invalid or duplicate successor CLI forms")
+    forms = baseline + additions
+    assets = record["preserved_assets"]
+    if not isinstance(assets, list) or not 4 <= len(assets) <= 32:
+        raise ValueError("preserved asset list must contain 4 to 32 members")
+    pins: dict[str, dict[str, object]] = {}
+    versions: set[str] = set()
+    total = 0
+    for asset in assets:
+        if (not isinstance(asset, dict) or set(asset) != {"path", "size_bytes", "sha256"}
+                or not isinstance(asset["path"], str) or type(asset["size_bytes"]) is not int
+                or not 0 < asset["size_bytes"] <= STABLE_ASSET_MAX_BYTES
+                or not isinstance(asset["sha256"], str) or not re.fullmatch(r"[0-9a-f]{64}", asset["sha256"])):
+            raise ValueError("invalid preserved asset pin")
+        relative = asset["path"]
+        match = re.fullmatch(re.escape(STABLE_RELEASE_DIR) + r"/aide-lite-v([0-9.]+)\.(zip|tar\.gz|manifest\.json|SHA256SUMS\.txt)", relative)
+        if not match or relative in pins:
+            raise ValueError("unknown or duplicate preserved asset path")
+        old_version = match[1]
+        stable_release_paths(old_version)
+        if tuple(map(int, old_version.split("."))) > previous_numbers:
+            raise ValueError("preserved version is newer than the immediate predecessor")
+        versions.add(old_version)
+        total += asset["size_bytes"]
+        if total > 32 * 1024 * 1024:
+            raise ValueError("preserved assets exceed the finite byte budget")
+        data = task_view_read(repo_root, relative, limit=STABLE_ASSET_MAX_BYTES)
+        if len(data) != asset["size_bytes"] or hashlib.sha256(data).hexdigest() != asset["sha256"]:
+            raise ValueError("preserved asset digest or size mismatch: " + relative)
+        pins[relative] = asset
+    if previous not in versions:
+        raise ValueError("immediate predecessor assets are missing")
+    historical = {}
+    for old_version in sorted(versions):
+        paths = stable_release_paths(old_version)
+        if not set(paths.values()) <= pins.keys():
+            raise ValueError("each preserved version requires all four assets")
+        manifest, _ = stable_release_record(repo_root, paths["manifest"])
+        identity = manifest.get("identity")
+        if (manifest.get("schema_version") != "aide.stable-release-candidate.v1"
+                or manifest.get("status") != "frozen_release_assets" or not isinstance(identity, dict)
+                or identity.get("schema_version") != "aide.stable-release-identity.v1"
+                or identity.get("version") != old_version or identity.get("tag") != f"aide-lite-v{old_version}"
+                or identity.get("profile_id") != STABLE_RELEASE_PROFILE
+                or identity.get("artifact_state") != "immutable_release_payload"
+                or identity.get("intended_channel") != "stable"):
+            raise ValueError("preserved historical manifest identity mismatch")
+        for field in ("source_commit", "source_tree"):
+            if not isinstance(identity.get(field), str) or not re.fullmatch(r"[0-9a-f]{40}", identity[field]):
+                raise ValueError("invalid historical source identity")
+        archives = {key: pins[paths[key]] for key in ("zip", "tar_gz")}
+        if manifest.get("archives") != archives:
+            raise ValueError("historical archive pins disagree with preserved manifest")
+        sums = "".join(f"{pins[paths[key]]['sha256']}  {Path(paths[key]).name}\n"
+                       for key in ("zip", "tar_gz", "manifest"))
+        if task_view_read(repo_root, paths["sha256sums"], limit=4096) != sums.encode("utf-8"):
+            raise ValueError("historical checksum file disagrees with pins")
+        historical[old_version] = identity
+    old_forms = historical[previous].get("public_cli_forms")
+    if (not isinstance(old_forms, list) or not old_forms or len(old_forms) > 128
+            or any(not isinstance(form, str) for form in old_forms)
+            or len(old_forms) != len(set(old_forms)) or not set(old_forms) <= set(forms)):
+        raise ValueError("successor removes or reinterprets a predecessor CLI form")
+    if current_numbers[1] == previous_numbers[1] and set(forms) != set(old_forms):
+        raise ValueError("additional public forms require a minor version increase")
+    tag = f"aide-lite-v{previous}"
+    observed = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}"],
+                              check=False, capture_output=True, text=True, encoding="utf-8")
+    tags = subprocess.run(["git", "-C", str(repo_root), "tag", "--list", "aide-lite-v*"],
+                          check=False, capture_output=True, text=True, encoding="utf-8")
+    if (observed.returncode or observed.stdout.strip() != predecessor["tag_commit"] or tags.returncode
+            or set(tags.stdout.splitlines()) - {f"aide-lite-v{v}" for v in versions | {version}}):
+        raise ValueError("local published lineage is missing, changed or undeclared")
+    matrix = [{"version": previous, "tag": tag, "tag_commit": predecessor["tag_commit"],
+               "manifest_sha256": pins[stable_release_paths(previous)["manifest"]]["sha256"],
+               "source_commit": historical[previous]["source_commit"],
+               "source_tree": historical[previous]["source_tree"], "profile_id": STABLE_RELEASE_PROFILE,
+               "assets": [pins[rel] for rel in stable_release_paths(previous).values()]}]
+    return {"forms": forms, "predecessors": matrix, "preserved": set(pins), "digest": digest}
+
+
+def stable_release_output_preflight(repo_root: Path, allowed: set[str]) -> None:
+    for relative in (".aide", ".aide/release", STABLE_RELEASE_DIR):
+        path = repo_root / relative
+        if path.exists() or path.is_symlink():
+            info = path.lstat()
+            if not stat.S_ISDIR(info.st_mode) or getattr(info, "st_file_attributes", 0) & 0x400:
+                raise ValueError("stable release output path is redirected or not a directory")
+    output = repo_root / STABLE_RELEASE_DIR
+    if output.exists():
+        for path in output.iterdir():
+            relative = normalize_rel(path.relative_to(repo_root))
+            if relative not in allowed:
+                raise ValueError("stable release output contains unknown material")
+            task_view_read(repo_root, relative, limit=STABLE_ASSET_MAX_BYTES)
+
+
 def build_stable_release_candidate(repo_root: Path, version: str) -> dict[str, object]:
     paths = stable_release_paths(version)
-    if version != "1.0.0":
-        raise ValueError("this first-stable builder requires 1.0.0 and an empty predecessor matrix")
+    contract = stable_release_contract(repo_root, version)
     existing_tag = subprocess.run(
         ["git", "-C", str(repo_root), "tag", "--list", f"aide-lite-v{version}"],
         check=False, capture_output=True, text=True, encoding="utf-8",
@@ -19108,17 +19358,8 @@ def build_stable_release_candidate(repo_root: Path, version: str) -> dict[str, o
     if existing_tag.returncode != 0 or existing_tag.stdout.strip():
         raise ValueError("stable release tag already exists or local tag state is unavailable")
     output_root = repo_root / STABLE_RELEASE_DIR
-    for path in (repo_root / ".aide", repo_root / ".aide/release", output_root):
-        if path.exists() and (path.is_symlink() or bool(getattr(path, "is_junction", lambda: False)())):
-            raise ValueError("stable release output path is redirected")
     allowed_outputs = set(paths.values())
-    if output_root.exists():
-        for path in output_root.iterdir():
-            if (not path.is_file() or path.is_symlink()
-                    or bool(getattr(path, "is_junction", lambda: False)())
-                    or path.stat().st_nlink != 1
-                    or normalize_rel(path.relative_to(repo_root)) not in allowed_outputs):
-                raise ValueError("stable release output contains unknown or redirected material")
+    stable_release_output_preflight(repo_root, allowed_outputs | contract["preserved"])
     git_ok, changes, _error = git_status_short(repo_root)
     if not git_ok or any(normalize_rel(path).rstrip("/") not in (allowed_outputs | {STABLE_RELEASE_DIR}) for _status, path in changes):
         raise ValueError("stable release build requires clean source outside its exact output files")
@@ -19144,14 +19385,16 @@ def build_stable_release_candidate(repo_root: Path, version: str) -> dict[str, o
         "support_mode": "companion",
         "lifecycle_apply_platform": "Windows only; exact tested environment in effect evidence",
         "offline_scope": "local CLI after archive acquisition; no native network isolation claim",
-        "predecessor_matrix": [],
-        "public_cli_forms": stable_release_cli_forms(repo_root),
+        "predecessor_matrix": contract["predecessors"],
+        "public_cli_forms": contract["forms"],
         "version_policy_sha256": sha256_file(policy_path),
         "source_repo": scalars.get("source_repo", ""),
         "source_commit": source_commit,
         "source_tree": source_tree,
         "source_pack_checksums_sha256": sha256_file(pack_root / "checksums.json"),
     }
+    if contract["digest"] is not None:
+        marker["successor_contract_sha256"] = contract["digest"]
     output_root.mkdir(parents=True, exist_ok=True)
     with public_archive_fixture("aide-stable-pack-") as temp_name:
         projected = Path(temp_name) / RELEASE_ARCHIVE_ROOT
@@ -19191,19 +19434,29 @@ def validate_stable_release_candidate(repo_root: Path, version: str) -> dict[str
     paths = stable_release_paths(version)
     problems: list[str] = []
     try:
-        manifest = json.loads(read_text(repo_root / paths["manifest"]))
+        contract = stable_release_contract(repo_root, version)
+        stable_release_output_preflight(repo_root, set(paths.values()) | contract["preserved"])
+        manifest, _ = stable_release_record(repo_root, paths["manifest"])
         identity = manifest["identity"]
         archives = manifest["archives"]
     except (OSError, ValueError, KeyError, TypeError) as exc:
         return {"result": "FAIL", "problems": [f"stable manifest unavailable or malformed: {exc}"]}
     if not isinstance(manifest, dict) or not isinstance(identity, dict) or not isinstance(archives, dict):
         return {"result": "FAIL", "problems": ["stable manifest fields have invalid types"]}
-    if manifest.get("status") != "frozen_release_assets" or identity.get("version") != version:
+    if (manifest.get("schema_version") != "aide.stable-release-candidate.v1"
+            or manifest.get("status") != "frozen_release_assets" or identity.get("version") != version):
         problems.append("stable candidate identity or status mismatch")
+    if (identity.get("schema_version") != "aide.stable-release-identity.v1"
+            or identity.get("tag") != f"aide-lite-v{version}"
+            or identity.get("release_axis") != "aide_lite_portable_package"):
+        problems.append("stable identity schema, tag or release axis mismatch")
     if identity.get("profile_id") != STABLE_RELEASE_PROFILE or identity.get("artifact_state") != "immutable_release_payload" or identity.get("intended_channel") != "stable":
         problems.append("stable profile identity mismatch")
-    if identity.get("public_cli_forms") != stable_release_cli_forms(repo_root):
+    if identity.get("public_cli_forms") != contract["forms"]:
         problems.append("stable public CLI forms differ from version policy")
+    if (identity.get("predecessor_matrix") != contract["predecessors"]
+            or identity.get("successor_contract_sha256") != contract["digest"]):
+        problems.append("stable successor contract or predecessor identity mismatch")
     if identity.get("version_policy_sha256") != sha256_file(repo_root / ".aide/policies/release-versioning.yaml"):
         problems.append("stable version policy digest mismatch")
     pack_root = export_pack_root(repo_root, EXPORT_PACK_ID)
@@ -19223,7 +19476,7 @@ def validate_stable_release_candidate(repo_root: Path, version: str) -> dict[str
     for key in ("zip", "tar_gz"):
         path = repo_root / paths[key]
         recorded = archives.get(key, {}) if isinstance(archives, dict) else {}
-        if not path.is_file() or recorded.get("path") != paths[key]:
+        if not path.is_file() or not isinstance(recorded, dict) or recorded.get("path") != paths[key]:
             problems.append(f"stable {key} asset missing or path mismatch")
             continue
         if recorded.get("sha256") != sha256_file(path) or recorded.get("size_bytes") != path.stat().st_size:
@@ -31985,7 +32238,7 @@ def render_review_packet(
 
 ## Review Objective
 
-Review the current AIDE queue phase from compact evidence only and decide whether it is ready to pass its review gate.
+Review the current AIDE queue phase starting from compact evidence and decide whether it is ready to pass its review gate.
 
 ## Decision Requested
 
@@ -32063,7 +32316,8 @@ Return exactly one of `PASS`, `PASS_WITH_NOTES`, `REQUEST_CHANGES`, or `BLOCKED`
 
 ## Reviewer Instructions
 
-- Review only this packet and the referenced evidence when needed.
+- Use `{REVIEW_PROMPT_PATH}` for the shared engineering review procedure.
+- Start from this packet; inspect relevant evidence, source, callers and contracts when needed within authorized access.
 - Do not request full chat history unless the packet is insufficient to judge correctness.
 - Do not re-summarize the whole project.
 - Do not reward scope creep.
@@ -32161,7 +32415,7 @@ def verify_review_packet(repo_root: Path, rel_path: str) -> list[VerificationFin
         findings.append(VerificationFinding("WARN", "review_packet", f"review packet over hard limit: {stats.approx_tokens}", rel_path))
     else:
         findings.append(VerificationFinding("INFO", "review_packet", f"review packet tokens: {stats.approx_tokens}", rel_path))
-    for required_ref in [LATEST_CONTEXT_PACKET_PATH, LATEST_VERIFICATION_REPORT_PATH, REVIEW_DECISION_POLICY_PATH]:
+    for required_ref in [LATEST_CONTEXT_PACKET_PATH, LATEST_VERIFICATION_REPORT_PATH, REVIEW_DECISION_POLICY_PATH, REVIEW_PROMPT_PATH]:
         if required_ref not in text:
             findings.append(VerificationFinding("WARN", "review_packet", f"review ref missing: {required_ref}", rel_path))
     findings.extend(verify_refs_in_text(repo_root, text, rel_path))
@@ -39561,14 +39815,24 @@ def command_task_requeue_plan(args: argparse.Namespace) -> int:
 
 
 def command_task_resume_plan(args: argparse.Namespace) -> int:
-    result, context = write_task_os_resume_plan(args.repo_root)
+    task_id = getattr(args, "task_id", None)
+    if getattr(args, "json", False):
+        plan = build_task_resume_plan(args.repo_root, task_id)
+        print(json.dumps(plan, sort_keys=True, indent=2, ensure_ascii=True))
+        return 0 if plan["task"]["task_id"] else 1
+    result, context = write_task_os_resume_plan(args.repo_root, task_id)
+    plan = context["resume_plan"]
     print("AIDE Lite task resume-plan")
-    print("result: PASS")
+    print(f"result: {'PASS' if plan['task']['task_id'] else 'MISSING_TASK'}")
     print(f"latest_task_id: {context.get('latest_task_id', '') or 'unknown'}")
+    print(f"latest_task_status: {context['latest_task_status']}")
+    print(f"recommendation: {plan['recommendation']}")
+    print(f"reason: {plan['reason']}")
     print(f"report: {TASK_OS_RESUME_PLAN_REPORT_PATH} ({result.action})")
-    print("safe_to_resume: true")
+    print("safe_to_resume: unknown")
+    print("execution_admitted: false")
     print("report_only: true")
-    return 0
+    return 0 if plan["task"]["task_id"] else 1
 
 
 def command_task_next_plan(args: argparse.Namespace) -> int:
@@ -39881,6 +40145,37 @@ def build_current_task_view(repo_root: Path, task_id: str | None = None) -> dict
                 item["availability"] = "unreadable"
         view["evidence"].append(item)
     return view
+
+
+def build_task_resume_plan(repo_root: Path, task_id: str | None = None) -> dict[str, object]:
+    """Continuation advice over existing observations; never an execution grant."""
+    view = build_current_task_view(repo_root, task_id)
+    status = view["status"]
+    if not view["task_id"] or view["issues"] or any(
+            item["availability"] != "present" for item in view["evidence"]):
+        recommendation = "reconcile_records"
+        reason = "Resolve missing, conflicting or unreadable records; preserve original evidence."
+    elif status in ("passed", "passed_with_notes", "complete", "completed", "superseded"):
+        recommendation = "inspect_completed_evidence"
+        reason = "Inspect recorded acceptance scope and remaining obligations; reuse valid results without replay."
+    elif status in ("blocked", "paused", "deferred"):
+        recommendation = "inspect_unblock_condition"
+        reason = "Inspect the recorded blocker or pause; retry only after a relevant change. Independent work may continue."
+    elif status == "needs_review":
+        recommendation = "inspect_review_gate"
+        reason = "Inspect the existing review decision; passing checks alone do not close the gate."
+    elif status in ("running", "claimed", "failed", "interrupted"):
+        recommendation = "reconcile_attempt"
+        reason = "Determine completed, pending and uncertain effects and current ownership before another attempt."
+    elif status in ("pending", "planning"):
+        recommendation = "inspect_plan"
+        reason = "Inspect the recorded scope and dependencies before admission through the existing owner."
+    else:
+        recommendation = "reconcile_records"
+        reason = "The recorded status has no known continuation rule; inspect it without inferring readiness."
+    return {"schema_version": "aide.task-resume-plan.v1", "task": view,
+            "recommendation": recommendation, "reason": reason, "safe_to_resume": None,
+            "execution_admitted": False, "report_only": True, "read_only": True}
 
 
 def command_task_current(args: argparse.Namespace) -> int:
@@ -41017,6 +41312,19 @@ def copy_pack_file(source: Path, destination: Path) -> WriteResult:
     return write_bytes_if_changed(destination, source.read_bytes())
 
 
+def portable_cli_text(source: str) -> str:
+    """Bind the delivered CLI at build time; never discover target-owned code."""
+    prefix = "WORK_EFFORT_MODULE_PATH = "
+    source_binding = prefix + json.dumps("core/execution/work_effort.py")
+    delivered_binding = prefix + json.dumps(PORTABLE_WORK_EFFORT_MODULE_PATH)
+    lines = source.splitlines()
+    bindings = [line for line in lines if line.startswith(prefix)]
+    if len(bindings) != 1 or bindings[0] not in (source_binding, delivered_binding):
+        raise ValueError("portable CLI work effort binding is missing or changed")
+    return "\n".join(delivered_binding if line == bindings[0] else line
+                     for line in lines) + "\n"
+
+
 def portable_agents_template() -> str:
     return """<!-- AIDE-PORTABLE:BEGIN section=aide-lite-pack-v0 mode=managed -->
 ## AIDE Lite Portable Guidance
@@ -41503,6 +41811,12 @@ def build_export_pack(repo_root: Path, name: str = EXPORT_PACK_ID, output: str |
                 and not validate_export_pack_boundary(pack_root)):
             prior_source = candidate
             prior_checksums = json.loads(read_text(pack_root / "checksums.json"))
+    # Validate the explicit source binding and its dependency before resetting
+    # a previously generated pack. A missing dependency must not yield a CLI
+    # which searches a consumer's project-owned core directory.
+    cli_source = repo_root / ".aide/scripts/aide_lite.py"
+    projected_cli = portable_cli_text(read_text(cli_source))
+    read_text(repo_root / "core/execution/work_effort.py")
     reset_export_contents(pack_root)
     files_root = pack_root / "files"
     files_root.mkdir(parents=True, exist_ok=True)
@@ -41511,7 +41825,10 @@ def build_export_pack(repo_root: Path, name: str = EXPORT_PACK_ID, output: str |
     copied: list[str] = []
     for rel in source_files:
         destination = files_root / rel
-        copy_pack_file(repo_root / rel, destination)
+        if rel == ".aide/scripts/aide_lite.py":
+            write_text_if_changed(destination, projected_cli)
+        else:
+            copy_pack_file(repo_root / rel, destination)
         copied.append(pack_rel(destination, pack_root))
 
     for template_source, destination_rel in PORTABLE_TEMPLATE_MAP.items():
@@ -44821,8 +45138,35 @@ def _write_minimal_repo(root: Path) -> None:
         write_text(root / rel, read_text(source) if source.exists() else f"schema_version: {rel}\n")
     for rel in Q14_REQUIRED_FILES:
         source = source_root / rel
-        if source.exists():
+        if rel == TOKEN_LEDGER_PATH:
+            # Measure this fixture's artifacts; source history is not evidence
+            # that this independent fixture contains every required surface.
+            write_text(root / rel, "")
+        elif source.exists():
             write_text(root / rel, read_text(source))
+        elif rel == TOKEN_BASELINES_PATH:
+            # Source reports are intentionally absent from portable packs. These
+            # synthetic inputs belong only to this disposable self-test fixture.
+            write_text(root / rel, """schema_version: aide.token-baselines.v0
+method: chars_divided_by_4
+all_baselines_are_estimates: true
+baselines:
+  - name: root_history_baseline
+    purpose: Synthetic self-test document baseline.
+    paths:
+      - README.md
+      - AGENTS.md
+  - name: review_baseline
+    purpose: Synthetic self-test review baseline.
+    paths:
+      - .aide/context/latest-task-packet.md
+      - .aide/context/latest-context-packet.md
+  - name: repo_context_baseline
+    purpose: Synthetic self-test context baseline.
+    paths:
+      - README.md
+      - AGENTS.md
+""")
         elif rel.endswith(".jsonl"):
             write_text(root / rel, "")
         else:
@@ -44856,6 +45200,10 @@ def _write_minimal_repo(root: Path) -> None:
             rel = normalize_rel(source.relative_to(source_root))
             write_text(root / rel, read_text(source))
     for rel in Q18_REQUIRED_FILES:
+        if rel == ".gitignore":
+            # Already copied or initialized above; a placeholder would erase
+            # the fixture's local-state rules when the source pack omits it.
+            continue
         source = source_root / rel
         if source.exists() and source.is_file():
             write_text(root / rel, read_text(source))
@@ -45150,7 +45498,10 @@ def run_selftest() -> tuple[bool, list[str]]:
         policy_findings = scan_secret_text("Mention api_key as policy text only.\n", ".aide/test.md")
         assert not any(finding.severity == "ERROR" for finding in policy_findings)
         verification = build_verification_report(root, task_packet_path=LATEST_PACKET_PATH)
-        assert verification.result in {"PASS", "WARN"}, verification.result
+        assert verification.result in {"PASS", "WARN"}, [
+            (finding.check, finding.message, finding.path)
+            for finding in verification.findings if finding.severity in {"ERROR", "FAIL"}
+        ]
         rendered_report = render_verification_report(verification)
         assert "## VERIFIER_RESULT" in rendered_report
         assert "print('hello')" not in rendered_report
@@ -45169,7 +45520,8 @@ def run_selftest() -> tuple[bool, list[str]]:
         selftest_record = ledger_record_for_file(root, LATEST_PACKET_PATH, surface="task_packet", run_id="selftest")
         assert selftest_record.approx_tokens > 0
         assert selftest_record.budget_status in {"within_budget", "near_budget", "over_budget"}
-        ledger_result, merged_records, old_records = merge_ledger_records(root, [selftest_record], "selftest")
+        fixture_records = build_ledger_scan_records(root, run_id="selftest")
+        ledger_result, merged_records, old_records = merge_ledger_records(root, fixture_records, "selftest")
         assert ledger_result.action in {"written", "unchanged"}
         assert not old_records or all("raw" not in record.path.lower() for record in old_records)
         read_records = read_ledger_records(root)
@@ -45189,7 +45541,10 @@ def run_selftest() -> tuple[bool, list[str]]:
         definitions = parse_golden_task_catalog(root)
         assert len(definitions) >= 5
         eval_run = run_golden_tasks(root, task_ids=SELFTEST_GOLDEN_TASK_IDS)
-        assert eval_run.result in {"PASS", "WARN"}, ", ".join(task.task_id for task in eval_run.tasks if task.result == "FAIL")
+        assert eval_run.result in {"PASS", "WARN"}, [
+            (task.task_id, task.errors)
+            for task in eval_run.tasks if task.result == "FAIL"
+        ]
         json_result, md_result = write_golden_run_reports(root, eval_run)
         assert json_result.action in {"written", "unchanged"}
         assert md_result.action in {"written", "unchanged"}
@@ -45890,6 +46245,99 @@ def summarize_codex_usage_attempts(path: Path) -> dict[str, object]:
             "coverage_gaps": sorted(gaps), "raw_prompt_or_response_retained": False}
 
 
+def _work_effort_path(root: Path, relative: object) -> Path:
+    if (not isinstance(relative, str) or len(relative) > 240
+            or not re.fullmatch(r"[A-Za-z0-9._/-]+", relative)
+            or any(part in ("", ".", "..") for part in relative.split("/"))):
+        raise ValueError("work effort requires an explicit contained relative path")
+    path = root / relative
+    _job_wait_root(str(path.parent))
+    return path
+
+
+def _work_effort_module():
+    # Implementation belongs to this CLI, never to the observed evidence root.
+    path = Path(__file__).resolve().parents[2] / WORK_EFFORT_MODULE_PATH
+    _job_wait_root(str(path.parent))
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+            or getattr(info, "st_file_attributes", 0) & 0x400 or info.st_size > 64 * 1024):
+        raise ValueError("work effort implementation is not an ordinary bounded module")
+    spec = importlib.util.spec_from_file_location("aide_work_effort_view", path)
+    module = importlib.util.module_from_spec(spec)
+    previous = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
+    return module
+
+
+def summarize_work_effort(repo_root: Path, work_set: str) -> dict[str, object]:
+    """Read only pinned supplied records; no session discovery or receipt paths."""
+    root = _job_wait_root(str(repo_root))
+    module = _work_effort_module()
+
+    def read(relative, maximum, expected=None):
+        result = _job_wait_read_json(_work_effort_path(root, relative), maximum)
+        if result is None:
+            raise ValueError("supplied work effort input is missing")
+        if expected is not None and result[1] != expected:
+            raise ValueError("supplied work effort digest mismatch")
+        return result
+
+    manifest, manifest_sha = read(work_set, 64 * 1024)
+    module.validate_work_set(manifest)
+    observations = []
+    for entry in manifest["receipts"]:
+        receipt, digest = read(entry["path"], 256 * 1024, entry["sha256"])
+        observations.append((receipt, digest, entry["phase"]))
+    usage = None
+    reference = manifest["usage_roster"]
+    if reference is not None:
+        roster, roster_sha = read(reference["path"], 64 * 1024, reference["sha256"])
+        if roster.get("work_id") != manifest["work_id"]:
+            raise ValueError("usage roster work identity mismatch")
+        roster_path = _work_effort_path(root, reference["path"])
+        attempts = roster.get("attempts")
+        if not isinstance(attempts, list) or not 1 <= len(attempts) <= 8:
+            raise ValueError("invalid usage roster attempts")
+        # The existing importer validates the roster and stream contents. Check
+        # ancestor redirections before its resolve(), without implementing counters.
+        for attempt in attempts:
+            if not isinstance(attempt, dict):
+                raise ValueError("invalid usage roster attempt")
+            if attempt.get("stream") is not None:
+                path = _work_effort_path(roster_path.parent, attempt["stream"])
+                info = path.lstat()
+                if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                        or getattr(info, "st_file_attributes", 0) & 0x400):
+                    raise ValueError("usage stream is redirected or not ordinary")
+        usage = summarize_codex_usage_attempts(roster_path)
+        if usage["roster_sha256"] != roster_sha or usage["work_id"] != manifest["work_id"]:
+            raise ValueError("usage roster changed during observation")
+    report = module.summarize(manifest["work_id"], observations, manifest_sha, usage)
+    if len(json.dumps(report).encode("utf-8")) > 64 * 1024:
+        raise ValueError("work effort output exceeds bound")
+    return report
+
+
+def command_job_effort(args: argparse.Namespace) -> int:
+    try:
+        report = summarize_work_effort(args.repo_root, args.work_set)
+    except (OSError, ValueError, RecursionError):
+        report = {"schema": "aide.work-effort.v1", "status": "REFUSED",
+                  "reason": "Invalid, missing, redirected, oversized or conflicting supplied evidence; check pins and schema."}
+    if args.json:
+        print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+    elif report["status"] == "REFUSED":
+        print("AIDE work effort: REFUSED\n" + report["reason"])
+    else:
+        print(_work_effort_module().human_report(report))
+    return 1 if report["status"] == "REFUSED" else 2
+
+
 def command_job_usage(args: argparse.Namespace) -> int:
     try:
         if getattr(args, "attempt_set", None):
@@ -46461,6 +46909,7 @@ def build_parser(default_repo_root: Path) -> argparse.ArgumentParser:
     quality_subparsers.add_parser("status").set_defaults(handler=command_quality_status)
     quality_explain_parser = quality_subparsers.add_parser("explain-file")
     quality_explain_parser.add_argument("path")
+    quality_explain_parser.add_argument("--json", action="store_true", help="emit the read-only evidence projection as JSON")
     quality_explain_parser.set_defaults(handler=command_quality_explain_file)
     quality_subparsers.add_parser("docs").set_defaults(handler=command_quality_docs)
     quality_subparsers.add_parser("tests").set_defaults(handler=command_quality_tests)
@@ -46620,7 +47069,10 @@ def build_parser(default_repo_root: Path) -> argparse.ArgumentParser:
     task_subparsers.add_parser("classify").set_defaults(handler=command_task_classify)
     task_subparsers.add_parser("repair-plan").set_defaults(handler=command_task_repair_plan)
     task_subparsers.add_parser("requeue-plan").set_defaults(handler=command_task_requeue_plan)
-    task_subparsers.add_parser("resume-plan").set_defaults(handler=command_task_resume_plan)
+    task_resume_parser = task_subparsers.add_parser("resume-plan")
+    task_resume_parser.add_argument("--task-id", help="Select an existing WorkUnit instead of the latest packet")
+    task_resume_parser.add_argument("--json", action="store_true", help="Inspect without writing the legacy report")
+    task_resume_parser.set_defaults(handler=command_task_resume_plan)
     task_next_plan_parser = task_subparsers.add_parser("next-plan")
     task_next_plan_parser.add_argument("--write-report", action="store_true", help="Explicitly refresh the tracked Task OS next-plan report")
     task_next_plan_parser.set_defaults(handler=command_task_next_plan)
@@ -47433,6 +47885,10 @@ def build_parser(default_repo_root: Path) -> argparse.ArgumentParser:
     usage_source.add_argument("--stream", action="append", help="Ordinary Codex exec --json file; repeat at most eight times.")
     usage_source.add_argument("--attempt-set", help="Bounded attributed attempt roster JSON; complete-work coverage remains unknown.")
     usage_parser.set_defaults(handler=command_job_usage)
+    effort_parser = job_subparsers.add_parser("effort", help="Observe pinned work receipts; incomplete accounting stays unknown.")
+    effort_parser.add_argument("--work-set", required=True, help="Repo-relative bounded JSON manifest of receipt paths, hashes and phases.")
+    effort_parser.add_argument("--json", action="store_true", help="Machine-readable identities, observations and unknowns.")
+    effort_parser.set_defaults(handler=command_job_effort)
     job_subparsers.add_parser("context", help="Summarize one supplied Codex prompt-input JSON stream without retaining text or starting a model.").set_defaults(handler=command_job_context)
     setup_parser = job_subparsers.add_parser("setup")
     setup_parser.add_argument("--config", required=True, help="Machine-local output config in an approved checkout.")

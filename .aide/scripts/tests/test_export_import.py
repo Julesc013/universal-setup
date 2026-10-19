@@ -151,7 +151,16 @@ class ExportImportTests(unittest.TestCase):
             bundle.extractall(consumer)
         delivered = consumer / pack_root.name / "files"
         script = delivered / ".aide/scripts/aide_lite.py"
-        self.assertEqual(script.read_bytes(), MODULE_PATH.read_bytes())
+        # Independently account for the one intended binding projection; every
+        # other normalized source line must remain exact in the delivered CLI.
+        expected = MODULE_PATH.read_text(encoding="utf-8").splitlines()
+        bindings = [i for i, line in enumerate(expected) if line.startswith("WORK_EFFORT_MODULE_PATH = ")]
+        self.assertEqual(len(bindings), 1)
+        self.assertIn(expected[bindings[0]], (
+            'WORK_EFFORT_MODULE_PATH = "core/execution/work_effort.py"',
+            'WORK_EFFORT_MODULE_PATH = ".aide/scripts/aide_work_effort.py"'))
+        expected[bindings[0]] = 'WORK_EFFORT_MODULE_PATH = ".aide/scripts/aide_work_effort.py"'
+        self.assertEqual(script.read_bytes(), ("\n".join(expected) + "\n").encode("utf-8"))
         self.assertTrue(aide_lite.source_maintainer_job_guard(delivered))
 
         job_id = "a" * 32
