@@ -127,6 +127,88 @@ foreach($mode in @('ok','schema','status','coverage','sid','admin','service_sid'
 'actual candidate retention and admission controls passed'
 '''.replace("§", chr(96))
 
+DISPATCH_SCRIPT = r'''
+param([string]$Root,[string]$HostProbeFile)
+$ErrorActionPreference='Stop'
+if(-not $HostProbeFile){$HostProbeFile=Join-Path $Root 'tests/windows_publisher_metadata_hosted_probe.ps1'}
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($HostProbeFile,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Hosted probe parse failed'}
+$start=@($ast.FindAll({param($n)
+    $n -is [Management.Automation.Language.CommandAst] -and
+        $n.GetCommandName() -ceq 'Start-StageObserver'
+},$true))
+$ready=@($ast.FindAll({param($n)
+    $n -is [Management.Automation.Language.IfStatementAst] -and
+        $n.Clauses[0].Item1.Extent.Text.Contains('$unrelatedOwner.ReturnValue -ne 0')
+},$true))
+$clients=@($ast.FindAll({param($n)
+    $n -is [Management.Automation.Language.CommandAst] -and
+        $n.GetCommandName() -ceq 'Start-RequestClient'
+},$true)|Sort-Object {$_.Extent.StartOffset})
+if($start.Count -ne 1 -or $ready.Count -ne 1 -or $clients.Count -eq 0){
+    throw 'Actual observer/readiness/dispatch boundaries differ'
+}
+if($start[0].Extent.StartOffset -le $ready[0].Extent.EndOffset -or
+    $start[0].Extent.EndOffset -ge $clients[0].Extent.StartOffset){
+    throw 'Stage observer must begin after attacker preparation and before first client dispatch'
+}
+$observer=[Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $Root 'tests/windows_publisher_stage_observer.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Observer parse failed'}
+$deadline=@($observer.FindAll({param($n)
+    $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $n.Left.Extent.Text -ceq '$deadline'
+},$true))
+if($deadline.Count -ne 1 -or $deadline[0].Right.Extent.Text -cne '[DateTime]::UtcNow.AddSeconds(120)'){
+    throw 'Stage observer watchdog changed'
+}
+'actual observer dispatch boundaries passed'
+'''
+
+TERMINAL_SCRIPT = r'''
+param([string]$Root,[string]$HostProbeFile)
+$ErrorActionPreference='Stop'
+if(-not $HostProbeFile){$HostProbeFile=Join-Path $Root 'tests/windows_publisher_metadata_hosted_probe.ps1'}
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($HostProbeFile,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Hosted probe parse failed'}
+$complete=@($ast.FindAll({param($n)
+    $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $n.Name -ceq 'Complete-StageObserver'
+},$true))
+if($complete.Count -ne 1){throw 'Actual observer completion differs'}
+$nodes=@($complete[0].Body.FindAll({param($n)
+    ($n -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $n.Left.Extent.Text -ceq '$receipt[''production_stage_observation_candidate'']') -or
+    ($n -is [Management.Automation.Language.IfStatementAst] -and
+        $n.Clauses[0].Item1.Extent.Text.StartsWith('$result.schema -cne'))
+},$true)|Sort-Object {$_.Extent.StartOffset})
+if($nodes.Count -ne 2 -or $nodes[0] -isnot [Management.Automation.Language.AssignmentStatementAst]){
+    throw 'Observer candidate was not retained before terminal admission'
+}
+$admit=[scriptblock]::Create(($nodes.Extent.Text -join [Environment]::NewLine))
+foreach($mode in @('ok','schema','identity','expired')){
+    $receipt=@{};$result=@{schema='usk.publisher.stage_observer.v1';identity='S-1-5-18';stopped=$true}
+    switch($mode){
+        'schema'{$result.schema='wrong'}
+        'identity'{$result.identity='S-1-5-21-1-2-3-1001'}
+        'expired'{$result.stopped=$false}
+    }
+    $refused=$false
+    try{. $admit}catch{
+        if($_.Exception.Message -cne 'SYSTEM stage observer identity or terminal marker differs'){throw}
+        $refused=$true
+    }
+    if(-not $receipt.ContainsKey('production_stage_observation_candidate') -or
+        -not [Object]::ReferenceEquals($receipt.production_stage_observation_candidate,$result)){
+        throw 'Rejected observer evidence was lost or replaced'
+    }
+    if($refused -ne ($mode -cne 'ok')){throw ('Observer terminal admission changed: '+$mode)}
+}
+'actual observer candidate retention and terminal controls passed'
+'''
+
 
 @unittest.skipUnless(SHELLS, "PowerShell is required for the actual fixture controls")
 class StageObserverTests(unittest.TestCase):
@@ -146,6 +228,12 @@ class StageObserverTests(unittest.TestCase):
 
     def test_actual_candidate_retention_preserves_admission(self):
         self.run_actual(ADMISSION_SCRIPT)
+
+    def test_actual_observer_starts_before_dispatch_after_preparation(self):
+        self.run_actual(DISPATCH_SCRIPT)
+
+    def test_actual_observer_terminal_refusal_retains_candidate(self):
+        self.run_actual(TERMINAL_SCRIPT)
 
 
 if __name__ == "__main__":
