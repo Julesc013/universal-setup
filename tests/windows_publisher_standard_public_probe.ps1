@@ -1050,6 +1050,31 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
             $diagnosticObserverClosed=$script:observersClosed
             $script:observersClosed=$priorObserverClosure -and $diagnosticObserverClosed
         }
+        # Keep the failed request sticky; this is recorder runway after the
+        # original capture, never another wait for request acceptance.
+        if($MaintenanceRecoveryQualification -and $Command -ceq 'repair.recover' -and
+            $failureText -ceq 'Standard public client exceeded its deadline' -and
+            [object]::ReferenceEquals($failed,$receipt.request_execution_failure) -and
+            $failed.qualification_granted -eq $false) {
+            $late=[ordered]@{schema='usk.publisher_post_deadline_observation.v1';
+                scope='after_original_failed_request_capture_before_cleanup';
+                request_id=$requestId;qualification_granted=$false;requested_delay_milliseconds=20000;
+                started_at_utc=[DateTime]::UtcNow.ToString('o');finished_at_utc=$null;
+                elapsed_milliseconds=$null;client_after=$null;failure=$null}
+            $failed['post_deadline_observation']=$late
+            $observationClock=$null
+            try {
+                $observationClock=[Diagnostics.Stopwatch]::StartNew()
+                Start-Sleep -Milliseconds 20000
+                $late.client_after=& $sampleClient
+            } catch {
+                $message=$_.Exception.Message
+                $late.failure=$message.Substring(0,[Math]::Min(4096,$message.Length))
+            } finally {
+                if($observationClock){$late.elapsed_milliseconds=$observationClock.ElapsedMilliseconds}
+                $late.finished_at_utc=[DateTime]::UtcNow.ToString('o')
+            }
+        }
         throw $requestFailure
     } finally {
         try {
