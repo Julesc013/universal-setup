@@ -3,6 +3,7 @@
 
 #include "usk_publisher_service_absence_internal.h"
 #include "usk_publisher_fixture_scm_wait.h"
+#include "usk_publisher_service_absence_fixture_checks.h"
 #include <objbase.h>
 #include <array>
 #include <chrono>
@@ -89,8 +90,13 @@ std::string refused(const char* phase, Function&& function, const char* expected
 void qualify(SC_HANDLE manager) {
     OwnedService service(manager);
     refused("strict present", [&] { native::require_publisher_service_absence(manager, service.name); }, "service is present");
-    refused("wait present", [&] { (void)native::wait_for_deleted_publisher_service_absence(manager, service.name); },
-        "service is present");
+    // A live/unmarked service cannot become successful absence. The bounded
+    // owner-only wait refuses it; the single fresh strict check stays immediate.
+    const auto present_wait = refused("wait present", [&] {
+        (void)native::wait_for_deleted_publisher_service_absence(manager, service.name);
+    }, "SCM absence is unconfirmed (completion bound reached)");
+    require(usk::test::bounded_service_absence_refusal(present_wait, false),
+        "live service did not reach the completion bound while still present");
     // A native error other than 1060/1072 must refuse immediately.
     refused("invalid name", [&] { (void)native::wait_for_deleted_publisher_service_absence(manager, L"invalid/name"); },
         "Win32 123; probes 1; pending-deletion observations 0");
@@ -103,48 +109,41 @@ void qualify(SC_HANDLE manager) {
     }, "owned retirement strict SCM revalidation: ");
     const bool pending_error = strict == "owned retirement strict SCM revalidation: SCM absence is unconfirmed; "
         "Win32 1072; probes 1; pending-deletion observations 1";
-    require(pending_error || strict == "owned retirement strict SCM revalidation: service is present",
+    require(usk::test::strict_service_absence_refusal(strict),
         "held service refusal did not establish presence or the exact pending error");
 
-    if (!pending_error) {
-        // The stopped record remains in SCM until its last handle closes.
-        // Presence is a valid strict refusal, never permission to retry it as
-        // absent. Do not manufacture 1072 coverage from DeleteService's error.
-        refused("wait held presence", [&] {
-            (void)native::wait_for_deleted_publisher_service_absence(manager, service.name);
-        }, "owned retirement post-delete-and-close SCM completion: service is present");
-        refused("strict held presence unchanged", [&] {
-            native::require_publisher_service_absence(manager, service.name);
-        }, "owned retirement strict SCM revalidation: service is present");
-        observer.close_confirmed();
-        std::cout << "held-query-handle presence refused; native OpenService 1072 retry route not observed\n";
-    } else {
-        const auto waiting = refused("wait held deletion", [&] {
-            (void)native::wait_for_deleted_publisher_service_absence(manager, service.name);
-        }, "post-delete-and-close SCM completion: SCM absence is unconfirmed; Win32 1072");
-        std::cout << "held-query-handle timeout: " << waiting << '\n';
-        // It remains pending after timeout; no fallback is projected as absence.
-        refused("strict after deadline", [&] { native::require_publisher_service_absence(manager, service.name); }, "Win32 1072");
+    const auto waiting = refused("wait held deletion", [&] {
+        (void)native::wait_for_deleted_publisher_service_absence(manager, service.name);
+    }, "SCM absence is unconfirmed (completion bound reached)");
+    require(usk::test::bounded_service_absence_refusal(waiting, true),
+        "held service did not reach the completion bound while present or pending");
+    std::cout << "held-query-handle timeout: " << waiting << '\n';
+    const auto after_timeout = refused("strict after held timeout", [&] {
+        native::require_publisher_service_absence(manager, service.name);
+    }, "owned retirement strict SCM revalidation: ");
+    require(usk::test::strict_service_absence_refusal(after_timeout),
+        "fresh strict held-service probe did not establish presence or the exact pending error");
 
-        // Execute the exact product helper while the original query-only handle
-        // still exists. The returned count must positively establish entry through
-        // 1072; a scheduler that never enters that route cannot pass this control.
-        auto completion = std::async(std::launch::async, [&] {
-            return native::wait_for_deleted_publisher_service_absence(manager, service.name);
-        });
-        require(completion.wait_for(std::chrono::milliseconds(200)) == std::future_status::timeout,
-            "pending fixture completed before the observer closed");
-        observer.close_confirmed();
-        const auto result = completion.get();
-        require(result.pending_deletion_observations > 0 && result.probes <= 81 &&
-            result.probes == result.pending_deletion_observations + 1,
-            "pending completion did not positively cover the bounded native route");
-        std::cout << "held-query-handle completion: probes " << result.probes <<
-            "; pending-deletion observations " << result.pending_deletion_observations << '\n';
-    }
+    // Exercise the actual product waiter while the exact query handle remains
+    // held. A thread that never observes presence/pending cannot pass this case.
+    auto completion = std::async(std::launch::async, [&] {
+        return native::wait_for_deleted_publisher_service_absence(manager, service.name);
+    });
+    require(completion.wait_for(std::chrono::milliseconds(200)) == std::future_status::timeout,
+        "held fixture completed before the observer closed");
+    observer.close_confirmed();
+    const auto result = completion.get();
+    require(result.present_observations + result.pending_deletion_observations > 0 &&
+        result.probes <= 81 &&
+        result.probes == result.present_observations + result.pending_deletion_observations + 1,
+        "native deletion completion did not positively enter the bounded wait");
+    std::cout << "held-query-handle completion: probes " << result.probes <<
+        "; present observations " << result.present_observations <<
+        "; pending-deletion observations " << result.pending_deletion_observations <<
+        "; initial strict1072 " << pending_error << '\n';
     // CloseServiceHandle may return before SCM finishes deleting the stopped
-    // fixture record. Wait only for this fixture's confirmed deletion and closed
-    // handles; presence remains a product refusal throughout this interval.
+    // fixture record. Keep this independent fixture-only completion check;
+    // the actual product wait above already required its own timely native1060.
     const auto fixture_completion = usk::test::wait_for_fixture_service_deletion(
         [&] {
             ScmHandle probe(OpenServiceW(manager, service.name.c_str(), SERVICE_QUERY_CONFIG));
@@ -163,7 +162,7 @@ void qualify(SC_HANDLE manager) {
     // Both product helpers now make their own fresh, strict native1060 probes.
     native::require_publisher_service_absence(manager, service.name);
     const auto absent = native::wait_for_deleted_publisher_service_absence(manager, service.name);
-    require(absent.probes == 1 && absent.pending_deletion_observations == 0,
+    require(absent.probes == 1 && absent.pending_deletion_observations == 0 && absent.present_observations == 0,
         "already absent fixture did not use one fresh observation");
     std::cout << "strict native absence confirmed after observer closure\n";
 }

@@ -3112,8 +3112,9 @@ void PublisherOwnedRetirementCustody::retire_after_owned_validation() {
                     std::to_string(error));
             }
             // Other observers can still hold query-only service handles.
-            // Keep all original custody/guards while allowing only marked
-            // deletion to settle. This is neither absence nor image authority.
+            // Keep all original custody/guards while read-only present or
+            // marked-deletion probes settle within the existing bound. Neither
+            // supplies absence or image authority; fresh proofs still follow.
             state_->require_owner();
             (void)detail::wait_for_deleted_publisher_service_absence(state_->manager->get(), state_->name);
             state_->require_owner();
