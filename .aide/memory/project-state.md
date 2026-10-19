@@ -21,21 +21,30 @@ The original controller completed repair/uninstall/retirement. The packaged
 journey passed install, source-free reentry, verify and live-retirement refusals,
 then failed its first damaged-file repair before uninstall began.
 
-PR269's bounded native failure capture now retains the packaged repair's actual
-service refusal: stored ZIP streaming apply exceeded its time budget. This is
-the repair reader's fixed30-second budget, not evidence of an outer120-second
-timeout or of an uninstall defect. The same run separately retains a controller
-readonly planner failure: the child wait ended and matching ok stdout was
-captured, but the managed process ExitCode was null. Native exit zero is not
-established by those response bytes. The full publisher run remains incomplete.
+PR270's publisher run completed red. Its original controller completed actual
+repair/uninstall/retirement, and release-default fresh maintenance passed.
+Packaged repair still refused on the stored ZIP reader's fixed30-second budget,
+before uninstall. Current interrupted source-retired repair recovery exceeded
+120seconds in all three cohorts, including diagnosticsOFF. Native completion
+was not established. The actual synthetic build is e15de67f, with submitted
+treebddb9c4b; build identity and package bytes remain distinct. Turning off
+diagnostics did not resolve that failure and is not the next proposed repair.
 
-Readonly planner qualification now reads exit status from the original retained
-process handle: require native signalling and a successful GetExitCodeProcess,
-then require zero before the existing request/plan response checks. An available
-managed code must match its native DWORD bit pattern; null means unavailable.
-No PID reopening, response-derived exit, longer wait, cleanup waiver or product
-security change is introduced. Missing/native query/contradictory evidence and
-cleanup failures continue to withdraw provisional success.
+PR270 also failed one Win32 core CTest: the real readonly planner exited before
+Start-Process supplied a usable Handle. The unchanged local test initially passed,
+but delaying the return of that real child300ms reproduced the hosted null-handle
+failure in Windows PowerShell. This observation defect is separate from the
+streaming budget and source-free recovery failures.
+
+Readonly planning now reuses the observer's existing native paused-client owner.
+It acquires the original creation handle and ProcessId before Resume, then uses
+the unchanged30-second wait, native signalling/exit-zero and request/plan gates.
+No PID reopening or managed ExitCode property is used. The existing three-handle
+stdio inheritance and CREATE_NEW files remain intact. Cleanup explicitly terminates
+only the owned planner and confirms the existing5-second wait; general Dispose
+still refuses a live resumed child. Both shells pass with x64/x86 clients,
+forced fast exits, null-handle/resume/query/cleanup controls and a real native
+owner termination/disposal test. These fixtures grant no runtime acceptance.
 
 CI39097031751's retained traced and untraced interrupted, source-retired repair
 recoveries return current-request completion, then pass installed verification.

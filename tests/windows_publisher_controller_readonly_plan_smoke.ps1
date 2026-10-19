@@ -52,38 +52,56 @@ $start=@($try[0].Body.Statements|Where-Object {
 if($try.Count -ne 1 -or $final.Count -ne 1 -or $start.Count -ne 1){throw 'Actual process/error tail differs'}
 # Only the real process/catch/finally tail is exercised. No SYSTEM gate,
 # scheduled task, installed ownership or native authority is manufactured.
-$tail=[scriptblock]::Create('try {'+$observer.Substring($start[0].Extent.StartOffset,
- $final[0].Extent.EndOffset-$start[0].Extent.StartOffset))
-$script:realStart=Get-Command Start-Process -CommandType Cmdlet
-function Start-Process {
- param($FilePath,$ArgumentList,$WindowStyle,[switch]$PassThru,$RedirectStandardOutput,$RedirectStandardError)
- if($WindowStyle -cne 'Hidden' -or $ArgumentList[0] -cne '--machine' -or
-  $ArgumentList[1] -cne '--request-file' -or $ArgumentList[3] -cne '--context-file') {
-  throw 'Readonly planner lost fixed arguments or hidden execution'
+$tailText='try {'+$observer.Substring($start[0].Extent.StartOffset,
+ $final[0].Extent.EndOffset-$start[0].Extent.StartOffset)
+# Force real fast children to finish before exit observation. The old late
+# Start-Process handle acquisition failed under this scheduling boundary.
+if(([regex]::Matches($tailText,[regex]::Escape('$planner.Resume()'))).Count -ne 1){throw 'Planner resume seam differs'}
+$tailText=$tailText.Replace('$planner.Resume()',
+ '$planner.Resume();if($script:scenario -cin @(''real_refusal'',''real_fast_success'',''real_fast_failure'')){Start-Sleep -Milliseconds 300}')
+$tail=[scriptblock]::Create($tailText)
+$factory=@($try[0].Body.Statements|Where-Object {
+ $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq 'New-UskReadonlyMaintenancePlanner'})
+if($factory.Count -ne 1){throw 'Actual native planner factory is ambiguous'}
+$script:realFactory=$factory[0].Body.GetScriptBlock()
+function New-UskReadonlyMaintenancePlanner {
+ param($Machine,$Request,$Context,$Stdout,$Stderr)
+ if($script:scenario -ceq 'real_refusal'){return & $script:realFactory @PSBoundParameters}
+ if($script:scenario -cin @('real_fast_success','real_fast_failure')) {
+  $text=@{schema='usk.oneshot_response.v1';request_id='plan.test';
+   status='ok';result=@{status='ok';payload=@{plan_id='plan.test'}}}|ConvertTo-Json -Depth 8 -Compress
+  $code=if($script:scenario -ceq 'real_fast_success'){0}else{4}
+  return [UskPublisherPausedClient]::new((Join-Path ([Environment]::SystemDirectory) 'cmd.exe'),
+   ('/d /c echo '+$text+' & exit '+$code),$Stdout,$Stderr)
  }
- if($script:scenario -ceq 'real_refusal'){return & $script:realStart @PSBoundParameters}
  if($script:scenario -ceq 'empty'){$text=''}
- elseif($script:scenario -cin @('success','missing_managed_success','mismatch_codes','native_query_failure','mismatch','cleanup_only_failure')) {
+ elseif($script:scenario -cin @('success','native_query_failure','mismatch','cleanup_only_failure')) {
   $text=@{schema='usk.oneshot_response.v1';request_id=$(if($script:scenario -ceq 'mismatch'){'wrong'}else{'plan.test'});
    status='ok';result=@{status='ok';payload=@{plan_id='plan.test'}}}|ConvertTo-Json -Depth 8 -Compress
  } else {$text='actual-failure:'+([char]0x03c0).ToString()*5000}
- [IO.File]::WriteAllText($RedirectStandardOutput,$text,[Text.UTF8Encoding]::new($false))
- [IO.File]::WriteAllText($RedirectStandardError,'actual-stderr-'+('e'*4000),[Text.UTF8Encoding]::new($false))
+ [IO.File]::WriteAllText($Stdout,$text,[Text.UTF8Encoding]::new($false))
+ [IO.File]::WriteAllText($Stderr,'actual-stderr-'+('e'*4000),[Text.UTF8Encoding]::new($false))
  if($script:scenario -ceq 'capture_failure') {
-  New-Item -ItemType HardLink -Path ($RedirectStandardOutput+'.link') -Target $RedirectStandardOutput|Out-Null
+  New-Item -ItemType HardLink -Path ($Stdout+'.link') -Target $Stdout|Out-Null
  }
  return $script:inert
 }
-$script:inert=[pscustomobject]@{Id=7123;ExitCode=4}
-$script:inert|Add-Member -MemberType ScriptProperty -Name Handle -Value {
+$script:inert=[pscustomobject]@{ProcessId=7123}
+$script:inert|Add-Member -MemberType ScriptMethod -Name GetRetainedProcessHandle -Value {
  $script:handleObserved=$true
+ if($script:scenario -ceq 'null_handle'){return $null}
  if($script:scenario -ceq 'native_query_failure'){return $script:queryDeniedHandle.DangerousGetHandle()}
  return $script:exitProcess.Handle
+}
+$script:inert|Add-Member -MemberType ScriptMethod -Name Resume -Value {
+ if(-not $script:handleObserved){throw 'Planner resumed before retaining its creation handle'}
+ if($script:scenario -ceq 'resume_failure'){throw 'Injected planner resume failure'}
+ $script:resumed=$true
 }
 $script:inert|Add-Member -MemberType ScriptMethod -Name WaitForExit -Value {
  param($Milliseconds)
  if(-not $script:handleObserved){throw 'Planner waited before retaining its process handle'}
- if($null -eq $Milliseconds){return}
+ if(-not $script:resumed -and -not $script:killed){throw 'Planner waited before resume or termination'}
  return ($script:scenario -cne 'timeout' -or $Milliseconds -ne 30000)
 }
 $script:inert|Add-Member -MemberType ScriptMethod -Name Kill -Value {$script:killed=$true}
@@ -93,7 +111,7 @@ $script:inert|Add-Member -MemberType ScriptMethod -Name Dispose -Value {
 $root=[IO.Path]::Combine([IO.Path]::GetTempPath(),('usk-plan-diagnostic-'+[guid]::NewGuid().ToString('N')))
 [IO.Directory]::CreateDirectory($root)|Out-Null
 $scenarios=@('failure','empty','mismatch','timeout','capture_failure','cleanup_failure','cleanup_only_failure',
- 'success','missing_managed_success','missing_managed_failure','mismatch_codes','native_query_failure')
+ 'success','native_query_failure','null_handle','resume_failure','real_fast_success','real_fast_failure')
 if($MachineBinary){$scenarios+=@('real_refusal')}
 $directories=[Collections.Generic.List[string]]::new()
 try {
@@ -110,11 +128,9 @@ try {
    authorized_acceptance_root=$directory;target_policy_activation='operator_acceptance_candidate'}|ConvertTo-Json -Compress),
    [Text.UTF8Encoding]::new($false))
   $planner=$null;$plannerEnded=$false;$planningFailure=$null;$planningDiagnostic=$null
-  $global:UskMetadataReadonlyPlanningFailure=$null;$script:killed=$false;$script:handleObserved=$false
+   $global:UskMetadataReadonlyPlanningFailure=$null;$script:killed=$false;$script:handleObserved=$false;$script:resumed=$false
    $nativeExit=if($script:scenario -cin @('empty','mismatch','cleanup_only_failure','success',
-     'missing_managed_success','mismatch_codes','native_query_failure')){0}else{4}
-   $script:inert.ExitCode=if($script:scenario -cin @('missing_managed_success','missing_managed_failure')){$null}
-    elseif($script:scenario -ceq 'mismatch_codes'){4}else{$nativeExit}
+     'native_query_failure')){0}else{4}
    # The process-control tail remains injectable, but exit evidence comes from
    # an actual retained terminated child. No synthetic handle/exit is accepted
    # by the real native reader. These children never access setup state.
@@ -137,7 +153,7 @@ try {
   try {. $tail} catch {$caught=$_}
   if($ownedStream.CanRead){throw 'Planner forgot another held input'}
   $diagnostic=$global:UskMetadataReadonlyPlanningFailure
-   if($script:scenario -cin @('success','missing_managed_success')) {
+   if($script:scenario -cin @('success','real_fast_success')) {
     if($caught -or $diagnostic -or -not $result.maintenance_plan -or
        $result.maintenance_plan.exit_code -ne 0){throw 'Successful plan changed'}
   } else {
@@ -153,21 +169,20 @@ try {
      $diagnostic.planner_exited -or $null -ne $diagnostic.exit_code -or -not $script:killed) {
      throw 'Timeout manufactured exit or lost original failure'
     }
-   } elseif($script:scenario -ceq 'native_query_failure') {
+   } elseif($script:scenario -cin @('native_query_failure','null_handle','resume_failure')) {
+    $expected=if($script:scenario -ceq 'native_query_failure'){'*Readonly planner native exit code unavailable*'}
+     elseif($script:scenario -ceq 'null_handle'){'Readonly planner process handle is unavailable'}
+     else{'*Injected planner resume failure*'}
     if($diagnostic.planner_exited -or $null -ne $diagnostic.exit_code -or -not $script:killed -or
-       $caught.Exception.Message -cnotlike '*Readonly planner native exit code unavailable*') {
-     throw 'A signalled process handle without query rights manufactured an exit code'
+       $caught.Exception.Message -cnotlike $expected -or ($script:scenario -ceq 'null_handle' -and $script:resumed)) {
+     throw 'Unavailable handle, resume or query manufactured an exit code'
     }
    } else {
-    $expectedExit=if($script:scenario -cin @('empty','mismatch','cleanup_only_failure','mismatch_codes')){0}else{4}
+    $expectedExit=if($script:scenario -cin @('empty','mismatch','cleanup_only_failure')){0}else{4}
     if(-not $diagnostic.planner_exited -or $diagnostic.exit_code -ne $expectedExit) {
      throw ('Actual exit observation changed: '+(@{case=$script:scenario;expected=$expectedExit;
        primary=$caught.Exception.Message;diagnostic=$diagnostic}|ConvertTo-Json -Depth 8 -Compress))
     }
-   }
-   if($script:scenario -ceq 'mismatch_codes' -and
-      $caught.Exception.Message -cne 'Readonly planner managed and native exit codes differ') {
-    throw 'Contradictory process observations were not refused'
    }
    if($script:scenario -ceq 'cleanup_failure' -and
     $caught.Exception.Message -cne 'Readonly maintenance planner did not return a bounded success') {
@@ -213,7 +228,41 @@ try {
     $script:exitProcess.Dispose()
    }
  }
- foreach($limit in @(0,8193)) {
+  $directory=Join-Path $root 'native-owner-lifetime';$directories.Add($directory)
+  [IO.Directory]::CreateDirectory($directory)|Out-Null
+  $hostProcess=[Diagnostics.Process]::GetCurrentProcess()
+  try {$hostImage=$hostProcess.MainModule.FileName} finally {$hostProcess.Dispose()}
+  $owner=$null;$ownerEnded=$false
+  try {
+   $owner=[UskPublisherPausedClient]::new($hostImage,
+    '-NoProfile -NonInteractive -Command "[Threading.Thread]::Sleep(30000)"',
+    (Join-Path $directory 'request.json.plan.stdout'),(Join-Path $directory 'request.json.plan.stderr'))
+   $creationHandle=$owner.GetRetainedProcessHandle()
+   if($creationHandle -eq [IntPtr]::Zero -or $owner.IsResumed -or $owner.WaitForExit(0)) {
+    throw 'Owned planner creation did not retain a live suspended child'
+   }
+   $owner.Resume()
+   $refused=$false
+   try {$owner.Dispose()} catch {
+    if($_.Exception.Message -cnotlike '*Owned resumed client is still live*'){throw}
+    $refused=$true
+   }
+   if(-not $refused){throw 'Native owner silently closed a live resumed child'}
+   $owner.Kill()
+   if(-not $owner.WaitForExit(5000) -or [UskMetadataFacts]::ReadExitedProcessCode($creationHandle) -ne 125) {
+    throw 'Owned planner termination was not established on its original handle'
+   }
+   $ownerEnded=$true;$owner.Dispose()
+   $refused=$false
+   try {$owner.GetRetainedProcessHandle()|Out-Null} catch {$refused=$true}
+   if(-not $refused){throw 'Disposed native owner still exposed a process handle'}
+  } finally {
+   if($owner){
+    try {if(-not $ownerEnded){$owner.Kill();if(-not $owner.WaitForExit(5000)){throw 'Owned native fixture closure is unknown'}}}
+    finally {$owner.Dispose()}
+   }
+  }
+  foreach($limit in @(0,8193)) {
   $refused=$false
   try {[UskMetadataFacts]::ReadDiagnosticPrefix($binding.request+'.plan.stdout',$limit)|Out-Null}
   catch {$refused=$true}
@@ -229,4 +278,4 @@ try {
  }
  [IO.Directory]::Delete($root)
 }
-Write-Output ('PASS readonly planner diagnostics: '+$scenarios.Count+' cases; actual native prefixes; no authority grant')
+Write-Output ('PASS readonly planner diagnostics: '+$scenarios.Count+' cases; native owner lifetime; actual native prefixes; no authority grant')
