@@ -3370,7 +3370,7 @@ struct NativeMaintenanceContext::Impl {
         // until the concrete source-free owner factory joins it separately.
         require_authority(supplied);
     }
-    void require_recovery_authority(const transaction::TransactionSpec& supplied,
+    MaintenanceContinuationInspection require_recovery_authority(const transaction::TransactionSpec& supplied,
         const transaction::RecoveryInspection& inspected_transaction,
         const transaction::MaintenanceEffectInspection& inspected_history) {
         const usk::diagnostics::Scope maintenance_recovery_authority_diagnostic(usk::diagnostics::Phase::maintenance_recovery_authority);
@@ -3385,6 +3385,10 @@ struct NativeMaintenanceContext::Impl {
         // fence before this callback returns; no selected result authorizes an
         // effect. SCM retains its leading fence. Earlier separate sampling
         // instants are unclaimed, as in require_pending.
+        // This owned selection is metadata, never an authority grant. It may
+        // remain provisional only inside the fixed caller's active recipe;
+        // that caller must finish the full fresh exit before any external use.
+        std::optional<MaintenanceContinuationInspection> inspected_selection;
         try {
             if (!publication_confirmed || original_source_context.empty())
                 throw std::runtime_error("native live maintenance recovery has no original confirmed publication");
@@ -3406,7 +3410,7 @@ struct NativeMaintenanceContext::Impl {
                     throw std::runtime_error("native maintenance recovery changed its original transaction or context");
                 transaction::TransactionSession::require_recovery_transition_extension(spec,
                     *publication_transaction_text, publication_transaction_sha256, current.snapshot_sha256);
-                const auto selected = inspect_maintenance_continuation(spec);
+                auto selected = inspect_maintenance_continuation(spec);
                 if (selected.transaction_snapshot_sha256 != current.snapshot_sha256 ||
                     selected.history_digest != history.journal_digest)
                     throw std::runtime_error("native maintenance recovery changed its original complete prefix");
@@ -3451,12 +3455,14 @@ struct NativeMaintenanceContext::Impl {
                                 require_pending_selection(history.pending_kind, after, after_history, artifact, selected);
                                 require_confirmed_payload_completion(after, after_history, history,
                                     actual->second->outcome, observation.result_digest);
+                                inspected_selection.emplace(std::move(selected));
                                 return std::make_pair(std::move(current), std::move(history)); // Enclosing reader finishes before return.
                             }
                             confirm_effect_completion(supplied, history, actual->second->outcome, observation.result_digest, false);
                         }
                     }
                 }
+                inspected_selection.emplace(std::move(selected));
                 return std::make_pair(std::move(current), std::move(history));
             };
             if (active_read_recipe) {
@@ -3467,11 +3473,12 @@ struct NativeMaintenanceContext::Impl {
                 const auto selected = inspect();
                 active_read_recipe->recheck(selected.first, selected.second);
                 require_inspection_owner(supplied);
-                return;
+                return std::move(inspected_selection.value());
             }
             PrefixReadRecipe recipe(*this);
             const auto selected = inspect();
             recipe.finish(selected.first, selected.second);
+            return std::move(inspected_selection.value());
         } catch (...) {
             // The fixed recipe is dismantled before refusal precedence.
             // Preserve full authority precedence on a cold query failure;
@@ -3487,7 +3494,7 @@ struct NativeMaintenanceContext::Impl {
             restoration_record_observers.empty())
             throw std::runtime_error("native maintenance recovery prefix lacks its distinct original reader");
     }
-    void read_recovery_prefix(const transaction::TransactionSpec& supplied,
+    MaintenanceContinuationInspection read_recovery_prefix(const transaction::TransactionSpec& supplied,
         const transaction::RecoveryInspection& expected_transaction,
         const transaction::MaintenanceEffectInspection& expected_history,
         NativeMaintenanceRecoveryPrefixPin pin) {
@@ -3511,8 +3518,9 @@ struct NativeMaintenanceContext::Impl {
         } else throw std::runtime_error("native maintenance recovery prefix pin is unknown");
         // Direct fixed original body, never a supplied callback. It retains its
         // own actual queries and closing pair inside this effect-free recipe.
-        require_recovery_authority(supplied, current, history);
+        auto selected = require_recovery_authority(supplied, current, history);
         require_inspection_owner(supplied);
+        return selected;
     }
     void require_recovery_prefix(const transaction::TransactionSpec& supplied,
         const transaction::RecoveryInspection& expected_transaction,
@@ -3660,16 +3668,11 @@ struct NativeMaintenanceContext::Impl {
         require_recovery_reader(supplied);
         PrefixReadRecipe recipe(*this);
         std::unique_ptr<transaction::MaintenanceEffectJournal> journal;
-        // Preserve the original standalone continuation reader's actual pair,
-        // unscoped body, exact comparison and closing pair before the owner pin.
-        const auto before = transaction::TransactionSession::inspect_recovery(spec);
-        const auto before_history = transaction::MaintenanceEffectJournal::inspect(spec, before.stream_source_digest);
-        auto selected = inspect_maintenance_continuation_unscoped(spec);
-        if (selected.transaction_snapshot_sha256 != before.snapshot_sha256 ||
-            selected.history_digest != before_history.journal_digest)
-            throw std::runtime_error("native maintenance continuation changed its exact inspected prefix");
-        recipe.recheck(before, before_history);
-        read_recovery_prefix(supplied, expected_transaction, expected_history,
+        // Consume the selection this fixed authority reader already validates.
+        // Its actual selected TX/history and closing pair remain checked below;
+        // no result leaves the enclosing recipe before its full fresh exit.
+        // The earlier separate selection sampling/error order is unclaimed.
+        auto selected = read_recovery_prefix(supplied, expected_transaction, expected_history,
             NativeMaintenanceRecoveryPrefixPin::original_context);
         transaction::RecoveryInspection current;
         transaction::MaintenanceEffectInspection history;

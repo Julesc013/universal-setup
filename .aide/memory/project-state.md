@@ -6,39 +6,45 @@ Foundation; completion of that release and the wider specification are separate.
 Use the sole FacMan worktree, reusable build and current laboratory. The external
 task checkpoint holds changing source, review, process and qualification pins.
 
-Accepted dev is46c4422513063c19c3d8a18c927f30cbfb738b28, the normal PR279 merge
-with tree e11b9831abf0ce6ba27b0e15601aa893f78e4f7c. All seven submitted core
-checks, exact-source review and live development gate passed; all seven
-accepted-dev push checks also passed. Main remains
-c048f7f1ae2e5922c15a08ee572bdafc29027c63 and unqualified for promotion.
-Continue reviewed daily development integration and qualified weekly main promotion.
+Accepted dev is2d3561c82ced973eb13e4e40313862ae9a59fbb0, normal PR280 merge,
+tree892f8198e6dafa104f00649632b647eb83abfe52. All seven submitted core checks,
+exact-source review, live dev gate and seven accepted-dev push checks passed.
+Main remains c048f7f1ae2e5922c15a08ee572bdafc29027c63 and unqualified.
+Continue reviewed daily dev integration and qualified weekly main promotion.
 
-PR279 run39269228422/1 builds synthetic commit852288743162da917d273c6f955337354af12117
-from submitted8880fb8, with matching source tree. Selected packaged32MiB damaged-file
-repair and unmoved uninstall pass their request/native/independent-state joins.
-Current SDK source-retired apply reentry and public five-field installed.verify
-also pass. Those are selected outcomes; whole-profile, retirement and release
-qualification remain false. No measured speed improvement is inferred.
+PR280 run39284489775/1 builds synthetic9ffaab29c38166a038ce22de8ad793a10e25ca20
+from submitted1531383/tree892f8198. Selected packaged32MiB repair/unmoved
+uninstall, SDK source-retired reentry/verify and both fresh maintenance cohorts
+passed their executed steps. Both diagnostic interrupted source-retired recovery
+calls still fail120s with request-bound UNKNOWN, client exit5 and no matching
+native completion at capture. The release-default diagnostics-OFF recovery also failed120s in the terminal run.
+PR279 previously failed the same three cohorts.
+Selected fresh successes do not qualify recovery or the whole profile.
 
-The whole publisher job completed red: both diagnostic-enabled and the
-release-default diagnostics-off source-free repair recovery requests fail the
-original120-second contract with current-request UNKNOWN and no native completion
-at capture. All three retained outputs bind their current request; selected
-fresh maintenance successes do not qualify interrupted recovery. Older positive recovery samples do not establish current reliability.
-Retained c427 CPU/stack and custody evidence conditionally attributes pending
-cleanup to worker7360/generation5 around and after the matching client exit.
-Process birth and the request-to-worker join remain absent. Trace retention and
-the ordinary event cap limit coverage. Inclusive times are not removable cost.
+The separate20-second post-failure observation ran after the original failure,
+outputs and incomplete independent readback. Both late client samples remain5.
+Its delayed cleanup is a measurement intervention; it never repairs the original
+request verdict. The retained traced interval after the matching client request
+scope exit spans26.824811s: conditional worker4664 used21.707247s scheduled CPU
+and broker3236 used15.114861s across threads. Matched archived PE/PDB stacks still
+show recovery selection, authority and cleanup. No finalization/terminal-send
+phase was retained; this is not proof of worker death or complete trace coverage.
+Full process-birth/request joins remain absent. Stack exports hit their2MiB caps;
+only complete leading tables were decoded. Inclusive hits are not removable cost.
 
-The current harness-only diagnostic retains the original timeout, failure/output
-captures and independent readback, then requests a separate20-second recorder
-delay before cleanup for that exact failed repair.recover. A late managed-client
-sample cannot replace the original exception or grant qualification. Delaying
-cleanup is a measurement intervention, not unperturbed timing or a deadline cure.
-Its gate, failure stickiness and unchanged original fields have PS5.1/7 controls.
-The eight-query composition preview remains unapplied/HOLD; isolated data-copy
-microbenchmarks did not justify a runtime repair. No native authority observation,
-request deadline, recorder capacity or application behavior changes here.
+The current owned-selection candidate consumes the later continuation selection
+already validated by the fixed authority reader instead of repeating an earlier
+complete selection and two adjacent TX/history pairs. The owned value remains
+provisional inside the same private effect-free recipe. Retained live file,
+record, audit, pending/confirmed-outcome checks, final actual prefix comparison,
+complete exit, journal binding and native mutation fences remain. Earlier query
+sampling/refusal chronology is deliberately removed; this is not copy-only
+equivalence or immutable-filesystem reasoning. Exact source-only review and
+strict x64/Win32 syntax passed. Both linked builds and five selected tests per
+architecture pass; reused MSBuild intermediate-directory warnings are retained.
+Protected direct-route validation remains pending.
+No deadline improvement or native recovery qualification is claimed.
+The different eight-query R102 preview remains unapplied/HOLD.
 
 The public C SDK factory, current-invocation UNKNOWN ownership, installed/relocated
 consumers and selected hosted reentry/verify are implemented. Generic public
