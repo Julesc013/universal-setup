@@ -6,26 +6,56 @@ Foundation; completion of that release and the wider specification are separate.
 Use the sole FacMan worktree, reusable build and current laboratory. The external
 task checkpoint holds changing source, review, process and qualification pins.
 
-Accepted dev is ff5eaf9a, the normal PR273 merge after seven core/specification
-checks and exact-source independent review. PR270/271/272 are integrated; the
-accepted dev451 push also passed all seven checks. Main remains c048f7f1.
+Accepted dev is f67b9f996f897064954388f2196f9d04ee755a19, the normal PR274 merge
+after seven core/specification checks and exact-source independent review.
+PR270/271/272/273 are integrated; the exact f67b9f9 push passed all seven checks.
+Main remains c048f7f1ae2e5922c15a08ee572bdafc29027c63. Draft PR275 proposes the
+existing dev tree for main, with seven exact-head core/specification passes and
+an independent bounded source-readiness review. Its full publisher qualification
+and final live promotion gates remain pending; main has not been promoted.
 Integrate reviewed/core-qualified checkpoints into dev daily; promote to main
 weekly when its additional qualification passes.
 
-Current PR271 run39221385593 has three request-bound source-retired repair
-recovery timeouts, including diagnostics-off, with UNKNOWN captured responses
-and no matching native completion. Earlier PR270 run39216132810 has one passing
-three-cohort set; it does not establish reliability. Packaged32MiB damaged-file
-repair also remains unqualified. Its public route supplies empty cancellation;
-the extraction guard therefore indicates deadline expiry on that source.
+PR273 run39230278088 has three completed source-retired repair recovery cohorts,
+including release-default diagnostics-off. The existing strict reconciler joins
+each current request/native response, held client and original native pair,
+retired-source producer, independent installed state and generation4-to-5.
+This is narrow positive evidence, not whole-profile or reliability acceptance.
+Its traced held-client request scope is84.115794seconds. Earlier PR271's three
+120-second UNKNOWN outcomes with absent native completion remain unexplained;
+cross-run/source/host differences do not establish a causal speed improvement.
 
 PR273's packaged cohort failed at stage-observer terminal admission before
-owned maintenance, so it supplies no new repair-boundary timing. Its controller
-cohort passed. The observer watchdog began before attacker-account preparation.
-The harness increment moves readiness after both attacker checks and before
-client creation, preserving its120-second bound and every coverage/refusal
-condition. Rejected bounded observer results are retained as candidates, not
-qualified observations. Local PS5.1/7 AST controls are not SYSTEM qualification.
+owned maintenance. The accepted PR274 harness correction moves readiness after
+both attacker checks and before client creation, preserving its120-second bound
+and every coverage/refusal condition. PR274 run39235789654 now reports completed
+packaged32MiB damaged-file repair, uninstall and owned retirement, with the
+actual stopped SYSTEM stage observer admitted. Its controller cohort also reports
+repair/uninstall/retirement completed. That whole publisher job completed red at the later registered-service start
+assertion. All three source-retired repair recovery cohorts also pass the existing
+strict request/native/independent-state reconciler on this exact submitted source.
+The failed start has no retained positive invocation exit/reply; its cause is not
+established. Later dependent scenarios were skipped, not executed failures.
+Rejected bounded observer candidates and original failures remain retained.
+
+Separate draft PR276 at e3e1d73 extracts the CLI's existing pure publisher reply decoder
+into a client-only internal static target. A standalone positive/refusal consumer
+links only that target and base; existing one-shot, machine and public lifecycle tests also pass
+strict local x64 and Win32 builds. Independent source/committed-identity reviews
+are complete; fresh hosted qualification remains pending. This preserves operation/report checks,
+response bounds, authenticated transport ownership and prebuilt post-dispatch
+UNKNOWN handling. No public C SDK factory/transport, ABI, native authority or
+service request semantics are changed. Public SDK connection and consumer
+qualification remain unfinished; decoder extraction is only their first boundary.
+
+The current harness increment routes the previously unobserved legacy registered
+start through its existing native collector. It retains actual exit/stderr and a
+4096-character stdout prefix before checking exit, schema, status and service.
+Missing, malformed, oversized and failed invocations cannot count as startup.
+Matched PS5.1/7 controls did not reproduce a stale-exit hypothesis. A direct
+actual-function regression establishes the missing receipt on the old source;
+this capture change is not a demonstrated product startup repair. Native policy,
+service rights, effects and request deadlines remain unchanged.
 
 The frozen AIDE Lite1.1 optional tooling update is integrated, preserving local
 customizations. Its portable self-test has the synthetic gateway NameError
@@ -33,7 +63,7 @@ reproduced in the previous actual safe installation. Functional adoption stays
 incomplete; owner request USK-AIDE-LITE-SAFE-SELFTEST-20261019-01 is on AIDE issue6.
 Main, deployment packages and release qualification remain separate.
 
-The current increment re-admits the exact repair archive immediately before
+The accepted repair-source increment re-admits the exact archive immediately before
 staging, after existing maintenance setup. Its private one-shot source owner
 retains the original held file, freshly verifies content/identity/entry-set and
 selected replacements, and shares one unchanged30-second extraction-phase
@@ -49,8 +79,8 @@ incomplete inner deadline checks and callback lifetime/reentrancy gaps. A
 strengthened actual native regression reproduced the deadline gap before its
 repair. The updated owner passes its bound check through the archive's existing
 checkpoints and retains itself through each active invocation. Local validation,
-exact source review and hosted results remain separately recorded; no packaged
-repair, recovery, main or release qualification follows from these changes.
+exact source review and hosted results remain separately recorded. The newer
+scoped runtime observations above do not imply main or release qualification.
 
 PR268's publisher run completed red. Both fresh maintenance cohorts passed,
 while both current source-retired repair recovery requests exceeded120seconds
