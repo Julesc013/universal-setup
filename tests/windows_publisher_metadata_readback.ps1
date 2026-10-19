@@ -415,6 +415,23 @@ using System.Security.Cryptography;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 public static class UskMetadataFacts {
+ [DllImport("kernel32.dll", SetLastError=true)]
+ static extern uint WaitForSingleObject(IntPtr process,uint milliseconds);
+ [DllImport("kernel32.dll", SetLastError=true)]
+ static extern bool GetExitCodeProcess(IntPtr process,out uint code);
+ public static uint ReadExitedProcessCode(IntPtr process) {
+  if(process==IntPtr.Zero || process==new IntPtr(-1))
+   throw new InvalidOperationException("Readonly planner retained process handle is invalid");
+  uint wait=WaitForSingleObject(process,0);
+  if(wait==0xffffffff)
+   throw new Win32Exception(Marshal.GetLastWin32Error(),"Readonly planner native exit wait failed");
+  if(wait!=0)
+   throw new InvalidOperationException("Readonly planner retained process is not signalled: "+wait);
+  uint code;
+  if(!GetExitCodeProcess(process,out code))
+   throw new Win32Exception(Marshal.GetLastWin32Error(),"Readonly planner native exit code unavailable");
+  return code;
+ }
  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
  static extern SafeFileHandle CreateFile(string p,uint a,uint s,IntPtr sa,uint c,uint f,IntPtr t);
  [DllImport("kernel32.dll", SetLastError=true)]
@@ -994,7 +1011,7 @@ public sealed class UskPublisherPausedClient : IDisposable {
     [DllImport("userenv.dll",SetLastError=true)]static extern bool DestroyEnvironmentBlock(IntPtr environment);
     [DllImport("kernel32.dll",SetLastError=true)]static extern bool GetProcessTimes(IntPtr process,out long creation,out long exit,out long kernel,out long user);
     [DllImport("kernel32.dll",SetLastError=true)]static extern uint ResumeThread(IntPtr thread);
-    [DllImport("kernel32.dll")]static extern uint WaitForSingleObject(IntPtr process,uint timeout);
+    [DllImport("kernel32.dll",SetLastError=true)]static extern uint WaitForSingleObject(IntPtr process,uint timeout);
     [DllImport("kernel32.dll",SetLastError=true)]static extern bool TerminateProcess(IntPtr process,uint exit);
     [DllImport("kernel32.dll",SetLastError=true)]static extern bool CloseHandle(IntPtr handle);
     IntPtr process,thread,ownedLoginPrimary,pendingEnvironment;bool resumed;
@@ -1002,6 +1019,23 @@ public sealed class UskPublisherPausedClient : IDisposable {
     public uint ProcessId {get;private set;}
     public long CreationFileTime {get;private set;}
     public bool IsResumed {get{return resumed;}}
+    public IntPtr GetRetainedProcessHandle() {
+        if(process==IntPtr.Zero)throw new Exception("Owned client process handle is closed");return process;
+    }
+    public bool WaitForExit(uint milliseconds) {
+        if(milliseconds>30000)throw new ArgumentOutOfRangeException("milliseconds");
+        uint state=WaitForSingleObject(GetRetainedProcessHandle(),milliseconds);
+        if(state==0)return true;
+        if(state==258)return false;
+        if(state==0xffffffff)throw new Win32Exception(Marshal.GetLastWin32Error(),"Wait for owned client exit");
+        throw new Exception("Unexpected owned client wait state: "+state);
+    }
+    public void Kill() {
+        uint state=WaitForSingleObject(GetRetainedProcessHandle(),0);
+        if(state==0)return;
+        if(state!=258)throw new Exception("Owned client exit state unavailable: "+state);
+        Require(TerminateProcess(process,125),"Terminate owned client");
+    }
     public Dictionary<string,object> OwnedStandardPrimaryFacts {get;private set;}
     public Dictionary<string,object> OwnedStandardLauncherFacts {get;private set;}
     static void Require(bool ok,string operation){if(!ok)throw new Win32Exception(Marshal.GetLastWin32Error(),operation);}
@@ -1635,29 +1669,37 @@ if($MaintenancePlanningBinding) {
      $context.target_policy_activation -cne 'operator_acceptance_candidate') {
    throw 'Maintenance planning permits only the bound readonly plan and exact roots'
   }
+  function New-UskReadonlyMaintenancePlanner {
+   param([string]$Machine,[string]$Request,[string]$Context,[string]$Stdout,[string]$Stderr)
+   if($Request.Contains('"') -or $Context.Contains('"')){throw 'Readonly planner argument contains a quote'}
+   return [UskPublisherPausedClient]::new($Machine,
+    ('--machine --request-file "'+$Request+'" --context-file "'+$Context+'"'),$Stdout,$Stderr)
+  }
   $stdout=$binding.request+'.plan.stdout';$stderr=$binding.request+'.plan.stderr'
   if((Test-Path -LiteralPath $stdout) -or (Test-Path -LiteralPath $stderr)){throw 'Maintenance planning output already exists'}
   # Bind failure evidence before process creation can partially succeed. It
   # remains failure-only and cannot acknowledge planner or token closure.
   $planningDiagnostic=[ordered]@{schema='usk.controller_readonly_plan_failure.v1';
    qualification_granted=$false;authority_granted=$false;planner_exited=$false;
-   process_id=$null;exit_code=$null;request_id=$request.request_id;
+    process_id=$null;exit_code=$null;request_id=$request.request_id;
    request_sha256=$binding.request_sha256;context_sha256=$binding.context_sha256;
    machine_sha256=$binding.machine_sha256;stdout=$null;stderr=$null}
-  $planner=Start-Process -FilePath $binding.machine -ArgumentList @('--machine','--request-file',
-      ('"'+$binding.request+'"'),'--context-file',('"'+$binding.context+'"')) -WindowStyle Hidden -PassThru `
-      -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-  $planningDiagnostic.process_id=$planner.Id
-  # Windows PowerShell may lose a redirected child's ExitCode unless the
-  # Process owns its native handle before waiting. Keep that association until
-  # Dispose; a missing exit code remains a refusal, never implicit success.
-  $plannerHandle=$planner.Handle
-  if($plannerHandle -eq [IntPtr]::Zero){throw 'Readonly planner process handle is unavailable'}
+  $planner=New-UskReadonlyMaintenancePlanner -Machine $binding.machine -Request $binding.request `
+      -Context $binding.context -Stdout $stdout -Stderr $stderr
+  $planningDiagnostic.process_id=$planner.ProcessId
+  # This existing native owner holds the creation handle while still paused.
+  # Retain it before Resume, including when the child will exit immediately.
+  $plannerHandle=$planner.GetRetainedProcessHandle()
+  if($null -eq $plannerHandle -or $plannerHandle -eq [IntPtr]::Zero -or $plannerHandle -eq [IntPtr](-1)) {
+   throw 'Readonly planner process handle is unavailable'
+  }
+  $planner.Resume()
   if(-not $planner.WaitForExit(30000)){throw 'Readonly maintenance planner exceeded its bound'}
-  $planner.WaitForExit();$plannerEnded=$true
-  $planningDiagnostic.planner_exited=$true;$planningDiagnostic.exit_code=$planner.ExitCode
+  $plannerExit=[UskMetadataFacts]::ReadExitedProcessCode($plannerHandle)
+  $plannerEnded=$true;$planningDiagnostic.planner_exited=$true
+  $planningDiagnostic.exit_code=$plannerExit
   $outputFile=Get-Item -LiteralPath $stdout
-  if($planner.ExitCode -ne 0 -or $outputFile.Length -eq 0 -or $outputFile.Length -gt 4MB) {
+  if($plannerExit -ne 0 -or $outputFile.Length -eq 0 -or $outputFile.Length -gt 4MB) {
    throw 'Readonly maintenance planner did not return a bounded success'
   }
   $planText=[IO.File]::ReadAllText($stdout);$plan=$planText|ConvertFrom-Json
@@ -1667,7 +1709,7 @@ if($MaintenancePlanningBinding) {
   }
   $result['maintenance_plan']=[ordered]@{schema='usk.controller_readonly_maintenance_plan_observation.v1';
    request_sha256=$binding.request_sha256;context_sha256=$binding.context_sha256;
-   machine_sha256=$binding.machine_sha256;planner_exited=$true;
+    machine_sha256=$binding.machine_sha256;planner_exited=$true;exit_code=$plannerExit;
    response_sha256=(Get-FileHash -LiteralPath $stdout -Algorithm SHA256).Hash.ToLowerInvariant();response_json=$planText}
  } catch {
   $planningFailure=$_

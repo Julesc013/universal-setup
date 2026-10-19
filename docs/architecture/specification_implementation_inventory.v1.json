@@ -2699,7 +2699,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
+          "sha256": "b9089bdc980d77d2fae3b61c7a1888f68f6856da73aa1b422d15d998688a85d8"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -2755,7 +2755,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
@@ -3162,7 +3162,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
+          "sha256": "b9089bdc980d77d2fae3b61c7a1888f68f6856da73aa1b422d15d998688a85d8"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -3218,7 +3218,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
@@ -3625,7 +3625,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
+          "sha256": "b9089bdc980d77d2fae3b61c7a1888f68f6856da73aa1b422d15d998688a85d8"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -3681,7 +3681,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_tree_observation.cpp",
@@ -4872,7 +4872,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4908,7 +4908,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -4944,7 +4944,7 @@
       "source_observations": [
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "docs/platform/compatibility_tiers.md",
@@ -5447,7 +5447,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
+          "sha256": "b9089bdc980d77d2fae3b61c7a1888f68f6856da73aa1b422d15d998688a85d8"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -5671,7 +5671,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
@@ -5723,7 +5723,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
@@ -5951,7 +5951,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
+          "sha256": "b9089bdc980d77d2fae3b61c7a1888f68f6856da73aa1b422d15d998688a85d8"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -6195,7 +6195,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
@@ -6503,7 +6503,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
@@ -6515,7 +6515,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
+          "sha256": "b9089bdc980d77d2fae3b61c7a1888f68f6856da73aa1b422d15d998688a85d8"
         },
         {
           "path": "tests/windows_publisher_public_maintenance_probe.ps1",
@@ -6762,7 +6762,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
@@ -6774,7 +6774,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
+          "sha256": "b9089bdc980d77d2fae3b61c7a1888f68f6856da73aa1b422d15d998688a85d8"
         },
         {
           "path": "tests/windows_publisher_public_maintenance_probe.ps1",
@@ -7922,7 +7922,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
@@ -7934,7 +7934,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
+          "sha256": "b9089bdc980d77d2fae3b61c7a1888f68f6856da73aa1b422d15d998688a85d8"
         },
         {
           "path": "tests/windows_publisher_public_maintenance_probe.ps1",
@@ -8175,7 +8175,7 @@
         },
         {
           "path": ".github/workflows/ci.yml",
-          "sha256": "5fddcbeef7a9aa14f160c24d7b0e1da8510fa33ffe0042b79267afa4baa0845d"
+          "sha256": "1ef7dc5a16029957d5198462b920c7d0123df3b4abe985a798c2272a79c904ac"
         },
         {
           "path": "tests/windows_publisher_lab_probe.ps1",
@@ -8187,7 +8187,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "7514851e4d24b92a22f6bacc675afb55497be5473425d1372fd0dd667c3a045f"
+          "sha256": "b9089bdc980d77d2fae3b61c7a1888f68f6856da73aa1b422d15d998688a85d8"
         },
         {
           "path": "tests/windows_publisher_public_maintenance_probe.ps1",

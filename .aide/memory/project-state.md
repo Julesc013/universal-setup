@@ -6,24 +6,45 @@ Foundation; completion of that release and the wider specification are separate.
 Use the sole FacMan worktree, reusable build and current laboratory. The external
 task checkpoint holds changing source, review, process and qualification pins.
 
-Accepted dev is 639e7b75, the normal PR268 merge after seven core/specification
-checks and exact-source independent review. Main remains c048f7f1. Integrate
-reviewed/core-qualified checkpoints into dev daily; promote to main weekly when
-its additional qualification passes. An incomplete publisher run does not block
-a reviewed dev checkpoint or qualify main, deployment packages or a release.
+Accepted dev is dd9468c3, the normal PR269 merge after seven core/specification
+checks and exact-source independent review. Its accepted push also passed all
+seven core/specification jobs. Main remains c048f7f1. Integrate reviewed/core-qualified
+checkpoints into dev daily; promote to main weekly when its additional
+qualification passes. An incomplete publisher run does not qualify main,
+deployment packages or a release.
 
-The accepted 639e7b75 push passed all seven core/specification jobs. PR268's
-publisher run separately retains a passing original controller repair/uninstall
-and retirement journey, plus passing untraced fresh maintenance. Its packaged
-journey passes installation, source-free reentry, verification and the three
-live-retirement refusals, then returns recovery_required during the first repair
-of its deliberately damaged owned file. Uninstall has not started. The native
-failure reason is not retained by that helper, so neither a timeout nor a
-security-policy cause is established. Failure capture now preserves up to4MiB
-of the actual native file as exact bytes with length/digest, under a separate
-diagnostic-only field. Missing, busy or oversized captures retain their own
-observation failure without replacing the public verdict or process barriers.
-The successful response/native-terminal matching path remains unchanged.
+PR268's publisher run completed red. Both fresh maintenance cohorts passed,
+while both current source-retired repair recovery requests exceeded120seconds
+without native completion. The retained checkout joins build677deadc to the
+submitted tree109afa8b; build identity and package bytes remain distinct.
+The original controller completed repair/uninstall/retirement. The packaged
+journey passed install, source-free reentry, verify and live-retirement refusals,
+then failed its first damaged-file repair before uninstall began.
+
+PR270's publisher run completed red. Its original controller completed actual
+repair/uninstall/retirement, and release-default fresh maintenance passed.
+Packaged repair still refused on the stored ZIP reader's fixed30-second budget,
+before uninstall. Current interrupted source-retired repair recovery exceeded
+120seconds in all three cohorts, including diagnosticsOFF. Native completion
+was not established. The actual synthetic build is e15de67f, with submitted
+treebddb9c4b; build identity and package bytes remain distinct. Turning off
+diagnostics did not resolve that failure and is not the next proposed repair.
+
+PR270 also failed one Win32 core CTest: the real readonly planner exited before
+Start-Process supplied a usable Handle. The unchanged local test initially passed,
+but delaying the return of that real child300ms reproduced the hosted null-handle
+failure in Windows PowerShell. This observation defect is separate from the
+streaming budget and source-free recovery failures.
+
+Readonly planning now reuses the observer's existing native paused-client owner.
+It acquires the original creation handle and ProcessId before Resume, then uses
+the unchanged30-second wait, native signalling/exit-zero and request/plan gates.
+No PID reopening or managed ExitCode property is used. The existing three-handle
+stdio inheritance and CREATE_NEW files remain intact. Cleanup explicitly terminates
+only the owned planner and confirms the existing5-second wait; general Dispose
+still refuses a live resumed child. Both shells pass with x64/x86 clients,
+forced fast exits, null-handle/resume/query/cleanup controls and a real native
+owner termination/disposal test. These fixtures grant no runtime acceptance.
 
 CI39097031751's retained traced and untraced interrupted, source-retired repair
 recoveries return current-request completion, then pass installed verification.
@@ -59,8 +80,11 @@ rights, cleanup postconditions and the120-second request contract are unchanged.
 
 The publisher job's existing untraced cohorts still use diagnostic-enabled
 images. Additional release-default fresh maintenance and source-free recovery
-cohorts run only after the entire original profile passes. The same build reuses
-its libraries and rebuilds only machine/service frontends with diagnosticsOFF.
+cohorts run after all original producers and collectors finish or skip. A successful
+original build and successful diagnosticsOFF frontend rebuild admit independent
+observations even when earlier tests fail. Those failures remain red; OFF samples
+neither qualify omitted/failed groups nor explain tracing overhead. The same
+build reuses its libraries and rebuilds only machine/service frontends.
 The actual build-profile reader binds that cache setting and checks both projects'
 macros/trace source before provisioning a VHD; mismatched or ambiguous builds
 refuse. Original diagnostic/traced coverage remains. These are added positive
