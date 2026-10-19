@@ -827,6 +827,13 @@ if(USK_BUILD_TESTS)
       target_compile_features(usk_publisher_lab_device_acl PRIVATE cxx_std_17)
       target_link_libraries(usk_publisher_lab_device_acl PRIVATE advapi32 VirtDisk)
       usk_enable_strict_warnings(usk_publisher_lab_device_acl)
+      add_executable(usk_publisher_service_absence_wait_smoke
+        tests/native/usk_publisher_service_absence_wait_smoke.cpp)
+      target_compile_features(usk_publisher_service_absence_wait_smoke PRIVATE cxx_std_17)
+      target_include_directories(usk_publisher_service_absence_wait_smoke PRIVATE runtime/platform/windows)
+      usk_enable_strict_warnings(usk_publisher_service_absence_wait_smoke)
+      add_test(NAME usk_publisher_service_absence_wait_smoke COMMAND usk_publisher_service_absence_wait_smoke)
+      set_tests_properties(usk_publisher_service_absence_wait_smoke PROPERTIES TIMEOUT 10)
       add_executable(usk_publisher_service_absence_hosted
         tests/native/usk_publisher_service_absence_hosted.cpp)
       target_compile_features(usk_publisher_service_absence_hosted PRIVATE cxx_std_17)

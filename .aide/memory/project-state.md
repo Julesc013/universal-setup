@@ -1,25 +1,68 @@
 # Universal Setup Project State
 
-Continue USK-SPEC-TO-RELEASE-01 from the existing implementation, engineering
-inventory and WorkUnit bindings. The first release is 1.1.0 Local Setup
-Foundation; completion of that release and the wider specification are separate.
-Use the sole FacMan worktree, reusable build and current laboratory. The external
-task checkpoint holds changing source, review, process and qualification pins.
+Continue USK-SPEC-TO-RELEASE-01 from the existing implementation, inventory
+and WorkUnit bindings. First release:1.1.0 Local Setup Foundation; broader
+specification completion is separate. Use the sole registered worktree/reusable
+build and existing laboratory; the external compact checkpoint holds live pins.
 
-Accepted dev is2d3561c82ced973eb13e4e40313862ae9a59fbb0, normal PR280 merge,
-tree892f8198e6dafa104f00649632b647eb83abfe52. All seven submitted core checks,
-exact-source review, live dev gate and seven accepted-dev push checks passed.
-Main remains c048f7f1ae2e5922c15a08ee572bdafc29027c63 and unqualified.
-Continue reviewed daily dev integration and qualified weekly main promotion.
+Accepted dev ee6b595e81fcb025fa00bbdb7f7c6c2274e6f1d7, normal PR281 merge,
+tree224fd8837dd63dcdcea72fcb9d93bd657d775e12. Submitted c66ec058ff1e4658bd3a6c64549a4ac9cf7bc527
+and accepted push39300018972 passed all seven core checks; actual independent
+review/live dev gate passed. Main c048f7f1ae2e5922c15a08ee572bdafc29027c63
+remains unqualified. Continue reviewed daily dev and qualified weekly main merges.
 
-PR280 run39284489775/1 builds synthetic9ffaab29c38166a038ce22de8ad793a10e25ca20
-from submitted1531383/tree892f8198. Selected packaged32MiB repair/unmoved
-uninstall, SDK source-retired reentry/verify and both fresh maintenance cohorts
-passed their executed steps. Both diagnostic interrupted source-retired recovery
-calls still fail120s with request-bound UNKNOWN, client exit5 and no matching
-native completion at capture. The release-default diagnostics-OFF recovery also failed120s in the terminal run.
-PR279 previously failed the same three cohorts.
-Selected fresh successes do not qualify recovery or the whole profile.
+PR281 run39297457096/1 builds synthetic565368c8db2d836267ab717e20fc810cd0ca33c1
+with tree224fd8837dd63dcdcea72fcb9d93bd657d775e12. Both diagnostic genuinely
+interrupted source-retired repair recoveries now returned matching native/client
+completed reports within the unchanged120-second harness contract. The actual
+original worker ended, source was retired, generation advanced4→5, independent
+state/file checks and ordinary installed.verify passed with104 native rows;
+client/account cleanup was confirmed. With/without WPR is the established
+distinction; both binaries enable qualification diagnostics. Release-default OFF
+recovery remains pending at this checkpoint. One passing pair is not reliability
+or whole-profile acceptance; prior failed runs and partial traces remain retained.
+
+The packaged32MiB repair and uninstall completed in this same run, but publisher
+retirement failed: its post-delete-and-close SCM probe still saw presence. Later
+readback saw service absent and protected binary retained. No conflicting handle
+owner or deletion duration is established. This is separate from recovery.
+
+The current reviewed SCM increment preserves the existing2-second monotonic
+window,81 probes and25ms sleeps. Only after the owner's confirmed DeleteService
+and original handle close may read-only, confirmed-closed present probes or1072
+settle. Only timely actual1060 succeeds. The separate fresh strict absence/full
+custody, owner, record, image and native effect checks remain before disposition.
+Unknown error or close failure refuses; no deletion retry, foreign handle close,
+replacement adoption or deadline expansion. Native RPC is not hard-wall bounded.
+Strict absence remains immediate. New inert controls exercise the actual loop;
+hosted held-handle and owned-retirement qualification are still required.
+
+R1 source review caught strict1072 diagnostic mismatch and overbroad hosted
+refusal checks. R2 preserves zero-count strict diagnostics and shares test-only
+closed predicates with inert controls: actual intended completion-bound present/
+pending is accepted as appropriate; unexpected5/123/0 and late1060 are rejected
+as timeout evidence. Botharch strict preview/control checks and bounded delta
+review passed. Applied/linked/committed qualification remains separate.
+Only28 inventory SHA leaves changed; classifications/acceptance are unchanged.
+
+The already-reviewed public SDK lifecycle harness preview remains separate and
+unapplied. It admits a fresh eight-request public C consumer lifecycle while
+retaining explicit private recovery. Raw SDK command_response receipts require
+their actual shape; do not synthesize machine oneshot wrappers for validation.
+Actual fresh SDK installation/maintenance is not established. Generic public
+recovery.apply is still refused before dispatch; preserve its full caller-reviewed
+digests and finalize/rollback choice through future native implementation.
+
+AIDE frozen1.1.0 import preserved target customization; its safe installed
+self-test still fails NameError local_skeleton, tracked with upstream issue6.
+Use existing cooperative handoffs, not another coordinator/checkout/worker.
+The old VM retirement is done; only shared Windows10 when available and needed,
+without interrupting another owner. Fixed20GiB stop was removed. Retain complete
+accounting,10GiB physical/2GiB RAM+commit reserve, one local heavy job and existing
+D:\Projects\Universal source/.task-builds output roots. No main/release or
+consumer-pin adoption is conveyed by a development checkpoint.
+
+Earlier checkpoints below are historical; the current status above governs.
 
 The separate20-second post-failure observation ran after the original failure,
 outputs and incomplete independent readback. Both late client samples remain5.
