@@ -62,35 +62,6 @@ DWORD publisher_consumer_read_access_mask() {
     return FILE_GENERIC_READ | FILE_GENERIC_EXECUTE;
 }
 
-static void require_account_sid(const std::string& sid, DWORD minimum_rid) {
-    PSID raw = nullptr;
-    if (sid.empty() || !ConvertStringSidToSidA(sid.c_str(), &raw)) {
-        throw std::runtime_error("publisher consumer SID is malformed");
-    }
-    std::unique_ptr<void, LocalFreeDeleter> owned(raw);
-    const SID_IDENTIFIER_AUTHORITY nt = SECURITY_NT_AUTHORITY;
-    if (!IsValidSid(raw) || *GetSidSubAuthorityCount(raw) != 5 ||
-        *GetSidSubAuthority(raw, 0) != SECURITY_NT_NON_UNIQUE ||
-        *GetSidSubAuthority(raw, 4) < minimum_rid ||
-        std::memcmp(GetSidIdentifierAuthority(raw), &nt, sizeof(nt)) != 0) {
-        throw std::runtime_error("publisher account SID differs from its required account class");
-    }
-    LPSTR canonical = nullptr;
-    if (!ConvertSidToStringSidA(raw, &canonical)) {
-        throw std::runtime_error("publisher consumer SID cannot be rendered");
-    }
-    std::unique_ptr<void, LocalFreeDeleter> canonical_owned(canonical);
-    if (sid != canonical) throw std::runtime_error("publisher consumer SID is not canonical");
-}
-
-void require_publisher_registered_account_sid(const std::string& sid) {
-    require_account_sid(sid, 0);
-}
-
-void require_publisher_consumer_sid(const std::string& sid) {
-    require_account_sid(sid, 1000);
-}
-
 static std::vector<unsigned char> make_descriptor(
     const std::wstring& service_sid, const std::string& consumer_sid) {
     if (service_sid.empty()) throw std::runtime_error("publisher service SID is missing");
