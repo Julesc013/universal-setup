@@ -435,6 +435,9 @@ function Complete-StageObserver($Observer) {
         throw 'SYSTEM stage observer did not produce a bounded result'
     }
     $result=Get-Content -LiteralPath $Observer.output -Raw|ConvertFrom-Json
+    # Retain the bounded, unadmitted result even when terminal/coverage checks
+    # refuse it. Only the caller's successful return promotes this observation.
+    $receipt['production_stage_observation_candidate']=$result
     $task=Get-ScheduledTask -TaskName $Observer.task -ErrorAction Stop
     if($task.State -eq 'Running'){Stop-ScheduledTask -TaskName $Observer.task -ErrorAction Stop}
     Unregister-ScheduledTask -TaskName $Observer.task -Confirm:$false -ErrorAction Stop
@@ -1635,7 +1638,6 @@ try {
         $concurrentError=Join-Path $consumerOutput 'concurrent-stderr.txt'
         $concurrentReady=Join-Path $consumerOutput 'concurrent-ready.txt'
         $concurrentCompleted=Join-Path $consumerOutput 'concurrent-completed.txt'
-        $stageObserver=Start-StageObserver
         $unrelatedAccountName=$(if($AdmittedTarget -and $admittedPackagedProfile){'USKCLI_'}else{'USKATK_'})+[guid]::NewGuid().ToString('N').Substring(0,13)
         if(Get-LocalUser -Name $unrelatedAccountName -ErrorAction SilentlyContinue){
             throw 'Unrelated production attacker account collision'
@@ -1766,6 +1768,11 @@ try {
         $receipt['production_rename_observer_ready_sha256']=(Get-FileHash `
             -LiteralPath $postrenameObserver.ready -Algorithm SHA256).Hash.ToLowerInvariant()
     }
+    # Account creation and both attackers' bounded readiness are preparation,
+    # before this client can dispatch the admitted publication. Start the
+    # unchanged 120-second observer only after that preparation, and require its
+    # ready marker before creating the request client or releasing attackers.
+    if($ProductionConcurrentRights){$stageObserver=Start-StageObserver}
     if($ClientBinary){$requestClient=Start-RequestClient}
     if($ProductionConcurrentRights) {
         if(-not $requestClient -or $requestClient.process.HasExited) {

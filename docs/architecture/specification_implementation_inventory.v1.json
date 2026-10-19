@@ -5431,7 +5431,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "50fcc3e7b765b6bde4548db0996af64205a70e7708010836a73db3489560cb50"
+          "sha256": "2d42f280563c15d53f67db195ef5a31ebb5c4ac003d3361cb76b1957a290f191"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
@@ -5935,7 +5935,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
-          "sha256": "50fcc3e7b765b6bde4548db0996af64205a70e7708010836a73db3489560cb50"
+          "sha256": "2d42f280563c15d53f67db195ef5a31ebb5c4ac003d3361cb76b1957a290f191"
         },
         {
           "path": "tests/windows_publisher_preopened_root_probe.ps1",
@@ -6315,7 +6315,7 @@
         },
         {
           "path": "docs/security/windows_ntfs_publication_profile.md",
-          "sha256": "5c5fa9d2b26e33970adbf3a88309e012e94f643d96628c9b398d50be67564086"
+          "sha256": "32df9e551fb47bb1f9ce1905f7654d3f6e6075f4f6c819fc2717f2e27efce0ef"
         }
       ],
       "acceptance_ids": [

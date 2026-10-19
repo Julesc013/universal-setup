@@ -2197,3 +2197,18 @@ caller callbacks invalidate the phase even if they catch the nested refusal.
 The private preparation callback is not serialized into the durable repair
 plan: interrupted source-free recovery continues from its existing retained
 transaction payload and does not require re-admitting a retired archive.
+
+## Qualification stage observer and request dispatch
+
+The hosted stage observer starts after both attacker processes pass readiness
+and owner checks, before the first admitted request client is created. Account
+creation and attacker preparation do not consume its unchanged 120-second
+watchdog. Its ready marker still precedes possible client dispatch and attacker
+release. The 200ms continuity limit, 64-interval bound, native rename overlap,
+source hashes, SYSTEM identity and terminal checks remain required.
+
+The bounded parsed observer result is retained as a candidate before terminal
+or coverage admission. A rejected candidate cannot be promoted by cleanup or
+diagnostic retention. Local AST/collector controls exercise ordering and refusal;
+they do not establish actual SYSTEM execution or publisher qualification. The
+request deadline and production source-validation behavior are unchanged.

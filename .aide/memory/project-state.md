@@ -6,25 +6,32 @@ Foundation; completion of that release and the wider specification are separate.
 Use the sole FacMan worktree, reusable build and current laboratory. The external
 task checkpoint holds changing source, review, process and qualification pins.
 
-Accepted dev is 451dab21, the normal PR272 merge after seven core/specification
-checks and exact-source independent review. PR270 and PR271 are integrated.
-Main remains c048f7f1. Integrate reviewed/core-qualified checkpoints into dev
-daily; promote to main weekly when its additional qualification passes.
+Accepted dev is ff5eaf9a, the normal PR273 merge after seven core/specification
+checks and exact-source independent review. PR270/271/272 are integrated; the
+accepted dev451 push also passed all seven checks. Main remains c048f7f1.
+Integrate reviewed/core-qualified checkpoints into dev daily; promote to main
+weekly when its additional qualification passes.
 
-The retained PR270 run39216132810 has three request-bound source-retired repair
-recovery passes, including release-default diagnostics-off, with independent
-state verification. This is one passing set, not reliability qualification.
-PR271 still refuses packaged damaged-file repair at its extraction deadline.
-Source inspection confirms that this public apply route supplies an empty
-cancellation callback. The diagnostic increment locates deadline expiry at an
-existing check and read offset without moving the clock or weakening checks.
+Current PR271 run39221385593 has three request-bound source-retired repair
+recovery timeouts, including diagnostics-off, with UNKNOWN captured responses
+and no matching native completion. Earlier PR270 run39216132810 has one passing
+three-cohort set; it does not establish reliability. Packaged32MiB damaged-file
+repair also remains unqualified. Its public route supplies empty cancellation;
+the extraction guard therefore indicates deadline expiry on that source.
+
+PR273's packaged cohort failed at stage-observer terminal admission before
+owned maintenance, so it supplies no new repair-boundary timing. Its controller
+cohort passed. The observer watchdog began before attacker-account preparation.
+The harness increment moves readiness after both attacker checks and before
+client creation, preserving its120-second bound and every coverage/refusal
+condition. Rejected bounded observer results are retained as candidates, not
+qualified observations. Local PS5.1/7 AST controls are not SYSTEM qualification.
 
 The frozen AIDE Lite1.1 optional tooling update is integrated, preserving local
-customizations. Its portable self-test fails with the same synthetic gateway
-NameError reproduced in the previous actual safe installation. Functional
-adoption remains incomplete; the upstream owner request is
-USK-AIDE-LITE-SAFE-SELFTEST-20261019-01 on AIDE issue6. Main, deployment packages
-and release qualification remain separate.
+customizations. Its portable self-test has the synthetic gateway NameError
+reproduced in the previous actual safe installation. Functional adoption stays
+incomplete; owner request USK-AIDE-LITE-SAFE-SELFTEST-20261019-01 is on AIDE issue6.
+Main, deployment packages and release qualification remain separate.
 
 The current increment re-admits the exact repair archive immediately before
 staging, after existing maintenance setup. Its private one-shot source owner
