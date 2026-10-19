@@ -1,64 +1,73 @@
 # Universal Setup Project State
 
-Continue USK-SPEC-TO-RELEASE-01 in the existing sole worktree/build/lab and
-Universal .task-builds root. Complete1.1 and full specification remain separate.
-Keep10GiB disk/2GiB RAM+commit reserve and one local heavy job. The fixed20GiB
-stop and old VM retirement are superseded; Windows10 has no Setup runner claim.
+Continue ACTIVE USK-SPEC-TO-RELEASE-01 in the existing worktree/build/lab and
+Universal .task-builds root. Complete1.1 and full specification are separate.
+Keep10GiB disk/2GiB RAM+commit reserves and one heavy local job; fixed20GiB
+stop and the old VM operation are superseded. Windows10 is shared/no Setup claim.
 
 Accepted dev4ed180fbc960abf1d12512db3cc471016b710d33/tree
-24a771f7df7877b78338be1568907e174c303cd8 normally integrated PR287. All7core
-checks passed both PR39335798681/1 and acceptedpush39337730367/1; controller
-20867 CLOSED0. Mainc048f7f1ae2e5922c15a08ee572bdafc29027c63 remains
-unqualified. Continue reviewed dailydev and qualified weeklymain promotion.
+24a771f7df7877b78338be1568907e174c303cd8 normally integrated PR287 after7core
+checks and exact review/live gate. Acceptedpush39337730367/1 also passed7core;
+controller20867 CLOSED0. Mainc048f7f1ae2e5922c15a08ee572bdafc29027c63
+remains unqualified. Keep reviewed dailydev and qualified weeklymain promotion.
 
-PR286 run39333230364/1 is now terminalFAIL: all7core pass; publisher's sole
-executed failure is registered-service startup64. Workflow recovery28/30/92
-pass, including release-default diagnostics-OFF. This turn retained terminal
-job/step evidence, not a new independent raw-state projection. PR285's prior
-independent recovery/payload/publicverify/cleanup projection remains retained.
-PR287's separate full publisher/paired security API diagnostic is still live.
-Do not infer reset causation, select a favorable API as authority, reapply ACLs
-or waive unsafe originals. No full publisher/main/release qualification exists.
+NEW RUNTIME EVIDENCE supersedes the prior legacy-startup-only description:
+PR287 run39335798681/1 is still live but recovery28/30 both failed120s with
+request-bound repair.recover UNKNOWN/no qualified terminal. Exact raw probe ZIP
+digests match GitHub metadata; producer source3453aebe994d2391acb666403a02ae36a28a0a0e
+has submitted head924b6ff/tree24a771f and diagnosticsON. After-deadline incomplete
+readbacks show committed journals; traced has24 effect records ending in a
+remove_directory intent, untraced26 ending sealed. These are observations, not
+valid operation outcomes or continuous/atomic snapshots. Twenty-second delayed
+samples show both original clients exited5, not success. Do not extend deadlines,
+infer a tracing-only cause or claim prior passes establish reliability.
 
-Current connected SDK increment follows c4d4e6561b2a24b3bb7f9edd66efd41c7d71deca.
-It adds fixed read/list-only original-maintenance acquisition inside the held
-native owner/lease implementation. The context must be inspect_existing; actual
-owner/caller/registration/volume, original intent and restored state are joined
-before reading selected journal, effects and plan. Owned data returns only after
-byte/security/namespace rechecks, committed-lease/current-revision and pending
-name observations, plus final original-owner/custody fences. No writer, lease,
-layout, journal, public route or action is enabled by this helper.
+Raw data: T/pr287-39335798681-recovery-observations-r1; two full probe JSONs
+4671239/4676264B retained with raw SHA pins. Current exact run/source/request
+projection is request-bound-after-deadline-projection-r1.json. The full job and
+paired failure-only device API observation remain pending. Prior PR28639333230364
+passed7core and recovery28/30/92 but failed startup64; PR285's independent selected
+positive recovery/state/cleanup evidence remains retained, without full-profile
+qualification. Preserve actual strict ACL refusal and investigate before repair.
 
-Native-history R1 was HOLD: allocation after opening a directory could leak its
-handle. R2 owns the result in stack RAII before allocating, and exact source-only
-review approves application. R1 packet/HOLD remain unchanged. R2 full6path patch
-28173B SHA7e95ddf07750724fafe77159d1821e5c5e40487962a838d5303322398a5bd503;
-review4624B SHA22c43d475f94ac31d1ba1f79ccb1f99820177aded95368e7a71ef0dece468159.
-Eight strict preview TUs pass (two CPPs, x64/Win32, diagnostics off/on). Actual
-x64/Win32 native/lifecycle builds and retirement-reader CTests pass9.95/8.68s,
-guard51973 CLOSED0;8 reused-intermediate MSB8028 warnings remain retained.
-The ordinary pure-context tests also pass with the journal pathname withheld.
-These tests do NOT invoke the new native acquisition. Inventory changes only
-28SHA leaves; classifications and acceptance remain unchanged. Inventory7 and
-strict9 pass. The earlier journal R1 invalid fixture/negative-exit false pass
-was withdrawn; corrected R2 execution and inert exit control remain retained.
+Current connected SDK increment follows b399639e2df8754cf6dc0f66496e46bbfeb74923.
+It preserves complete authenticated public recovery v1 inspect/plan/apply JSON
+through native original selection, deriving only private-shaped namespace lookup
+IDs. Public selection uses a distinct internal v2 family/scope and binds every
+request field/digest/action at broker and child endpoints. Actual native query
+also joins protected original plan/digest and transaction target. Legacy private
+selection remains v1, with its original native checks and closure. This enables
+no host admission, public command/response/v2 plan, writer, lease or effects.
 
-Missing journal/plan and empty effect directory remain explicit prefixes. The
-finite observation bracket is not continuous or atomic safety. Pending digest
-covers sorted observed names only, not child contents/identity/eligibility.
-Original-owned-object element semantics and complete current payload/namespace,
-holder liveness and action-specific proofs remain separate obligations. Read
-limits bound serialized inputs, not all memory; checks cannot preempt OS calls.
+R1 source-only review9984B SHA51b85ef71c1eb03675f6a212206b711483795e4cd255f22d5fdc338aea6e9466.
+R2 test-only refinement makes the changed BEFORE endpoint internally consistent
+by rebinding both its request and custody hashes; required refusal now isolates
+the complete-request join. Production CPP/header are R1-identical. R2 source
+review4320B SHA79b3fd65e4fdde14b01ae34bb87f5c644bf65c36a4254dcb766d7f568c9ca145.
+Full3path patch26930B SHAcbe861be1c078d6bb1d1618a06135f84eec8d6f248a2608b2b26e1cf690f55a1.
+R1 eight strict TUs and both linked previews pass; R2 changed-test four strict
+TUs and both relinked previews pass using pinned unchanged broker objects.
+Applied native builds and process-boundary CTests pass x64/Win32 2.23/2.51s,
+guard42091 CLOSED0;9MSB8028 reused-intermediate warnings remain retained. New
+selection controls are retained-data tests, not native original-query execution.
+Inventory changes only4SHA leaves, classifications/acceptance unchanged.
 
-Next connect this acquisition to native inspect/plan BEFORE a writer lease,
-including original audit/policy and complete public v2 history/current-state
-bindings. Keep the full authenticated public request, reviewed digests and
-selected action through broker/worker; derive only lookup identity. Revalidate
-before protected action-specific apply and qualify actual C-consumer calls,
-refusals and unchanged state before/after inspection. No safe native rollback
-switch exists; never alias rollback to forward or downgrade to a private
-four-field request. Generic SDK/native route, whole profile, main and release
-remain unfinished. Preserve AIDE customization and the historical memory below.
+Prior c4d/b399 read-only history acquisition stays source-only: missing prefixes
+explicit, actual owner/caller/root/original custody fenced, bytes/membership and
+current metadata rechecked. Its R1 handle-allocation leak HOLD and corrected R2
+approval remain preserved. The earlier journal invalid-fixture/negative-exit
+false pass stays withdrawn; corrected execution/inert exit control are retained.
+
+Next secure this coherent SDK checkpoint, then investigate the new recovery
+deadline failures through retained call/phase/response evidence using existing
+trace tools. No speculative extra hash/observation-removal optimization. Resume
+the complete native public inspect/plan BEFORE a writer lease and action-specific
+apply with explicit critical public v2 history/current-state bindings, policy/
+audit, holder liveness, pending eligibility and full payload/namespace proof.
+Retained tuples do not grant either coherent action. No safe native rollback
+switch exists; never alias rollback to forward or downgrade full public requests.
+No public native SDK, full publisher, main or release qualification is claimed.
+Preserve AIDE customization and exact historical memory below.
 
 .
 
