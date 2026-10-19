@@ -16,12 +16,19 @@ param(
     [switch]$MaintenanceQualification,
     [switch]$MaintenanceRecoveryQualification,
     [switch]$MaintenanceInitialQualification,
+    [switch]$SdkLifecycleQualification,
     [ValidateSet('none','anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')]
     [string]$ConstructedBootstrapPrefix='none',
     [ValidateSet('none','move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')]
     [string]$ConstructedBootstrapDurableState='none'
 )
 $ErrorActionPreference='Stop'
+if($SdkLifecycleQualification -and (-not $MaintenanceQualification -or $MaintenanceRecoveryQualification -or
+    $MaintenanceInitialQualification -or $BootstrapProcessLoss -or $BootstrapPreservationProcessLoss -or
+    $ActiveInstallContention -or $StalePlanQualification -or $InstallationGuardConflict -or
+    $ConstructedBootstrapPrefix -cne 'none' -or $ConstructedBootstrapDurableState -cne 'none')) {
+    throw 'SDK lifecycle requires its separate fresh installation and maintenance cohort'
+}
 if($MaintenanceInitialQualification -and (-not $MaintenanceQualification -or $MaintenanceRecoveryQualification)) {
     throw 'Initial maintenance interruption requires its distinct owned fixture'
 }
@@ -106,6 +113,10 @@ $receipt=[ordered]@{schema='usk.publisher_standard_public_probe.v1';status='not_
         publisher_project_sha256=(Get-FileHash -LiteralPath $publisherProjectPath -Algorithm SHA256).Hash.ToLowerInvariant()};
     client_captures=[Collections.Generic.List[object]]::new();readbacks=[Collections.Generic.List[object]]::new();
     native_observations=[Collections.Generic.List[object]]::new()}
+if($SdkLifecycleQualification) {
+    $receipt['sdk_lifecycle']=[ordered]@{scope='fresh_public_c_sdk_install_verify_repair_move_uninstall';
+        status='running';native_recovery_qualified=$false;profile_qualified=$false}
+}
 function Write-Json([string]$Path,$Value) {[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 64 -Compress)+"`n",$utf8)}
 function Read-ServicePolicy {
     $raw=[UskPublisherServiceSecurityReadback]::Read($service)
@@ -1288,8 +1299,8 @@ try {
         }else{$receipt.bootstrap_loss.readback}
         $receipt['constructed_bootstrap_durable_state']=New-OwnedBootstrapDurableState $ConstructedBootstrapDurableState $original
     }
-    $receipt['apply']=Invoke-StandardRequest 'install_local.apply' $apply
-    $installed=$receipt.apply.result.payload
+    $receipt['apply']=Invoke-StandardLifecycleRequest 'install_local.apply' $apply
+    $installed=Get-StandardLifecyclePayload $receipt.apply
     if($installed.install_id -cne $apply.plan_request.install_id -or $installed.transaction_id -cne $apply.transaction_id -or
         $installed.created_at -cne $apply.applied_at -or $installed.lifecycle_status -cne 'installed'){throw 'Standard installed state identity differs'}
     $before=Read-InstalledSnapshot;$receipt.readbacks.Add($before)
@@ -1354,17 +1365,23 @@ try {
     Assert-LeaseTransition $before $recovered
     if($StalePlanQualification){Invoke-StalePlanCases 1 $true}
     if($StalePlanQualification){Invoke-ChangedStateCase 1 $true}
-    $receipt['replayed_apply']=Invoke-StandardRequest 'install_local.apply' $apply
-    foreach($terminal in @($receipt.recovery,$receipt.replayed_apply)) {
-        if(($terminal.result.payload|ConvertTo-Json -Depth 64 -Compress) -cne ($installed|ConvertTo-Json -Depth 64 -Compress)){throw 'Standard source-free state changed'}
+    $receipt['replayed_apply']=Invoke-StandardLifecycleRequest 'install_local.apply' $apply
+    $replayedPayload=Get-StandardLifecyclePayload $receipt.replayed_apply
+    foreach($terminalPayload in @($receipt.recovery.result.payload,$replayedPayload)) {
+        if(($terminalPayload|ConvertTo-Json -Depth 64 -Compress) -cne ($installed|ConvertTo-Json -Depth 64 -Compress)){throw 'Standard source-free state changed'}
     }
     $after=Read-InstalledSnapshot;$receipt.readbacks.Add($after)
     Assert-LeaseTransition $recovered $after
     $verify=@{schema='usk.publisher_installed_verify_request.v1';request_id='verify.'+$id;install_id=$installed.install_id;
         transaction_id=$installed.transaction_id;report_id='verify.'+$id;verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
     if($InstallationGuardConflict){Invoke-InstallGuardVerificationConflict $verify}
-    $receipt['verification']=Invoke-StandardRequest 'installed.verify' $verify
-    if($receipt.verification.result.payload.status -cne 'pass' -or $receipt.verification.result.payload.report_id -cne $verify.report_id){throw 'Standard verification failed'}
+    if($SdkLifecycleQualification) {
+        $verify=@{schema='usk.installed_verify_request.v1';request_id='verify.'+$id;install_id=$installed.install_id;
+            report_id='verify.'+$id;verified_at=$verify.verified_at}
+    }
+    $receipt['verification']=Invoke-StandardLifecycleRequest 'installed.verify' $verify
+    $verificationPayload=Get-StandardLifecyclePayload $receipt.verification
+    if($verificationPayload.status -cne 'pass' -or $verificationPayload.report_id -cne $verify.report_id){throw 'Standard verification failed'}
     $verified=Read-InstalledSnapshot;$receipt.readbacks.Add($verified)
     if(($after.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne ($verified.independent.rows|ConvertTo-Json -Depth 64 -Compress)){throw 'Standard verification changed target snapshot'}
     Assert-LeaseTransition $after $verified $true
@@ -1396,6 +1413,18 @@ try {
         Assert-LeaseTransition $sdkReentered $sdkVerified $true
     }
     if($MaintenanceQualification){$receipt['maintenance']=Invoke-StandardFreshMaintenance}
+    if($SdkLifecycleQualification) {
+        $expectedSdkCommands=@('install_local.apply','install_local.apply','installed.verify',
+            'repair.apply','installed.verify','move.apply','installed.verify','uninstall.apply')
+        $actualSdkCommands=@($receipt.sdk_requests|ForEach-Object {$_.command})
+        if(($actualSdkCommands -join '|') -cne ($expectedSdkCommands -join '|') -or
+            @($receipt.sdk_requests|Where-Object {$_.status -cne 'completed' -or $_.exit_code -ne 0 -or
+                $_.client_capture.captured_before_primary_thread_resume -ne $true -or $_.client_cleanup_confirmed -ne $true}).Count -ne 0 -or
+            @($receipt.sdk_requests.request_id|Select-Object -Unique).Count -ne $expectedSdkCommands.Count) {
+            throw 'SDK lifecycle did not execute all required actual consumer requests'
+        }
+        $receipt.sdk_lifecycle.status='observed_completed'
+    }
     $receipt.status='standard_public_install_verified_recovered'
 } catch {$receipt.status='failed';$receipt['failure']=$_.Exception.Message}
 finally {

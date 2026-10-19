@@ -32,6 +32,7 @@ param(
     [switch]$PublicStandardMaintenanceQualification,
     [switch]$PublicStandardMaintenanceRecoveryQualification,
     [switch]$PublicStandardMaintenanceInitialQualification,
+    [switch]$PublicStandardSdkLifecycleQualification,
     [ValidateSet('none','anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')]
     [string]$PublicStandardConstructedBootstrapPrefix='none',
     [ValidateSet('none','move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')]
@@ -50,6 +51,14 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if($PublicStandardSdkLifecycleQualification -and (-not $PublicInstallation -or -not $PublicStandardClient -or
+    -not $PublicStandardMaintenanceQualification -or $PublicStandardMaintenanceRecoveryQualification -or
+    $PublicStandardMaintenanceInitialQualification -or $PublicStandardBootstrapLoss -or
+    $PublicStandardBootstrapPreservationLoss -or $PublicStandardActiveInstallContention -or
+    $PublicStandardStalePlanQualification -or $PublicStandardInstallationGuardConflict -or
+    $PublicStandardConstructedBootstrapPrefix -cne 'none' -or $PublicStandardConstructedBootstrapDurableState -cne 'none')) {
+    throw 'Public SDK lifecycle requires its separate owned fresh maintenance cohort'
+}
 $admittedControllerProfile=$ControllerApply -and -not ($ConsumerAccess -or $NonAdminClient -or $MachineRequestClient -or $ProductionConcurrentRights)
 $admittedPackagedProfile=$ConsumerAccess -and $MachineRequestClient -and $ProductionConcurrentRights -and -not ($ControllerApply -or $NonAdminClient)
 if($AdmittedTarget -and (-not ($admittedControllerProfile -or $admittedPackagedProfile) -or -not $RegisteredService -or
@@ -588,6 +597,7 @@ try {
                 -MaintenanceQualification:($PublicStandardMaintenanceQualification -or $PublicStandardMaintenanceRecoveryQualification -or $PublicStandardMaintenanceInitialQualification) `
                 -MaintenanceRecoveryQualification:$PublicStandardMaintenanceRecoveryQualification `
                 -MaintenanceInitialQualification:$PublicStandardMaintenanceInitialQualification `
+                -SdkLifecycleQualification:$PublicStandardSdkLifecycleQualification `
                 -ConstructedBootstrapPrefix $PublicStandardConstructedBootstrapPrefix `
                 -ConstructedBootstrapDurableState $PublicStandardConstructedBootstrapDurableState
         } elseif ($PublicInstallation) {

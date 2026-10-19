@@ -151,8 +151,8 @@ function Invoke-StandardFreshMaintenance {
         if($case.enrollment.status -cne 'reviewed_operation_enrolled' -or $case.enrollment.service -cne $service) {
             throw 'Maintenance administrator enrollment binding differs'
         }
-        $case.response=Invoke-StandardRequest ($operation+'.apply') $applyMaintenance
-        $report=$case.response.result.payload
+        $case.response=Invoke-StandardLifecycleRequest ($operation+'.apply') $applyMaintenance
+        $report=Get-StandardLifecyclePayload $case.response
         $expectedStatus=if($operation -ceq 'move'){'new_committed_old_retained'}else{'completed'}
         if($report.schema -cne ('usk.'+$operation+'_report.v1') -or $report.status -cne $expectedStatus -or
             $report.install_id -cne $installed.install_id -or $report.transaction_id -cne $applyMaintenance.transaction_id -or
@@ -220,8 +220,12 @@ function Invoke-StandardFreshMaintenance {
                 request_id='verify.maintenance.'+$operation+'.'+$id;install_id=$installed.install_id;
                 transaction_id=$applyMaintenance.transaction_id;report_id='verify.maintenance.'+$operation+'.'+$id;
                 verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
-            $case['verification']=Invoke-StandardRequest 'installed.verify' $verify
-            $verifiedReport=$case.verification.result.payload
+            if($SdkLifecycleQualification) {
+                $verify=@{schema='usk.installed_verify_request.v1';request_id=$verify.request_id;
+                    install_id=$installed.install_id;report_id=$verify.report_id;verified_at=$verify.verified_at}
+            }
+            $case['verification']=Invoke-StandardLifecycleRequest 'installed.verify' $verify
+            $verifiedReport=Get-StandardLifecyclePayload $case.verification
             if($verifiedReport.schema -cne 'usk.verification_report.v1' -or $verifiedReport.status -cne 'pass' -or
                 $verifiedReport.install_id -cne $installed.install_id -or $verifiedReport.report_id -cne $verify.report_id) {
                 throw 'Current maintained installation verification did not pass through the ordinary public caller'

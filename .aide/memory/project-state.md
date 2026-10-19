@@ -5,10 +5,11 @@ and WorkUnit bindings. First release:1.1.0 Local Setup Foundation; broader
 specification completion is separate. Use the sole registered worktree/reusable
 build and existing laboratory; the external compact checkpoint holds live pins.
 
-Accepted dev ee6b595e81fcb025fa00bbdb7f7c6c2274e6f1d7, normal PR281 merge,
-tree224fd8837dd63dcdcea72fcb9d93bd657d775e12. Submitted c66ec058ff1e4658bd3a6c64549a4ac9cf7bc527
-and accepted push39300018972 passed all seven core checks; actual independent
-review/live dev gate passed. Main c048f7f1ae2e5922c15a08ee572bdafc29027c63
+Accepted dev97da127f52902c5ed310d677f016a6dd557a2f5e, normal PR282 merge,
+tree1150c65f0abf56414f4296cf4de53c0fcf0a891a. Submitted ae99051288b774708c1b2a5f1f1c3f1bd4a98d66
+passed all seven core checks in39305251794; actual independent committed review
+and live dev gate passed. Accepted push39307353685 passed all seven core checks. Earlier accepted
+PR281 push39300018972 passed all seven core checks. Main c048f7f1ae2e5922c15a08ee572bdafc29027c63
 remains unqualified. Continue reviewed daily dev and qualified weekly main merges.
 
 PR281 run39297457096/1 builds synthetic565368c8db2d836267ab717e20fc810cd0ca33c1
@@ -42,16 +43,51 @@ refusal checks. R2 preserves zero-count strict diagnostics and shares test-only
 closed predicates with inert controls: actual intended completion-bound present/
 pending is accepted as appropriate; unexpected5/123/0 and late1060 are rejected
 as timeout evidence. Botharch strict preview/control checks and bounded delta
-review passed. Applied/linked/committed qualification remains separate.
-Only28 inventory SHA leaves changed; classifications/acceptance are unchanged.
+review passed; applied x64 native/hosted targets and three selected tests passed,
+with native Win32 library/two supported tests passing. The initial Win32 command
+named x64-only targets and failed before compilation; its correction is retained.
+Actual hosted SCM retirement remains pending. This source is integrated in dev;
+the28 inventory SHA leaves changed without classification/acceptance changes.
 
-The already-reviewed public SDK lifecycle harness preview remains separate and
-unapplied. It admits a fresh eight-request public C consumer lifecycle while
-retaining explicit private recovery. Raw SDK command_response receipts require
-their actual shape; do not synthesize machine oneshot wrappers for validation.
-Actual fresh SDK installation/maintenance is not established. Generic public
-recovery.apply is still refused before dispatch; preserve its full caller-reviewed
-digests and finalize/rollback choice through future native implementation.
+The reviewed SDK lifecycle harness is now applied separately on accepted dev97da127.
+It opts one fresh tiny-product fixture into actual public-header C consumer
+installation, source-retired reentry, verification, repair, move and uninstall:
+eight completed SDK calls with held standard-client capture and confirmed cleanup.
+It retains explicit private recovery, original CLI cohorts and independent
+state/security/lease/journal/history/file/move/uninstall assertions. A raw public
+command_response remains distinct from CLI oneshot output; no wrapper or fallback
+may synthesize success. The initial owner-planned seven postimages are unchanged
+from the approved preview and reviewed parent transfer. Forty-three inventory
+hash leaves were refreshed, without classification/acceptance changes.
+Actual eight-request SDK execution remains NOT RUN. Submittedc03b88e run39307922295
+failed only native-windows core CTest usk_publisher_apply_control_preflight;
+publisher qualification and the SDK producer were skipped, not executed failures.
+No merge was attempted. The preflight selected the firstIf after a new SDK
+profile guard preceded its intended AdmittedTarget guard. Actual full production
+admission remained enforced. The exact failure is reproduced locally.
+The reviewed repair selects the unique intended guard without changing any
+original closed-profile matrix or assertion. It additionally exercises41 actual
+SDK guard cases at outer, inner and launcher boundaries. The complete original
+fixture-control function with this delta passed PowerShell5.1/7. The actual
+applied CTest usk_publisher_apply_control_preflight passed in8.93seconds using
+the reused x64 build. Final committed binding and fresh submitted-head checks
+remain required; the old failed CI run remains failed.
+All seven SDK harness/workflow postimages remain unchanged from approved R2;
+only this test file and current memory change. The inventory does not reference
+the changed preflight file; its bytes/counts/classifications remain unchanged.
+Public SDK recovery still needs its full reviewed digests and action when
+connecting native execution; no ABI/engine or native-recovery change is included.
+
+The accepted SCM source has now passed actual held-query-handle qualification:
+seven present observations followed by native absence at probe8;1072 was not
+observed in that native case. Both packaged machine/controller repair, uninstall
+and owned retirement completed, with independent after-readback, service absent,
+protected binary removed and clients closed. The later standard receipt binds
+actual synthetic build0595d0e5c18a43deaff035f2366d9ec102f198e8/tree1150 and
+identical service bytes across those journeys. Its selected SDK source-retired
+reentry/public verification passed against independent file hashes. These are
+selected positives; full current-head recovery/publisher qualification and the
+new fresh SDK lifecycle remain pending. Main and release remain unqualified.
 
 AIDE frozen1.1.0 import preserved target customization; its safe installed
 self-test still fails NameError local_skeleton, tracked with upstream issue6.
