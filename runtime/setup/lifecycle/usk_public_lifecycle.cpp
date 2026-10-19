@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_public_lifecycle.h"
+#include "usk_public_recovery_documents_internal.h"
 
 #if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
 #include "usk_publisher_metadata.h"
@@ -39,6 +40,7 @@ namespace fs = std::filesystem;
 using usk::json::Value;
 
 namespace {
+using usk::lifecycle::detail::recovery_effects;
 
 constexpr std::size_t max_request_bytes = 1024u * 1024u;
 constexpr std::size_t max_recovery_audit_observation_events = 32;
@@ -1372,59 +1374,16 @@ RecoveryBundle build_recovery_inspection(const Value& request, const PublicConfi
     return result;
 }
 
-Value recovery_effects(const usk::transaction::RecoveryInspection& inspection)
+usk::lifecycle::detail::PublicRecoveryDocumentContext recovery_document_context(
+    const RecoveryBundle& bundle)
 {
-    Value::Array effects;
-    for (const std::string& action : inspection.available_actions) {
-        if (action == "resume") {
-            effects.emplace_back(Value::Object{{"kind", Value("resume_transition")},
-                {"relative_path", Value(".")}, {"root_class", Value("setup_state")}});
-        } else if (action == "rollback") {
-            effects.emplace_back(Value::Object{{"kind", Value("delete_staged_path")},
-                {"relative_path", Value(".")}, {"root_class", Value("staging")}});
-        } else {
-            if (inspection.staging_exists) {
-                effects.emplace_back(Value::Object{{"kind", Value("retain_path")},
-                    {"relative_path", Value(".")}, {"root_class", Value("staging")}});
-            }
-            if (inspection.target_exists) {
-                effects.emplace_back(Value::Object{{"kind", Value("retain_path")},
-                    {"relative_path", Value(".")}, {"root_class", Value("owned_target")}});
-            }
-            if (!inspection.staging_exists && !inspection.target_exists) {
-                effects.emplace_back(Value::Object{{"kind", Value("retain_path")},
-                    {"relative_path", Value(".")}, {"root_class", Value("setup_state")}});
-            }
-        }
-    }
-    return Value(std::move(effects));
+    return {bundle.install_id, bundle.request_id, bundle.spec, bundle.inspection,
+        bundle.audit_chain_id, bundle.audit_chain_digest};
 }
 
 Value recovery_report_document(const RecoveryBundle& bundle)
 {
-    return bind_report_digest(Value(Value::Object{
-        {"available_actions", string_array(bundle.inspection.available_actions)},
-        {"effects", recovery_effects(bundle.inspection)},
-        {"journal_digest", Value(bundle.inspection.journal_digest)},
-        {"journal_snapshot_sha256", Value(bundle.inspection.snapshot_sha256)},
-        {"audit_chain_id", Value(bundle.audit_chain_id)},
-        {"audit_chain_digest", bundle.audit_chain_digest.empty() ? Value() : Value(bundle.audit_chain_digest)},
-        {"journal_id", Value("journal." + bundle.spec.transaction_id)},
-        {"observed_state", Value(bundle.inspection.current_state)},
-        {"recorded_at", Value(bundle.inspection.recorded_at)},
-        {"report_digest", Value(std::string(64, '0'))},
-        {"report_id", Value("recovery.inspect." + bundle.request_id)},
-        {"schema", Value("usk.recovery_report.v1")}, {"selected_action", Value()},
-        {"status", Value("inspection_only")}, {"transaction_id", Value(bundle.spec.transaction_id)}}));
-}
-
-Value bind_plan_digest(Value document)
-{
-    Value::Object& object = document.as_object();
-    object.erase("plan_digest");
-    const std::string digest = usk::json::sha256_canonical(document);
-    object.emplace("plan_digest", Value(digest));
-    return document;
+    return usk::lifecycle::detail::recovery_report_document(recovery_document_context(bundle));
 }
 
 Value recovery_plan_document(const Value& request, const PublicConfig& config)
@@ -1434,22 +1393,10 @@ Value recovery_plan_document(const Value& request, const PublicConfig& config)
         throw PublicError("invalid_argument", "recovery plan request schema is incompatible");
     }
     const RecoveryBundle bundle = build_recovery_inspection(request.at("inspection"), config);
-    return bind_plan_digest(Value(Value::Object{
-        {"available_actions", string_array(bundle.inspection.available_actions)},
-        {"created_at", Value(required_string(request, "created_at"))},
-        {"effects", recovery_effects(bundle.inspection)}, {"install_id", Value(bundle.install_id)},
-        {"journal_digest", Value(bundle.inspection.journal_digest)},
-        {"journal_snapshot_sha256", Value(bundle.inspection.snapshot_sha256)},
-        {"audit_chain_id", Value(bundle.audit_chain_id)},
-        {"audit_chain_digest", bundle.audit_chain_digest.empty() ? Value() : Value(bundle.audit_chain_digest)},
-        {"observed_state", Value(bundle.inspection.current_state)},
-        {"operation", Value(bundle.spec.operation)}, {"plan_digest", Value(std::string(64, '0'))},
-        {"plan_id", Value(required_string(request, "recovery_plan_id"))},
-        {"revalidation", Value(Value::Object{{"immediately_before_apply", Value(true)},
-            {"invalidate_on", Value(Value::Array{Value("journal"), Value("staging"),
-                Value("target"), Value("policy")})}})},
-        {"schema", Value("usk.recovery_plan.v1")}, {"status", Value("planned")},
-        {"transaction_id", Value(bundle.spec.transaction_id)}}));
+    const std::string created_at = required_string(request, "created_at");
+    const std::string plan_id = required_string(request, "recovery_plan_id");
+    return usk::lifecycle::detail::recovery_plan_document(recovery_document_context(bundle),
+        created_at, plan_id);
 }
 
 Value recovery_apply_document(const Value& request, const PublicConfig& config)
