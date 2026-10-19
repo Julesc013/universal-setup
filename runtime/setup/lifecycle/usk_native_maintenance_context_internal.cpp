@@ -1702,7 +1702,10 @@ struct NativeMaintenanceContext::Impl {
         PrefixReadRecipe recipe(*this);
         const auto current = transaction::TransactionSession::inspect_recovery(spec);
         const auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
-        auto result = reconcile_maintenance_effect_unscoped(spec);
+        // Consume this actual adjacent pair inside the fixed read-only body.
+        // The fresh closing pair and full recipe exit remain below. No saved
+        // pair spans an effect; earlier duplicate sampling instants are unclaimed.
+        auto result = reconcile_maintenance_effect_from_inspected_prefix(spec, current, history);
         if (result.source_digest != history.source_digest || result.history_digest != history.journal_digest ||
             result.pending_kind != history.pending_kind)
             throw std::runtime_error("native maintenance reconciliation changed its exact inspected prefix");
@@ -3425,7 +3428,14 @@ struct NativeMaintenanceContext::Impl {
                     if (original_child)
                         require_pending_selection(history.pending_kind, current, history, artifact, selected);
                     else (void)require_pending(history.pending_kind);
-                    const auto observation = reconcile_maintenance_effect(spec);
+                    // The selected continuation above binds this actual
+                    // current/history pair. Only the original child's fixed
+                    // pure reader reuses it; SCM keeps its independent route.
+                    // Fresh prefix recheck and full recipe exit still precede
+                    // every output, grant and effect.
+                    const auto observation = original_child && active_read_recipe ?
+                        reconcile_maintenance_effect_from_inspected_prefix(spec, current, history) :
+                        reconcile_maintenance_effect(spec);
                     if (observation.state == "compatible_after_effect") {
                         if (history.pending_kind == "publish_target") {
                             require_entry(*staging);
@@ -3595,7 +3605,10 @@ struct NativeMaintenanceContext::Impl {
         // or supplied callback separates these fixed adjacent pure bodies.
         const auto current = transaction::TransactionSession::inspect_recovery(spec);
         const auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
-        auto result = reconcile_maintenance_effect_unscoped(spec);
+        // Consume this actual adjacent pair inside the fixed read-only body.
+        // The fresh closing pair and full recipe exit remain below. No saved
+        // pair spans an effect; earlier duplicate sampling instants are unclaimed.
+        auto result = reconcile_maintenance_effect_from_inspected_prefix(spec, current, history);
         if (result.source_digest != history.source_digest || result.history_digest != history.journal_digest ||
             result.pending_kind != history.pending_kind)
             throw std::runtime_error("native maintenance reconciliation changed its exact inspected prefix");

@@ -48,6 +48,17 @@ MaintenanceContinuationInspection inspect_maintenance_continuation_unscoped(
 MaintenanceEffectReconciliation reconcile_maintenance_effect_unscoped(
     const transaction::TransactionSpec& spec);
 
+// Fixed native read-only consumers may supply their immediately inspected
+// transaction/history pair. They must bind the pair to their original owner,
+// retain actual per-object observations and finish the fresh prefix/global
+// exit before any result escapes or effect begins. This helper neither
+// revalidates a prefix nor supplies native authority. Ordinary callers keep
+// the independently reading unscoped wrapper above.
+MaintenanceEffectReconciliation reconcile_maintenance_effect_from_inspected_prefix(
+    const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& transaction,
+    const transaction::MaintenanceEffectInspection& history);
+
 // Fixed initial snapshot validation only; this pure predicate grants no native
 // scope, authority, completion or mutation permission.
 void require_maintenance_pending_recovery_snapshot(

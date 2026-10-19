@@ -978,10 +978,48 @@ int maintenance_effect_interruption_proof()
         const auto transaction = usk::transaction::TransactionSession::inspect_recovery(spec);
         const auto history = usk::transaction::MaintenanceEffectJournal::inspect(spec, transaction.stream_source_digest);
         const auto reconciliation = usk::lifecycle::detail::reconcile_maintenance_effect(spec);
-        if (reconciliation.pending_kind != kind || reconciliation.history_digest != history.journal_digest ||
-            reconciliation.source_digest != history.source_digest || reconciliation.state !=
-                (effect_happened ? "compatible_after_effect" : "compatible_before_effect"))
-            throw std::runtime_error(operation + "." + kind + "." + side + " lost its source-free effect reconciliation");
+        const auto supplied_prefix = usk::lifecycle::detail::reconcile_maintenance_effect_from_inspected_prefix(
+            spec, transaction, history);
+        for (const auto* actual : {&reconciliation, &supplied_prefix}) {
+            if (actual->pending_kind != kind || actual->history_digest != history.journal_digest ||
+                actual->source_digest != history.source_digest || actual->state !=
+                    (effect_happened ? "compatible_after_effect" : "compatible_before_effect"))
+                throw std::runtime_error(operation + "." + kind + "." + side + " lost its source-free effect reconciliation");
+        }
+        if (!use_executor && operation == "repair" && kind == "replace_file" && effect_happened) {
+            // An inspected metadata pair must not cache an actual file result.
+            // Change a real owned fixture file after the pair was read, then
+            // require fresh refusal and fresh recovery after restoring bytes.
+            const auto path = target / fs::u8path(history.pending_details.at("relative_path").as_string());
+            const auto size = fs::file_size(path);
+            if (!size || size > 1024u) throw std::runtime_error("prefix fixture file is outside its bound");
+            std::string bytes(static_cast<std::size_t>(size), '\0');
+            {
+                std::ifstream input(path, std::ios::binary);
+                input.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+                if (!input) throw std::runtime_error("prefix fixture bytes are unreadable");
+            }
+            const auto before_sha = usk::base::StableFile(path).sha256_hex();
+            write_text(path, "changed after the inspected pair");
+            const auto changed = usk::lifecycle::detail::reconcile_maintenance_effect_from_inspected_prefix(
+                spec, transaction, history);
+            write_text(path, bytes);
+            const auto restored = usk::lifecycle::detail::reconcile_maintenance_effect_from_inspected_prefix(
+                spec, transaction, history);
+            if (changed.state != "indeterminate" || restored.state != "compatible_after_effect" ||
+                usk::base::StableFile(path).sha256_hex() != before_sha ||
+                usk::transaction::TransactionSession::inspect_recovery(spec).snapshot_sha256 != transaction.snapshot_sha256 ||
+                usk::transaction::MaintenanceEffectJournal::inspect(spec, transaction.stream_source_digest).journal_digest !=
+                    history.journal_digest)
+                throw std::runtime_error("inspected prefix hid current file drift or changed its journals");
+            auto malformed = history;
+            malformed.source_context = "{}";
+            if (!refuses([&] {
+                    (void)usk::lifecycle::detail::reconcile_maintenance_effect_from_inspected_prefix(
+                        spec, transaction, malformed);
+                })) throw std::runtime_error("inspected prefix accepted malformed original context");
+            std::cout << "Inspected-prefix current-file and malformed-context controls verified\n";
+        }
         const auto context = usk::json::parse(history.source_context);
         const auto reviewed = usk::lifecycle::detail::read_maintenance_reviewed_plan(spec);
         if (usk::json::sha256_canonical(reviewed.at("reviewed_plan")) != plan_digest ||
@@ -1386,8 +1424,13 @@ void require_sealed_maintenance(const usk::transaction::TransactionSpec& spec)
         history.completed_effects < 4u || history.source_context != transaction.stream_source_context)
         throw std::runtime_error("completed maintenance did not seal its original effect history");
     const auto reconciliation = usk::lifecycle::detail::reconcile_maintenance_effect(spec);
-    if (reconciliation.state != "no_pending_effect" || reconciliation.history_digest != history.journal_digest)
-        throw std::runtime_error("sealed maintenance still exposes a pending effect");
+    const auto supplied_prefix = usk::lifecycle::detail::reconcile_maintenance_effect_from_inspected_prefix(
+        spec, transaction, history);
+    for (const auto* actual : {&reconciliation, &supplied_prefix}) {
+        if (actual->state != "no_pending_effect" || actual->history_digest != history.journal_digest ||
+            actual->source_digest != history.source_digest || !actual->pending_kind.empty())
+            throw std::runtime_error("sealed maintenance still exposes a pending effect");
+    }
     if (!refuses([&] { (void)usk::transaction::MaintenanceEffectJournal::resume(spec,
             history.source_digest, history.journal_digest); }))
         throw std::runtime_error("sealed maintenance admitted further record continuation");

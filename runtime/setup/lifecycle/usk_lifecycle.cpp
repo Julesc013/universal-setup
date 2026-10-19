@@ -4041,6 +4041,14 @@ MaintenanceEffectReconciliation reconcile_maintenance_effect_unscoped(const tran
 {
     const auto transaction = transaction::TransactionSession::inspect_recovery(spec);
     const auto history = transaction::MaintenanceEffectJournal::inspect(spec, transaction.stream_source_digest);
+    return reconcile_maintenance_effect_from_inspected_prefix(spec, transaction, history);
+}
+
+MaintenanceEffectReconciliation reconcile_maintenance_effect_from_inspected_prefix(
+    const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& transaction,
+    const transaction::MaintenanceEffectInspection& history)
+{
     const auto context = json::parse(history.source_context);
     MaintenanceEffectReconciliation result;
     result.pending_kind = history.pending_kind;
