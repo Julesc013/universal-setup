@@ -172,6 +172,8 @@ public:
     // guarded original intent. Supplied observations confer no effect rights.
     void require_original_recovery_intent_observation(const usk::json::Value&) const;
     void require_fence() const;
+    // Refuse a writer-capable context even when its current operation is idle.
+    void require_read_only_inspection() const;
     // Read-only inspection of this operation's reserved, pre-candidate
     // bootstrap. Only an exact original sourceful apply may preserve it.
     bool bootstrap_resume_required() const;

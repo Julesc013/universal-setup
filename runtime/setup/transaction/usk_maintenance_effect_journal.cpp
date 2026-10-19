@@ -247,6 +247,10 @@ Value read_record(const fs::path& path, std::uint64_t& bytes)
 } // namespace
 
 namespace usk::transaction {
+void require_maintenance_source_context(const TransactionSpec& spec, const std::string& text) {
+    validate_context(spec, text);
+}
+
 MaintenanceEffectJournal::MaintenanceEffectJournal(TransactionSpec spec,
     const std::string& source_context, FaultInjector injector)
     : spec_(std::move(spec)), injector_(std::move(injector))

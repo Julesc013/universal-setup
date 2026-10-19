@@ -1,6 +1,7 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
 #include "usk_publisher_installation_lease.h"
+#include "usk_publisher_recovery_history_internal.h"
 #if defined(_WIN32)
 #include "usk_publisher_anchor_create.h"
 #include "usk_publisher_bound_rename.h"
@@ -396,6 +397,309 @@ Value observe_publisher_original_maintenance_lease(HANDLE state_root,
     return observe_original_maintenance_custody(state_root, volume_root, service_name,
         guard, context, authenticated_user_sid).at("original_lease_ownership");
 }
+
+PublisherOriginalMaintenanceHistory observe_publisher_original_maintenance_history(
+    HANDLE volume, const std::wstring& volume_root, const std::wstring& service_name,
+    const PublisherInstallOperationGuard& guard, const PublisherInstallOperationContext& context,
+    const PublisherMaintenanceStateSnapshot& original_state, PublisherEffectExecutionOwner& owner,
+    HANDLE cancellation_observer, std::uint64_t deadline_tick)
+{
+    constexpr std::size_t journal_limit = 4u * 1024u * 1024u;
+    constexpr std::size_t plan_limit = 8u * 1024u * 1024u;
+    constexpr std::size_t effect_record_limit = 32768u;
+    constexpr std::size_t effect_bytes_limit = 64u * 1024u * 1024u;
+    constexpr std::size_t effect_count_limit = 200002u;
+    const auto started = GetTickCount64();
+    if (deadline_tick <= started || deadline_tick - started > 120000u)
+        throw std::runtime_error("maintenance history deadline is outside the admitted bound");
+    const auto budget = [&] {
+        if (GetTickCount64() >= deadline_tick || !cancellation_observer ||
+            cancellation_observer == INVALID_HANDLE_VALUE ||
+            WaitForSingleObject(cancellation_observer, 0) != WAIT_TIMEOUT)
+            throw std::runtime_error("maintenance history cancelled or deadline exhausted");
+    };
+    budget();
+    context.require_read_only_inspection();
+    const std::string request = owner.canonical_request();
+    const auto selected = owner.selected_original_maintenance_recovery();
+    if (!selected.at("present").as_boolean()) throw InstallLeaseStale();
+    context.require_original_recovery_intent_observation(selected.at("intent"));
+    const auto service = owner.observe_current().service;
+    const auto registration = owner.service_admission().at("registered_admission");
+    const auto client = owner.authenticated_object_access(volume).at("client");
+    const auto& user_sid = client.at("user_sid").as_string();
+    const auto& intent = context.record();
+    const auto& snapshot = intent.at("reviewed_snapshot");
+    const auto& plan = snapshot.at("reviewed_plan");
+    const auto& install_id = intent.at("install_id").as_string();
+    const auto& operation_id = intent.at("operation_id").as_string();
+    const auto& operation = intent.at("operation").as_string();
+    const auto volume_facts = observe_publisher_directory_handle(volume);
+    const auto& registered_volume = registration.at("target_identity").at("volume_identity");
+    if (service.service_name != service_name ||
+        registration.at("service_name").as_string() != std::filesystem::path(service_name).u8string() ||
+        registration.at("service_sid").as_string() != service.service_sid ||
+        registration.at("process_id").as_unsigned() != service.process_id ||
+        registration.at("configured_caller_sid").as_string() != user_sid ||
+        registered_volume.at("volume_root").as_string() != std::filesystem::path(volume_root).u8string() ||
+        registered_volume.at("root_file_id").as_string() != volume_facts.file_id ||
+        registered_volume.at("volume_serial").as_string() !=
+            root_identity(volume, service.service_sid).at("volume_serial").as_string() ||
+        snapshot.at("schema").as_string() != "usk.publisher.maintenance_reviewed_snapshot.v2" ||
+        (operation != "repair" && operation != "move" && operation != "uninstall"))
+        throw InstallLeaseStale();
+    const auto outer_fence = [&] {
+        budget();
+        guard.require_owned(volume_root, install_id);
+        context.require_read_only_inspection();
+        original_state.require_custody();
+        context.require_bound_state_roots(original_state.setup_root(), original_state.state_root());
+        if (!equal(original_state.installed_state(), snapshot.at("installed_state")) ||
+            !equal(original_state.ownership_manifest(), snapshot.at("ownership_manifest")) ||
+            original_state.initial_state_revision() != snapshot.at("initial_state_revision").as_string() ||
+            !equal(root_identity(volume, service.service_sid), snapshot.at("volume_root_identity")) ||
+            !equal(root_identity(original_state.setup_root(), service.service_sid), snapshot.at("setup_root_identity")) ||
+            !equal(root_identity(original_state.state_root(), service.service_sid), snapshot.at("state_root_identity")))
+            throw InstallLeaseStale();
+        budget();
+    };
+    outer_fence();
+    const auto original = observe_original_maintenance_custody(original_state.state_root(),
+        volume_root, service_name, guard, context, user_sid);
+    budget();
+    const auto text_sha256 = [](const std::string& text) {
+        usk::base::Sha256 hash;
+        hash.update(reinterpret_cast<const std::uint8_t*>(text.data()), text.size());
+        return hash.finish();
+    };
+    PublisherOriginalMaintenanceHistory result;
+    result.original_intent_sha256 = text_sha256(usk::json::canonical(intent) + "\n");
+    result.original_custody_sha256 = text_sha256(usk::json::canonical(original) + "\n");
+    const auto installed_root = std::filesystem::u8path(original_state.installed_state().at("target_root").as_string());
+    result.spec = TransactionSpec{operation_id, plan.at("plan_id").as_string(), usk::json::sha256_canonical(plan),
+        operation, std::filesystem::u8path(plan.at("staging_parent").as_string()),
+        operation == "move" ? std::filesystem::u8path(plan.at("new_root").as_string()) :
+            installed_root.parent_path() / ((operation == "repair" ? ".usk-repair-" : ".usk-uninstall-") + operation_id),
+        std::filesystem::u8path(plan.at("state_root").as_string()),
+        std::filesystem::u8path(plan.at("audit_root").as_string())};
+    const auto& spec = result.spec;
+    for (const auto& path : {installed_root, spec.staging_parent, spec.target_root, spec.state_root, spec.audit_root})
+        if (!path.is_absolute() || path.lexically_normal() != path) throw InstallLeaseStale();
+    if (spec.state_root.parent_path().filename().u8string() != snapshot.at("setup_component").as_string() ||
+        spec.audit_root.parent_path() != spec.state_root.parent_path()) throw InstallLeaseStale();
+    require_path_capacity(spec);
+
+    struct Directory {
+        HANDLE parent;
+        PublisherDirectoryEntry entry;
+        std::unique_ptr<Handle> held;
+        PublisherHandleObservation facts;
+    };
+    std::vector<Directory> directories;
+    const auto open_directory = [&](HANDLE parent, const PublisherDirectoryEntry& entry) {
+        budget();
+        Handle opened(open_publisher_listed_child(parent, entry));
+        auto held = std::make_unique<Handle>(std::move(opened));
+        (void)root_identity(held->get(), service.service_sid);
+        auto facts = observe_publisher_directory_handle(held->get());
+        const HANDLE handle = held->get();
+        directories.push_back(Directory{parent, entry, std::move(held), std::move(facts)});
+        budget();
+        return handle;
+    };
+    const auto required_directory = [&](HANDLE parent, const std::wstring& name) {
+        budget();
+        const auto entry = child(parent, name);
+        if (!entry) throw InstallLeaseStale();
+        return open_directory(parent, *entry);
+    };
+    const auto same_entry = [](const PublisherDirectoryEntry& a, const PublisherDirectoryEntry& b) {
+        return a.name == b.name && a.file_id == b.file_id && a.attributes == b.attributes &&
+            a.reparse_tag == b.reparse_tag && a.listing_size == b.listing_size;
+    };
+    const auto listing = [&](HANDLE parent, std::size_t count_limit) {
+        budget();
+        auto entries = observe_publisher_directory_entries(parent);
+        if (entries.size() > count_limit) throw std::runtime_error("maintenance history entry bound exceeded");
+        std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) { return a.name < b.name; });
+        for (std::size_t index = 1; index < entries.size(); ++index)
+            if (entries[index - 1].name == entries[index].name) throw InstallLeaseStale();
+        budget();
+        return entries;
+    };
+    struct File {
+        HANDLE parent;
+        std::wstring name;
+        std::optional<PublisherDirectoryEntry> entry;
+        PublisherHandleObservation facts;
+        std::size_t bytes;
+        std::string digest;
+    };
+    std::vector<File> files;
+    const auto listed_text = [&](HANDLE parent, const PublisherDirectoryEntry& entry, std::size_t limit) {
+        budget();
+        Handle file(open_publisher_listed_child(parent, entry));
+        const auto facts = observe_publisher_file_handle(file.get());
+        auto text = read_held_text(file.get(), service.service_sid, limit);
+        files.push_back(File{parent, entry.name, entry, facts, text.size(), text_sha256(text)});
+        budget();
+        return text;
+    };
+    const auto selected_text = [&](HANDLE parent, const std::wstring& name, std::size_t limit) -> std::optional<std::string> {
+        budget();
+        const auto entry = child(parent, name);
+        if (entry) return listed_text(parent, *entry, limit);
+        files.push_back(File{parent, name, std::nullopt, {}, 0u, {}});
+        return std::nullopt;
+    };
+    const auto journal_identity = [](HANDLE directory) {
+        BY_HANDLE_FILE_INFORMATION info{};
+        if (!GetFileInformationByHandle(directory, &info)) throw InstallLeaseStale();
+        std::ostringstream text;
+        text << std::hex << std::setfill('0') << std::setw(16) << info.dwVolumeSerialNumber << ':' <<
+            std::setw(16) << ((static_cast<std::uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow);
+        return text.str();
+    };
+    const HANDLE transactions = required_directory(original_state.state_root(), L"transactions");
+    const std::wstring tx(operation_id.begin(), operation_id.end());
+    const auto journal_text = selected_text(transactions, tx + L".journal.json", journal_limit);
+    std::optional<Value> source;
+    if (journal_text) {
+        result.journal = TransactionSession::decode_journal_history(spec, *journal_text);
+        require_maintenance_source_context(spec, result.journal->stream.source_context);
+        source = usk::json::parse(result.journal->stream.source_context);
+        const auto& installed = original_state.installed_state();
+        const auto& source_root = source->at("installed_root");
+        if (source->at("install_id").as_string() != install_id ||
+            source->at("original_installed_transaction_id").as_string() != installed.at("transaction_id").as_string() ||
+            source->at("original_installed_state_digest").as_string() != installed_plan_digest(installed) ||
+            source->at("ownership_manifest_ref").as_string() != installed.at("ownership_manifest_ref").as_string() ||
+            source->at("ownership_manifest_digest").as_string() != installed.at("ownership_manifest_digest").as_string() ||
+            source->at("original_source_archive_digest").as_string() != installed.at("source_archive_digest").as_string() ||
+            source->at("policy_digest").as_string() != plan.at("policy_digest").as_string() ||
+            source->at("applied_at").as_string() != snapshot.at("apply_request").at("applied_at").as_string() ||
+            source_root.at("root").as_string() != installed_root.generic_u8string() ||
+            source_root.at("native_identity").type() == Value::Type::null_value ||
+            source_root.at("native_identity").as_string() != original.at("installed_root_journal_identity").as_string() ||
+            source->at("state_root").at("native_identity").as_string() != journal_identity(original_state.state_root()))
+            throw InstallLeaseStale();
+    }
+    budget();
+    const auto effect_entry = child(transactions, tx + L".maintenance");
+    std::vector<PublisherDirectoryEntry> effect_entries;
+    HANDLE effects = nullptr;
+    if (effect_entry) {
+        if (!result.journal) throw InstallLeaseStale();
+        effects = open_directory(transactions, *effect_entry);
+        result.effect_directory_present = true;
+        result.effect_directory_identity = journal_identity(effects);
+        effect_entries = listing(effects, effect_count_limit);
+        if (!effect_entries.empty()) {
+            MaintenanceEffectRecordReader reader(spec, result.effect_directory_identity,
+                result.journal->stream.source_digest, effect_entries.size(), false);
+            std::size_t bytes = 0u;
+            for (const auto& entry : effect_entries) {
+                const auto text = listed_text(effects, entry,
+                    (std::min)(effect_record_limit, effect_bytes_limit - bytes));
+                bytes += text.size();
+                reader.consume(std::filesystem::path(entry.name).u8string(), text);
+            }
+            result.effects = reader.finish();
+            if (result.effects->source_context != result.journal->stream.source_context) throw InstallLeaseStale();
+        }
+    }
+    const auto plan_text = selected_text(transactions, tx + L".maintenance-plan.json", plan_limit);
+    if (plan_text) {
+        if (!source) throw InstallLeaseStale();
+        const auto digest = text_sha256(*plan_text);
+        const auto artifact = usk::json::parse(*plan_text, {plan_limit, 64u, 2000000u, plan_limit});
+        exact_fields(artifact, {"schema", "transaction_id", "operation", "install_id", "plan_digest",
+            "reviewed_plan", "original_owned_objects"});
+        if (digest != source->at("reviewed_plan_sha256").as_string() ||
+            usk::json::canonical(artifact) + "\n" != *plan_text ||
+            artifact.at("schema").as_string() != "usk.maintenance_reviewed_plan.v1" ||
+            artifact.at("transaction_id").as_string() != operation_id ||
+            artifact.at("operation").as_string() != operation || artifact.at("install_id").as_string() != install_id ||
+            artifact.at("plan_digest").as_string() != spec.plan_digest || !equal(artifact.at("reviewed_plan"), plan))
+            throw InstallLeaseStale();
+        (void)artifact.at("original_owned_objects").as_array();
+        result.observed_reviewed_plan_sha256 = digest;
+    }
+    budget();
+    result.current_installed_revision = observe_publisher_install_state_revision(original_state.state_root(),
+        install_id, service.service_sid);
+    budget();
+    result.lease = observe_publisher_installation_lease_history(original_state.state_root(), volume_root,
+        service_name, guard, original.at("original_lease_ownership"));
+    budget();
+    const HANDLE leases = required_directory(original_state.state_root(), L"leases");
+    const auto install_digest = usk::json::sha256_canonical(Value(install_id));
+    const HANDLE lease_records = required_directory(leases, L"install-" + std::wstring(install_digest.begin(), install_digest.end()));
+    const HANDLE pending = required_directory(lease_records, L"pending");
+    const auto pending_entries = listing(pending, history_limit);
+    Value::Array pending_names;
+    for (const auto& entry : pending_entries) pending_names.emplace_back(std::filesystem::path(entry.name).u8string());
+    result.lease_pending_entry_count = static_cast<std::uint64_t>(pending_entries.size());
+    result.lease_pending_names_sha256 = usk::json::sha256_canonical(Value(std::move(pending_names)));
+
+    // No output is published until every selected returned byte sequence and
+    // complete selected membership has survived a second native read. This
+    // is a finite observation bracket, not continuous filesystem monitoring.
+    for (const auto& file : files) {
+        budget();
+        // The complete effect listing is rechecked below; reopen each exact
+        // listed member directly rather than enumerate N records N times.
+        const auto entry = file.parent == effects ? file.entry : child(file.parent, file.name);
+        if (!file.entry) { if (entry) throw InstallLeaseStale(); continue; }
+        if (!entry || !same_entry(*file.entry, *entry)) throw InstallLeaseStale();
+        Handle current(open_publisher_listed_child(file.parent, *entry));
+        if (!detail::equal_publisher_handle_observations(file.facts, observe_publisher_file_handle(current.get())))
+            throw InstallLeaseStale();
+        const auto text = read_held_text(current.get(), service.service_sid, file.bytes);
+        if (text.size() != file.bytes || text_sha256(text) != file.digest) throw InstallLeaseStale();
+    }
+    const auto require_listing = [&](HANDLE parent, const std::vector<PublisherDirectoryEntry>& expected, std::size_t limit) {
+        const auto actual = listing(parent, limit);
+        if (actual.size() != expected.size()) throw InstallLeaseStale();
+        for (std::size_t index = 0; index < actual.size(); ++index)
+            if (!same_entry(actual[index], expected[index])) throw InstallLeaseStale();
+    };
+    if (effects) require_listing(effects, effect_entries, effect_count_limit);
+    else if (child(transactions, tx + L".maintenance")) throw InstallLeaseStale();
+    require_listing(pending, pending_entries, history_limit);
+    if (observe_publisher_install_state_revision(original_state.state_root(), install_id, service.service_sid) !=
+        result.current_installed_revision) throw InstallLeaseStale();
+    budget();
+    const auto lease = observe_publisher_installation_lease_history(original_state.state_root(), volume_root,
+        service_name, guard, original.at("original_lease_ownership"));
+    if (lease.committed_records_sha256 != result.lease.committed_records_sha256 ||
+        lease.committed_record_count != result.lease.committed_record_count ||
+        !equal(lease.latest_committed_record, result.lease.latest_committed_record) ||
+        lease.original_completion.has_value() != result.lease.original_completion.has_value() ||
+        (lease.original_completion && !equal(*lease.original_completion, *result.lease.original_completion)))
+        throw InstallLeaseStale();
+    for (const auto& directory : directories) {
+        budget();
+        const auto entry = child(directory.parent, directory.entry.name);
+        if (!entry || !same_entry(*entry, directory.entry)) throw InstallLeaseStale();
+        Handle current(open_publisher_listed_child(directory.parent, *entry));
+        (void)root_identity(current.get(), service.service_sid);
+        (void)root_identity(directory.held->get(), service.service_sid);
+        if (!detail::equal_publisher_handle_observations(directory.facts, observe_publisher_directory_handle(current.get())) ||
+            !detail::equal_publisher_handle_observations(directory.facts, observe_publisher_directory_handle(directory.held->get())))
+            throw InstallLeaseStale();
+    }
+    if (!equal(original, observe_original_maintenance_custody(original_state.state_root(), volume_root,
+            service_name, guard, context, user_sid)) || request != owner.canonical_request() ||
+        !equal(registration, owner.service_admission().at("registered_admission")) ||
+        !equal(client, owner.authenticated_object_access(volume).at("client"))) throw InstallLeaseStale();
+    const auto final_selection = owner.selected_original_maintenance_recovery();
+    if (!equal(selected, final_selection)) throw InstallLeaseStale();
+    context.require_original_recovery_intent_observation(final_selection.at("intent"));
+    outer_fence();
+    return result;
+}
+
 
 std::string observe_publisher_completed_maintenance_root_id(HANDLE state_root,
     const std::wstring& volume_root, const std::wstring& service_name,
@@ -1542,6 +1846,10 @@ void PublisherInstallOperationContext::prepare_publication(const PublisherInstal
     impl_->prepare_publication(lease);
 }
 void PublisherInstallOperationContext::require_fence() const { impl_->fence(); }
+void PublisherInstallOperationContext::require_read_only_inspection() const {
+    impl_->fence();
+    if (!impl_->read_only) throw InstallLeaseStale();
+}
 
 struct PublisherInstallationLease::Impl {
     HANDLE state_root;

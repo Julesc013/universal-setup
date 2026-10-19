@@ -662,6 +662,28 @@ int main(int argc, char** argv) {
         fs::rename(journal, journal.string() + ".withheld");
         require(TransactionSession::decode_completed_history(spec, text).snapshot_sha256 == baseline.snapshot_sha256);
         refuses([&] { (void)TransactionSession::inspect_completed_history(spec); });
+        // The original native reader also needs to validate the first durable
+        // source context before any effect record exists. This supplied-byte
+        // check must remain independent of the original journal's pathname.
+        require_maintenance_source_context(spec, baseline.stream.source_context);
+        refuses([&] { require_maintenance_source_context(wrong, baseline.stream.source_context); });
+        auto wrong_role = spec; wrong_role.operation = "repair";
+        refuses([&] { require_maintenance_source_context(wrong_role, baseline.stream.source_context); });
+        auto wrong_plan = spec; wrong_plan.plan_digest = std::string(64, '0');
+        refuses([&] { require_maintenance_source_context(wrong_plan, baseline.stream.source_context); });
+        auto wrong_root = spec; wrong_root.state_root /= "other";
+        refuses([&] { require_maintenance_source_context(wrong_root, baseline.stream.source_context); });
+        refuses([&] { require_maintenance_source_context(spec, baseline.stream.source_context + " "); });
+        refuses([&] { require_maintenance_source_context(spec, std::string(16385u, ' ')); });
+        auto invalid_context = usk::json::parse(baseline.stream.source_context);
+        invalid_context.as_object().at("policy_digest") = usk::json::Value("invalid");
+        refuses([&] { require_maintenance_source_context(spec, usk::json::canonical(invalid_context)); });
+        // Data-shape validation cannot establish an original install binding.
+        // The native owner must compare even a well-formed different ID.
+        auto different_install = usk::json::parse(baseline.stream.source_context);
+        different_install.as_object().at("install_id") = usk::json::Value("other.install");
+        require_maintenance_source_context(spec, usk::json::canonical(different_install));
+
         fs::rename(journal.string() + ".withheld", journal);
 
         const auto directory = spec.state_root / "transactions" / (tx + ".maintenance");
