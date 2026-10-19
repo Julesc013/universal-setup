@@ -439,6 +439,78 @@ foreach($variant in @('ordinary','original_failure','copied_failure','changed_ca
                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stdout.decode(errors="replace"))
 
+    def test_post_deadline_observation_cannot_redeem_original_failure(self):
+        # Execute the real catch tail with an inert delay/client observation.
+        # No service, native caller, worker or recovered state is constructed.
+        root = Path(__file__).resolve().parents[1]
+        code = r"""$ErrorActionPreference='Stop'
+$text=[IO.File]::ReadAllText($env:USK_READER_SOURCE)
+$start=$text.IndexOf('        # Keep the failed request sticky;')
+$end=$text.IndexOf('        throw $requestFailure',$start)
+if($start -lt 0 -or $end -le $start){throw 'Original failure tail is ambiguous'}
+$body=$text.Substring($start,$end-$start)+'        throw $requestFailure'
+$script:delays=@()
+function Start-Sleep {param([int]$Milliseconds)
+ $script:delays+=@($Milliseconds)
+ if($variant -ceq 'observer_failure'){throw 'inert late observer failure'}
+}
+foreach($variant in @('late_success','late_failure','observer_failure','wrong_command',
+ 'other_failure','not_recovery','unbound','qualification_changed')) {
+ $MaintenanceRecoveryQualification=$variant -cne 'not_recovery'
+ $Command=if($variant -ceq 'wrong_command'){'repair.apply'}else{'repair.recover'}
+ $failureText=if($variant -ceq 'other_failure'){'original different failure'}else{'Standard public client exceeded its deadline'}
+ $requestId='public.'+('a'*32)
+ try {throw [TimeoutException]::new($failureText)} catch {$requestFailure=$_}
+ $failed=[ordered]@{scope='original_failed_request_before_cleanup';qualification_granted=$false;
+  command=$Command;request_id=$requestId;failure=$failureText;readback=$null;
+  output_files=@{stdout=@{status='unknown'};native_response=@{exists=$false}}}
+ if($variant -ceq 'qualification_changed'){$failed.qualification_granted=$true}
+ $receipt=@{request_execution_failure=$failed}
+ if($variant -ceq 'unbound'){$receipt.request_execution_failure=@{}}
+ $before=$failed|ConvertTo-Json -Depth 12 -Compress
+ $sampleClient={return [ordered]@{has_exited=$true;exit_code=$(if($variant -ceq 'late_success'){0}else{5})}}
+ $priorDelays=$script:delays.Count;$caught=$null
+ try {& ([scriptblock]::Create($body))} catch {$caught=$_}
+ if(-not $caught -or -not [object]::ReferenceEquals($caught.Exception,$requestFailure.Exception)){
+  throw 'Late observation replaced the original request failure'
+ }
+ $expected=$variant -cin @('late_success','late_failure','observer_failure')
+ if($expected) {
+  if($script:delays.Count -ne $priorDelays+1 -or $script:delays[-1] -ne 20000){
+   throw 'Post-deadline observation delay differs'
+  }
+  $late=$failed.post_deadline_observation
+  if($late.schema -cne 'usk.publisher_post_deadline_observation.v1' -or
+   $late.scope -cne 'after_original_failed_request_capture_before_cleanup' -or
+   $late.request_id -cne $requestId -or $late.qualification_granted -ne $false -or
+   $late.requested_delay_milliseconds -ne 20000 -or -not $late.finished_at_utc){
+   throw 'Post-deadline observation lost its separate diagnostic binding'
+  }
+  if($variant -ceq 'late_success' -and $late.client_after.exit_code -ne 0){throw 'Late-success control did not enter'}
+  if($variant -ceq 'observer_failure' -and $late.failure -cne 'inert late observer failure'){
+   throw 'Observer failure was not retained separately'
+  }
+  $failed.Remove('post_deadline_observation')
+ } elseif($script:delays.Count -ne $priorDelays -or $failed.Contains('post_deadline_observation')){
+  throw 'Unadmitted case entered post-deadline observation'
+ }
+ if(($failed|ConvertTo-Json -Depth 12 -Compress) -cne $before){
+  throw 'Late observation changed original failure, output or readback evidence'
+ }
+}
+"""
+        for binary in ('powershell', 'pwsh'):
+            executable = shutil.which(binary)
+            self.assertIsNotNone(executable)
+            with self.subTest(binary=binary):
+                result = subprocess.run(
+                    [executable, '-NoProfile', '-NonInteractive', '-EncodedCommand',
+                     base64.b64encode(code.encode('utf-16le')).decode()],
+                    env=dict(os.environ, USK_READER_SOURCE=str(
+                        root / 'tests/windows_publisher_standard_public_probe.ps1')),
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout.decode(errors='replace'))
+
     def test_incomplete_original_failure_rows_remain_separate_and_refused(self):
         # Actual reader control flow, inert diagnostic data; no native authority.
         root = Path(__file__).resolve().parents[1]
