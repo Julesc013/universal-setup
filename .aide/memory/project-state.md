@@ -1,93 +1,85 @@
 # Universal Setup Project State
 
 Continue USK-SPEC-TO-RELEASE-01 from the existing implementation, inventory
-and WorkUnit bindings. First release:1.1.0 Local Setup Foundation; broader
-specification completion is separate. Use the sole registered worktree/reusable
-build and existing laboratory; the external compact checkpoint holds live pins.
+and WorkUnit bindings. First release:1.1.0 Local Setup Foundation; complete
+specification completion remains separate. Reuse sole worktree/build/laboratory.
 
-Accepted dev97da127f52902c5ed310d677f016a6dd557a2f5e, normal PR282 merge,
-tree1150c65f0abf56414f4296cf4de53c0fcf0a891a. Submitted ae99051288b774708c1b2a5f1f1c3f1bd4a98d66
-passed all seven core checks in39305251794; actual independent committed review
-and live dev gate passed. Accepted push39307353685 passed all seven core checks. Earlier accepted
-PR281 push39300018972 passed all seven core checks. Main c048f7f1ae2e5922c15a08ee572bdafc29027c63
-remains unqualified. Continue reviewed daily dev and qualified weekly main merges.
+Accepted devfd193fb442454a35aa06ea0db73cc8bcd8f712ac/tree304133c280fb65273602f6a675c7cb9902fb38a1
+is the normal PR283 merge. Submitted3d9c29fb47e6949d9ed79993ab0bb2802d1d592e
+passed all seven required core checks in39312078992/1; accepted push39314240433
+also passed all seven. Earlier c03 preflight failure remains retained; its
+unique AdmittedTarget selector repair preserved original admission assertions.
+Mainc048f7f1ae2e5922c15a08ee572bdafc29027c63 remains unqualified.
+Continue reviewed daily dev integration; weekly main promotion requires its gates.
 
-PR281 run39297457096/1 builds synthetic565368c8db2d836267ab717e20fc810cd0ca33c1
-with tree224fd8837dd63dcdcea72fcb9d93bd657d775e12. Both diagnostic genuinely
-interrupted source-retired repair recoveries now returned matching native/client
-completed reports within the unchanged120-second harness contract. The actual
-original worker ended, source was retired, generation advanced4→5, independent
-state/file checks and ordinary installed.verify passed with104 native rows;
-client/account cleanup was confirmed. With/without WPR is the established
-distinction; both binaries enable qualification diagnostics. Release-default OFF
-recovery remains pending at this checkpoint. One passing pair is not reliability
-or whole-profile acceptance; prior failed runs and partial traces remain retained.
+The actual fresh eight-request public C SDK lifecycle producer21 and collector22
+passed in39312078992/1. Retained raw receipt7633027B/SHA256
+2509cc27f9223b14a64de2f263c274fe7a8fe8a55a3c0022748998bf3d77f3a0
+contains actual command_response results: install, source-retired reentry, verify,
+repair, verify, move, verify, uninstall. Standard clients were captured before
+resume and closed; account cleanup confirmed. Independent readbacks bind completed
+journals, sealed histories, lease generations4/5/6, actual original repair bytes,
+four retained/distinct copied move objects and retired/absent uninstall root.
+Compact result T/pr283-3d9c29f-sdk-eight-request-results-r1.json.
+This is a tiny-consumer result, not whole-profile or predecessor compatibility.
+Actual synthetic build commit is not independently retained in this SDK receipt.
+SDK public recovery.apply still refuses before dispatch; connecting native recovery
+must preserve all reviewed caller digests and finalize/rollback action.
 
-The packaged32MiB repair and uninstall completed in this same run, but publisher
-retirement failed: its post-delete-and-close SCM probe still saw presence. Later
-readback saw service absent and protected binary retained. No conflicting handle
-owner or deletion duration is established. This is separate from recovery.
+SCM PR282 ae99051 run39305251794/1 is terminal FAIL, all seven core PASS.
+Selected held-query-handle retirement and both packaged journeys passed; actual
+1072 was not observed. All three genuinely interrupted/source-retired repair
+recoveries26/28/90 failed the unchanged120-second client deadline, including
+release-default diagnostics OFF. UNKNOWN/no native completion and incomplete
+Error32 readback do not establish final outcome or conflicting handle ownership.
+Earlier PR281 c66 run39297457096/1 passed all three recovery cohorts but failed
+the older retirement step; retain those positives without current reliability.
+Current PR283 publisher is still running. Its packaged step9 failed because the
+concurrent rename attacker did not overlap the publisher call; overlap/security
+qualification is missing. This is distinct from a proven product or SCM-retirement
+failure. Later packaged controller was not produced after that prerequisite failed.
+Retain that failure; do not waive the safety scenario or attribute absent later
+receipts to another executed defect.
 
-The current reviewed SCM increment preserves the existing2-second monotonic
-window,81 probes and25ms sleeps. Only after the owner's confirmed DeleteService
-and original handle close may read-only, confirmed-closed present probes or1072
-settle. Only timely actual1060 succeeds. The separate fresh strict absence/full
-custody, owner, record, image and native effect checks remain before disposition.
-Unknown error or close failure refuses; no deletion retry, foreign handle close,
-replacement adoption or deadline expansion. Native RPC is not hard-wall bounded.
-Strict absence remains immediate. New inert controls exercise the actual loop;
-hosted held-handle and owned-retirement qualification are still required.
+The current bounded inspected-prefix reuse increment removes only duplicate
+immediate TX/history observations in three fixed original-child read-only
+reconciliation consumers. First actual pair, original-owner selection, fresh
+per-object file observations, closing exact pair/full recipe exit, sticky
+failure, provisional result boundaries and all native effect fences remain.
+The ordinary wrapper, ineligible original-child route and SCM keep independent
+reads. Earlier duplicate sampling/refusal instants are deliberately unclaimed;
+read-only code and held handles do not imply filesystem/security immutability.
+No new callback, scope, budget, deadline, grant/effect or public ABI is introduced.
 
-R1 source review caught strict1072 diagnostic mismatch and overbroad hosted
-refusal checks. R2 preserves zero-count strict diagnostics and shares test-only
-closed predicates with inert controls: actual intended completion-bound present/
-pending is accepted as appropriate; unexpected5/123/0 and late1060 are rejected
-as timeout evidence. Botharch strict preview/control checks and bounded delta
-review passed; applied x64 native/hosted targets and three selected tests passed,
-with native Win32 library/two supported tests passing. The initial Win32 command
-named x64-only targets and failed before compilation; its correction is retained.
-Actual hosted SCM retirement remains pending. This source is integrated in dev;
-the28 inventory SHA leaves changed without classification/acceptance changes.
+R1 source review HOLD found one inactive-recipe eligibility gap. R2 requires
+original_child && active_read_recipe and passed bounded delta source review
+/root/review_query_composition:recovery-prefix-reuse-r2, review SHA256
+48b4e4a25e378f3bfd1025d270cdd131198cb51cdda7f8042ad2478235a5e264.
+Four exact approved postimages applied from patch SHA256
+e33079f790ec58d35a73bbd5f5c6e5259a78c3aac28c951808911e2d0439a31f.
+Existing real interruption/sealed fixtures check expected states on both paths;
+one real file drift after metadata capture must remain indeterminate, restoring
+bytes must be observed freshly, and malformed context must refuse.
+R1 and changed R2 strict x64/Win32 syntax passed. All six selected linked
+lifecycle/interruption/adversarial tests passed across x64/Win32; new controls
+were positively observed on both architectures. Actual lifecycle times were
+212.97/217.24s. Retained initial launcher failure preceded tests; corrected
+attempt passed interruption/adversarial but used an incorrect180s full-fixture
+bound against the preceding261.06s baseline. Bounded420s rerun passed without
+changing the120s public request contract. No performance cure is inferred.
+39 inventory SHA leaves were refreshed without classification/count/acceptance
+changes. T/recovery-prefix-reuse-r2/targeted-validation-results.json binds the
+actual postimages, logs, resource receipts and retained failures.
+Protected native route, temporal refusals, actual request deadline improvement,
+full publisher/main/release remain unqualified. Final committed review and
+fresh required core/live gates remain necessary for development integration.
 
-The reviewed SDK lifecycle harness is now applied separately on accepted dev97da127.
-It opts one fresh tiny-product fixture into actual public-header C consumer
-installation, source-retired reentry, verification, repair, move and uninstall:
-eight completed SDK calls with held standard-client capture and confirmed cleanup.
-It retains explicit private recovery, original CLI cohorts and independent
-state/security/lease/journal/history/file/move/uninstall assertions. A raw public
-command_response remains distinct from CLI oneshot output; no wrapper or fallback
-may synthesize success. The initial owner-planned seven postimages are unchanged
-from the approved preview and reviewed parent transfer. Forty-three inventory
-hash leaves were refreshed, without classification/acceptance changes.
-Actual eight-request SDK execution remains NOT RUN. Submittedc03b88e run39307922295
-failed only native-windows core CTest usk_publisher_apply_control_preflight;
-publisher qualification and the SDK producer were skipped, not executed failures.
-No merge was attempted. The preflight selected the firstIf after a new SDK
-profile guard preceded its intended AdmittedTarget guard. Actual full production
-admission remained enforced. The exact failure is reproduced locally.
-The reviewed repair selects the unique intended guard without changing any
-original closed-profile matrix or assertion. It additionally exercises41 actual
-SDK guard cases at outer, inner and launcher boundaries. The complete original
-fixture-control function with this delta passed PowerShell5.1/7. The actual
-applied CTest usk_publisher_apply_control_preflight passed in8.93seconds using
-the reused x64 build. Final committed binding and fresh submitted-head checks
-remain required; the old failed CI run remains failed.
-All seven SDK harness/workflow postimages remain unchanged from approved R2;
-only this test file and current memory change. The inventory does not reference
-the changed preflight file; its bytes/counts/classifications remain unchanged.
-Public SDK recovery still needs its full reviewed digests and action when
-connecting native execution; no ABI/engine or native-recovery change is included.
-
-The accepted SCM source has now passed actual held-query-handle qualification:
-seven present observations followed by native absence at probe8;1072 was not
-observed in that native case. Both packaged machine/controller repair, uninstall
-and owned retirement completed, with independent after-readback, service absent,
-protected binary removed and clients closed. The later standard receipt binds
-actual synthetic build0595d0e5c18a43deaff035f2366d9ec102f198e8/tree1150 and
-identical service bytes across those journeys. Its selected SDK source-retired
-reentry/public verification passed against independent file hashes. These are
-selected positives; full current-head recovery/publisher qualification and the
-new fresh SDK lifecycle remain pending. Main and release remain unqualified.
+The retained trace supports repeated native authority/record observation work;
+98 complete captured authority fences each had one combined record proof/two
+broker selections, so combined-admission fallback was not observed there.
+Later diagnostic emission exhausted its cap; no bulk whole-request conclusion.
+Partial stacks/source lines are inclusive and conditional, not removable cost.
+The old eight-query R102 preview stays unapplied/rejected.
 
 AIDE frozen1.1.0 import preserved target customization; its safe installed
 self-test still fails NameError local_skeleton, tracked with upstream issue6.
