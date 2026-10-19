@@ -601,6 +601,53 @@ usk::json::Value device_acl_diagnostic(HANDLE handle) {
     }
 }
 
+// Additional observations only after strict admission has already refused.
+// Both APIs use the same still-owned handle; sequential reads do not prove
+// an atomic snapshot, a reset cause, or which actor changed a descriptor.
+usk::json::Value device_file_api_diagnostic(HANDLE handle) {
+    using usk::json::Value;
+    const auto started = GetTickCount64();
+    DWORD api_result = ERROR_GEN_FAILURE;
+    try {
+        PSECURITY_DESCRIPTOR descriptor = nullptr;
+        api_result = GetSecurityInfo(handle, SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+            nullptr, nullptr, nullptr, nullptr, &descriptor);
+        std::unique_ptr<void, decltype(&LocalFree)> owned(descriptor, &LocalFree);
+        if (api_result != ERROR_SUCCESS || !descriptor)
+            throw std::runtime_error("file API descriptor unavailable");
+        SECURITY_DESCRIPTOR_CONTROL control{}; DWORD revision = 0;
+        if (!IsValidSecurityDescriptor(descriptor) ||
+            !GetSecurityDescriptorControl(descriptor, &control, &revision) ||
+            (control & SE_SELF_RELATIVE) == 0)
+            throw std::runtime_error("file API descriptor representation differs");
+        const DWORD length = GetSecurityDescriptorLength(descriptor);
+        if (length < SECURITY_DESCRIPTOR_MIN_LENGTH || length > 65536u)
+            throw std::runtime_error("file API descriptor exceeds observation bound");
+        const auto* first = static_cast<const BYTE*>(descriptor);
+        const std::vector<BYTE> bytes(first, first + length);
+        usk::base::Sha256 digest;
+        digest.update(bytes.data(), bytes.size());
+        const auto descriptor_sha256 = digest.finish();
+        const auto sddl = owner_dacl_sddl(bytes);
+        return Value(Value::Object{{"api", Value("GetSecurityInfo(SE_FILE_OBJECT)")},
+            {"status", Value(sddl.size() <= 2048u ? "observed" : "oversized")},
+            {"api_result", Value(static_cast<std::uint64_t>(api_result))},
+            {"started_tick_ms", Value(started)}, {"finished_tick_ms", Value(GetTickCount64())},
+            {"descriptor_bytes", Value(static_cast<std::uint64_t>(length))},
+            {"descriptor_sha256", Value(descriptor_sha256)},
+            {"security_control", Value(static_cast<std::uint64_t>(control))},
+            {"dacl_protected", Value((control & SE_DACL_PROTECTED) != 0)},
+            {"owner_dacl", sddl.size() <= 2048u ? Value(sddl) : Value()},
+            {"owner_dacl_bytes", Value(static_cast<std::uint64_t>(sddl.size()))}});
+    } catch (const std::exception&) {
+        return Value(Value::Object{{"api", Value("GetSecurityInfo(SE_FILE_OBJECT)")},
+            {"status", Value("unavailable")},
+            {"api_result", Value(static_cast<std::uint64_t>(api_result))},
+            {"started_tick_ms", Value(started)}, {"finished_tick_ms", Value(GetTickCount64())}});
+    }
+}
+
 // Locking NTFS dismounts it. The remounted volume device can lose the
 // per-service ACE installed by the dedicated-volume provisioner. The known
 // Windows Authenticated Users modify grant must first be reduced to read and
@@ -870,12 +917,24 @@ void require_exclusive_volume_admission(const std::wstring& name,
         require_strict_device(locking_volume);
         require_strict_device(remounted.get());
     } catch (const std::exception& error) {
+        // Preserve the two existing raw-kernel reads and their order. New
+        // file-API reads happen only afterward, on these exact held handles.
+        const auto locking_kernel = device_acl_diagnostic(locking_volume);
+        const auto remounted_kernel = device_acl_diagnostic(remounted.get());
+        const auto locking_file_api = device_file_api_diagnostic(locking_volume);
+        const auto remounted_file_api = device_file_api_diagnostic(remounted.get());
         const auto diagnostic = usk::json::Value(usk::json::Value::Object{
             {"schema", usk::json::Value("usk.publisher_device_remount_diagnostic.v1")},
             {"locked_admitted_device", locked_admitted_device},
             {"fresh_observations_after_refusal", usk::json::Value(usk::json::Value::Object{
-                {"original_locking_handle", device_acl_diagnostic(locking_volume)},
-                {"remounted_device_handle", device_acl_diagnostic(remounted.get())}})}});
+                {"original_locking_handle", locking_kernel},
+                {"remounted_device_handle", remounted_kernel}})},
+            {"file_api_observations_after_refusal", usk::json::Value(usk::json::Value::Object{
+                {"original_locking_handle", locking_file_api},
+                {"remounted_device_handle", remounted_file_api}})},
+            {"read_order", usk::json::Value(usk::json::Value::Array{
+                usk::json::Value("kernel_locking"), usk::json::Value("kernel_remounted"),
+                usk::json::Value("file_locking"), usk::json::Value("file_remounted")})}});
         throw std::runtime_error(
             std::string("remounted publisher volume device ACL admission: ") + error.what() +
             "; diagnostic " + usk::json::canonical(diagnostic));
@@ -1123,9 +1182,8 @@ std::string owner_dacl_sddl(const std::vector<BYTE>& bytes) {
         OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION, &rendered, nullptr) || !rendered) {
         throw std::runtime_error("target pre-state security cannot be retained");
     }
-    const auto result = utf8(rendered);
-    LocalFree(rendered);
-    return result;
+    std::unique_ptr<void, decltype(&LocalFree)> owned(rendered, &LocalFree);
+    return utf8(rendered);
 }
 
 std::string owner_dacl_sddl(HANDLE object) {
