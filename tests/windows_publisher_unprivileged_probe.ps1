@@ -261,8 +261,18 @@ public static class USKPublisherRenameRace {
         long first = Math.Max(0, attempts - Capacity);
         long overlapCount = 0;
         long[] overlap = null;
+        int nearestBefore = -1;
+        int nearestAfter = -1;
         for (long i = first; i < attempts; ++i) {
             int slot = (int)(i % Capacity);
+            // Summarize only after the worker has stopped. These observations
+            // never establish overlap or alter the original acceptance check.
+            if (Ends[slot] <= nativeStart &&
+                (nearestBefore < 0 || Ends[slot] > Ends[nearestBefore]))
+                nearestBefore = slot;
+            if (Starts[slot] >= nativeEnd &&
+                (nearestAfter < 0 || Starts[slot] < Starts[nearestAfter]))
+                nearestAfter = slot;
             if (HasPositiveOverlap(Starts[slot], Ends[slot], nativeStart, nativeEnd)) {
                 overlapCount++;
                 if (overlap == null) overlap = new long[] { Starts[slot], Ends[slot] };
@@ -279,6 +289,12 @@ public static class USKPublisherRenameRace {
             { "retained_last_tick", attempts > first ? Ends[(attempts - 1) % Capacity] : 0 },
             { "overlap_count", overlapCount },
             { "overlap_attempt", overlap },
+            { "target_start_tick", nativeStart },
+            { "target_end_tick", nativeEnd },
+            { "nearest_before_attempt", nearestBefore < 0 ? null :
+                new long[] { Starts[nearestBefore], Ends[nearestBefore] } },
+            { "nearest_after_attempt", nearestAfter < 0 ? null :
+                new long[] { Starts[nearestAfter], Ends[nearestAfter] } },
             { "failure", failure }
         };
     }

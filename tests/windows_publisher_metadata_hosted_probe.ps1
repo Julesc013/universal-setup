@@ -154,15 +154,28 @@ if($ControllerApply -and (-not $RegisteredService -or $MachineRequestClient -or
 if($RegisteredService -and $HostileRights -and -not $NonAdminClient) {
     throw 'Registered hostile-rights proof requires the same owned non-admin client identity'
 }
-function Read-ConcurrentAttackerDiagnostic([string]$ReceiptPath,[string]$ErrorPath) {
+function Read-ConcurrentAttackerDiagnostic([string]$ReceiptPath,[string]$ErrorPath,
+    [Collections.IDictionary]$Observation=$null) {
     if((Test-Path -LiteralPath $ReceiptPath -PathType Leaf) -and
         (Get-Item -LiteralPath $ReceiptPath).Length -le 512KB) {
         try {
             $attack=Get-Content -LiteralPath $ReceiptPath -Raw|ConvertFrom-Json
             if($attack.schema -ceq 'usk.publisher.unprivileged_access_probe.v1' -and
                 $attack.status -ceq 'failed' -and $attack.failure) {
-                return ([string]$attack.failure).Substring(0,
+                $failure=([string]$attack.failure).Substring(0,
                     [math]::Min(512,([string]$attack.failure).Length))
+                if($null -ne $Observation) {
+                    # Candidate telemetry from the bounded failed producer,
+                    # never accepted hostile-rights or native overlap evidence.
+                    $Observation['receipt_summary']=[ordered]@{
+                        status=$attack.status;failure=$failure;
+                        process_id=$attack.process_id;user_sid=$attack.user_sid;
+                        rename_race=$attack.concurrent.native_rename_overlap;
+                        ready_utc=$attack.concurrent.ready_utc;
+                        started_seen_utc=$attack.concurrent.started_seen_utc;
+                        completed_seen_utc=$attack.concurrent.completed_seen_utc}
+                }
+                return $failure
             }
         } catch {}
     }
@@ -2472,8 +2485,10 @@ try {
                 if($unrelatedAttacker.ExitCode -ne 0 -or
                     -not (Test-Path -LiteralPath $unrelatedAttackOutput -PathType Leaf) -or
                     (Get-Item -LiteralPath $unrelatedAttackOutput).Length -gt 512KB) {
+                    $failureObservation=[ordered]@{exit_code=$unrelatedAttacker.ExitCode}
+                    $receipt['unrelated_attacker_failure']=$failureObservation
                     $diagnostic=Read-ConcurrentAttackerDiagnostic `
-                        $unrelatedAttackOutput $unrelatedError
+                        $unrelatedAttackOutput $unrelatedError $failureObservation
                     throw ('Unrelated concurrent attacker failed: '+$diagnostic)
                 }
                 $unrelated=Get-Content -LiteralPath $unrelatedAttackOutput -Raw|ConvertFrom-Json
