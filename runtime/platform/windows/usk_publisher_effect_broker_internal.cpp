@@ -1675,7 +1675,8 @@ void require_publisher_effect_terminal_record(const Value& value, const Value& b
             code == "state_revision_stale" || code == "stale_plan"), "effect terminal request or finite diagnostic grammar differs");
     if (status == "success") {
         const auto& response = value.at("response");
-        const bool verification = actual_request.at("schema").as_string() ==
+        const bool public_verification = actual_request.at("schema").as_string() == "usk.installed_verify_request.v1";
+        const bool verification = public_verification || actual_request.at("schema").as_string() ==
             "usk.publisher_installed_verify_request.v1";
         require(error.empty() && code.empty() && inspection.empty() && !before_effects &&
             response.at("schema").as_string() == "usk.publisher_lab_service_observation.v1" &&
@@ -1691,8 +1692,11 @@ void require_publisher_effect_terminal_record(const Value& value, const Value& b
             // A completed verification can find damage, warnings or uncertainty.
             // Keep that assessment failed; terminal success means the engine
             // returned a bound result, not that the installation is healthy.
-            require_closed(actual_request, {"schema", "request_id", "install_id",
-                "transaction_id", "report_id", "verified_at"});
+            if (public_verification)
+                require_closed(actual_request, {"schema", "request_id", "install_id", "report_id", "verified_at"});
+            else
+                require_closed(actual_request, {"schema", "request_id", "install_id",
+                    "transaction_id", "report_id", "verified_at"});
             require_closed(response, {"schema", "status", "service_name", "service_sid",
                 "process_id", "request_sha256", "transaction_id", "bound_report_digest", "verify_response"});
             const auto& command = response.at("verify_response");
@@ -1700,7 +1704,9 @@ void require_publisher_effect_terminal_record(const Value& value, const Value& b
             require(command.at("schema").as_string() == "usk.command_response.v1" &&
                 command.at("status").as_string() == "ok" &&
                 command.at("error").type() == Value::Type::null_value &&
-                response.at("transaction_id").as_string() == actual_request.at("transaction_id").as_string(),
+                usk::record_io::valid_identifier(response.at("transaction_id").as_string()) &&
+                (public_verification ||
+                    response.at("transaction_id").as_string() == actual_request.at("transaction_id").as_string()),
                 "effect terminal verification command or transaction differs");
             const auto& report = command.at("payload");
             require_closed(report, {"schema", "report_id", "report_digest", "install_id",

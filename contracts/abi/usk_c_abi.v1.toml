@@ -17,6 +17,7 @@ public_headers = [
   "usk/usk_error.h",
   "usk/usk_install.h",
   "usk/usk_manifest.h",
+  "usk/usk_publisher_client.h",
   "usk/usk_result.h",
   "usk/usk_transaction.h",
   "usk/usk_types.h",
@@ -27,6 +28,7 @@ exported_functions = [
   "usk_abi_version_v1",
   "usk_command_execute_v1",
   "usk_context_create_v1",
+  "usk_context_create_publisher_v1",
   "usk_context_destroy_v1",
 ]
 

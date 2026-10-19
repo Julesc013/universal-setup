@@ -670,3 +670,24 @@ The owner-published frozen AIDE Lite1.1.0 archive (SHA256 80b8a875f63913153f7da8
 Doctor,12 resume-plan tests, selected direct work-effort CLI controls and11 successor-policy fixtures pass. The advertised portable test remains red: a synthetic missing-Gateway fixture writes non-Python markers and then imports them, raising NameError local_skeleton. A real safe installation of the exact predecessor reproduced that specific failure; no blanket baseline equivalence is claimed. Two attempted export tests against packed payload lack maintainer import-policy source and never reach their behavior; those errors are retained rather than relabelled. Functional tooling adoption remains incomplete under provider request USK-AIDE-LITE-SAFE-SELFTEST-20261019-01, https://github.com/Julesc013/aide/issues/6#issuecomment-6263362256. Preserve frozen upstream bytes and assertions.
 
 This worker is the VS Code Codex extension26.1007.21434. No supported external delivery endpoint/current-turn binding is established; cooperative owner handoffs continue. No new coordinator, repository, worktree or VM was created. Setup product repair proceeds independently of the AIDE defect.
+
+## 2026-10-20 public SDK client development checkpoint
+
+Reviewed client groundwork and registered-start capture are integrated through
+PRs276/277 in devfe1c7edb2e94c124b7542f5c4eccf80da966afaf.
+Its accepted push39253758575 passed all seven core/specification jobs; publisher
+qualification is skipped on pushes and remains separately incomplete.
+Main stays c048f7f1ae2e5922c15a08ee572bdafc29027c63.
+
+The new optional C publisher-context factory preserves the original config
+prefixes, four exports, ABI1.0 getter and borrowed response lifetime.
+The ordinary SDK embeds client transport/validation rather than the service
+engine. Each call prepares bounded invocation-specific UNKNOWN before possible
+dispatch. Public five-field installed.verify binds the current transaction under
+the native install guard; the private explicit transaction selector remains.
+A public-header-only C consumer and an additional hosted source-retired SDK
+reentry/verify journey are prepared. Local compile/controlled tests are not native
+service qualification. Generic recovery.apply is still refused before dispatch;
+its full public request/digests/action must never be reduced to a private selector.
+Packaged maintenance and interrupted recovery remain unqualified. No main,
+release, consumer-pin adoption or requirement acceptance is granted by this work.

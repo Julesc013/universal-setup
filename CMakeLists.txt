@@ -76,12 +76,13 @@ endif()
 if(WIN32)
   # Ordinary authenticated pipe client plus shared message I/O. The service
   # channel, registration controller and publisher engine stay in their owners.
-  add_library(usk_publisher_transport_client_static STATIC
+  set(USK_PUBLISHER_TRANSPORT_CLIENT_SOURCES
     runtime/platform/windows/usk_publisher_channel_io_internal.cpp
     runtime/platform/windows/usk_publisher_client_channel_internal.cpp
     runtime/platform/windows/usk_publisher_registration_query_internal.cpp
     runtime/platform/windows/usk_publisher_service_access_query_internal.cpp
     runtime/platform/windows/usk_publisher_registered_client_internal.cpp)
+  add_library(usk_publisher_transport_client_static STATIC ${USK_PUBLISHER_TRANSPORT_CLIENT_SOURCES})
   target_compile_features(usk_publisher_transport_client_static PUBLIC cxx_std_17)
   target_include_directories(usk_publisher_transport_client_static PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/platform/windows")
@@ -262,6 +263,8 @@ if(NOT USK_BUILD_APPS AND NOT USK_BUILD_TESTS AND NOT USK_BUILD_FUZZERS)
 endif()
 
 set(USK_CORE_SOURCES
+  runtime/command/usk_publisher_client_context_internal.cpp
+  runtime/command/usk_publisher_response_internal.cpp
   runtime/base/usk_diagnostic_metrics.cpp
   $<TARGET_OBJECTS:usk_zlib_inflate_objects>
   runtime/base/usk_json.cpp
@@ -292,7 +295,15 @@ set(USK_CORE_SOURCES
   runtime/setup/transaction/usk_maintenance_effect_journal.cpp
   runtime/setup/verify/usk_package_verify.cpp
 )
+if(WIN32)
+  # Embed the ordinary client in the installable SDK archives/DLL. No internal
+  # target or privileged publisher implementation is an installed dependency.
+  list(APPEND USK_CORE_SOURCES ${USK_PUBLISHER_TRANSPORT_CLIENT_SOURCES})
+endif()
 set(USK_PRIVATE_INCLUDE_DIRS
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/command"
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/kernel"
+  "${CMAKE_CURRENT_SOURCE_DIR}/runtime/platform/windows"
   "${CMAKE_CURRENT_SOURCE_DIR}/external/zlib/upstream"
   "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base"
   "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/audit"
@@ -319,7 +330,7 @@ if(USK_BUILD_STATIC)
   target_compile_definitions(usk_static PRIVATE Z_PREFIX)
   target_link_libraries(usk_static PUBLIC usk_headers)
   if(WIN32)
-    target_link_libraries(usk_static PRIVATE bcrypt)
+    target_link_libraries(usk_static PRIVATE bcrypt advapi32 shell32 ole32)
   endif()
   usk_enable_strict_warnings(usk_static)
   add_library(UniversalSetup::CoreStatic ALIAS usk_static)
@@ -340,7 +351,7 @@ if(USK_BUILD_SHARED)
   target_include_directories(usk_shared PRIVATE ${USK_PRIVATE_INCLUDE_DIRS})
   target_link_libraries(usk_shared PUBLIC usk_headers)
   if(WIN32)
-    target_link_libraries(usk_shared PRIVATE bcrypt)
+    target_link_libraries(usk_shared PRIVATE bcrypt advapi32 shell32 ole32)
   endif()
   target_compile_definitions(usk_shared PRIVATE USK_BUILD_SHARED Z_PREFIX INTERFACE USK_USE_SHARED)
   usk_enable_strict_warnings(usk_shared)
@@ -578,6 +589,23 @@ if(USK_BUILD_TESTS)
 
   # This consumer links the reply codec and base only, without C API dispatch
   # or the privileged publisher library. The ordinary CLI is checked below.
+  add_executable(usk_publisher_sdk_consumer tests/sdk/consumer/publisher.c)
+  target_link_libraries(usk_publisher_sdk_consumer PRIVATE usk_static)
+  set_property(TARGET usk_publisher_sdk_consumer PROPERTY C_STANDARD 99)
+  if(MSVC)
+    target_compile_definitions(usk_publisher_sdk_consumer PRIVATE _CRT_SECURE_NO_WARNINGS)
+  endif()
+  usk_enable_strict_warnings(usk_publisher_sdk_consumer)
+
+  add_executable(usk_publisher_client_context_smoke tests/native/usk_publisher_client_context_smoke.cpp)
+  target_include_directories(usk_publisher_client_context_smoke PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base"
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/command")
+  target_link_libraries(usk_publisher_client_context_smoke PRIVATE usk_static)
+  target_compile_features(usk_publisher_client_context_smoke PRIVATE cxx_std_17)
+  usk_enable_strict_warnings(usk_publisher_client_context_smoke)
+  add_test(NAME usk_publisher_client_context_smoke COMMAND usk_publisher_client_context_smoke)
+
   add_executable(usk_publisher_response_smoke tests/native/usk_publisher_response_smoke.cpp)
   target_compile_features(usk_publisher_response_smoke PRIVATE cxx_std_17)
   target_link_libraries(usk_publisher_response_smoke PRIVATE usk_publisher_response_static)
