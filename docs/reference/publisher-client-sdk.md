@@ -1,6 +1,6 @@
 # Registered publisher C SDK client
 
-This is an active development interface. The context and failure controls build locally; the five-field public verification adapter is connected, while generic recovery and installed positive lifecycle qualification remain incomplete. This document does not declare release or production support.
+This is an active development interface. The context and failure controls build locally; selected installed SDK reentry and public verification have hosted positive evidence, while generic recovery and complete lifecycle qualification remain incomplete. This document does not declare release or production support.
 
 Include `usk/usk_publisher_client.h` and call `usk_context_create_publisher_v1(local_config, publisher_config, &context)`. The separate sized endpoint configuration is copied during creation. It selects an existing administrator-configured service and grants no registration, elevation, raw-volume or target authority. Creation performs no service activation.
 
@@ -15,3 +15,5 @@ The payload `usk.publisher_client_outcome.v1` retains the canonical public reque
 Only the concrete transport can establish pre-dispatch refusal. Validated native refusal and recovery-required outcomes remain distinct from transport uncertainty. Failure never selects the privileged legacy client or retries through local mutation.
 
 Response bytes remain borrowed until the next call on the same context or destruction. Copy retained results before that boundary. Serialize calls to one context; independent contexts own separate buffers. No transport callback is part of the public ABI.
+
+At [c42752f](https://github.com/Julesc013/universal-setup/commit/c42752fe20f8096fac0b2b2736d2455baf0fd9fd), [hosted run 39260395143](https://github.com/Julesc013/universal-setup/actions/runs/39260395143) completed source-retired SDK apply reentry and five-field verification under the held standard-account client. Returned installed state and both payload hashes matched independent SYSTEM readback, with client/account cleanup confirmed. Installed and relocated static/shared SDK consumer checks also passed locally on x64 and Win32. These selected results do not qualify fresh SDK installation, generic recovery, the complete publisher or a public release.

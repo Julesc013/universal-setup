@@ -691,3 +691,42 @@ service qualification. Generic recovery.apply is still refused before dispatch;
 its full public request/digests/action must never be reduced to a private selector.
 Packaged maintenance and interrupted recovery remain unqualified. No main,
 release, consumer-pin adoption or requirement acceptance is granted by this work.
+
+## 2026-10-20 bounded lifecycle stream writes and selected SDK acceptance
+
+PR278 is accepted in dev ec5229d6f28eb0b1a581f59fa43714731fafa76a,
+with submitted c42752fe20f8096fac0b2b2736d2455baf0fd9fd and tree
+0e30303005a08b65f8b8ec584b989560937812be. Both submitted and accepted
+push core checks passed. Installed/relocated static/shared SDK consumers passed
+40 local checks on x64/Win32. Run39260395143 built synthetic f7097c073951a7137d4703467e405597e7e262c7
+with that tree and positively completed source-retired SDK apply reentry and
+five-field public verification using the held standard-account C consumer.
+Returned state, its defined lifecycle digest and both file hashes match independent
+SYSTEM readback; client/account cleanup and held launcher exit are confirmed.
+This is selected positive evidence, not fresh SDK installation or generic recovery.
+
+The next internal transaction increment accumulates explicitly bounded 1 MiB
+writes in the shared streaming install/maintenance helper while retaining 64 KiB
+source reads. Default callers retain their old allocation and read/write ordering;
+the existing 4 MiB buffer ceiling is unchanged. Each actual Windows write, including
+partial writes, still runs its original full native authority check immediately
+beforehand. Final native rehash/authority/flush, cleanup retention and all deadlines
+remain. Reported vector capacity is not total process/source memory.
+
+Independent R1 preview review caught a real sequential retained-output-alias gap:
+per-slice hashing could precede a later callback changing that slice before writing.
+Corrected R2 hashes the completed batch after all its reader callbacks. The ordinary
+counterfactual control actually exits216 with rejected R1 ordering; restored R2
+exits0. All six focused native tests passed on each of x64/Win32, including existing
+streaming install, cancellation, read/write faults, maintenance and adversarial
+controls. Strict policy, seven inventory checks and diff checks passed. Only40
+inventory source-hash leaves changed; classifications and acceptance remain unchanged.
+
+Actual protected 32 MiB packaged performance and complete interrupted recovery
+qualification remain open. The preceding SDK run still fails packaged repair and
+untraced interrupted recovery; no speedup or source-free recovery improvement is
+established by the local tests. Main remains c048f7f1ae2e5922c15a08ee572bdafc29027c63.
+Generic public recovery must preserve all reviewed digests and finalize/rollback;
+its native adapter remains refused. Continue reviewed daily dev checkpoints and
+qualify complete publisher behavior before main/release; consumer pins stay owned
+by their requesters.

@@ -98,7 +98,11 @@ public:
         const std::string& expected_sha256,
         std::size_t buffer_bytes,
         const StreamReader& reader,
-        const std::string& source_identity_digest = {});
+        const std::string& source_identity_digest = {},
+        std::size_t write_buffer_bytes = 0u);
+    // An explicit write buffer opts into batching within the existing 4 MiB
+    // allocation ceiling. Source reads still obey buffer_bytes. Zero preserves
+    // original ordering; StreamStageResult reports actual allocated capacity.
     // Binds replay context in the first durable journal, before staging effects.
     static std::unique_ptr<TransactionSession> begin_streaming(
         TransactionSpec spec, const std::string& source_digest,

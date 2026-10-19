@@ -6,6 +6,7 @@
 #include "usk_json.h"
 #include "usk_sha256.h"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -669,9 +670,138 @@ int cumulative_native_initial_binding(Fixture& fixture)
 }
 #endif
 
+int bounded_write_batches(Fixture& fixture)
+{
+    constexpr std::size_t read_cap = 64u * 1024u, write_cap = 1024u * 1024u;
+    const std::size_t size = write_cap + 17u;
+    std::vector<unsigned char> payload(size);
+    for (std::size_t i = 0; i < size; ++i) payload[i] = static_cast<unsigned char>(i % 251u);
+    usk::base::Sha256 hash; hash.update(payload.data(), payload.size());
+    const auto expected = hash.finish();
+    std::size_t offset = 0, read_calls = 0;
+    std::vector<std::size_t> write_offsets;
+    const auto spec = fixture.spec("write-batches");
+    TransactionSession session(spec, [&](const std::string&, const std::string& point) {
+        if (point == "before_stream_write") write_offsets.push_back(offset);
+    });
+    const auto staged = session.stage_file_stream("payload.bin", size, expected, read_cap,
+        [&](unsigned char* output, std::size_t capacity) {
+            if (capacity > read_cap) throw std::runtime_error("source read cap exceeded");
+            // Exercise short reads and both the full-batch and short-tail cases.
+            const auto count = std::min(std::min(capacity, std::size_t{37001u}), size - offset);
+            std::copy_n(payload.data() + offset, count, output);
+            offset += count; ++read_calls; return count;
+        }, {}, write_cap);
+    if (staged.sha256 != expected || staged.size_bytes != size || staged.peak_buffer_bytes != write_cap ||
+        offset != size || read_calls < 18u || write_offsets.empty() || write_offsets.front() != write_cap ||
+        write_offsets.back() != size || read_text(session.staging_root() / "payload.bin") !=
+            std::string(payload.begin(), payload.end()) || fs::exists(spec.target_root)) return 210;
+    for (const auto observed : write_offsets) if (observed != write_cap && observed != size) return 211;
+
+    // Later callbacks can retain an earlier output pointer. The hash must
+    // describe the final batch written, not the earlier sampled slices.
+    const std::string original = std::string(4096u, 'A') + std::string(4096u, 'B');
+    usk::base::Sha256 original_hash;
+    original_hash.update(reinterpret_cast<const unsigned char*>(original.data()), original.size());
+    unsigned char* retained_slice = nullptr;
+    std::size_t alias_offset = 0;
+    const auto alias_spec = fixture.spec("write-batches-retained-alias");
+    TransactionSession alias(alias_spec);
+    if (!throws([&] { alias.stage_file_stream("payload.bin", original.size(), original_hash.finish(), 4096u,
+            [&](unsigned char* output, std::size_t capacity) {
+                if (alias_offset == original.size()) return std::size_t{0};
+                if (alias_offset) retained_slice[0] = 'Z';
+                else retained_slice = output;
+                const auto count = std::min(capacity, original.size() - alias_offset);
+                std::copy_n(original.data() + alias_offset, count, output);
+                alias_offset += count; return count;
+            }, {}, 8192u); }) || alias.current_state() != "recovery_required" ||
+        fs::exists(alias_spec.target_root) || !throws([&] { alias.mark_staged(); }) ||
+        read_text(alias.staging_root() / "payload.bin") != "Z" + original.substr(1u)) return 216;
+
+    // Default callers retain every original short-read/write boundary.
+    const std::string small = "original short read boundaries";
+    usk::base::Sha256 small_hash;
+    small_hash.update(reinterpret_cast<const unsigned char*>(small.data()), small.size());
+    offset = 0; write_offsets.clear();
+    TransactionSession legacy(fixture.spec("write-batches-legacy"),
+        [&](const std::string&, const std::string& point) {
+            if (point == "before_stream_write") write_offsets.push_back(offset);
+        });
+    const auto old = legacy.stage_file_stream("payload.bin", small.size(), small_hash.finish(), read_cap,
+        [&](unsigned char* output, std::size_t capacity) {
+            const auto count = std::min(std::min(capacity, std::size_t{7u}), small.size() - offset);
+            for (std::size_t i = 0; i < count; ++i) output[i] = static_cast<unsigned char>(small[offset + i]);
+            offset += count; return count;
+        });
+    // A partial OS write can repeat its current offset; it cannot skip a read boundary.
+    write_offsets.erase(std::unique(write_offsets.begin(), write_offsets.end()), write_offsets.end());
+    std::vector<std::size_t> expected_offsets;
+    for (std::size_t n = 7u; n < small.size(); n += 7u) expected_offsets.push_back(n);
+    expected_offsets.push_back(small.size());
+    if (old.peak_buffer_bytes != read_cap || write_offsets != expected_offsets) return 212;
+
+    const auto invalid_spec = fixture.spec("write-batches-invalid");
+    TransactionSession invalid(invalid_spec);
+    const auto before = read_text(invalid.journal_path());
+    for (const auto bad : {read_cap - 1u, 4u * write_cap + 1u}) {
+        if (!throws([&] { invalid.stage_file_stream("payload.bin", size, expected, read_cap,
+                [](unsigned char*, std::size_t) { return std::size_t{0}; }, {}, bad); }) ||
+            read_text(invalid.journal_path()) != before || fs::exists(invalid.staging_root() / "payload.bin")) return 213;
+    }
+    // Exceptions during accumulation, after a real write, and final digest
+    // mismatch all retain conservative recovery without target publication.
+    for (const int failure : {0, 1, 2}) {
+        const auto failed_spec = fixture.spec("write-batches-failure-" + std::to_string(failure));
+        TransactionSession failed(failed_spec, [&](const std::string&, const std::string& point) {
+            if (failure == 1 && point == "after_stream_write") throw std::runtime_error("interrupted actual write");
+        });
+        offset = 0;
+        const auto digest = failure == 2 ? std::string(64u, '0') : expected;
+        if (!throws([&] { failed.stage_file_stream("payload.bin", size, digest, read_cap,
+                [&](unsigned char* output, std::size_t capacity) {
+                    if (failure == 0 && offset) throw std::runtime_error("interrupted reader");
+                    const auto count = std::min(capacity, size - offset);
+                    std::copy_n(payload.data() + offset, count, output); offset += count; return count;
+                }, {}, write_cap); }) || failed.current_state() != "recovery_required" ||
+            fs::exists(failed_spec.target_root) || !throws([&] { failed.mark_staged(); })) return 214;
+        const auto retained = fs::file_size(failed.staging_root() / "payload.bin");
+        if ((failure == 0 && retained != 0u) || (failure == 1 && (retained == 0u || retained > write_cap)) ||
+            (failure == 2 && retained != size)) return 215;
+    }
+    // Invalid callback lengths, an unexpected EOF byte, and empty content
+    // still follow the original finalization/refusal rules under batching.
+    for (const int malformed : {0, 1, 2}) {
+        const auto bad_spec = fixture.spec("write-batches-reader-" + std::to_string(malformed));
+        TransactionSession bad_reader(bad_spec);
+        std::size_t consumed = 0;
+        if (!throws([&] { bad_reader.stage_file_stream("payload.bin", small.size(), old.sha256, read_cap,
+                [&](unsigned char* output, std::size_t capacity) {
+                    if (malformed == 0) return std::size_t{0};
+                    if (malformed == 1) return capacity + 1u;
+                    if (consumed == small.size()) { output[0] = 'x'; return std::size_t{1}; }
+                    std::copy_n(small.data(), small.size(), output); consumed = small.size(); return consumed;
+                }, {}, write_cap); }) || bad_reader.current_state() != "recovery_required" ||
+            fs::exists(bad_spec.target_root) || !throws([&] { bad_reader.mark_staged(); })) return 217;
+    }
+    usk::base::Sha256 empty_hash;
+    const auto empty_spec = fixture.spec("write-batches-empty");
+    TransactionSession empty(empty_spec);
+    std::size_t empty_calls = 0;
+    const auto empty_staged = empty.stage_file_stream("payload.bin", 0u, empty_hash.finish(), read_cap,
+        [&](unsigned char*, std::size_t capacity) {
+            if (capacity != 1u) throw std::runtime_error("empty stream must only probe EOF");
+            ++empty_calls; return std::size_t{0};
+        }, {}, write_cap);
+    if (empty_calls != 1u || empty_staged.size_bytes != 0u || empty_staged.peak_buffer_bytes != write_cap ||
+        fs::file_size(empty.staging_root() / "payload.bin") != 0u || fs::exists(empty_spec.target_root)) return 218;
+    return 0;
+}
+
 int main()
 {
     Fixture fixture;
+    if (int result = bounded_write_batches(fixture)) return result;
 #if defined(_WIN32)
     // Real ordinary sessions produce these journals. The internal validator
     // only checks data binding; these controls activate no native owner.
