@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/publisher_client_outcome.v1.schema.json",
+  "title": "Caller-bound Publisher Client Outcome Identity",
+  "description": "Correlation data for a public invocation, not native acceptance, authority, proof of effects or permission to retry.",
+  "type": "object",
+  "required": [
+    "schema",
+    "command",
+    "request_sha256"
+  ],
+  "properties": {
+    "schema": {
+      "const": "usk.publisher_client_outcome.v1"
+    },
+    "command": {
+      "enum": [
+        "install_local.apply",
+        "installed.verify",
+        "repair.apply",
+        "move.apply",
+        "uninstall.apply",
+        "recovery.apply"
+      ]
+    },
+    "request_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "diagnostic": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "install_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "report_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "transaction_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "reviewed_plan_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "reviewed_plan_digest": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "operation": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "selected_action": {
+      "enum": [
+        "finalize",
+        "rollback"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "installed.verify"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "request_id",
+          "install_id",
+          "report_id"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "enum": [
+              "install_local.apply",
+              "repair.apply",
+              "move.apply",
+              "uninstall.apply"
+            ]
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "request_id",
+          "install_id",
+          "transaction_id",
+          "reviewed_plan_id",
+          "reviewed_plan_digest"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "command": {
+            "const": "recovery.apply"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "request_id",
+          "install_id",
+          "transaction_id",
+          "reviewed_plan_id",
+          "reviewed_plan_digest",
+          "operation",
+          "selected_action"
+        ]
+      }
+    }
+  ],
+  "additionalProperties": false
+}

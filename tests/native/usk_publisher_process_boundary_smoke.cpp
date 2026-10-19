@@ -618,6 +618,30 @@ void effect_execution_record_controls() {
             (std::string(assessment) == "pass" ? "pass" : "failed"),
             "completed verification changed its assessment into success");
     }
+    // The public form binds the full five-field request and a guarded current
+    // transaction supplied by the engine, rather than a caller's stale guess.
+    auto public_verify_request = verify_request;
+    public_verify_request.as_object().at("schema") = Value("usk.installed_verify_request.v1");
+    public_verify_request.as_object().erase("transaction_id");
+    const Value public_verify_sha(usk::json::sha256_canonical(public_verify_request));
+    auto public_verify_broker = verify_broker;
+    public_verify_broker.as_object().at("request_sha256") = public_verify_sha;
+    public_verify_broker.as_object().at("custody").as_object().at("request_sha256") = public_verify_sha;
+    auto public_verify_result = completed_verify("pass");
+    public_verify_result.as_object().at("request_sha256") = public_verify_sha;
+    public_verify_result.as_object().at("response").as_object().at("request_sha256") = public_verify_sha;
+    public_verify_result.as_object().at("response").as_object().at("transaction_id") = Value("transaction.current");
+    require_publisher_effect_terminal_record(public_verify_result, public_verify_broker, public_verify_request);
+    const auto refuses_public_verify = [&](const std::function<void(Value&)>& mutate) {
+        auto changed = public_verify_result; mutate(changed); bool refused = false;
+        try { require_publisher_effect_terminal_record(changed, public_verify_broker, public_verify_request); }
+        catch (const std::exception&) { refused = true; }
+        check(refused, "public verification accepted an unbound report or missing actual transaction");
+    };
+    refuses_public_verify([](Value& v) { v.as_object().at("response").as_object().at("transaction_id") = Value(""); });
+    refuses_public_verify([](Value& v) { v.as_object().at("response").as_object().at("request_sha256") = Value(std::string(64, 'a')); });
+    refuses_public_verify([](Value& v) { v.as_object().at("response").as_object().at("verify_response").
+        as_object().at("payload").as_object().at("report_id") = Value("other"); });
     const auto refuses_verify = [&](const std::function<void(Value&)>& mutate, bool rebind = false) {
         auto changed = completed_verify("fail"); mutate(changed);
         if (rebind) bind_report(changed);

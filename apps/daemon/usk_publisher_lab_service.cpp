@@ -318,7 +318,8 @@ int private_effect_worker_main(int argc, wchar_t** argv) {
             config.consumer_read_sid = profile.at("authenticated_client").at("user_sid").as_string();
             const auto request = peer.canonical_request();
             const auto schema = usk::json::parse(request).at("schema").as_string();
-            if (schema == "usk.publisher_installed_verify_request.v1") {
+            if (schema == "usk.publisher_installed_verify_request.v1" ||
+                schema == "usk.installed_verify_request.v1") {
                 config.verify_installed = true;
                 config.submitted_verify_request = request;
             } else if (schema == "usk.publisher_recovery_request.v1" || schema == "usk.publisher_maintenance_recovery_request.v1") {
@@ -529,7 +530,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 // Later requests may select only verification or source-free
                 // recovery of that protected installation. Neither mode may
                 // inherit the envelope as fresh publication authority.
-                if (schema == "usk.publisher_installed_verify_request.v1") {
+                if (schema == "usk.publisher_installed_verify_request.v1" ||
+                schema == "usk.installed_verify_request.v1") {
                     config.verify_installed=true;
                     config.selected_archive_mode=false;
                     config.reviewed_plan_envelope_path.clear();

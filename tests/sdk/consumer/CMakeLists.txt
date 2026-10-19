@@ -123,6 +123,17 @@ target_compile_definitions(usk_sdk_external_consumer PRIVATE USK_SDK_CONTRACTS_V
 set_property(TARGET usk_sdk_external_consumer PROPERTY C_STANDARD 99)
 set_property(TARGET usk_sdk_external_consumer PROPERTY C_STANDARD_REQUIRED ON)
 
+add_executable(usk_sdk_publisher_consumer publisher.c)
+target_link_libraries(usk_sdk_publisher_consumer PRIVATE ${USK_LINK_TARGET})
+set_property(TARGET usk_sdk_publisher_consumer PROPERTY C_STANDARD 99)
+set_property(TARGET usk_sdk_publisher_consumer PROPERTY C_STANDARD_REQUIRED ON)
+if(MSVC)
+  target_compile_definitions(usk_sdk_publisher_consumer PRIVATE _CRT_SECURE_NO_WARNINGS)
+  target_compile_options(usk_sdk_publisher_consumer PRIVATE /W4 /WX)
+else()
+  target_compile_options(usk_sdk_publisher_consumer PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+
 add_executable(usk_sdk_cpp_headers cpp_headers.cpp)
 target_link_libraries(usk_sdk_cpp_headers PRIVATE UniversalSetup::Headers)
 set_property(TARGET usk_sdk_cpp_headers PROPERTY CXX_STANDARD 98)

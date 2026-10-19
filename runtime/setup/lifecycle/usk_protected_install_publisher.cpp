@@ -3748,8 +3748,9 @@ std::string verify_completed_install_in_service(HANDLE volume,
     const auto& service_sid = original_service.service_sid;
     if (!submitted_verify_request) throw std::runtime_error("authenticated verify request is absent");
     const auto request = usk::json::parse(*submitted_verify_request);
-    if (request.as_object().size() != 6 ||
-        request.at("schema").as_string() != "usk.publisher_installed_verify_request.v1") {
+    const bool public_form = request.at("schema").as_string() == "usk.installed_verify_request.v1";
+    if (request.as_object().size() != (public_form ? 5u : 6u) ||
+        (!public_form && request.at("schema").as_string() != "usk.publisher_installed_verify_request.v1")) {
         throw std::runtime_error("authenticated verify request shape differs");
     }
     // Initial completion is immutable intent. The payload and transaction to
@@ -3774,7 +3775,10 @@ std::string verify_completed_install_in_service(HANDLE volume,
     const bool supported_completed_state = operation_id == original_transaction ?
         lifecycle_status == "installed" :
         (lifecycle_status == "verified" || lifecycle_status == "move_pending_acceptance");
-    if (request.at("transaction_id").as_string() != operation_id ||
+    // The public form selects the current installation; its actual transaction
+    // is observed under this install guard. The older explicit selector retains
+    // its expected-transaction precondition and cannot verify a newer state.
+    if ((!public_form && request.at("transaction_id").as_string() != operation_id) ||
         !supported_completed_state ||
         installed.at("recipe_digest").as_string() != plan.recipe.recipe_digest)
         throw std::runtime_error("authenticated verify request lacks the current completed installed state");

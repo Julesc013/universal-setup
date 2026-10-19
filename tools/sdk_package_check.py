@@ -27,6 +27,7 @@ EXPECTED_EXPORTS = [
     "usk_abi_version_v1",
     "usk_command_execute_v1",
     "usk_context_create_v1",
+    "usk_context_create_publisher_v1",
     "usk_context_destroy_v1",
 ]
 FORBIDDEN_TARGETS = [

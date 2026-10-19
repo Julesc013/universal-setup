@@ -343,7 +343,8 @@ RegisteredClientRequest parse_registered_client_request(const std::wstring& name
             schema != "usk.uninstall_apply_request.v1" &&
             schema != "usk.publisher_recovery_request.v1" &&
             schema != "usk.publisher_maintenance_recovery_request.v1" &&
-            schema != "usk.publisher_installed_verify_request.v1")
+            schema != "usk.publisher_installed_verify_request.v1" &&
+            schema != "usk.installed_verify_request.v1")
             throw std::runtime_error("publisher request schema is unavailable");
         if (schema == "usk.publisher_maintenance_recovery_request.v1")
             (void)parse_publisher_maintenance_recovery_request(request);

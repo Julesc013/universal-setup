@@ -304,11 +304,25 @@ void require_publisher_response_binding(const std::wstring& service_name,
         }
         return;
     }
-    if (schema == "usk.publisher_installed_verify_request.v1") {
+    if (schema == "usk.publisher_installed_verify_request.v1" ||
+        schema == "usk.installed_verify_request.v1") {
+        const bool public_request = schema == "usk.installed_verify_request.v1";
         const auto& public_response = observed.at("verify_response");
         const auto& report = public_response.at("payload");
-        if (observed.at("transaction_id").as_string() !=
-                submitted.at("transaction_id").as_string() ||
+        const auto& actual_transaction = observed.at("transaction_id").as_string();
+        if (actual_transaction.empty() ||
+            (!public_request && actual_transaction != submitted.at("transaction_id").as_string()) ||
+            (public_request && (submitted.as_object().size() != 5 ||
+                observed.as_object().size() != 10 ||
+                observed.at("registered_admission").at("schema").as_string() !=
+                    "usk.publisher_registered_admission_observation.v1" ||
+                observed.at("registered_admission").at("service_name").as_string() != expected_service ||
+                observed.at("registered_admission").at("service_sid").as_string() != observed.at("service_sid").as_string() ||
+                observed.at("registered_admission").at("process_id").as_unsigned() != observed.at("process_id").as_unsigned() ||
+                observed.at("request_sha256").as_string() != usk::json::sha256_canonical(submitted) ||
+                observed.at("process_id").as_unsigned() == 0 ||
+                (expected_process_id && observed.at("process_id").as_unsigned() != expected_process_id) ||
+                observed.at("service_sid").as_string().empty())) ||
             public_response.at("schema").as_string() != "usk.command_response.v1" ||
             public_response.at("status").as_string() != "ok" ||
             report.at("schema").as_string() != "usk.verification_report.v1" ||

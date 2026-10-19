@@ -58,6 +58,7 @@ if($ConstructedBootstrapDurableState -cne 'none' -and
 . (Join-Path $PSScriptRoot 'windows_publisher_public_maintenance_probe.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_maintenance_recovery_probe.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_initial_maintenance_probe.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_public_sdk_probe.ps1')
 if($env:GITHUB_ACTIONS -cne 'true' -or $env:RUNNER_ENVIRONMENT -cne 'github-hosted') {
     throw 'Standard public qualification requires the owned hosted runner'
 }
@@ -1145,6 +1146,12 @@ try {
     $machineAcl=Get-Acl -LiteralPath $MachineBinary
     $machineAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($account.SID,'ReadAndExecute','Allow'))
     Set-Acl -LiteralPath $MachineBinary -AclObject $machineAcl
+    $sdkBinary=Join-Path (Split-Path -Parent $MachineBinary) 'usk_publisher_sdk_consumer.exe'
+    if(Test-Path -LiteralPath $sdkBinary -PathType Leaf) {
+        $sdkAcl=Get-Acl -LiteralPath $sdkBinary
+        $sdkAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($account.SID,'ReadAndExecute','Allow'))
+        Set-Acl -LiteralPath $sdkBinary -AclObject $sdkAcl
+    }
     $fixture=Join-Path $lab 'standard-authored-inputs';New-Item -ItemType Directory -Path $fixture|Out-Null
     $fixtureArguments=@('--output',$fixture,'--target',($drive+'publication\destination\visible'),'--request-id',('standard.'+$id))
     if($ActiveInstallContention){$fixtureArguments+=@('--core-bytes','33554432')}
@@ -1340,6 +1347,28 @@ try {
     if(($receipt.service_discovery.result.binding|Select-Object service_name,service_sid,caller_sid,binary_sha256,registration_sha256,target_admitted_sha256,volume_guid_root,root_file_id,volume_serial|ConvertTo-Json -Compress) -cne
         ($receipt.source_free_service_discovery.result.binding|Select-Object service_name,service_sid,caller_sid,binary_sha256,registration_sha256,target_admitted_sha256,volume_guid_root,root_file_id,volume_serial|ConvertTo-Json -Compress)) {
         throw 'Source-free service observation changed retained admission bindings'
+    }
+    # Keep every existing CLI/native-capture assertion. Add one ordinary SDK
+    # reentry/verify journey in the base cohort after the archive was retired.
+    if($ActiveInstallContention -and $StalePlanQualification -and
+        -not ($MaintenanceQualification -or $BootstrapProcessLoss -or $BootstrapPreservationProcessLoss -or
+            $InstallationGuardConflict)) {
+        $sdkApply=Invoke-StandardSdkRequest 'install_local.apply' $apply
+        if(($sdkApply.payload|ConvertTo-Json -Depth 64 -Compress) -cne
+            ($installed|ConvertTo-Json -Depth 64 -Compress)) {throw 'SDK reentry returned another installed state'}
+        $sdkReentered=Read-InstalledSnapshot;$receipt.readbacks.Add($sdkReentered)
+        Assert-LeaseTransition $verified $sdkReentered
+        $sdkVerify=@{schema='usk.installed_verify_request.v1';request_id='sdk.verify.'+$id;
+            install_id=$installed.install_id;report_id='sdk.verify.'+$id;
+            verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
+        $sdkResult=Invoke-StandardSdkRequest 'installed.verify' $sdkVerify
+        if($sdkResult.payload.schema -cne 'usk.verification_report.v1' -or $sdkResult.payload.status -cne 'pass' -or
+            $sdkResult.payload.install_id -cne $sdkVerify.install_id -or $sdkResult.payload.report_id -cne $sdkVerify.report_id -or
+            $sdkResult.payload.verified_at -cne $sdkVerify.verified_at) {throw 'Public SDK verification binding differs'}
+        $sdkVerified=Read-InstalledSnapshot;$receipt.readbacks.Add($sdkVerified)
+        if(($sdkReentered.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne
+            ($sdkVerified.independent.rows|ConvertTo-Json -Depth 64 -Compress)) {throw 'SDK verification changed target snapshot'}
+        Assert-LeaseTransition $sdkReentered $sdkVerified $true
     }
     if($MaintenanceQualification){$receipt['maintenance']=Invoke-StandardFreshMaintenance}
     $receipt.status='standard_public_install_verified_recovered'
