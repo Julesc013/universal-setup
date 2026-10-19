@@ -8,7 +8,7 @@ build and existing laboratory; the external compact checkpoint holds live pins.
 Accepted dev97da127f52902c5ed310d677f016a6dd557a2f5e, normal PR282 merge,
 tree1150c65f0abf56414f4296cf4de53c0fcf0a891a. Submitted ae99051288b774708c1b2a5f1f1c3f1bd4a98d66
 passed all seven core checks in39305251794; actual independent committed review
-and live dev gate passed. Accepted push39307353685 is pending. Earlier accepted
+and live dev gate passed. Accepted push39307353685 passed all seven core checks. Earlier accepted
 PR281 push39300018972 passed all seven core checks. Main c048f7f1ae2e5922c15a08ee572bdafc29027c63
 remains unqualified. Continue reviewed daily dev and qualified weekly main merges.
 
@@ -59,15 +59,35 @@ command_response remains distinct from CLI oneshot output; no wrapper or fallbac
 may synthesize success. The initial owner-planned seven postimages are unchanged
 from the approved preview and reviewed parent transfer. Forty-three inventory
 hash leaves were refreshed, without classification/acceptance changes.
-Actual eight-request SDK execution remains NOT RUN. All six applied request
-failure/control tests, PowerShell5.1 routing, five-script parsing on5.1/7,
-seven inventory and nine strict checks passed. The first5.1 script launch was
-refused by execution policy; a process-only flag ran these owned inert controls
-without changing machine policy. Independent YAML/actionlint is unavailable;
-actual new workflow parse/dispatch and final committed review/core/live gates
-remain separate. Native SDK recovery is still
-unsupported before dispatch: preserve all reviewed digests and finalize/rollback
-when connecting the public adapter. No SDK ABI/engine change is included here.
+Actual eight-request SDK execution remains NOT RUN. Submittedc03b88e run39307922295
+failed only native-windows core CTest usk_publisher_apply_control_preflight;
+publisher qualification and the SDK producer were skipped, not executed failures.
+No merge was attempted. The preflight selected the firstIf after a new SDK
+profile guard preceded its intended AdmittedTarget guard. Actual full production
+admission remained enforced. The exact failure is reproduced locally.
+The reviewed repair selects the unique intended guard without changing any
+original closed-profile matrix or assertion. It additionally exercises41 actual
+SDK guard cases at outer, inner and launcher boundaries. The complete original
+fixture-control function with this delta passed PowerShell5.1/7. The actual
+applied CTest usk_publisher_apply_control_preflight passed in8.93seconds using
+the reused x64 build. Final committed binding and fresh submitted-head checks
+remain required; the old failed CI run remains failed.
+All seven SDK harness/workflow postimages remain unchanged from approved R2;
+only this test file and current memory change. The inventory does not reference
+the changed preflight file; its bytes/counts/classifications remain unchanged.
+Public SDK recovery still needs its full reviewed digests and action when
+connecting native execution; no ABI/engine or native-recovery change is included.
+
+The accepted SCM source has now passed actual held-query-handle qualification:
+seven present observations followed by native absence at probe8;1072 was not
+observed in that native case. Both packaged machine/controller repair, uninstall
+and owned retirement completed, with independent after-readback, service absent,
+protected binary removed and clients closed. The later standard receipt binds
+actual synthetic build0595d0e5c18a43deaff035f2366d9ec102f198e8/tree1150 and
+identical service bytes across those journeys. Its selected SDK source-retired
+reentry/public verification passed against independent file hashes. These are
+selected positives; full current-head recovery/publisher qualification and the
+new fresh SDK lifecycle remain pending. Main and release remain unqualified.
 
 AIDE frozen1.1.0 import preserved target customization; its safe installed
 self-test still fails NameError local_skeleton, tracked with upstream issue6.

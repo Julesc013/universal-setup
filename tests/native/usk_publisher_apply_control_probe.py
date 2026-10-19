@@ -431,11 +431,14 @@ foreach($fixtureName in @('windows_publisher_lab_probe.ps1','windows_publisher_m
     $profileAssignments=@($fixtureAst.EndBlock.Statements|Where-Object {
         $_ -is [Management.Automation.Language.AssignmentStatementAst] -and
         $_.Left.Extent.Text -in @('$admittedControllerProfile','$admittedPackagedProfile')})
-    $firstGuard=@($fixtureAst.EndBlock.Statements|Where-Object {
-        $_ -is [Management.Automation.Language.IfStatementAst]}|Select-Object -First 1)
-    if($profileAssignments.Count -ne 2 -or $firstGuard.Count -ne 1){throw 'Closed admission guard missing'}
+    # Select the intended admission predicate, independent of earlier guards.
+    # New profile validation must not redirect this existing refusal matrix.
+    $admittedGuard=@($fixtureAst.EndBlock.Statements|Where-Object {
+        $_ -is [Management.Automation.Language.IfStatementAst] -and
+        $_.Clauses[0].Item1.Extent.Text -cmatch '^\$AdmittedTarget -and '})
+    if($profileAssignments.Count -ne 2 -or $admittedGuard.Count -ne 1){throw 'Closed admission guard missing or ambiguous'}
     $guard=[scriptblock]::Create((@($profileAssignments|ForEach-Object {$_.Extent.Text})+
-        @($firstGuard[0].Extent.Text)) -join "`n")
+        @($admittedGuard[0].Extent.Text)) -join "`n")
     $parameterNames=@($fixtureAst.ParamBlock.Parameters|ForEach-Object {$_.Name.VariablePath.UserPath})
     $selected=@('ControllerApply','ConsumerAccess','MachineRequestClient','ProductionConcurrentRights','NonAdminClient')
     $required=@('RegisteredService','ReviewedSource','ReuseRegistration')
@@ -470,6 +473,85 @@ foreach($fixtureName in @('windows_publisher_lab_probe.ps1','windows_publisher_m
         if($accepted -ne $case.accepted){throw ('Closed admission profile differs: '+$fixtureName+' '+($case.flags -join ','))}
     }
 }
+# Exercise each actual SDK admission guard separately, before any fixture body.
+# This does not invoke a launcher, create an account or admit a native operation.
+$sdkProfiles=@(
+    @{file='windows_publisher_lab_probe.ps1';function=$null;flag='PublicStandardSdkLifecycleQualification';
+        required=@('PublicInstallation','PublicStandardClient','PublicStandardMaintenanceQualification');
+        forbidden=@('PublicStandardMaintenanceRecoveryQualification','PublicStandardMaintenanceInitialQualification',
+            'PublicStandardBootstrapLoss','PublicStandardBootstrapPreservationLoss','PublicStandardActiveInstallContention',
+            'PublicStandardStalePlanQualification','PublicStandardInstallationGuardConflict');
+        prefix='PublicStandardConstructedBootstrapPrefix';durable='PublicStandardConstructedBootstrapDurableState'},
+    @{file='windows_publisher_standard_public_probe.ps1';function=$null;flag='SdkLifecycleQualification';
+        required=@('MaintenanceQualification');forbidden=@('MaintenanceRecoveryQualification',
+            'MaintenanceInitialQualification','BootstrapProcessLoss','BootstrapPreservationProcessLoss',
+            'ActiveInstallContention','StalePlanQualification','InstallationGuardConflict');
+        prefix='ConstructedBootstrapPrefix';durable='ConstructedBootstrapDurableState'},
+    @{file='windows_publisher_standard_launcher.ps1';function='Invoke-OwnedPublisherFixtureTask';flag='SdkLifecycleQualification';
+        required=@('MaintenanceQualification');forbidden=@('PackagedAdmittedConsumer','IdentityProbe',
+            'MaintenanceRecoveryQualification','MaintenanceInitialQualification','BootstrapProcessLoss',
+            'BootstrapPreservationProcessLoss','ActiveInstallContention','StalePlanQualification','InstallationGuardConflict');
+        prefix='ConstructedBootstrapPrefix';durable='ConstructedBootstrapDurableState'}
+)
+$sdkAdmissionCases=0
+foreach($profile in $sdkProfiles) {
+    $tokens=$null;$errors=$null
+    $parsed=[Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $Repository ('tests\'+$profile.file)),[ref]$tokens,[ref]$errors)
+    if($errors.Count){throw 'SDK admission fixture parse failed'}
+    $scope=$parsed
+    if($profile.function) {
+        $functions=@($parsed.EndBlock.Statements|Where-Object {
+            $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq $profile.function})
+        if($functions.Count -ne 1){throw 'SDK launcher function missing or ambiguous'}
+        $scope=$functions[0].Body
+    }
+    $condition='^'+[regex]::Escape('$'+$profile.flag)+' -and '
+    $guards=@($scope.EndBlock.Statements|Where-Object {
+        $_ -is [Management.Automation.Language.IfStatementAst] -and
+        $_.Clauses[0].Item1.Extent.Text -cmatch $condition})
+    if($guards.Count -ne 1){throw 'SDK admission guard missing or ambiguous'}
+    $guard=[scriptblock]::Create($guards[0].Extent.Text)
+    $names=@($scope.ParamBlock.Parameters|ForEach-Object {$_.Name.VariablePath.UserPath})
+    $valid=@{};$valid[$profile.flag]=$true
+    foreach($name in $profile.required){$valid[$name]=$true}
+    $cases=[Collections.Generic.List[object]]::new()
+    $cases.Add(@{values=@{};accepted=$true;name='SDK not selected'})
+    $cases.Add(@{values=$valid;accepted=$true;name='fresh SDK cohort'})
+    foreach($name in $profile.required) {
+        $changed=$valid.Clone();$changed[$name]=$false
+        $cases.Add(@{values=$changed;accepted=$false;name=('missing '+$name)})
+    }
+    foreach($name in $profile.forbidden) {
+        $changed=$valid.Clone();$changed[$name]=$true
+        $cases.Add(@{values=$changed;accepted=$false;name=('ineligible '+$name)})
+    }
+    foreach($change in @(@{key=$profile.prefix;value='anchors_1'},
+            @{key=$profile.durable;value='move_intent'})) {
+        $changed=$valid.Clone();$changed[$change.key]=$change.value
+        $cases.Add(@{values=$changed;accepted=$false;name=('ineligible '+$change.key)})
+    }
+    if($profile.function) {
+        $changed=$valid.Clone();$changed['ActorProfile']='NamedController'
+        $cases.Add(@{values=$changed;accepted=$false;name='named actor'})
+    }
+    foreach($case in $cases) {
+        $accepted=$true
+        try {& {
+            param($names,$values,$guard,$profile)
+            foreach($name in $names){Set-Variable -Name $name -Value $false -Scope Local}
+            Set-Variable -Name $profile.prefix -Value 'none' -Scope Local
+            Set-Variable -Name $profile.durable -Value 'none' -Scope Local
+            if($profile.function){Set-Variable -Name ActorProfile -Value 'SystemStandard' -Scope Local}
+            foreach($name in $values.Keys){Set-Variable -Name $name -Value $values[$name] -Scope Local}
+            & $guard
+        } $names $case.values $guard $profile} catch {$accepted=$false}
+        if($accepted -ne $case.accepted){throw ('SDK admission differs: '+$profile.file+' '+$case.name)}
+        $sdkAdmissionCases++
+    }
+}
+if($sdkAdmissionCases -ne 41){throw 'SDK admission case membership differs'}
+Write-Output ('SDK admission guards checked: '+$sdkAdmissionCases)
 # Execute the real activation helper without native effects. Its success must
 # bind the product reply to this service; a prior exit code cannot admit it.
 $tokens=$null;$errors=$null
