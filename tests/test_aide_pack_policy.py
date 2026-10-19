@@ -35,7 +35,7 @@ class AidePackPolicyTests(unittest.TestCase):
     def test_pinned_pack_grants_only_registered_optional_tooling(self) -> None:
         problems, licensed = policy.validate(self.root)
         self.assertEqual([], problems)
-        self.assertEqual(823, len(licensed))
+        self.assertEqual(826, len(licensed))
         self.assertIn(Path(".aide/scripts/aide_lite.py"), licensed)
         self.assertNotIn(Path("runtime/setup/kernel/usk_api.c"), licensed)
         self.assertNotIn(Path(".aide/unregistered.py"), licensed)

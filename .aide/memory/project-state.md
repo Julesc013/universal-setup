@@ -578,3 +578,15 @@ always-throwing test callback. The negative controls now read runtime-valued
 frozen clock and failure inputs; their exact81-probe cap, deadline and failed-close
 assertions remain. Production helpers and warning settings are unchanged. Fresh compile,
 control execution and exact-source review remain required before resubmission.
+
+## 2026-10-19 qualified development integration and AIDE consumer update
+
+Reviewed PRs270 and271 are integrated into dev6bddf2160e8ee1e98c6c4fcfef03477ac91b472d; all seven core/specification checks and accepted-dev push39223313941 passed. Main remains c048f7f1ae2e5922c15a08ee572bdafc29027c63. Publisher qualification remains separate.
+
+The exact PR270 baseline run39216132810 completed with only packaged maintenance failing. Its traced, untraced and release-default source-retired repair recoveries have request/native-byte, held-client, original-pair and independent104-row bindings consistent, generation4 to5 and successful verification. This is one passing set, not reliability or release qualification. PR271 run39221385593 still refuses packaged damaged-file repair: its current native response names the new extraction-phase expiry-or-cancellation guard. The original stored-ZIP clock refusal is retained. Do not assume which branch of the combined new refusal fired or shift the budget again without discriminating evidence.
+
+The owner-published frozen AIDE Lite1.1.0 archive (SHA256 80b8a875f63913153f7da890394d4d5c4bcce7c970ab9d48ba39366dd13a94fc; export447e393b3f87004641b7387c1f33828ac1ee3a85, release target9cead252a1e72c5fe3d3f224b098d98436f7a250) was acquired, reviewed and ownership-updated here:15 managed updates,4 additions,826 managed records/825 files. All other raw target bytes survived import, including project guidance/profile/memory/queue. The omitted old .aide.local.example/secrets/README.md remains present without receipt ownership. No broad core or provider activation was imported.
+
+Doctor,12 resume-plan tests, selected direct work-effort CLI controls and11 successor-policy fixtures pass. The advertised portable test remains red: a synthetic missing-Gateway fixture writes non-Python markers and then imports them, raising NameError local_skeleton. A real safe installation of the exact predecessor reproduced that specific failure; no blanket baseline equivalence is claimed. Two attempted export tests against packed payload lack maintainer import-policy source and never reach their behavior; those errors are retained rather than relabelled. Functional tooling adoption remains incomplete under provider request USK-AIDE-LITE-SAFE-SELFTEST-20261019-01, https://github.com/Julesc013/aide/issues/6#issuecomment-6263362256. Preserve frozen upstream bytes and assertions.
+
+This worker is the VS Code Codex extension26.1007.21434. No supported external delivery endpoint/current-turn binding is established; cooperative owner handoffs continue. No new coordinator, repository, worktree or VM was created. Setup product repair proceeds independently of the AIDE defect.

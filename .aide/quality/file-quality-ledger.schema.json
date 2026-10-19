@@ -18,6 +18,7 @@
     "records": {
       "type": "array",
       "items": { "$ref": "file-quality-record.schema.json" }
-    }
+    },
+    "reuse_report": { "type": "object", "description": "Optional recorded heuristic reuse candidates; absent in older ledgers." }
   }
 }

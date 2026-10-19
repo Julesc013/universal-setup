@@ -1,6 +1,12 @@
 schema_version: aide.release-versioning-policy.v0
 policy_id: aide-release-versioning-v0
 status: active
+successor_candidate_ref: .aide/release/successor-candidate.json
+successor_candidate_boundary: >
+  Source-maintainer declaration only. It preserves the baseline forms below and
+  pins retained historical assets without reinterpreting them under current policy.
+  Proposed additions need actual archive and predecessor consumer qualification;
+  this reference grants no publication authority or new support claim.
 purpose: >
   Preserve Q47/Q48 local bundle identity and define the conditional public
   version rule for a later qualified AIDE Lite release.
