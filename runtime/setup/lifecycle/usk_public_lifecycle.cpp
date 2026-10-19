@@ -16,6 +16,7 @@
 #include "usk_install_restart.h"
 #include "usk_live_evidence.h"
 #include "usk_record_io.h"
+#include "usk_repair_source_admission_internal.h"
 #include "usk_sha256.h"
 #include "usk_state_repository.h"
 #include "usk_target_inspect.h"
@@ -900,6 +901,9 @@ RepairPlanBundle build_repair_plan(const Value& request, const PublicConfig& con
     result.plan = usk::lifecycle::plan_repair(lifecycle_roots(config), install_id,
         required_string(request, "plan_id"), required_string(request, "created_at"),
         std::move(files), payload.source_sha256, policy);
+    usk::lifecycle::detail::bind_repair_source_admission(result.plan,
+        usk::json::canonical(fixed_archive_inspection_request(archive)),
+        archive.at("strip_prefix").as_string(), payload, std::chrono::milliseconds(30000));
     result.before = usk::lifecycle::verify_installed(lifecycle_roots(config), install_id,
         "verify." + result.plan.plan_id + ".before", result.plan.created_at);
     return result;

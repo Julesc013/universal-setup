@@ -6,12 +6,31 @@ Foundation; completion of that release and the wider specification are separate.
 Use the sole FacMan worktree, reusable build and current laboratory. The external
 task checkpoint holds changing source, review, process and qualification pins.
 
-Accepted dev is dd9468c3, the normal PR269 merge after seven core/specification
+Accepted dev is a7257a8a, the normal PR270 merge after seven core/specification
 checks and exact-source independent review. Its accepted push also passed all
 seven core/specification jobs. Main remains c048f7f1. Integrate reviewed/core-qualified
 checkpoints into dev daily; promote to main weekly when its additional
 qualification passes. An incomplete publisher run does not qualify main,
 deployment packages or a release.
+
+The current increment re-admits the exact repair archive immediately before
+staging, after existing maintenance setup. Its private one-shot source owner
+retains the original held file, freshly verifies content/identity/entry-set and
+selected replacements, and shares one unchanged30-second extraction-phase
+deadline across fresh inspection and all reads. This corrects a lifetime
+coupling; it does not preserve the former combined age limit or raise the
+120-second request bound. Existing archive/stage integrity and native authority
+checks remain. Failed or reentrant/cross-thread use invalidates every reader;
+there is no old-reader fallback. Source-free recovery does not serialize this
+callback or acquire a new archive dependency.
+
+The initial implementation passed local tests but independent review found
+incomplete inner deadline checks and callback lifetime/reentrancy gaps. A
+strengthened actual native regression reproduced the deadline gap before its
+repair. The updated owner passes its bound check through the archive's existing
+checkpoints and retains itself through each active invocation. Local validation,
+exact source review and hosted results remain separately recorded; no packaged
+repair, recovery, main or release qualification follows from these changes.
 
 PR268's publisher run completed red. Both fresh maintenance cohorts passed,
 while both current source-retired repair recovery requests exceeded120seconds
@@ -21,7 +40,7 @@ The original controller completed repair/uninstall/retirement. The packaged
 journey passed install, source-free reentry, verify and live-retirement refusals,
 then failed its first damaged-file repair before uninstall began.
 
-PR270's publisher run completed red. Its original controller completed actual
+PR270's earlier run39120771483 at3e556e6 completed red. Its controller completed actual
 repair/uninstall/retirement, and release-default fresh maintenance passed.
 Packaged repair still refused on the stored ZIP reader's fixed30-second budget,
 before uninstall. Current interrupted source-retired repair recovery exceeded
@@ -30,7 +49,7 @@ was not established. The actual synthetic build is e15de67f, with submitted
 treebddb9c4b; build identity and package bytes remain distinct. Turning off
 diagnostics did not resolve that failure and is not the next proposed repair.
 
-PR270 also failed one Win32 core CTest: the real readonly planner exited before
+That earlier run also failed one Win32 core CTest: the real readonly planner exited before
 Start-Process supplied a usable Handle. The unchanged local test initially passed,
 but delaying the return of that real child300ms reproduced the hosted null-handle
 failure in Windows PowerShell. This observation defect is separate from the
