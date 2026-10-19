@@ -2140,3 +2140,52 @@ admission; copy-on-write views do not alter the bound file. Trusted kernel and
 filesystem enforcement remains part of this profile's stated threat model.
 Source changes and local controls alone do not establish recovery qualification
 or a request-deadline improvement.
+
+
+## Public repair source re-admission before staging
+
+The public repair path prepares its existing durable maintenance context before
+reading replacement bytes. Archive inspection's returned readers previously
+shared an absolute deadline created before policy evaluation, repeated installed
+verification and native maintenance setup. A stored-ZIP time-budget refusal at
+staging therefore did not establish 30 seconds of archive extraction work.
+
+The private repair source owner now performs one explicit, fresh admission at
+that staging boundary. The original held source remains retained; a new complete
+inspection must match its source SHA-256, native identity digest, archive size
+and entry-set digest. Every selected path, size and payload SHA-256 must match
+the reviewed repair replacements. Existing ZIP/Deflate CRC, compressed/expanded
+boundary checks, source verification, cancellation and staged size/hash checks
+remain in force. This is a separately bounded source admission, not reuse of an
+expired observation or an authorization grant.
+
+One 30-second extraction-phase deadline starts before that fresh inspection and
+covers its identity/hash/metadata work plus all selected reads and EOF probes.
+It never resets per file or read. Preparation can occur only once; premature or
+wrong-thread reads, exceptions, cancellation, mismatches and expiration make all
+copies of that owner's callbacks unusable. Failure never selects the old reader
+route. Preparation runs inside the existing repair failure handler, after durable
+maintenance setup; its failure is not evidence that dispatch had no effects.
+The separate 120-second request contract and every native authorization fence
+remain unchanged. Install, update and ordinary internal repair callers retain
+their existing behavior.
+
+This changes the former inspection-to-last-read age limit into separately bounded
+inspection and extraction phases; it does not preserve an unchanged cumulative
+archive-time allowance. Metadata includes the bounded reviewed replacement table,
+one fresh inspection table and its selected reader slots (at most the existing
+10,000-entry limits). Original and fresh source handles coexist. Full payload
+bytes are not retained; archive and staging keep their existing streaming buffer
+bounds. These are separate bounds, not a claim of a fixed total-memory ceiling.
+Local source controls alone do not establish packaged repair, source-free recovery,
+a deadline improvement or main/release qualification.
+
+The shared deadline is observed at the archive's existing hashing/decoding
+checkpoints and before/after returned reads. Blocking native I/O is not made
+preemptible. The archive's retained checker refers back to its source owner
+without an ownership cycle; each outer invocation retains that owner until
+return or failure, including when caller callbacks abandon the plan. Reentrant
+caller callbacks invalidate the phase even if they catch the nested refusal.
+The private preparation callback is not serialized into the durable repair
+plan: interrupted source-free recovery continues from its existing retained
+transaction payload and does not require re-admitting a retired archive.

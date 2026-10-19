@@ -2455,6 +2455,7 @@ RepairResult apply_repair(
         record_io::require_safe_directory((install_root / relative_file).parent_path());
     };
     try {
+        if (plan.prepare_payload) plan.prepare_payload(cancellation);
         for (const PayloadFile& file : plan.replacement_files) {
             stage_maintenance_payload_file(
                 transaction, fs::path("payload") / file.relative_path, file,
