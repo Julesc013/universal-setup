@@ -6,9 +6,10 @@ Foundation; completion of that release and the wider specification are separate.
 Use the sole FacMan worktree, reusable build and current laboratory. The external
 task checkpoint holds changing source, review, process and qualification pins.
 
-Accepted dev is f67b9f996f897064954388f2196f9d04ee755a19, the normal PR274 merge
-after seven core/specification checks and exact-source independent review.
-PR270/271/272/273 are integrated; the exact f67b9f9 push passed all seven checks.
+Accepted dev is71221194c8226bf3699d164c108ea665330c85cd, the normal PR277 merge
+after seven exact-head core/specification checks, independent source review and
+the live merge gate. It retains PR274 and the earlier integrated checkpoints.
+Its tree is7afce8009d74da895424dc47b7a56ac1927daacd.
 Main remains c048f7f1ae2e5922c15a08ee572bdafc29027c63. PR275 is closed unmerged
 after run39239386800 failed publisher qualification despite seven core/specification
 passes. All three source-retired repair recovery requests exceeded their deadlines,
@@ -44,7 +45,9 @@ established. Later dependent scenarios were skipped, not executed failures.
 Rejected bounded observer candidates and original failures remain retained.
 
 PR276's published e3e1d73 reply-codec checkpoint has all seven required core/
-specification checks passing. Its next registered-client component is physically
+specification checks passing. Its full publisher run39243004292 completed red at
+packaged repair and traced source-free recovery; untraced and release-default
+recovery steps passed, without whole-profile or reliability qualification. Its next registered-client component is physically
 separated from the service channel, registration writer, ACL grant implementation
 and publisher engine. The CLI and ordinary client share fresh per-request SCM
 configuration, caller, image-path and service-access checks. Shared pipe I/O keeps
@@ -73,12 +76,13 @@ public request mapping, native policy, rights, observation sampling or deadline
 is changed by this component. Source review and fresh hosted qualification remain
 separate; prior e3 checks do not qualify this later source.
 
-Separate PR277 at137a287 records legacy registered-start native exit/stderr and a
+Integrated PR277 at137a287 records legacy registered-start native exit/stderr and a
 4096-character stdout prefix before checking exit/schema/status/service. Its
 independent source review and seven core/specification checks pass; the actual
 hosted startup cause remains unknown. Matched PS5.1/7 controls did not reproduce
 a stale-exit hypothesis. This capture repair and its continuing publisher run
-are separate from the current client boundary. The failed main PR275 is now
+remain distinct from the current client boundary, which now includes the accepted
+harness unchanged through normal dev ancestry. The failed main PR275 is now
 closed unmerged so ongoing development does not repeatedly execute an unchanged
 failed promotion. Reviewed/core-qualified development integration can continue. No pending source or
 development check implies main, release or complete1.1 acceptance.

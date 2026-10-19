@@ -69,6 +69,94 @@ ConvertTo-Json -InputObject @($results) -Depth 8 -Compress
 
 @unittest.skipUnless(POWERSHELL, 'PowerShell unavailable on this platform')
 class PublisherPowerShellEnrollmentTests(unittest.TestCase):
+    @unittest.skipUnless(sys.platform == 'win32', 'Windows native command fixture')
+    def test_registered_start_retains_actual_outcome_before_assertion(self):
+        # Execute the original function and collector, with an inert native
+        # command. This tests observation, never SCM startup or publisher authority.
+        code = r"""
+param([string]$Root,[string]$OutputRoot)
+$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $Root 'tests/windows_publisher_metadata_hosted_probe.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Original metadata fixture parse failed'}
+$functions=@($ast.FindAll({param($node)
+    $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -cin @('Read-BoundedDiagnostic','Invoke-ObservedPublisherControl','Start-RegisteredPublisher')
+},$true))
+if($functions.Count -ne 3){throw 'Original start and diagnostic helpers required'}
+foreach($function in $functions){. ([scriptblock]::Create($function.Extent.Text))}
+$root=$OutputRoot;$service='synthetic_service';$ServiceBinary='inert-binary';$VolumeRoot='V:\'
+$AdmittedTarget=$false;$ControllerApply=$false;$registeredMode='--grant-client-read'
+$script:controllerPending=$false
+$rows=@()
+foreach($mode in @('refusal','pass','unknown','schema','status','service','malformed','oversized','missing')){
+    $id=[guid]::NewGuid().ToString('N');$global:LASTEXITCODE=3
+    $callerSid=$mode
+    $ServiceControlBinary=Join-Path $OutputRoot $(if($mode -ceq 'missing'){'absent.exe'}else{'native-start.cmd'})
+    $receipt=@{control_attempts=[Collections.Generic.List[object]]::new()}
+    $rejected=$false
+    try{Start-RegisteredPublisher}catch{$rejected=$true}
+    $rows+=@{mode=$mode;rejected=$rejected;attempts=@($receipt.control_attempts);
+        preference_restored=($ErrorActionPreference -ceq 'Stop')}
+}
+ConvertTo-Json -InputObject @($rows) -Depth 6 -Compress
+"""
+        valid = dict(schema='usk.publisher_service_control.v1',
+                     status='start_requested', service='synthetic_service')
+        cases = {
+            'pass': (valid, 0), 'refusal': (valid, 3), 'unknown': (valid, 5),
+            'schema': (dict(valid, schema='another.schema'), 0),
+            'status': (dict(valid, status='failed'), 0),
+            'service': (dict(valid, service='another_service'), 0),
+            'malformed': ('not-json', 0), 'oversized': ('x' * 5000, 0),
+        }
+        native = ['@echo off']
+        native += [f'if "%~5"=="{mode}" goto {mode}' for mode in cases]
+        native.append('exit /b 7')
+        for mode, (reply, exit_code) in cases.items():
+            text = json.dumps(reply, separators=(',', ':')) if isinstance(reply, dict) else reply
+            native += [f':{mode}', 'echo ' + text]
+            if exit_code:
+                native.append('echo controlled native startup diagnostic 1>&2')
+            native.append(f'exit /b {exit_code}')
+        for shell in POWERSHELLS:
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory() as directory:
+                script = Path(directory) / 'registered-start.ps1'
+                script.write_text(code, encoding='utf-8')
+                (Path(directory) / 'native-start.cmd').write_bytes(
+                    ('\r\n'.join(native) + '\r\n').encode('ascii'))
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive',
+                    '-ExecutionPolicy', 'Bypass', '-File', str(script), '-Root', str(ROOT),
+                    '-OutputRoot', directory], capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                rows = json.loads(result.stdout)
+                self.assertEqual(len(rows), 9)
+                for row in rows:
+                    mode = row['mode']
+                    self.assertEqual(row['rejected'], mode != 'pass', row)
+                    self.assertTrue(row['preference_restored'], row)
+                    self.assertEqual(len(row['attempts']), 1, row)
+                    attempt = row['attempts'][0]
+                    self.assertEqual(attempt['phase'], 'service_activation')
+                    if mode == 'missing':
+                        self.assertIsNone(attempt['native_exit_code'])
+                        self.assertTrue(attempt['invocation_failure'])
+                        continue
+                    self.assertEqual(attempt['native_exit_code'], cases[mode][1])
+                    self.assertIsNone(attempt['capture_failure'])
+                    self.assertIsNone(attempt['invocation_failure'])
+                    self.assertEqual(attempt['stdout_prefix_limit_chars'], 4096)
+                    self.assertLessEqual(len(attempt['stdout_prefix']), 4096)
+                    self.assertGreater(attempt['stdout_observed_chars'], 0)
+                    if mode == 'oversized':
+                        self.assertEqual(attempt['stdout_observed_chars'], 5000)
+                        self.assertEqual(len(attempt['stdout_prefix']), 4096)
+                    if mode in ('refusal', 'unknown'):
+                        self.assertIn('controlled native startup diagnostic', attempt['stderr_prefix'])
+                    else:
+                        self.assertEqual(attempt['stderr_observed_bytes'], 0)
+
     def test_controller_attempt_retains_native_failure_without_stale_success(self):
         # Run the actual capture helpers on each installed supported shell.
         # Native children are inert Python fixtures, never product controllers.

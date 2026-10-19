@@ -667,8 +667,18 @@ function Start-RegisteredPublisher {
     }
     $startArgs=@('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid)
     if($registeredMode){$startArgs+=$registeredMode}
-    $started=& $ServiceControlBinary @startArgs
-    if($LASTEXITCODE -ne 0 -or ($started|ConvertFrom-Json).status -ne 'start_requested') {
+    $activation=Invoke-ObservedPublisherControl -Phase service_activation -Arguments $startArgs
+    $startText=$activation.output -join [Environment]::NewLine
+    $nativeAttempt=$receipt.control_attempts[$receipt.control_attempts.Count-1]
+    $nativeAttempt['stdout_observed_chars']=$startText.Length
+    $nativeAttempt['stdout_prefix_limit_chars']=4096
+    $nativeAttempt['stdout_prefix']=$startText.Substring(0,[Math]::Min(4096,$startText.Length))
+    if($activation.native_exit_code -ne 0 -or $startText.Length -gt 4096) {
+        throw 'Product service control did not start the matching publisher'
+    }
+    $started=$startText|ConvertFrom-Json
+    if($started.schema -cne 'usk.publisher_service_control.v1' -or
+        $started.status -cne 'start_requested' -or $started.service -cne $service) {
         throw 'Product service control did not start the matching publisher'
     }
 }
