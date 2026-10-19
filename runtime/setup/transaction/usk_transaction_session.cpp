@@ -1058,11 +1058,14 @@ StreamStageResult TransactionSession::stage_file_stream(
     const std::string& expected_sha256,
     std::size_t buffer_bytes,
     const StreamReader& reader,
-    const std::string& source_identity_digest)
+    const std::string& source_identity_digest,
+    std::size_t write_buffer_bytes)
 {
     if (current_state_ != "staging" || !safe_relative_path(relative_path) ||
         !valid_sha256(expected_sha256) || buffer_bytes < 4096u ||
         buffer_bytes > 4u * 1024u * 1024u || !reader ||
+        (write_buffer_bytes && (write_buffer_bytes < buffer_bytes ||
+            write_buffer_bytes > 4u * 1024u * 1024u)) ||
         (!source_identity_digest.empty() && !valid_sha256(source_identity_digest))) {
         throw std::runtime_error("streamed staged file request is invalid");
     }
@@ -1124,7 +1127,7 @@ StreamStageResult TransactionSession::stage_file_stream(
         require_safe_directory(current);
     }
     const fs::path destination = staging_root_ / relative_path;
-    std::vector<unsigned char> buffer(buffer_bytes);
+    std::vector<unsigned char> buffer(write_buffer_bytes ? write_buffer_bytes : buffer_bytes);
     usk::base::Sha256 digest;
     std::uint64_t total = 0;
 #if defined(_WIN32)
@@ -1166,14 +1169,23 @@ StreamStageResult TransactionSession::stage_file_stream(
         persist_snapshot();
         if (injector_) injector_(current_state_, "after_stream_open");
         while (total < expected_size) {
-            if (injector_) injector_(current_state_, "before_stream_read");
-            const std::size_t capacity = static_cast<std::size_t>(
-                std::min<std::uint64_t>(buffer.size(), expected_size - total));
-            const std::size_t count = reader(buffer.data(), capacity);
-            if (count == 0 || count > capacity) {
-                throw std::runtime_error("streamed source returned a short or oversized read");
-            }
-            if (injector_) injector_(current_state_, "after_stream_read");
+            std::size_t count = 0;
+            do {
+                if (injector_) injector_(current_state_, "before_stream_read");
+                const auto remaining = expected_size - total - count;
+                const std::size_t capacity = static_cast<std::size_t>(
+                    std::min<std::uint64_t>(std::min(buffer_bytes, buffer.size() - count), remaining));
+                const std::size_t read = reader(buffer.data() + count, capacity);
+                if (read == 0 || read > capacity) {
+                    throw std::runtime_error("streamed source returned a short or oversized read");
+                }
+                if (injector_) injector_(current_state_, "after_stream_read");
+                count += read;
+                // Default callers retain one read per write cycle. Explicit
+                // batching preserves read caps and EOF checking.
+            } while (write_buffer_bytes && count < buffer.size() && total + count < expected_size);
+            // A later reader may retain and change an earlier output slice.
+            // Hash the completed batch after all its reader callbacks.
             digest.update(buffer.data(), count);
             std::size_t written_total = 0;
             while (written_total < count) {

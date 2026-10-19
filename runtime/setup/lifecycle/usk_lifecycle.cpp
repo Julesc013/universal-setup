@@ -100,6 +100,11 @@ void stage_payload_file(
         transaction.stage_file(relative_path, file.bytes);
         return;
     }
+    // Streaming install and maintenance share bounded 1 MiB target-write storage
+    // with separate 64 KiB archive read calls.
+    // staged.peak_buffer_bytes reports this allocation, not total source,
+    // metadata or process memory. Every actual Windows write still completes
+    // its original full native authority check immediately beforehand.
     std::uint64_t offset = 0;
     const auto staged = transaction.stage_file_stream(
         relative_path,
@@ -120,7 +125,7 @@ void stage_payload_file(
                 throw std::runtime_error("lifecycle streaming operation was cancelled");
             }
             return count;
-        }, source_identity_digest);
+        }, source_identity_digest, 1024u * 1024u);
     if (cancellation && cancellation()) {
         throw std::runtime_error("lifecycle streaming operation was cancelled");
     }
