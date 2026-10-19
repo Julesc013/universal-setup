@@ -1,85 +1,65 @@
 # Universal Setup Project State
 
-Continue USK-SPEC-TO-RELEASE-01 from the existing implementation, inventory
-and WorkUnit bindings. First release:1.1.0 Local Setup Foundation; complete
-specification completion remains separate. Reuse sole worktree/build/laboratory.
+Continue USK-SPEC-TO-RELEASE-01 from existing implementation, inventory and WorkUnit
+bindings. First release:1.1.0 Local Setup Foundation; full specification completion
+is separate. Reuse sole worktree/build/lab and existing Universal output roots.
 
-Accepted devfd193fb442454a35aa06ea0db73cc8bcd8f712ac/tree304133c280fb65273602f6a675c7cb9902fb38a1
-is the normal PR283 merge. Submitted3d9c29fb47e6949d9ed79993ab0bb2802d1d592e
-passed all seven required core checks in39312078992/1; accepted push39314240433
-also passed all seven. Earlier c03 preflight failure remains retained; its
-unique AdmittedTarget selector repair preserved original admission assertions.
-Mainc048f7f1ae2e5922c15a08ee572bdafc29027c63 remains unqualified.
-Continue reviewed daily dev integration; weekly main promotion requires its gates.
+Accepted dev1b288dfd60bafadbd15eb134eab1a2354ed0c652/treeeedc8f709a97a8dedde1043672366e64a4d9f6b0
+is the normal PR284 merge at2026-10-19T20:47:34Z. Submitted02f8589 passed all seven
+required core checks in39319879216/1 and the fresh live dev gate; exact committed
+agent review6276668122 binds it. Accepted push39322274075 remains pending.
+Mainc048f7f1ae2e5922c15a08ee572bdafc29027c63 remains unqualified. Continue
+reviewed daily dev integration; main additionally requires publisher/acceptance gates.
 
-The actual fresh eight-request public C SDK lifecycle producer21 and collector22
-passed in39312078992/1. Retained raw receipt7633027B/SHA256
-2509cc27f9223b14a64de2f263c274fe7a8fe8a55a3c0022748998bf3d77f3a0
-contains actual command_response results: install, source-retired reentry, verify,
-repair, verify, move, verify, uninstall. Standard clients were captured before
-resume and closed; account cleanup confirmed. Independent readbacks bind completed
-journals, sealed histories, lease generations4/5/6, actual original repair bytes,
-four retained/distinct copied move objects and retired/absent uninstall root.
-Compact result T/pr283-3d9c29f-sdk-eight-request-results-r1.json.
-This is a tiny-consumer result, not whole-profile or predecessor compatibility.
-Actual synthetic build commit is not independently retained in this SDK receipt.
-SDK public recovery.apply still refuses before dispatch; connecting native recovery
-must preserve all reviewed caller digests and finalize/rollback action.
+The accepted prefix-reuse increment retains the first actual TX/history pair,
+original owner/selection, current per-object observations, closing exact pair/full
+recipe exit, sticky failures and all effect fences. Ordinary/ineligible/SCM routes
+retain independent reads; earlier duplicate sampling/refusal instants are unclaimed.
+The inactive-recipe finding is closed by original_child && active_read_recipe.
+All six selected linked x64/Win32 tests passed with actual freshness/malformed
+controls; protected routes and the unchanged120-second recovery contract still
+require hosted evidence. Current PR284 publisher qualification is pending.
 
-SCM PR282 ae99051 run39305251794/1 is terminal FAIL, all seven core PASS.
-Selected held-query-handle retirement and both packaged journeys passed; actual
-1072 was not observed. All three genuinely interrupted/source-retired repair
-recoveries26/28/90 failed the unchanged120-second client deadline, including
-release-default diagnostics OFF. UNKNOWN/no native completion and incomplete
-Error32 readback do not establish final outcome or conflicting handle ownership.
-Earlier PR281 c66 run39297457096/1 passed all three recovery cohorts but failed
-the older retirement step; retain those positives without current reliability.
-Current PR283 publisher is still running. Its packaged step9 failed because the
-concurrent rename attacker did not overlap the publisher call; overlap/security
-qualification is missing. This is distinct from a proven product or SCM-retirement
-failure. Later packaged controller was not produced after that prerequisite failed.
-Retain that failure; do not waive the safety scenario or attribute absent later
-receipts to another executed defect.
+Prior PR283's fresh eight-call public C SDK tiny-product lifecycle passed:
+install/source-retired reentry/verify/repair/verify/move/verify/uninstall. Independent
+readbacks confirm restored original repair bytes, completed journals/seals and lease
+generations4/5/6, retained original/four distinct copied move objects, retired/absent
+uninstall root and client/account cleanup. Its two diagnostic source-free recovery
+requests still exceeded120seconds; release-default recovery remains pending.
+PR282 ae99051 previously failed all three recovery cohorts including diagnosticsOFF;
+earlier c66 passes are retained without current reliability or whole-profile claims.
+Generic public SDK recovery remains unsupported before dispatch and must retain
+every caller-reviewed digest and finalize/rollback choice when connected.
 
-The current bounded inspected-prefix reuse increment removes only duplicate
-immediate TX/history observations in three fixed original-child read-only
-reconciliation consumers. First actual pair, original-owner selection, fresh
-per-object file observations, closing exact pair/full recipe exit, sticky
-failure, provisional result boundaries and all native effect fences remain.
-The ordinary wrapper, ineligible original-child route and SCM keep independent
-reads. Earlier duplicate sampling/refusal instants are deliberately unclaimed;
-read-only code and held handles do not imply filesystem/security immutability.
-No new callback, scope, budget, deadline, grant/effect or public ABI is introduced.
+The separate packaged PR283 failure is missing actual native overlap for the
+unrelated attacker. The97.8us native call had10 overlaps from the client attacker;
+the unrelated SID's failed timing receipt was discarded. This neither qualifies
+that scenario nor establishes a product/SCM defect or a scheduling cause.
 
-R1 source review HOLD found one inactive-recipe eligibility gap. R2 requires
-original_child && active_read_recipe and passed bounded delta source review
-/root/review_query_composition:recovery-prefix-reuse-r2, review SHA256
-48b4e4a25e378f3bfd1025d270cdd131198cb51cdda7f8042ad2478235a5e264.
-Four exact approved postimages applied from patch SHA256
-e33079f790ec58d35a73bbd5f5c6e5259a78c3aac28c951808911e2d0439a31f.
-Existing real interruption/sealed fixtures check expected states on both paths;
-one real file drift after metadata capture must remain indeterminate, restoring
-bytes must be observed freshly, and malformed context must refuse.
-R1 and changed R2 strict x64/Win32 syntax passed. All six selected linked
-lifecycle/interruption/adversarial tests passed across x64/Win32; new controls
-were positively observed on both architectures. Actual lifecycle times were
-212.97/217.24s. Retained initial launcher failure preceded tests; corrected
-attempt passed interruption/adversarial but used an incorrect180s full-fixture
-bound against the preceding261.06s baseline. Bounded420s rerun passed without
-changing the120s public request contract. No performance cure is inferred.
-39 inventory SHA leaves were refreshed without classification/count/acceptance
-changes. T/recovery-prefix-reuse-r2/targeted-validation-results.json binds the
-actual postimages, logs, resource receipts and retained failures.
-Protected native route, temporal refusals, actual request deadline improvement,
-full publisher/main/release remain unqualified. Final committed review and
-fresh required core/live gates remain necessary for development integration.
+The current reviewed harness diagnostic delta keeps that missing candidate data.
+Read-ConcurrentAttackerDiagnostic optionally projects a failed receipt before the
+unrelated branch's unchanged throw. No accepted hostile-rights field is filled.
+The existing512KiB file-length gate is a pre-read bound, not a same-handle immutable
+snapshot; nested race data remains unvalidated producer telemetry. Stop summarizes
+nearest retained before/after denied attempts only after worker.Join. Start, Loop,
+rate/capacity, strict overlap predicate, positive security/identity checks and
+deadlines are unchanged. Nearest pairs do not establish continuous coverage or cause.
+Only two optional final timestamp pairs are newly allocated.
 
-The retained trace supports repeated native authority/record observation work;
-98 complete captured authority fences each had one combined record proof/two
-broker selections, so combined-admission fallback was not observed there.
-Later diagnostic emission exhausted its cap; no bulk whole-request conclusion.
-Partial stacks/source lines are inclusive and conditional, not removable cost.
-The old eight-query R102 preview stays unapplied/rejected.
+Three exact source postimages applied after actual PR284 merge/parent reconciliation:
+patch26817bc7476af74342071c2c4faa644cbee438e23a0b68eb0b3e0e14a33872ac.
+Source review T/publisher-attacker-observation-r1-source-review.md SHA256
+b5fa85db902b0ba6d7da98d2aadfc1e83e15aebea502ce10ec2beb8768a0dcf7
+approves focused source-only work. Actual inert controls passed PowerShell7/5.1,
+two methods each: failed/malformed/oversized/missing files retain the original
+throw, and stopped gap/touching/empty/wrapped histories cannot invent overlap.
+Start/Loop/MoveFileEx/native publication were never invoked by these controls.
+Four inventory SHA leaves changed; all non-SHA fields equal actual accepted Git
+UTF-8 baseline. Applied new two controls, existing six request/failure controls,
+publisher preflight CTest10.62s, inventory seven tests and strict nine checks pass.
+Downstream readers have no closed field-count dependency on the added timing data.
+Final committed review and fresh core/live gates remain required. No hosted overlap, security, performance, publisher/main/release
+qualification is conveyed by this diagnostic increment.
 
 AIDE frozen1.1.0 import preserved target customization; its safe installed
 self-test still fails NameError local_skeleton, tracked with upstream issue6.
