@@ -257,6 +257,104 @@ try {. $flow} catch {$invalid=$_.Exception.Message}
 '''
 
 
+SDK_LIFECYCLE_SCRIPT = r'''
+param([string]$Root)
+$ErrorActionPreference='Stop'
+$path=Join-Path $Root 'tests/windows_publisher_public_sdk_probe.ps1'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($path,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'SDK fixture parse failed'}
+function Select-SdkFunction([string]$Name) {
+    $found=@($ast.FindAll({param($n)
+        $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -ceq $Name
+    },$true))
+    if($found.Count -ne 1){throw 'SDK function identity differs'}
+    return $found[0]
+}
+foreach($name in @('Invoke-StandardLifecycleRequest','Get-StandardLifecyclePayload')) {
+    . ([scriptblock]::Create((Select-SdkFunction $name).Extent.Text))
+}
+$events=[Collections.Generic.List[string]]::new()
+$payload=@{reviewed_plan_id='plan.current';reviewed_plan_digest=('a'*64);
+    plan_request=@{install_id='install.current';nested=@('ordered','values')};confirmation='APPLY'}
+$inputJson=$payload|ConvertTo-Json -Depth 32 -Compress
+function Invoke-StandardSdkRequest([string]$Command,$Payload) {
+    $events.Add('sdk')
+    if(-not [object]::ReferenceEquals($Payload,$script:payload) -or
+        ($Payload|ConvertTo-Json -Depth 32 -Compress) -cne $inputJson){throw 'Full SDK payload changed'}
+    if($sdkFails){throw 'Synthetic SDK dispatch uncertainty'}
+    return @{schema='usk.command_response.v1';status='ok';error=$null;payload=@{command=$Command}}
+}
+function Invoke-StandardRequest([string]$Command,$Payload) {
+    $events.Add('cli')
+    return @{schema='usk.oneshot_response.v1';status='ok';
+        result=@{schema='usk.command_response.v1';status='ok';payload=@{command=$Command}}}
+}
+$commands=@('install_local.apply','installed.verify','repair.apply','move.apply','uninstall.apply')
+foreach($SdkLifecycleQualification in @($false,$true)) {
+    foreach($command in $commands) {
+        $sdkFails=$false;$events.Clear()
+        $response=Invoke-StandardLifecycleRequest $command $payload
+        $value=Get-StandardLifecyclePayload $response
+        $expected=if($SdkLifecycleQualification){'sdk'}else{'cli'}
+        if($events.Count -ne 1 -or $events[0] -cne $expected -or $value.command -cne $command) {
+            throw 'Lifecycle dispatch selected another route or payload'
+        }
+    }
+}
+$SdkLifecycleQualification=$true;$sdkFails=$true;$events.Clear();$failure=$null
+try {$null=Invoke-StandardLifecycleRequest 'repair.apply' $payload} catch {$failure=$_.Exception.Message}
+if($failure -cne 'Synthetic SDK dispatch uncertainty' -or ($events -join '|') -cne 'sdk') {
+    throw 'SDK failure fell back or changed the original error'
+}
+$events.Clear();$failure=$null
+try {$null=Invoke-StandardLifecycleRequest 'recovery.apply' $payload} catch {$failure=$_.Exception.Message}
+if($failure -cne 'Ordinary lifecycle fixture command differs' -or $events.Count -ne 0) {
+    throw 'Private recovery entered the ordinary lifecycle adapter'
+}
+$failure=$null
+try {$null=Get-StandardLifecyclePayload @{schema='usk.oneshot_response.v1';status='ok';
+    result=@{schema='usk.command_response.v1';status='ok';payload=@{}}}} catch {$failure=$_.Exception.Message}
+if($failure -cne 'SDK lifecycle requires its actual completed public response') {
+    throw 'SDK fixture accepted a machine response as SDK success'
+}
+$node=Select-SdkFunction 'Invoke-StandardSdkRequest'
+$tries=@($node.Body.FindAll({param($n)
+    $n -is [Management.Automation.Language.TryStatementAst] -and $null -ne $n.Finally -and
+    $n.CatchClauses.Count -eq 1 -and $n.CatchClauses[0].Body.Extent.Text.Contains('$requestFailure=$_')
+},$true))
+if($tries.Count -ne 1){throw 'SDK failure flow identity differs'}
+$initial=@($node.Body.EndBlock.Statements|Where-Object {
+    $_ -is [Management.Automation.Language.AssignmentStatementAst] -and
+    $_.Left.Extent.Text -ceq '$requestFailure'
+})
+if($initial.Count -ne 1){throw 'SDK original-failure initialization differs'}
+$initialize=[scriptblock]::Create($initial[0].Extent.Text)
+$try=$tries[0];$text=$try.Extent.Text
+$offset=$try.Body.Extent.StartOffset-$try.Extent.StartOffset
+$text=$text.Remove($offset,$try.Body.Extent.Text.Length).Insert($offset,
+    '{if($primaryFails){throw ''Synthetic original SDK failure''};$record.status=''completed'';''synthetic SDK response''}')
+$flow=[scriptblock]::Create($text)
+function Close-StandardPublisherClient($Process,$Launch,$Attempted) {
+    $script:clientsClosed=$false
+    if($closure -ceq 'throws'){throw 'Synthetic SDK cleanup failure'}
+    if($closure -ceq 'closed'){$script:clientsClosed=$true}
+}
+$rows=@()
+foreach($primaryFails in @($false,$true)) {
+    foreach($closure in @('closed','throws','unconfirmed')) {
+        . $initialize
+        $record=[ordered]@{status='prepared';client_cleanup_confirmed=$false}
+        $process=$null;$launch=$null;$attempted=$true;$failure=$null
+        try {$null=. $flow} catch {$failure=$_.Exception.Message}
+        $rows+=@{primary=$primaryFails;closure=$closure;failure=$failure;record=$record;
+            clients_closed=$script:clientsClosed;qualification_granted=$false}
+    }
+}
+@{routes_checked=10;full_payload_preserved=$true;sdk_failure_sticky=$true;
+    private_recovery_refused=$true;machine_result_refused_in_sdk_mode=$true;failures=$rows}|ConvertTo-Json -Depth 16 -Compress
+'''
+
 @unittest.skipUnless(POWERSHELL, 'PowerShell unavailable on this platform')
 class PublisherPowerShellRequestFailureTests(unittest.TestCase):
     def test_original_active_cleanup_restores_child_then_scm_preserving_failure_and_unknown_custody(self):
@@ -468,6 +566,35 @@ ConvertTo-Json -InputObject $rows -Depth 8 -Compress
                     self.assertEqual(observed['command_length'], 8192)
                     self.assertFalse(observed['image_matches'])
 
+
+
+
+
+    def test_public_sdk_lifecycle_routing_and_sticky_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            script = Path(directory) / 'sdk-lifecycle.ps1'
+            script.write_text(SDK_LIFECYCLE_SCRIPT, encoding='utf-8')
+            result = subprocess.run([POWERSHELL, '-NoProfile', '-ExecutionPolicy', 'Bypass',
+                '-File', str(script), '-Root', str(ROOT)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        observed = json.loads(result.stdout)
+        self.assertEqual(observed['routes_checked'], 10)
+        for field in ('full_payload_preserved', 'sdk_failure_sticky', 'private_recovery_refused',
+                      'machine_result_refused_in_sdk_mode'):
+            self.assertTrue(observed[field])
+        self.assertEqual(len(observed['failures']), 6)
+        for row in observed['failures']:
+            with self.subTest(primary=row['primary'], closure=row['closure']):
+                expected = ('Synthetic original SDK failure' if row['primary'] else
+                    'Synthetic SDK cleanup failure' if row['closure'] == 'throws' else
+                    'SDK client cleanup is unconfirmed' if row['closure'] == 'unconfirmed' else None)
+                self.assertEqual(row['failure'], expected)
+                self.assertEqual(row['clients_closed'], row['closure'] == 'closed')
+                self.assertFalse(row['qualification_granted'])
+                self.assertEqual('cleanup_failure' in row['record'], row['closure'] != 'closed')
+                if row['primary']:
+                    self.assertEqual(row['record']['status'], 'failed')
+                    self.assertEqual(row['record']['failure'], 'Synthetic original SDK failure')
 
 
 if __name__ == '__main__':

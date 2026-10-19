@@ -225,7 +225,15 @@ function Invoke-OwnedPublisherFixtureTask {
         [switch]$IdentityProbe,[switch]$BootstrapProcessLoss,
         [switch]$BootstrapPreservationProcessLoss,[switch]$ActiveInstallContention,[switch]$StalePlanQualification,[switch]$InstallationGuardConflict,
         [string]$ConstructedBootstrapPrefix='none',[string]$ConstructedBootstrapDurableState='none',
-        [switch]$MaintenanceQualification,[switch]$MaintenanceRecoveryQualification,[switch]$MaintenanceInitialQualification)
+        [switch]$MaintenanceQualification,[switch]$MaintenanceRecoveryQualification,[switch]$MaintenanceInitialQualification,
+        [switch]$SdkLifecycleQualification)
+    if($SdkLifecycleQualification -and ($ActorProfile -cne 'SystemStandard' -or $PackagedAdmittedConsumer -or
+        $IdentityProbe -or -not $MaintenanceQualification -or $MaintenanceRecoveryQualification -or
+        $MaintenanceInitialQualification -or $BootstrapProcessLoss -or $BootstrapPreservationProcessLoss -or
+        $ActiveInstallContention -or $StalePlanQualification -or $InstallationGuardConflict -or
+        $ConstructedBootstrapPrefix -cne 'none' -or $ConstructedBootstrapDurableState -cne 'none')) {
+        throw 'SDK lifecycle launcher requires its separate standard fresh cohort'
+    }
     # Both profiles use the same acknowledged process custody. Only the named
     # controller needs a generated account; the standard profile remains SYSTEM.
     $named=$ActorProfile -ceq 'NamedController'
@@ -365,6 +373,7 @@ function Invoke-OwnedPublisherFixtureTask {
             $(if($MaintenanceQualification){' -MaintenanceQualification'}else{''})+
             $(if($MaintenanceRecoveryQualification){' -MaintenanceRecoveryQualification'}else{''})+
             $(if($MaintenanceInitialQualification){' -MaintenanceInitialQualification'}else{''})+
+            $(if($SdkLifecycleQualification){' -SdkLifecycleQualification'}else{''})+
             ' -ConstructedBootstrapPrefix '+(& $quote $ConstructedBootstrapPrefix)+
             ' -ConstructedBootstrapDurableState '+(& $quote $ConstructedBootstrapDurableState))
     }

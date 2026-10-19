@@ -4,7 +4,7 @@
 # Uses the existing fixture's account, native process custody, capture and
 # independent readback. This does not install or register a separate service.
 function Invoke-StandardSdkRequest([string]$Command,$Payload) {
-    if($Command -cnotin @('install_local.apply','installed.verify')) {throw 'SDK fixture command differs'}
+    if($Command -cnotin @('install_local.apply','installed.verify','repair.apply','move.apply','uninstall.apply')) {throw 'SDK fixture command differs'}
     $binary=Join-Path (Split-Path -Parent $MachineBinary) 'usk_publisher_sdk_consumer.exe'
     if(-not (Test-Path -LiteralPath $binary -PathType Leaf)) {throw 'Public SDK consumer was not built'}
     $imageSha=(Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -19,10 +19,11 @@ function Invoke-StandardSdkRequest([string]$Command,$Payload) {
         $clientTokenLease.Dispose();$script:clientTokenLease=$null
         [IO.File]::Move($clientCaptureFile,(Join-Path $lab ('retired-client-token-'+[guid]::NewGuid().ToString('N')+'.json')))
     }
-    $launch=$null;$process=$null;$attempted=$false
+    $launch=$null;$process=$null;$attempted=$false;$requestFailure=$null
     $record=[ordered]@{request_id=$requestId;command=$Command;binary=$binary;image_sha256=$imageSha;
         request_sha256=(Get-FileHash -LiteralPath $request -Algorithm SHA256).Hash.ToLowerInvariant();
-        native_observation='not_exposed_by_public_sdk';status='not_run';response=$null}
+        native_observation='not_exposed_by_public_sdk';status='prepared';response=$null;
+        client_resume_attempted=$false;client_cleanup_confirmed=$false}
     if(-not $receipt.Contains('sdk_requests')) {$receipt['sdk_requests']=[Collections.Generic.List[object]]::new()}
     $receipt.sdk_requests.Add($record)
     try {
@@ -40,6 +41,7 @@ function Invoke-StandardSdkRequest([string]$Command,$Payload) {
             creation_file_time=$launch.CreationFileTime.ToString();captured_before_primary_thread_resume=$true;
             primary_token=$launch.OwnedStandardPrimaryFacts;launcher_token=$launch.OwnedStandardLauncherFacts;
             capture_sha256=$clientCaptureSha256;image_sha256=$imageSha}
+        $record.client_resume_attempted=$true
         $launch.Resume()
         if(-not $process.WaitForExit(120000)) {throw 'Public SDK request exceeded its unchanged deadline'}
         $process.WaitForExit()
@@ -63,7 +65,45 @@ function Invoke-StandardSdkRequest([string]$Command,$Payload) {
             ($receipt.service_policy|ConvertTo-Json -Depth 16 -Compress)) {throw 'Service policy changed across SDK request'}
         $record.status='completed'
         return $result
+    } catch {
+        $requestFailure=$_
+        $record.status='failed'
+        $message=[string]$_.Exception.Message
+        $record['failure']=$message.Substring(0,[Math]::Min(4096,$message.Length))
+        throw
     } finally {
-        Close-StandardPublisherClient $process $launch $attempted
+        try {
+            Close-StandardPublisherClient $process $launch $attempted
+            $record.client_cleanup_confirmed=$script:clientsClosed
+            if(-not $record.client_cleanup_confirmed){throw 'SDK client cleanup is unconfirmed'}
+        } catch {
+            $message=[string]$_.Exception.Message
+            $record['cleanup_failure']=$message.Substring(0,[Math]::Min(4096,$message.Length))
+            if(-not $requestFailure){throw}
+        }
     }
+}
+
+# Ordinary lifecycle commands only; private recovery selectors keep their
+# distinct existing harness route and are never projected as public SDK work.
+function Invoke-StandardLifecycleRequest([string]$Command,$Payload) {
+    if($Command -cnotin @('install_local.apply','installed.verify','repair.apply','move.apply','uninstall.apply')) {
+        throw 'Ordinary lifecycle fixture command differs'
+    }
+    if($SdkLifecycleQualification) {return Invoke-StandardSdkRequest $Command $Payload}
+    return Invoke-StandardRequest $Command $Payload
+}
+function Get-StandardLifecyclePayload($Response) {
+    if($SdkLifecycleQualification) {
+        if($Response.schema -cne 'usk.command_response.v1' -or $Response.status -cne 'ok' -or
+            $null -ne $Response.error -or $null -eq $Response.payload) {
+            throw 'SDK lifecycle requires its actual completed public response'
+        }
+        return $Response.payload
+    }
+    if($Response.schema -cne 'usk.oneshot_response.v1' -or $Response.status -cne 'ok' -or
+        $Response.result.schema -cne 'usk.command_response.v1' -or $Response.result.status -cne 'ok') {
+        throw 'CLI lifecycle requires its actual completed machine response'
+    }
+    return $Response.result.payload
 }
