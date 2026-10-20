@@ -225,6 +225,56 @@ void require_public_native_recovery_response(const Value& submitted, const Value
         throw std::runtime_error("native recovery completion differs from reviewed invocation");
 }
 
+void require_public_install_plan_request(const Value& submitted)
+{
+    const auto closed = [](const Value& value, std::initializer_list<const char*> fields) {
+        if (value.type() != Value::Type::object || value.as_object().size() != fields.size())
+            throw std::invalid_argument("registered plan request field count differs");
+        for (const char* field : fields)
+            if (!value.contains(field)) throw std::invalid_argument("registered plan request field is absent");
+    };
+    const auto string = [](const Value& value, bool empty = false) -> const std::string& {
+        if (value.type() != Value::Type::string || (!empty && value.as_string().empty()))
+            throw std::invalid_argument("registered plan request string differs");
+        return value.as_string();
+    };
+    closed(submitted, {"schema", "request_id", "created_at", "install_id", "archive",
+        "target", "recipe", "required_commit_authority"});
+    if (string(submitted.at("schema")) != "usk.install_local_plan_request.v1" ||
+        string(submitted.at("required_commit_authority")) != "staged_child_bound_v1")
+        throw std::invalid_argument("registered plan request family differs");
+    for (const char* field : {"request_id", "created_at", "install_id"}) string(submitted.at(field));
+    const auto& archive = submitted.at("archive");
+    closed(archive, {"path", "format", "expected_sha256", "strip_prefix", "budgets"});
+    string(archive.at("path"));
+    string(archive.at("expected_sha256"));
+    string(archive.at("strip_prefix"), true);
+    if (string(archive.at("format")) != "zip")
+        throw std::invalid_argument("registered plan archive format differs");
+    const auto& budgets = archive.at("budgets");
+    closed(budgets, {"max_entries", "max_uncompressed_bytes", "max_entry_bytes",
+        "max_depth", "max_ratio", "max_elapsed_ms"});
+    for (const auto& item : budgets.as_object())
+        if (item.second.type() != Value::Type::unsigned_integer)
+            throw std::invalid_argument("registered plan archive budget is not an unsigned integer");
+    const auto& target = submitted.at("target");
+    closed(target, {"root", "class"});
+    string(target.at("root")); string(target.at("class"));
+    const auto& recipe = submitted.at("recipe");
+    closed(recipe, {"product_id", "product_version", "recipe_digest", "provider_revision", "components", "entrypoints"});
+    for (const char* field : {"product_id", "product_version", "recipe_digest", "provider_revision"})
+        string(recipe.at(field));
+    if (recipe.at("components").type() != Value::Type::array || recipe.at("entrypoints").type() != Value::Type::array)
+        throw std::invalid_argument("registered plan recipe collection is not an array");
+    for (const auto& component : recipe.at("components").as_array()) string(component, true);
+    for (const auto& entry : recipe.at("entrypoints").as_array()) {
+        closed(entry, {"entrypoint_id", "relative_path", "kind"});
+        for (const char* field : {"entrypoint_id", "relative_path", "kind"}) string(entry.at(field));
+    }
+    // Numeric policy limits, path admission, digests, component/entrypoint
+    // semantics and all fresh native observations remain with the provider.
+}
+
 void require_public_install_plan_response(const Value& submitted, const Value& observed)
 {
     const auto closed = [](const Value& value, std::initializer_list<const char*> fields) {

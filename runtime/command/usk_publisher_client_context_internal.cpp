@@ -36,6 +36,10 @@ bool recovery_command(const std::string& command) {
 void require_shape(const std::string& command, const Value& submitted) {
     if (submitted.type() != Value::Type::object)
         throw std::invalid_argument("publisher input must be an object");
+    if (command == "install_local.plan") {
+        require_public_install_plan_request(submitted);
+        return;
+    }
     // All three recovery families use the existing complete closed decoder
     // below, before identity preparation or any transport callback.
     if (recovery_command(command)) {
@@ -83,7 +87,10 @@ void identity_field(Value& result, const Value& source, const char* field) {
 Value invocation_identity(const std::string& command, const Value& submitted) {
     Value result(Value::Object{{"schema", Value("usk.publisher_client_outcome.v1")},
         {"command", Value(command)}, {"request_sha256", Value(usk::json::sha256_canonical(submitted))}});
-    if (command == "installed.verify") {
+    if (command == "install_local.plan") {
+        for (const auto field : {"request_id", "install_id"})
+            identity_field(result, submitted, field);
+    } else if (command == "installed.verify") {
         for (const auto field : {"request_id", "install_id", "report_id"})
             identity_field(result, submitted, field);
     } else if (recovery_command(command)) {
@@ -111,6 +118,7 @@ Value outcome(const char* status, const char* code, Value invocation) {
         {"error", Value(Value::Object{{"code", Value(code)}})}});
 }
 const char* request_schema(const std::string& command) {
+    if (command == "install_local.plan") return "usk.install_local_plan_request.v1";
     if (command == "install_local.apply") return "usk.install_local_apply_request.v1";
     if (command == "installed.verify") return "usk.installed_verify_request.v1";
     if (command == "repair.apply") return "usk.repair_apply_request.v1";
@@ -177,11 +185,12 @@ PublisherClientResult PublisherClientContext::execute(const char* command_name,
         if (!prepare || !transport)
             throw std::invalid_argument("registered client route unavailable");
         const auto wire = prepare(command, submitted);
-        // Public recovery dispatch must preserve the entire reviewed request.
+        // Public planning/recovery dispatch must preserve the entire request.
         // A private adapter may not substitute a smaller lookup request or
         // change an inspect/plan into an effect. This is still pre-dispatch.
-        if (recovery_command(command) && !usk::json::equal_values(wire, submitted))
-            throw std::runtime_error("public recovery preparation changed its complete request");
+        if ((command == "install_local.plan" || recovery_command(command)) &&
+            !usk::json::equal_values(wire, submitted))
+            throw std::runtime_error("public query/recovery preparation changed its complete request");
         const auto bytes = usk::json::canonical(wire);
         if (bytes.empty() || bytes.size() > request_limit)
             throw std::invalid_argument("registered wire request exceeds bound");

@@ -41,6 +41,7 @@ int main(int argc, char** argv) {
     memset(&request, 0, sizeof(request));
     request.struct_size = sizeof(request);
     request.command_name = view(argv[2]);
+    request.dry_run = strcmp(argv[2], "install_local.plan") == 0;
     request.json_payload.data = bytes;
     request.json_payload.size = (usk_size)size;
     memset(&response, 0, sizeof(response));

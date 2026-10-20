@@ -65,7 +65,14 @@ bool prebound_publisher_unknown(const std::string& input, const char* request_id
 }
 
 bool prebound_publisher_unknown_checks() {
-    const std::string plan = R"({"schema":"usk.oneshot_request.v1","request_id":"allocation.plan","command":"install_local.plan","payload":{"schema":"usk.install_local_plan_request.v1","request_id":"plan.payload"},"dry_run":true})";
+    const std::string plan = R"({"schema":"usk.oneshot_request.v1","request_id":"allocation.plan","command":"install_local.plan","dry_run":true,
+        "payload":{"schema":"usk.install_local_plan_request.v1","request_id":"plan.payload","created_at":"2026-10-21T00:00:00Z",
+        "install_id":"example","required_commit_authority":"staged_child_bound_v1",
+        "archive":{"path":"C:/input.zip","format":"zip","expected_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "strip_prefix":"","budgets":{"max_entries":100,"max_uncompressed_bytes":1048576,"max_entry_bytes":1048576,"max_depth":16,"max_ratio":100,"max_elapsed_ms":1000}},
+        "target":{"root":"C:/product","class":"operator_acceptance_candidate"},
+        "recipe":{"product_id":"example","product_version":"1.0.0","recipe_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "provider_revision":"provider.1","components":["core"],"entrypoints":[]}}})";
     unsigned candidate_calls = 0;
     const auto unavailable = usk::command::run_candidate_one_shot(plan,
         [&](const std::string&) { ++candidate_calls; return std::string("{}"); });

@@ -26,6 +26,9 @@ void require_public_native_recovery_response(const usk::json::Value& submitted,
     const usk::json::Value& observation);
 // Correlates the complete request and original registered endpoint; no digest
 // of a public projection is substituted for the native plan digest.
+// Closed structural decoding before dispatch; no filesystem access, native
+// authorization, archive-budget admission or plan generation occurs here.
+void require_public_install_plan_request(const usk::json::Value& submitted);
 void require_public_install_plan_response(const usk::json::Value& submitted,
     const usk::json::Value& observation);
 
