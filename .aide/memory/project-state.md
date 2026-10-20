@@ -1,91 +1,76 @@
 # Universal Setup Project State
 
-Continue ACTIVE USK-SPEC-TO-RELEASE-01 in the sole registered worktree, build and
-lab under Universal .task-builds. Keep 10 GiB disk and 2 GiB RAM/commit reserves,
-with one heavy local job. The fixed 20 GiB stop and old VM retirement are
-superseded. The shared Windows 10 VM remains untouched. Complete 1.1 and the
-full specification remain separate outcomes; no release is claimed.
+Continue ACTIVE USK-SPEC-TO-RELEASE-01 in the sole registered worktree/build/lab
+under Universal .task-builds. Keep 10 GiB physical disk and 2 GiB RAM/commit
+reserves, one heavy local job, and reviewed daily dev integration. The fixed
+20 GiB stop and old VM retirement are superseded; shared Windows 10 remains
+untouched. Complete 1.1 and the full specification remain separate outcomes.
 
-Accepted dev e384e1976a178d462611b7eae879f845b4a41ada, tree
-bf13e70258b8d3003bdb6a21096516e7e7258923, normally merged PR291 after independent
-committed review, seven required checks and the fresh live gate. Its accepted-dev
-push 39361907817/1 passed all seven core jobs; publisher was skipped.
-Main c048f7f1ae2e5922c15a08ee572bdafc29027c63 remains unqualified.
-Continue reviewed daily dev integration and qualified weekly main promotion.
+Accepted dev cb471049539234693c3d7c97580a05b742553c1f, tree
+da9b1e669c85212dea785327cf4ea89c1ef29827, normally merged PR292 after repaired
+head40a5a48 independent committed review, seven core checks and fresh live gate.
+Accepted-dev push39368834059/1 passed all seven core jobs; publisher was skipped.
+Main c048f7f1ae2e5922c15a08ee572bdafc29027c63 remains unqualified. Weekly main
+promotion still requires publisher and applicable acceptance; no release claim.
 
-This SDK change shares the broker's existing pure, closed public recovery
-decoder with the ordinary client. Field, type, role, order and host-native path
-checks remain identical. All broker native observations, original selection and
-reviewed request bindings remain. A borrowed lookup never replaces the complete
-authenticated request, its digests or its selected finalize/rollback action.
-The client validates recognized recovery input before invocation/fallback
-preparation and before either preparer or transport callback. Invalid input
-returns invalid argument. Allocation failure remains not-dispatched preparation
-failure; uncertain dispatch still returns the current invocation's UNKNOWN.
-The SDK compiles its own pure codec and carries no privileged engine dependency.
+PR292 shared pure recovery input decoding is integrated: complete caller
+requests, reviewed digests and finalize/rollback selections remain intact.
+Malformed SDK recovery input refuses before preparer/transport callbacks.
+Installed ordinary static/shared x64/Win32 consumer checks passed. These do not
+enable native public inspect/plan/action-specific apply or safe rollback.
+Native public v2 state/history bindings and actual connected adapter remain open.
 
-The new regression fails against the previous SDK at its no-dispatch assertion
-and passes with the candidate. Fourteen malformed inputs stop before callbacks;
-four operations times two actions preserve complete request bytes and UNKNOWN
-identity. Strict syntax checks pass for the four affected/new TUs on x64/Win32.
-Applied CMake builds pass on both architectures, including static/shared SDKs
-and the actual broker. All four selected native CTests pass on each architecture
-(20.63 s x64, 22.00 s Win32). SDK-package policy, seven inventory tests,
-structure, adversarial, branch and diff checks pass. Existing MSB8028
-intermediate-directory warnings are retained; no clean/rebuild was performed.
-The first installed-SDK attempt correctly refused the reusable build's stale
-configured source identity. After the clean f412f7c checkpoint, both builds were
-configured to its exact head/tree/ref. All four installed x64/Win32 static/shared
-ordinary consumers passed; publisher consumers and C++98 headers compiled/linked.
-Four additional installed public C ABI controls returned invalid_argument for
-malformed recovery input. These are client refusal checks, not service recovery.
+PR291 run39360569505/1 is TERMINAL FAIL despite seven passing core jobs.
+Interrupted repair recovery steps28/30/92 remain unqualified. Newly independent
+legacy step64 actually ran and refused product activation: its lab helper first
+added the service's raw-device ACE, so the controller captured that policy as
+the exact original; remount returned a different policy. Retained before/after
+DACL and native exit3 diagnose fixture contamination, not a product-start pass.
+Service/binary/account cleanup was confirmed; inputs were retained on failure.
+Later legacy steps66..86 then refused the occupied shared C input root before
+their scenarios. Those are fixture cascades, not independent runtime defects.
 
-PR292 f412f7cc88c38497fb24c057616561ef8dc41c8b/tree
-63e416d8d8cdfd23285572d59b46dbeb59f8a10e had independent committed source-only
-approval, but CI39365344407/1 ended FAIL: six core jobs passed; native-linux
-cppcheck2.13 flagged possible null dereference at recovery decoder line68.
-Publisher was SKIPPED because its core prerequisite failed. Controller41360
-closed1 before any merge input/effect; full watcher83621 closed1.
-The same warning reproduces with local cppcheck2.19. Replace only the custom
-throwing require with its equivalent explicit null/schema branch, preserving
-short-circuit order and the same runtime_error message. The candidate clears
-that diagnostic without suppression or changed tests. Actual repaired CMake
-targets and all four selected native CTests pass again on x64/Win32 (24.75 s /
-25.85 s runner elapsed). Reconfigure/recheck the same installed SDK prefixes
-after this clean commit, then bind committed delta review and fresh hosted/live
-gates to it. The failed f412f7c head is not integration-qualified.
+The current fixture correction adds one hosted query-only pre-admission device
+observation mode with a distinct receipt. It retains exact VHD/disk/guest and
+SCM service identity checks, query-only VHD and READ_CONTROL device access.
+The old admitted read-only mode still requires the product's existing grant.
+Registered product-controller fixtures use pre-admission observation; direct-SCM
+fault fixtures and unregistered services retain the old lab grant. One shared
+fault predicate drives both device selection and the original first-start
+branch. Existing native production ACL/admission/security/deadline code is
+unchanged. No root migration, deletion or lab rebuild is included.
 
-Inventory changes are exactly 19 existing source-SHA leaves. Classifications,
-notes and acceptance remain unchanged. Native public inspect/plan/action-specific
-apply, critical-v2 installed-state/history bindings and safe native rollback
-remain unfinished. This increment neither enables nor qualifies that path.
+R1 review HOLD found the raw-SCM fault exception and is retained. R2 includes
+all named fault routes in its 56 actual-block routing/refusal controls. The
+regression fails the actual old registered selector; corrected candidate
+controls and x64 CTest pass. The unchanged helper passes strict /W4 /WX x64
+and Win32 syntax and actual x64 CMake compilation/link. The first runner's
+unnecessary Win32 lab-target request failed MSB1009 because CMake intentionally
+gates these lab executable targets to x64. That failed receipt is retained;
+no Win32 native build pass is claimed. R2 actual-block/preflight guard passed.
+Independent committed review and fresh hosted/live gates remain required.
+These local controls do not establish native startup or recovery qualification.
 
-PR290 run 39356863741/1 is now TERMINAL FAIL: seven core jobs passed, publisher
-failed only recovery steps 28, 30 and 92. Watcher 79589 closed with exit 1.
-PR289 run 39350387546/1 likewise failed both diagnostics-ON cohorts and the
-release-default OFF source-retired interrupted repair: 120-second UNKNOWN,
-without a native response. Client/launcher cleanup remained unconfirmed.
-Fresh C SDK/install/reentry/repair/move/uninstall and bootstrap process-loss
-takeover passed. Later skipped legacy fixtures are not executed failures.
-PR291's full publisher result is separate and still observed by watcher 59127.
-The independently eligible legacy fixtures do not redeem earlier failures or
-prove prior worker quiescence. PR288's older OFF pass does not prove reliability.
+PR289/290 earlier terminal publisher failures also include release-default
+diagnostics-OFF source-retired interrupted repair: 120-second request-bound
+UNKNOWN without a native completion response; client/launcher cleanup
+unconfirmed. Successful fresh installation/maintenance and historical OFF passes
+do not establish reliable interrupted recovery. PR292 full publisher remains
+separate from its green accepted-dev source checks.
 
-The retained partial trace confirms grouped queries execute. Conditional worker
-terminal-send exit was 15.932143 seconds after matching client request-scope
-exit; terminal payload, complete capture, native birth/request join and final
-state remain unestablished. Inclusive samples overlap and are not savings.
-The local retained-row microbenchmark measures pure cloning/decoding only:
-10,000 repetitions took 88.352/181.150/91.821/47.715 ms for clone,
-expand+validate, revalidate and canonical serialization respectively. It does
-not measure removable request cost or justify another speculative performance
-patch. No new runtime optimization or deadline increase is included.
+Retained partial trace shows repeated original/global proofs. Inclusive timings
+overlap, and final response formatting is not established as the main cost.
+Native AccessCheck call counts alone do not justify a token/access cache.
+The old R102R4 eight-file grouping remains on temporal-security and genuine
+route-entry qualification HOLD. No proof-removal optimization or deadline
+increase has been applied. Continue bounded call-graph investigation while
+completing the connected native public recovery path.
 
-AIDE Lite 1.1 frozen bytes remain imported with customization preserved. Latest
-upstream main 7877e05655ee33fa99583afe4855fac6a4910292 is a separate observation,
-not an applied upgrade or a newer qualified package. Inherited Gateway self-test
-NameError and issue 6's missing provider return leave functional adoption open.
-No new coordination store, writer, workspace or automatic host takeover exists.
+AIDE frozen Lite1.1 remains imported with project customization preserved.
+Upstream main7877e056 and identical published Lite1.1 bytes were rechecked;
+provider issue6 still has no owner return for the inherited safe-selftest defect.
+No new qualified package or actual external worker-host binding is established.
+Use existing exchange machinery; do not make a new coordinator a Setup blocker.
 
 Earlier checkpoints below are historical; the current status above governs.
 
