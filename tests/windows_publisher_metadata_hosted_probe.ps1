@@ -1500,13 +1500,25 @@ try {
     }
     $receipt['root_acl_at_service_start']=Get-OwnedVolumeRootSddl 'service-start'
     Assert-OwnedVolume
-    $deviceMode=if($AdmittedTarget){'--observe-owned-hosted-vm-vhd-volume'}else{'--owned-hosted-vm-vhd-volume'}
+    # The product controller owns registered device admission. A lab-added
+    # service ACE here would become its captured original and disappear on
+    # remount, making exact-original completion refuse the real prestate.
+    # The fault service starts directly through SCM and still needs its lab
+    # grant. Share this exact predicate with the first-start branch below.
+    $registeredFaultService=$RegisteredService -and ($InterruptAfterStage -or $HostileRights -or $TerminateAtPostrename)
+    $deviceMode=if($AdmittedTarget){'--observe-owned-hosted-vm-vhd-volume'}
+        elseif($RegisteredService -and -not $registeredFaultService){'--observe-owned-hosted-vm-pre-admission-volume'}
+        else{'--owned-hosted-vm-vhd-volume'}
     $device=& $DeviceAclBinary $deviceMode $VolumeRoot $service ([int]$disk.Number) $vhd $vmId 2>&1
     if($LASTEXITCODE -ne 0){throw ('Owned VHD device ACL failed: '+($device -join '; '))}
     $deviceText=$device -join "`n"
     if($deviceText.Length -gt 16KB){throw 'Owned VHD device ACL receipt exceeds bound'}
     $deviceAdmission=$deviceText|ConvertFrom-Json
-    if(($AdmittedTarget -and $deviceAdmission.admission -cne 'hosted_vm_read_only') -or
+    $expectedDeviceAdmission=if($AdmittedTarget){'hosted_vm_read_only'}
+        elseif($RegisteredService -and -not $registeredFaultService){'hosted_vm_pre_admission_read_only'}else{'hosted_vm'}
+    if($deviceAdmission.admission -cne $expectedDeviceAdmission -or
+        ($deviceMode -cne '--owned-hosted-vm-vhd-volume' -and
+            $deviceAdmission.before_dacl -cne $deviceAdmission.after_dacl) -or
         $deviceAdmission.service_sid -cne $sid -or
         [string]::IsNullOrWhiteSpace($deviceAdmission.before_dacl) -or
         [string]::IsNullOrWhiteSpace($deviceAdmission.after_dacl)) {
@@ -1563,7 +1575,7 @@ try {
             }
             $receipt['wrong_caller_mode_refused']=$true
         }
-        if($InterruptAfterStage -or $HostileRights -or $TerminateAtPostrename) {
+        if($registeredFaultService) {
             $registeredGate=if($HostilePostrename -or $TerminateAtPostrename){'--postrename-gate'}elseif($HostileRights){'--prepublish-gate'}else{'--poststage-gate'}
             $testCommand='"'+$ServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
                 ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+

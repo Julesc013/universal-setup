@@ -196,8 +196,10 @@ int wmain(int argc, wchar_t** argv) {
             std::wstring(argv[1]) == L"--owned-vhd-volume";
         const bool campaign_vm = argc == 7 &&
             std::wstring(argv[1]) == L"--owned-vm-vhd-volume";
-        const bool observe_only = argc == 7 &&
-            std::wstring(argv[1]) == L"--observe-owned-hosted-vm-vhd-volume";
+        const bool observe_pre_admission = argc == 7 &&
+            std::wstring(argv[1]) == L"--observe-owned-hosted-vm-pre-admission-volume";
+        const bool observe_only = observe_pre_admission || (argc == 7 &&
+            std::wstring(argv[1]) == L"--observe-owned-hosted-vm-vhd-volume");
         const bool hosted_vm = argc == 7 &&
             (std::wstring(argv[1]) == L"--owned-hosted-vm-vhd-volume" || observe_only);
         if (!hosted && !campaign_vm && !hosted_vm) {
@@ -223,7 +225,8 @@ int wmain(int argc, wchar_t** argv) {
             generated_suffix(service_name, L"USK_WU006_", L"") :
             generated_suffix(service_name, L"USK_VM_", L"") ||
                 (hosted_vm && generated_suffix(service_name, L"USK_PUB_", L""));
-        if (!admitted_service) {
+        if (!admitted_service || (observe_pre_admission &&
+                !generated_suffix(service_name, L"USK_PUB_", L""))) {
             throw std::runtime_error("invalid campaign service name");
         }
         const std::wstring vhd(argv[5]);
@@ -300,14 +303,19 @@ int wmain(int argc, wchar_t** argv) {
         }
         LocalPointer owned_sid_text(sid_text);
         if (observe_only) {
-            // Product provisioning already established admission. This mode
-            // opens no ACL writer and cannot repair a missing service policy.
+            // Neither observation mode opens an ACL writer. A registered
+            // legacy controller must observe its actual pre-admission policy,
+            // without a lab service grant changing that original first.
+            // The existing admitted mode still requires the product's grant.
             PACL confirmed_dacl = nullptr;
             LocalPointer confirmed_descriptor;
             const auto after = dacl_sddl(volume.get(), &confirmed_dacl, confirmed_descriptor);
-            if (before != after || after.find(ascii(sid_text)) == std::string::npos)
+            if (before != after || (!observe_pre_admission &&
+                    after.find(ascii(sid_text)) == std::string::npos))
                 throw std::runtime_error("read-only admitted device observation differs or lacks service SID");
-            std::cout << "{\"admission\":\"hosted_vm_read_only\",\"before_dacl\":" << quote(before) <<
+            std::cout << "{\"admission\":" << quote(observe_pre_admission ?
+                "hosted_vm_pre_admission_read_only" : "hosted_vm_read_only") <<
+                ",\"before_dacl\":" << quote(before) <<
                 ",\"after_dacl\":" << quote(after) << ",\"service_sid\":" << quote(ascii(sid_text)) <<
                 ",\"vhd_disk_number\":" << vhd_disk_number << "}\n";
             return 0;

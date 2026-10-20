@@ -558,6 +558,71 @@ $tokens=$null;$errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile(
     (Join-Path $Repository 'tests\windows_publisher_metadata_hosted_probe.ps1'),[ref]$tokens,[ref]$errors)
 if($errors.Count){throw 'Activation fixture parse failed'}
+
+# Execute the actual hosted device-observation block. A registered controller
+# must capture its own safe prestate; the lab may not first add its service ACE.
+$modeStatement=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Extent.Text -cmatch '^\$registeredFaultService='},$true))
+$receiptStatement=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Extent.Text -cmatch '^\$receipt\[''device_acl_admission''\]='},$true))
+if($modeStatement.Count -ne 1 -or $receiptStatement.Count -ne 1){throw 'Actual device observation block missing or ambiguous'}
+$start=$modeStatement[0].Extent.StartOffset
+$end=$receiptStatement[0].Extent.EndOffset
+$deviceBlock=[scriptblock]::Create($ast.Extent.Text.Substring($start,$end-$start))
+$deviceProfiles=@(
+    @{name='registered';registered=$true;admitted=$false;faults=@();mode='--observe-owned-hosted-vm-pre-admission-volume';admission='hosted_vm_pre_admission_read_only'},
+    @{name='admitted';registered=$true;admitted=$true;faults=@();mode='--observe-owned-hosted-vm-vhd-volume';admission='hosted_vm_read_only'},
+    @{name='unregistered';registered=$false;admitted=$false;faults=@();mode='--owned-hosted-vm-vhd-volume';admission='hosted_vm'},
+    @{name='registered.poststage';registered=$true;admitted=$false;faults=@('InterruptAfterStage');mode='--owned-hosted-vm-vhd-volume';admission='hosted_vm'},
+    @{name='registered.hostile';registered=$true;admitted=$false;faults=@('HostileRights');mode='--owned-hosted-vm-vhd-volume';admission='hosted_vm'},
+    @{name='registered.hostile_postrename';registered=$true;admitted=$false;faults=@('HostileRights','HostilePostrename');mode='--owned-hosted-vm-vhd-volume';admission='hosted_vm'},
+    @{name='registered.terminate_postrename';registered=$true;admitted=$false;faults=@('TerminateAtPostrename');mode='--owned-hosted-vm-vhd-volume';admission='hosted_vm'},
+    @{name='registered.mixed_faults';registered=$true;admitted=$false;faults=@('InterruptAfterStage','HostileRights','HostilePostrename','TerminateAtPostrename');mode='--owned-hosted-vm-vhd-volume';admission='hosted_vm'}
+)
+foreach($profile in $deviceProfiles) {
+    foreach($variant in @('valid','native_failure','wrong_admission','wrong_sid','empty_before','empty_after','changed')) {
+        & {
+            param($Block,$Profile,$Variant)
+            $AdmittedTarget=$Profile.admitted
+            $RegisteredService=$Profile.registered
+            foreach($flag in @('InterruptAfterStage','HostileRights','HostilePostrename','TerminateAtPostrename')){
+                Set-Variable -Name $flag -Value ($flag -cin $Profile.faults) -Scope Local
+            }
+            $expectedMode=$Profile.mode
+            $expectedAdmission=$Profile.admission
+            $VolumeRoot='\\?\Volume{00000000-0000-0000-0000-000000000000}\'
+            $service='USK_PUB_'+('1'*32);$sid='S-1-5-80-1-2-3-4-5'
+            $disk=[pscustomobject]@{Number=7};$vhd='owned.vhdx';$vmId='owned-guest';$receipt=@{}
+            $script:deviceInvocations=0
+            $DeviceAclBinary={
+                param($Mode,$Volume,$ServiceName,$DiskNumber,$VhdPath,$Guest)
+                $script:deviceInvocations++
+                if($Mode -cne $expectedMode -or $Volume -cne $VolumeRoot -or
+                    $ServiceName -cne $service -or $DiskNumber -ne 7 -or
+                    $VhdPath -cne $vhd -or $Guest -cne $vmId){throw 'Device observer invocation differs'}
+                $result=[ordered]@{admission=$expectedAdmission;service_sid=$sid;
+                    before_dacl='safe original';after_dacl='safe original'}
+                if($expectedAdmission -ceq 'hosted_vm'){$result.after_dacl='lab service postimage'}
+                switch($Variant) {
+                    'wrong_admission' {$result.admission='hosted_vm_read_only.substituted'}
+                    'wrong_sid' {$result.service_sid='S-1-5-80-5-4-3-2-1'}
+                    'empty_before' {$result.before_dacl=''}
+                    'empty_after' {$result.after_dacl=''}
+                    'changed' {$result.after_dacl='another policy'}
+                }
+                $global:LASTEXITCODE=if($Variant -ceq 'native_failure'){2}else{0}
+                $result|ConvertTo-Json -Compress
+            }
+            $caught=$null
+            try {& $Block} catch {$caught=$_}
+            $expectedPass=$Variant -ceq 'valid' -or ($expectedAdmission -ceq 'hosted_vm' -and $Variant -ceq 'changed')
+            if($script:deviceInvocations -ne 1 -or ([bool]$caught -eq $expectedPass) -or
+                ($expectedPass -and -not $receipt.ContainsKey('device_acl_admission')) -or
+                (-not $expectedPass -and $receipt.ContainsKey('device_acl_admission'))) {
+                throw ('Device fixture acceptance differs: '+$Profile.name+'/'+$Variant+' '+$caught)
+            }
+        } $deviceBlock $profile $variant
+    }
+}
+Write-Output 'Actual device observation profiles/refusals checked: 56'
 $aclHelpers=@($ast.EndBlock.Statements|Where-Object {
     $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and
     $_.Name -in @('Set-OwnedMetadataServiceInputAccess','Grant-OwnedMetadataActorParentRead','Grant-OwnedMetadataActorScriptRead')})
@@ -963,15 +1028,17 @@ def main() -> int:
             raise AssertionError(f"controller actor probe bypassed hosted admission: {result}")
         if len(sys.argv) > 2:
             observer = Path(sys.argv[2]).resolve(strict=True)
-            result = subprocess.run(
-                [str(observer), "--observe-owned-hosted-vm-vhd-volume", volume, service,
-                 "4294967295", str(missing_vhd), "00000000-0000-0000-0000-000000000000"],
-                capture_output=True, text=True, timeout=10, check=False, env=fixture_environment,
-            )
-            if result.returncode != 2 or "requires a hosted disposable runner" not in result.stderr:
-                raise AssertionError(f"read-only device observer bypassed native hosted admission: {result}")
-            if missing_vhd.exists():
-                raise AssertionError("non-hosted device observer created storage")
+            for mode in ("--observe-owned-hosted-vm-vhd-volume",
+                         "--observe-owned-hosted-vm-pre-admission-volume"):
+                result = subprocess.run(
+                    [str(observer), mode, volume, service,
+                     "4294967295", str(missing_vhd), "00000000-0000-0000-0000-000000000000"],
+                    capture_output=True, text=True, timeout=10, check=False, env=fixture_environment,
+                )
+                if result.returncode != 2 or "requires a hosted disposable runner" not in result.stderr:
+                    raise AssertionError(f"read-only device observer bypassed native hosted admission: {mode}: {result}")
+                if missing_vhd.exists():
+                    raise AssertionError("non-hosted device observer created storage")
     return 0
 
 
