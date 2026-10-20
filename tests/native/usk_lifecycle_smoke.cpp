@@ -9,6 +9,7 @@
 #include "usk_record_io.h"
 #include "usk_maintenance_recovery_internal.h"
 #include "usk_json.h"
+#include "usk_diagnostic_metrics.h"
 #include "usk_sha256.h"
 #include "usk_stable_file.h"
 #include "usk_state_repository.h"
@@ -987,6 +988,78 @@ void ordinary_native_recovery_reader_declines(
 }
 #endif
 
+
+void continuation_prefix_selection_proof(const usk::transaction::TransactionSpec& spec,
+    const usk::transaction::RecoveryInspection& current, bool negative_controls)
+{
+    // Actual fixture reads, not a synthesized protected owner or supplied TLS
+    // adapter. The hosted service must separately establish native route entry.
+    const auto history = usk::transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest, true);
+    struct Observed {
+        usk::lifecycle::detail::MaintenanceContinuationInspection value;
+        bool accepted = false;
+        std::uint64_t reads = 0;
+    };
+    const auto measure = [&](const auto& call) {
+        struct DiagnosticOwner {
+            static bool sink(const usk::diagnostics::Event&) noexcept { return true; }
+            DiagnosticOwner() {
+                if (!usk::diagnostics::enable(sink)) throw std::runtime_error("fixture diagnostics already owned");
+            }
+            ~DiagnosticOwner() { if (!usk::diagnostics::disable(sink)) std::terminate(); }
+        } diagnostics;
+        const auto before = usk::diagnostics::snapshot();
+        Observed result;
+        result.accepted = !refuses([&] { result.value = call(); });
+        const auto after = usk::diagnostics::snapshot();
+        const auto index = static_cast<std::size_t>(usk::diagnostics::Counter::held_file_instances);
+        if (after.saturated || after.totals[index] < before.totals[index])
+            throw std::runtime_error("fixture read counter is unavailable");
+        result.reads = after.totals[index] - before.totals[index];
+        return result;
+    };
+    const auto ordinary = measure([&] {
+        return usk::lifecycle::detail::inspect_maintenance_continuation_unscoped(spec);
+    });
+    const auto supplied = measure([&] {
+        return usk::lifecycle::detail::inspect_maintenance_continuation_from_inspected_prefix(spec, current, history);
+    });
+    if (ordinary.accepted != supplied.accepted || (negative_controls && !supplied.accepted))
+        throw std::runtime_error("supplied continuation changed the actual fixture admission");
+    if (!supplied.accepted) return;
+    const auto& a = ordinary.value;
+    const auto& b = supplied.value;
+    if (a.transaction_snapshot_sha256 != b.transaction_snapshot_sha256 || a.history_digest != b.history_digest ||
+        a.next_kind != b.next_kind || !usk::json::equal_values(a.next_details, b.next_details) ||
+        a.pending != b.pending || a.effects_complete != b.effects_complete || a.sealed != b.sealed ||
+        !supplied.reads || supplied.reads >= ordinary.reads)
+        throw std::runtime_error("supplied continuation changed its result or failed to remove actual duplicate reads");
+    if (!negative_controls) return;
+    auto changed_transaction = current;
+    changed_transaction.snapshot_sha256 = std::string(64, 'f');
+    if (!refuses([&] { (void)usk::lifecycle::detail::inspect_maintenance_continuation_from_inspected_prefix(
+            spec, changed_transaction, history); }))
+        throw std::runtime_error("supplied continuation accepted a stale transaction snapshot");
+    auto changed_history = history;
+    changed_history.journal_digest = std::string(64, 'f');
+    if (!refuses([&] { (void)usk::lifecycle::detail::inspect_maintenance_continuation_from_inspected_prefix(
+            spec, current, changed_history); }))
+        throw std::runtime_error("supplied continuation skipped its fresh closing history pin");
+    changed_history = history;
+    changed_history.source_digest = std::string(64, 'f');
+    if (!refuses([&] { (void)usk::lifecycle::detail::inspect_maintenance_continuation_from_inspected_prefix(
+            spec, current, changed_history); }))
+        throw std::runtime_error("supplied continuation accepted another source role");
+    changed_history = history;
+    changed_history.completed.clear();
+    if (!history.completed_effects || !refuses([&] {
+            (void)usk::lifecycle::detail::inspect_maintenance_continuation_from_inspected_prefix(spec, current, changed_history);
+        }))
+        throw std::runtime_error("supplied continuation accepted digest-only completed history");
+    std::cout << "continuation-prefix actual fixture reads ordinary=" << ordinary.reads <<
+        " supplied=" << supplied.reads << "; stale/source/retention controls passed\n";
+}
+
 int maintenance_effect_interruption_proof()
 {
     struct Boundary { const char* operation; const char* kind; const char* side; };
@@ -1187,6 +1260,8 @@ int maintenance_effect_interruption_proof()
         if (repeated.journal_digest != history.journal_digest || repeated.completed_effects != history.completed_effects ||
             repeated.pending_kind != history.pending_kind || repeated.sealed)
             throw std::runtime_error("source-free maintenance inspection changed its retained history");
+        continuation_prefix_selection_proof(spec, transaction, !use_executor &&
+            operation == "repair" && kind == "replace_file" && side == "after_effect");
         if (use_executor) {
             // This is an ordinary owned-fixture backend, not a native service
             // lease or proof of protected payload authority. It exercises the

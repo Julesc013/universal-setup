@@ -1769,10 +1769,17 @@ struct NativeMaintenanceContext::Impl {
             return inspect_maintenance_continuation_unscoped(spec);
         PrefixReadRecipe recipe(*this);
         const auto current = transaction::TransactionSession::inspect_recovery(spec);
-        const auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest);
-        auto result = inspect_maintenance_continuation_unscoped(spec);
+        // The fixed selector consumes these actual owned observations once.
+        // Retain every completed effect just as its former inner reader did;
+        // do not pass a digest-only/default-retention history to this route.
+        auto history = transaction::MaintenanceEffectJournal::inspect(spec, current.stream_source_digest, true);
+        auto result = inspect_maintenance_continuation_from_inspected_prefix(spec, current, history);
         if (result.transaction_snapshot_sha256 != current.snapshot_sha256 || result.history_digest != history.journal_digest)
             throw std::runtime_error("native maintenance continuation changed its exact inspected prefix");
+        // The former inner selector released completed-effect storage before
+        // this outer digest/pending-only recheck and global exit. Preserve that
+        // lifetime; only owned value data is destroyed, never a native handle.
+        std::vector<transaction::CompletedMaintenanceEffect>{}.swap(history.completed);
         recipe.finish(current, history);
         return result;
     }
