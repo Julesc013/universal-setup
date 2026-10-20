@@ -1,76 +1,94 @@
 # Universal Setup Project State
 
 Continue ACTIVE USK-SPEC-TO-RELEASE-01 in the sole registered worktree/build/lab
-under Universal .task-builds. Keep 10 GiB physical disk and 2 GiB RAM/commit
-reserves, one heavy local job, and reviewed daily dev integration. The fixed
-20 GiB stop and old VM retirement are superseded; shared Windows 10 remains
-untouched. Complete 1.1 and the full specification remain separate outcomes.
+under Universal .task-builds. Keep 10 GiB disk and 2 GiB RAM/commit reserves and
+one local heavy job. Fixed20GiB stop and old VM retirement are superseded;
+shared Windows10 remains untouched. Preserve reviewed daily dev integration.
+Main/release qualification and complete1.1/full-spec completion stay separate.
 
-Accepted dev cb471049539234693c3d7c97580a05b742553c1f, tree
-da9b1e669c85212dea785327cf4ea89c1ef29827, normally merged PR292 after repaired
-head40a5a48 independent committed review, seven core checks and fresh live gate.
-Accepted-dev push39368834059/1 passed all seven core jobs; publisher was skipped.
-Main c048f7f1ae2e5922c15a08ee572bdafc29027c63 remains unqualified. Weekly main
-promotion still requires publisher and applicable acceptance; no release claim.
+Accepted dev3db0f1ec95ec21e39745ae3d539b3eaa509d94c8/tree
+c843d02cbab170147942d3a3e41a3ad63c6739d2 normally merged PR293 after independent
+committed review, all7core39370659316/1 and fresh live gate. Exact accepted-dev
+push39372194511 is watched separately by controller13118. Previous accepted
+PR292 push39368834059/1 passed all7core; publisherSKIPPED/controller25867CLOSED0.
+Mainc048f7f1ae2e5922c15a08ee572bdafc29027c63 remains unqualified.
 
-PR292 shared pure recovery input decoding is integrated: complete caller
-requests, reviewed digests and finalize/rollback selections remain intact.
-Malformed SDK recovery input refuses before preparer/transport callbacks.
-Installed ordinary static/shared x64/Win32 consumer checks passed. These do not
-enable native public inspect/plan/action-specific apply or safe rollback.
-Native public v2 state/history bindings and actual connected adapter remain open.
+PR293 corrects lab-added device ACE contamination before product activation.
+Registered product-controller fixtures now observe pre-admission ACL read-only.
+Direct-SCM fault profiles retain the lab grant; one original fault predicate
+selects both device preparation and first activation. Production device policy
+and protected native checks are unchanged. R1HOLD/raw-SCM finding was corrected
+by R2; actual56 controls/x64 preflight pass. Native startup remains unqualified.
+The first runner's absent Win32 lab-target failure is retained; helper strict
+syntax passed both architectures, actual executable target is x64-only.
 
-PR291 run39360569505/1 is TERMINAL FAIL despite seven passing core jobs.
-Interrupted repair recovery steps28/30/92 remain unqualified. Newly independent
-legacy step64 actually ran and refused product activation: its lab helper first
-added the service's raw-device ACE, so the controller captured that policy as
-the exact original; remount returned a different policy. Retained before/after
-DACL and native exit3 diagnose fixture contamination, not a product-start pass.
-Service/binary/account cleanup was confirmed; inputs were retained on failure.
-Later legacy steps66..86 then refused the occupied shared C input root before
-their scenarios. Those are fixture cascades, not independent runtime defects.
+PR29139360569505/1 terminalFAIL despite seven passing core jobs: recovery
+steps28/30/92 failed. Legacy64 actually refused the exact-original device policy
+after remount; service/binary/account cleanup confirmed, inputs retained. Later
+legacy66..86 then stopped before their scenarios at occupied shared C input
+root. Do not count those setup cascades as independent runtime defects.
+PR289/290 likewise failed120s source-retired interrupted repair, including
+release-default diagnosticsOFF. Native completion was absent and client/launcher
+cleanup unconfirmed. Fresh install/maintenance successes do not establish
+reliable interrupted recovery. PR292/293 full publisher results are separate
+from core source integration and retain their own exact source identities.
 
-The current fixture correction adds one hosted query-only pre-admission device
-observation mode with a distinct receipt. It retains exact VHD/disk/guest and
-SCM service identity checks, query-only VHD and READ_CONTROL device access.
-The old admitted read-only mode still requires the product's existing grant.
-Registered product-controller fixtures use pre-admission observation; direct-SCM
-fault fixtures and unregistered services retain the old lab grant. One shared
-fault predicate drives both device selection and the original first-start
-branch. Existing native production ACL/admission/security/deadline code is
-unchanged. No root migration, deletion or lab rebuild is included.
+The current measurement delta reuses the existing WPR file/wrapper and adds
+USKRecoveryCPU for the recovery diagnostic only: ProcessThread/Loader/
+SampledProfile with ThreadCreate/SampledProfile stacks. It omits scheduler
+events to investigate whole-request CPU coverage within the same64MiB kernel,
+8MiB phase and128MiB retained-ETL budgets. Existing Fresh/thread definitions
+and all tested maintenance assertions, untraced/release-default cohorts,
+native observations and120s contract stay unchanged. No wait evidence is
+claimed by the CPU-only route. Capture completeness remains unproved; retain
+actual request/PID/birth/TID/module/ancestry joins before interpreting samples.
+No runtime optimization, protection removal or performance acceptance is made.
 
-R1 review HOLD found the raw-SCM fault exception and is retained. R2 includes
-all named fault routes in its 56 actual-block routing/refusal controls. The
-regression fails the actual old registered selector; corrected candidate
-controls and x64 CTest pass. The unchanged helper passes strict /W4 /WX x64
-and Win32 syntax and actual x64 CMake compilation/link. The first runner's
-unnecessary Win32 lab-target request failed MSB1009 because CMake intentionally
-gates these lab executable targets to x64. That failed receipt is retained;
-no Win32 native build pass is claimed. R2 actual-block/preflight guard passed.
-Independent committed review and fresh hosted/live gates remain required.
-These local controls do not establish native startup or recovery qualification.
+R1 source HOLD found an inaccurate final scheduler summary and a live retainer
+that only admitted the old capture. R2 fixes both, retaining the failed preview.
+The existing reusable archive retainer now accepts only explicit old Fresh/new
+Recovery tuples and resolves the actual selected profile/provider references.
+Its other authentication/Git/archive/native image/receipt checks remain.
+Original retainer SHA4bb1ca3852ecac2c93ab5a259917ca1dc4f16d80805af965b30340d9446f73b0
+is retained in the existing campaign's recovery-cpu-complete-window-r1/
+original-retainer-v2.py. Updated reusable retainer SHA
+73b5c4eff3029d0457474f6ebd88a0b7db9d95572f719412e84c17264f355db8
+is campaign tooling, outside the product. No new runner/database/lab is created.
 
-PR289/290 earlier terminal publisher failures also include release-default
-diagnostics-OFF source-retired interrupted repair: 120-second request-bound
-UNKNOWN without a native completion response; client/launcher cleanup
-unconfirmed. Successful fresh installation/maintenance and historical OFF passes
-do not establish reliable interrupted recovery. PR292 full publisher remains
-separate from its green accepted-dev source checks.
+The actual old retained PR289 receipt with exact Git profile passes the updated
+pure retainer; both selected profiles on new source pass, and11 bad source,
+mode, graph, budget, keyword/stack or start bindings refuse. New semantic XML
+controls fail the old absent-route config and pass the candidate. Actual pure
+PowerShell routing/receipt checks cover all3 modes. Local OS WPR profile-details
+queries pass for Fresh/Recovery without starting a recording. Older hosted WPR,
+full interval retention and runtime recovery still need actual execution.
+Source-only R2 approval binds the small candidate and existing retainer delta;
+accepted parent was rebound to PR293's actual merge tree before application.
+Final committed review and fresh seven core/live dev gate remain required.
 
-Retained partial trace shows repeated original/global proofs. Inclusive timings
-overlap, and final response formatting is not established as the main cost.
-Native AccessCheck call counts alone do not justify a token/access cache.
-The old R102R4 eight-file grouping remains on temporal-security and genuine
-route-entry qualification HOLD. No proof-removal optimization or deadline
-increase has been applied. Continue bounded call-graph investigation while
-completing the connected native public recovery path.
+The retained partial PR289 trace confirms repeated original/global proofs but
+not a sufficient remedy. Inclusive durations overlap. NativeAccessCheck604
+inclusive/23exclusive of27060 selected broker samples does not justify caching.
+The pure retained-row microbenchmark excludes native/global work. Old R102R4
+eight-query composition remains HOLD on temporal authorization/genuine entry;
+do not revive its stale-parent patch or increase the deadline. If complete
+request attribution remains unavailable, change the diagnostic method before
+stacking another speculative runtime optimization.
 
-AIDE frozen Lite1.1 remains imported with project customization preserved.
-Upstream main7877e056 and identical published Lite1.1 bytes were rechecked;
-provider issue6 still has no owner return for the inherited safe-selftest defect.
-No new qualified package or actual external worker-host binding is established.
-Use existing exchange machinery; do not make a new coordinator a Setup blocker.
+The SDK's shared closed recovery decoder is integrated, with complete caller
+requests/digests/actions preserved and invalid input stopped before callbacks.
+Installed ordinary static/shared x64/Win32 consumers pass. Native public
+inspect/plan/action-specific apply, mutable v2 state/history bindings and safe
+native rollback remain unfinished; reuse existing native history/lease/byte
+readers and pure document formatter. No private4field downgrade or rollback
+alias, no whole SDK/product qualification from helper tests.
+
+AIDE frozen Lite1.1 is published/acquired/imported with project customization
+retained. Main7877e056 and identical published bytes were rechecked. Provider
+issue6 still lacks a return for the inherited safe-selftest defect. Installed
+frozen CLI has no Requests command; newer upstream coordination requires its
+own qualified route/package. No new coordinator, clone or worker-host takeover
+is a Setup repair prerequisite.
 
 Earlier checkpoints below are historical; the current status above governs.
 

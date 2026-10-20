@@ -30,5 +30,38 @@ class PublisherWprProfileCompatibilityTests(unittest.TestCase):
                                  "Collectors must precede providers and profile references")
 
 
+    def test_recovery_cpu_route_has_bounded_identity_and_phase_capture(self):
+        definitions = ET.parse(ROOT / "windows_publisher_maintenance_fresh_cpu_trace.wprp").getroot().find("Profiles")
+        nodes = {node.attrib["Id"]: node for node in definitions}
+        profiles = [node for node in definitions.findall("Profile")
+                    if node.attrib["Name"] == "USKRecoveryCPU"]
+        self.assertEqual({node.attrib["LoggingMode"] for node in profiles}, {"Memory", "File"})
+        self.assertEqual(len(profiles), 2)
+        for profile in profiles:
+            collector_ref = profile.find("Collectors/SystemCollectorId")
+            provider = nodes[collector_ref.find("SystemProviderId").attrib["Value"]]
+            self.assertEqual({node.attrib["Value"] for node in provider.findall("Keywords/Keyword")},
+                             {"ProcessThread", "Loader", "SampledProfile"})
+            self.assertEqual({node.attrib["Value"] for node in provider.findall("Stacks/Stack")},
+                             {"ThreadCreate", "SampledProfile"})
+            collector = nodes[collector_ref.attrib["Value"]]
+            self.assertEqual(int(collector.find("BufferSize").attrib["Value"]) *
+                             int(collector.find("Buffers").attrib["Value"]), 512 * 128)
+            event_ref = profile.find("Collectors/EventCollectorId")
+            events = event_ref.findall("EventProviders/EventProviderId")
+            self.assertEqual(len(events), 1)
+            self.assertEqual(nodes[events[0].attrib["Value"]].attrib["Name"],
+                             "7e4a4d0e-4d53-4c2d-93a3-6ba61cf46711")
+            event_collector = nodes[event_ref.attrib["Value"]]
+            self.assertEqual(int(event_collector.find("BufferSize").attrib["Value"]) *
+                             int(event_collector.find("Buffers").attrib["Value"]), 64 * 128)
+        # Existing fresh capture keeps scheduler observations for its distinct task.
+        fresh = next(node for node in definitions.findall("Profile")
+                     if node.attrib["Name"] == "USKFreshCPU" and node.attrib["LoggingMode"] == "Memory")
+        provider_ref = fresh.find("Collectors/SystemCollectorId/SystemProviderId")
+        self.assertEqual({node.attrib["Value"] for node in nodes[provider_ref.attrib["Value"]].findall("Keywords/Keyword")},
+                         {"ProcessThread", "Loader", "SampledProfile", "CSwitch", "ReadyThread"})
+
+
 if __name__ == "__main__":
     unittest.main()
