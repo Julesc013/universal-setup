@@ -529,7 +529,8 @@ $global:UskMetadataObserverPhase='initialize_native_types'
 function Test-PublisherHeldCaptureRequestContext([string]$RequestId,[string]$Command) {
     return (($RequestId -cmatch '^public\.[0-9a-f]{32}$' -and
         $Command -cin @('install_local.apply','install_local.recover','installed.verify','publisher.observe',
-            'repair.apply','repair.recover','move.apply','move.recover','uninstall.apply','uninstall.recover')) -or
+            'repair.apply','repair.recover','move.apply','move.recover','uninstall.apply','uninstall.recover',
+            'recovery.inspect','recovery.plan','recovery.apply')) -or
         ($RequestId -cmatch '^contention\.[0-9a-f]{32}$' -and $Command -ceq 'registered_contention'))
 }
  Add-Type -TypeDefinition @"

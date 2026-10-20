@@ -63,10 +63,21 @@ Value public_native_recovery_document(const usk::json::Value& inspection,
         (!binding.at("next_kind").as_string().empty() || binding.at("effects_complete").as_boolean()) :
         (binding.at("reconciliation").as_string() == "compatible_before_effect" ||
             binding.at("reconciliation").as_string() == "compatible_after_effect");
+    // A terminated repair can leave the publication effect durably observed
+    // before its journal records committed. The native reader reconciles the
+    // exact original directory identity, absent staging and present target;
+    // merely starting commit or a compatible pre-effect state is insufficient.
+    const bool published_repair = inspection.at("operation").as_string() == "repair" &&
+        !binding.at("commit_confirmed").as_boolean() && binding.at("observed_state").as_string() == "committing" &&
+        binding.at("pending_kind").as_string() == "publish_target" &&
+        binding.at("next_kind").as_string() == "publish_target" &&
+        binding.at("reconciliation").as_string() == "compatible_after_effect" &&
+        !binding.at("effects_complete").as_boolean() && !binding.at("sealed").as_boolean();
     const bool finalizable = compatible && binding.at("commit_started").as_boolean() &&
-        binding.at("commit_confirmed").as_boolean() && (binding.at("observed_state").as_string() == "committing" ||
-            binding.at("observed_state").as_string() == "committed" ||
-            binding.at("observed_state").as_string() == "recovery_required");
+        (published_repair || (binding.at("commit_confirmed").as_boolean() &&
+            (binding.at("observed_state").as_string() == "committing" ||
+             binding.at("observed_state").as_string() == "committed" ||
+             binding.at("observed_state").as_string() == "recovery_required")));
     Value::Array actions, effects;
     if (finalizable) {
         actions.emplace_back("finalize");

@@ -2699,7 +2699,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "a02e232b80da3d7731bb8eb424cc4e1fd4c6dda3ab7d137805e80617cf4d2dd3"
+          "sha256": "afa48954922ae02352f37cf67a103a65384b6f4c6869cd4630178429961ce3fb"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -3162,7 +3162,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "a02e232b80da3d7731bb8eb424cc4e1fd4c6dda3ab7d137805e80617cf4d2dd3"
+          "sha256": "afa48954922ae02352f37cf67a103a65384b6f4c6869cd4630178429961ce3fb"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -3625,7 +3625,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "a02e232b80da3d7731bb8eb424cc4e1fd4c6dda3ab7d137805e80617cf4d2dd3"
+          "sha256": "afa48954922ae02352f37cf67a103a65384b6f4c6869cd4630178429961ce3fb"
         },
         {
           "path": "tests/windows_publisher_production_boundary.ps1",
@@ -5427,7 +5427,7 @@
         },
         {
           "path": "tests/test_publisher_metadata_readback.py",
-          "sha256": "23919307bf749c6803ae0972ee40f6516dcec3906f3fb5392396cf41d123cae0"
+          "sha256": "9c82b3fededec8547ea1b380379e65a3e40114711d8752d2f55428abdd9666ef"
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
@@ -5447,7 +5447,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "a02e232b80da3d7731bb8eb424cc4e1fd4c6dda3ab7d137805e80617cf4d2dd3"
+          "sha256": "afa48954922ae02352f37cf67a103a65384b6f4c6869cd4630178429961ce3fb"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -5931,7 +5931,7 @@
         },
         {
           "path": "tests/test_publisher_metadata_readback.py",
-          "sha256": "23919307bf749c6803ae0972ee40f6516dcec3906f3fb5392396cf41d123cae0"
+          "sha256": "9c82b3fededec8547ea1b380379e65a3e40114711d8752d2f55428abdd9666ef"
         },
         {
           "path": "tests/windows_publisher_metadata_hosted_probe.ps1",
@@ -5951,7 +5951,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "a02e232b80da3d7731bb8eb424cc4e1fd4c6dda3ab7d137805e80617cf4d2dd3"
+          "sha256": "afa48954922ae02352f37cf67a103a65384b6f4c6869cd4630178429961ce3fb"
         },
         {
           "path": "tests/windows_publisher_metadata_inputs.py",
@@ -6515,7 +6515,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "a02e232b80da3d7731bb8eb424cc4e1fd4c6dda3ab7d137805e80617cf4d2dd3"
+          "sha256": "afa48954922ae02352f37cf67a103a65384b6f4c6869cd4630178429961ce3fb"
         },
         {
           "path": "tests/windows_publisher_public_maintenance_probe.ps1",
@@ -6782,7 +6782,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "a02e232b80da3d7731bb8eb424cc4e1fd4c6dda3ab7d137805e80617cf4d2dd3"
+          "sha256": "afa48954922ae02352f37cf67a103a65384b6f4c6869cd4630178429961ce3fb"
         },
         {
           "path": "tests/windows_publisher_public_maintenance_probe.ps1",
@@ -7950,7 +7950,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "a02e232b80da3d7731bb8eb424cc4e1fd4c6dda3ab7d137805e80617cf4d2dd3"
+          "sha256": "afa48954922ae02352f37cf67a103a65384b6f4c6869cd4630178429961ce3fb"
         },
         {
           "path": "tests/windows_publisher_public_maintenance_probe.ps1",
@@ -8203,7 +8203,7 @@
         },
         {
           "path": "tests/windows_publisher_metadata_readback.ps1",
-          "sha256": "a02e232b80da3d7731bb8eb424cc4e1fd4c6dda3ab7d137805e80617cf4d2dd3"
+          "sha256": "afa48954922ae02352f37cf67a103a65384b6f4c6869cd4630178429961ce3fb"
         },
         {
           "path": "tests/windows_publisher_public_maintenance_probe.ps1",
