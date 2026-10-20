@@ -7,6 +7,7 @@
 #if defined(_WIN32)
 #include <windows.h>
 #include "usk_json.h"
+#include <optional>
 #include <vector>
 
 namespace usk::platform::windows {
@@ -32,6 +33,13 @@ std::vector<BYTE> publisher_device_admission_postimage(PSID owner, PACL dacl, PS
 // Pure mounted completion for an already safe original. Refuses every outside
 // mutation grant before deriving service/protection; no default-right reduction.
 std::vector<BYTE> publisher_read_only_device_admission_postimage(PSID owner, PACL dacl, PSID service_sid);
+
+// Same bounded pure postimage, with an explicit policy-decline result for
+// legacy admission. Native input/API/allocation/format/composition errors throw;
+// only an explicit strict-profile or completion-budget decline returns nullopt.
+// Composition is outside the decline catch. No native effect.
+std::optional<std::vector<BYTE>> publisher_try_read_only_device_admission_postimage(
+    PSID owner, PACL dacl, PSID service_sid);
 
 // Closed data-shape check only. V3 must carry a nonnull mounted transition;
 // false is reserved for legacy v2. Native identity, intended-policy derivation

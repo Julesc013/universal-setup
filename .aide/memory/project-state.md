@@ -1,72 +1,55 @@
 # Universal Setup Project State
 
-Continue ACTIVE USK-SPEC-TO-RELEASE-01 in the existing worktree/build/lab and
-Universal .task-builds root. Complete 1.1 and the full specification are separate.
-Keep 10GiB disk/2GiB RAM+commit reserves and one heavy local job; fixed 20GiB
-stop and the old VM operation are superseded. Windows 10 is shared/no Setup claim.
+Continue ACTIVE USK-SPEC-TO-RELEASE-01 using the sole existing worktree/build/lab
+and Universal .task-builds root. Keep10GiB disk/2GiB RAM+commit reserves and one
+heavy local job. Fixed20GiB stop/old VM retirement superseded. Windows10 shared.
+Complete1.1 and the full specification remain separate; no release is claimed.
 
-Accepted dev ba7c6474367b418b975c09a61776b5db98448232, tree
-b172231b2ef7b32cf6685d45cf00c42c15f70060, normally merged PR288 after seven
-required core checks, consolidated independent review and live merge gate.
-Accepted-dev push39346448572/1 also passed all seven core jobs. Main
-c048f7f1ae2e5922c15a08ee572bdafc29027c63 remains unqualified. Keep reviewed
-daily dev checkpoints and qualified weekly main promotion.
+Accepted dev1c5705de8094da70e28c1e7b22508cebae84fef1/tree
+15e4bf489e8cc0e8fc7f7b49903cbed98dc40643 normally merged PR289 after independent
+review, exact-head seven core checks and live development gate. Accepted-dev
+push39352047549/1 passed all seven core checks. Mainc048f7f1ae2e5922c15a08ee572bdafc29027c63
+remains unqualified. Continue reviewed daily dev and qualified weekly main.
 
-This increment combines two fixed adjacent native recovery read groups:
-step selection with pending-effect inspection, and post-effect reconciliation
-with no-grant completion preparation. Actual file/pair observations, prefix
-joins, full closing proof, original callback ownership, sticky failure and
-fresh effect/journal-write fences remain. No recipe spans an effect or writer.
-The first group's owned metadata is consumed only by the file-static fixed
-transaction loop; the public standalone wrapper always supplies no tuple.
-Eligible original-child standalone recovery may use the second group.
-Removed intermediate global sampling instants/refusal order are not preserved.
-Read-only code and held restored handles do not imply immutable files.
+This increment prepares an exact safe-original mounted device completion for
+legacy stopped-service admission. The actual locking handle supplies original
+bytes before the first old ACL write. Native volume/root identity, exact original
+and intended policies, strict post-write/released-handle checks and confirmed
+writer closure remain. V3 retains separate disk and empty-namespace predicates;
+no populated legacy root is represented as unpublished. Unknown writable
+post-unlock policies refuse, with no normalization or post-write fallback.
+Existing trusted SYSTEM/administrator/service-principal assumptions remain;
+bracketed observations do not establish continuous filesystem/security stability.
 
-Frozen R4 source is pinned to accepted dev ba7/treeb172. Five production
-postimages equal independently reviewed R2. The test-only R3 extraction's
-const-pointer deduction error was caught by compilation and corrected in R4.
-The full ordinary R2 run exceeded its six-minute owner guard; no overall pass.
-R2 strict eight x64/Win32 syntax checks passed. R4 actual changed-object builds,
-links and --recovery-read-group-controls passed on x64 and Win32. These exercise
-real metadata predicates and ordinary/replaced/wrapped callback declines.
-They do NOT positively enter the protected native groups. The source reviews
-approve application/focused validation only, with runtime qualification withheld.
-Diagnostic phases43/44 label group entry without granting authority.
-Inventory changes only current source SHA leaves; classifications and acceptance
-states remain unchanged.
+Optional eligibility handles only deliberate policy/count/byte/text budget
+declines. Native descriptor/API/SID/allocation/composition failures propagate.
+Successful budget declines preserve the independent old locked/default route;
+limits are not increased. Native SID strings acquire immediate LocalFree custody.
 
-PR287 run39335798681/1 is terminal failed: interrupted/source-retired repair
-recovery failed in all three cohorts (including diagnostics OFF) at 120 seconds,
-UNKNOWN/no native completion; late clients exited5. Later startup was skipped.
-Earlier selected PR285/286 recovery positives remain valid for those invocations
-and do not establish current reliability. The PR288 publisher result remains
-separate from its passing development checks. Do not increase the deadline or
-promote incomplete state/readbacks into successful native outcomes.
+R1 broad runtime-error fallback and SID lifetime findings remain retained HOLD.
+R2 closed those findings but retained an optional-capacity compatibility HOLD.
+R3 closes that finding and is independently approved for source application and
+focused validation only. Exact four production/test postimages plus refreshed
+inventory SHA leaves leave classifications and acceptance unchanged.
+x64/Win32 strict builds, actual pure descriptors, count64/65/66, text/native-byte/
+postimage bounds and six injected actual-source API failures pass.
+These do not execute protected lock/remount/startup or qualify a startup remedy.
 
-Exact retained PR287 product PE/PDB and official ntdll symbols resolved CPU
-samples. Repeated original/global proof and metadata writing appear in the
-pending-effect stacks; inclusive samples overlap and cannot be summed as savings.
-HashElapsedUs measures file hashing only, excluding canonical JSON hashing.
-The existing query composition already entered scalar/pair routes; this change
-targets repeated enclosing fixed groups, not an absent eight-query mechanism.
-Next establish actual group entry and a request-bound terminal result with
-independent installed-state/recovery/cleanup checks under the unchanged contract.
-If the request still fails, use discriminating phase/CPU/wait evidence rather
-than stack another speculative optimization.
+PR289 publisher39350387546/1 remains a separate live qualification. Fresh CSDK,
+repair/move/uninstall passed, but diagnostics-ON interrupted source-retired repair
+failed both with/without WPR wrapper:120s UNKNOWN/no native response. Current
+diagnostics-OFF result is pending. Do not infer improvement from timeout/counts.
+PR288's selected OFF recovery passed and was independently corroborated for its
+older exact build; its two ON timeouts and bootstrap identity failure remain.
+Old PR286 legacy startup refused a changed raw-device policy after remount; the
+retained observation motivates this increment without proving reset cause.
+No new recovery performance candidate until the existing trace discriminates
+actual group entry and exclusive remaining work.
 
-SDK preparation is already in dev: metadata journal/lease readers, protected
-original history helper, and complete authenticated public request selection
-(v2) alongside retained private v1. It enables no native public host admission,
-public critical v2 plan/report, effects or safe rollback. Native helper execution
-and the usable public SDK recovery route remain unqualified. Keep this separate
-from the bounded runtime experiment and resume that connected implementation
-after the recovery increment. Never alias rollback to forward or drop digests.
-
-No full publisher, complete 1.1, main promotion or release is claimed.
-Preserve AIDE customization and exact historical memory below.
-
-.
+Public full-request/native history SDK preparation is integrated but actual
+public host admission, critical-v2 inspect/plan/apply and safe rollback remain
+unfinished. Never drop reviewed digests or alias rollback to forward recovery.
+Keep AIDE customization. No full publisher/main/release qualification.
 
 Earlier checkpoints below are historical; the current status above governs.
 

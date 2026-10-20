@@ -7,6 +7,7 @@
 #include <array>
 #include <aclapi.h>
 #include <cstddef>
+#include <memory>
 #include <sddl.h>
 #include <set>
 #include <stdexcept>
@@ -15,6 +16,14 @@
 namespace usk::platform::windows {
 
 namespace {
+
+// Only deliberate strict-policy refusals use this type. Native API and memory
+// failures keep their ordinary exception type and cannot select another route.
+class DeviceAclPolicyRefusal : public std::runtime_error {
+public:
+    using std::runtime_error::runtime_error;
+};
+
 
 std::array<BYTE, SECURITY_MAX_SID_SIZE> well_known_sid(WELL_KNOWN_SID_TYPE type) {
     std::array<BYTE, SECURITY_MAX_SID_SIZE> sid{};
@@ -29,14 +38,14 @@ std::array<BYTE, SECURITY_MAX_SID_SIZE> well_known_sid(WELL_KNOWN_SID_TYPE type)
 PSID checked_ace_sid(const ACCESS_ALLOWED_ACE* ace) {
     constexpr std::size_t offset = offsetof(ACCESS_ALLOWED_ACE, SidStart);
     if (ace->Header.AceSize < offset + 8u) {
-        throw std::runtime_error("publisher device ACE SID is truncated");
+        throw DeviceAclPolicyRefusal("publisher device ACE SID is truncated");
     }
     auto* sid = reinterpret_cast<SID*>(const_cast<DWORD*>(&ace->SidStart));
     if (sid->Revision != SID_REVISION ||
         sid->SubAuthorityCount > SID_MAX_SUB_AUTHORITIES ||
         offset + 8u + 4u * sid->SubAuthorityCount > ace->Header.AceSize ||
         !IsValidSid(sid)) {
-        throw std::runtime_error("publisher device ACE SID is malformed");
+        throw DeviceAclPolicyRefusal("publisher device ACE SID is malformed");
     }
     return sid;
 }
@@ -44,11 +53,10 @@ PSID checked_ace_sid(const ACCESS_ALLOWED_ACE* ace) {
 std::string diagnostic_sid(PSID sid) {
     LPSTR rendered = nullptr;
     if (!ConvertSidToStringSidA(sid, &rendered) || !rendered) {
-        return "<unavailable>";
+        throw std::runtime_error("publisher device principal cannot be rendered");
     }
-    const std::string value(rendered);
-    LocalFree(rendered);
-    return value;
+    std::unique_ptr<void, decltype(&LocalFree)> owned(rendered, &LocalFree);
+    return std::string(rendered);
 }
 
 } // namespace
@@ -62,7 +70,7 @@ bool require_publisher_device_acl_shape(PSID owner, PACL dacl, PSID service_sid)
     const auto administrators = well_known_sid(WinBuiltinAdministratorsSid);
     if (!EqualSid(owner, const_cast<BYTE*>(system.data())) &&
         !EqualSid(owner, const_cast<BYTE*>(administrators.data()))) {
-        throw std::runtime_error("publisher device owner is outside trusted principals");
+        throw DeviceAclPolicyRefusal("publisher device owner is outside trusted principals");
     }
     constexpr ACCESS_MASK mutating = DELETE | WRITE_DAC | WRITE_OWNER |
         FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA |
@@ -79,18 +87,18 @@ bool require_publisher_device_acl_shape(PSID owner, PACL dacl, PSID service_sid)
         // the service grant cannot be shadowed by an unmodelled rule.
         if (header->AceType != ACCESS_ALLOWED_ACE_TYPE ||
             header->AceSize < sizeof(ACCESS_ALLOWED_ACE)) {
-            throw std::runtime_error("publisher device DACL has an unmodelled ACE");
+            throw DeviceAclPolicyRefusal("publisher device DACL has an unmodelled ACE");
         }
         const auto* ace = static_cast<const ACCESS_ALLOWED_ACE*>(entry);
         PSID sid = checked_ace_sid(ace);
         if (EqualSid(sid, service_sid)) {
             if (header->AceFlags != 0 || ace->Mask != FILE_ALL_ACCESS || ++service_aces > 1) {
-                throw std::runtime_error("publisher device service ACE differs or repeats");
+                throw DeviceAclPolicyRefusal("publisher device service ACE differs or repeats");
             }
         } else if (!EqualSid(sid, const_cast<BYTE*>(system.data())) &&
             !EqualSid(sid, const_cast<BYTE*>(administrators.data())) &&
             (ace->Mask & mutating) != 0) {
-            throw std::runtime_error(
+            throw DeviceAclPolicyRefusal(
                 "publisher device grants raw-volume mutation outside trusted principals: SID " +
                 diagnostic_sid(sid) + ", mask " + std::to_string(ace->Mask));
         }
@@ -133,7 +141,7 @@ std::vector<BYTE> publisher_device_admission_postimage(PSID owner, PACL dacl, PS
     std::vector<BYTE> reduced;
     bool granted = false;
     try { granted = require_publisher_device_acl_shape(owner, dacl, service_sid); }
-    catch (const std::exception&) {
+    catch (const DeviceAclPolicyRefusal&) {
         reduced = restrict_publisher_default_device_acl(owner, dacl, service_sid);
         dacl = reinterpret_cast<PACL>(reduced.data());
         granted = require_publisher_device_acl_shape(owner, dacl, service_sid);
@@ -178,6 +186,28 @@ std::vector<BYTE> publisher_device_admission_postimage(PSID owner, PACL dacl, PS
 std::vector<BYTE> publisher_read_only_device_admission_postimage(PSID owner, PACL dacl, PSID service_sid) {
     // Validate the retained prestate before any default-right reduction.
     (void)require_publisher_device_acl_shape(owner, dacl, service_sid);
+    return publisher_device_admission_postimage(owner, dacl, service_sid);
+}
+
+std::optional<std::vector<BYTE>> publisher_try_read_only_device_admission_postimage(
+    PSID owner, PACL dacl, PSID service_sid) {
+    if (!owner || !IsValidSid(owner) || !dacl || !IsValidAcl(dacl) ||
+        !service_sid || !IsValidSid(service_sid))
+        throw std::runtime_error("publisher optional device inputs are unavailable");
+    if (dacl->AceCount > 64u || dacl->AclSize > 16384u) return std::nullopt;
+    bool granted = false;
+    try { granted = require_publisher_device_acl_shape(owner, dacl, service_sid); }
+    catch (const DeviceAclPolicyRefusal&) { return std::nullopt; }
+    // Conservatively reserve owner, relative descriptor and full ACL plus the
+    // exact service ACE before the fallible composer. Padding can only cause a
+    // decline here; no existing locked-admission policy/budget is changed.
+    const std::size_t service_ace = granted ? 0u :
+        offsetof(ACCESS_ALLOWED_ACE, SidStart) + GetLengthSid(service_sid);
+    const std::size_t postimage_bound = sizeof(SECURITY_DESCRIPTOR_RELATIVE) +
+        GetLengthSid(owner) + dacl->AclSize + service_ace;
+    if (postimage_bound > 16384u) return std::nullopt;
+    // Composition is deliberately outside the policy-decline catch. A failure
+    // here must never enable the controller's existing locked/default route.
     return publisher_device_admission_postimage(owner, dacl, service_sid);
 }
 
