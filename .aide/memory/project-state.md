@@ -34,11 +34,26 @@ and the actual broker. All four selected native CTests pass on each architecture
 structure, adversarial, branch and diff checks pass. Existing MSB8028
 intermediate-directory warnings are retained; no clean/rebuild was performed.
 The first installed-SDK attempt correctly refused the reusable build's stale
-configured source identity. After this source checkpoint, reconfigure the same
-builds with its exact clean commit/tree/ref, then run installed static/shared
-consumer checks. Final committed review, seven hosted core checks and the fresh
-live dev gate remain required; later receipts must bind this exact candidate.
-Source review approves only application/focused checks, not native recovery.
+configured source identity. After the clean f412f7c checkpoint, both builds were
+configured to its exact head/tree/ref. All four installed x64/Win32 static/shared
+ordinary consumers passed; publisher consumers and C++98 headers compiled/linked.
+Four additional installed public C ABI controls returned invalid_argument for
+malformed recovery input. These are client refusal checks, not service recovery.
+
+PR292 f412f7cc88c38497fb24c057616561ef8dc41c8b/tree
+63e416d8d8cdfd23285572d59b46dbeb59f8a10e had independent committed source-only
+approval, but CI39365344407/1 ended FAIL: six core jobs passed; native-linux
+cppcheck2.13 flagged possible null dereference at recovery decoder line68.
+Publisher was SKIPPED because its core prerequisite failed. Controller41360
+closed1 before any merge input/effect; full watcher83621 closed1.
+The same warning reproduces with local cppcheck2.19. Replace only the custom
+throwing require with its equivalent explicit null/schema branch, preserving
+short-circuit order and the same runtime_error message. The candidate clears
+that diagnostic without suppression or changed tests. Actual repaired CMake
+targets and all four selected native CTests pass again on x64/Win32 (24.75 s /
+25.85 s runner elapsed). Reconfigure/recheck the same installed SDK prefixes
+after this clean commit, then bind committed delta review and fresh hosted/live
+gates to it. The failed f412f7c head is not integration-qualified.
 
 Inventory changes are exactly 19 existing source-SHA leaves. Classifications,
 notes and acceptance remain unchanged. Native public inspect/plan/action-specific

@@ -63,8 +63,8 @@ const Value* publisher_public_recovery_inspection(const Value& request) {
                 "public recovery reviewed plan ID differs from its complete plan request");
         inspection = &plan->at("inspection");
     }
-    require(inspection && inspection->at("schema").as_string() == "usk.recovery_inspect_request.v1",
-        "public recovery inspection family differs");
+    if (!inspection || inspection->at("schema").as_string() != "usk.recovery_inspect_request.v1")
+        throw std::runtime_error("public recovery inspection family differs");
     const auto& operation = text(*inspection, "operation", 16u);
     require(operation == "install_local" || operation == "repair" || operation == "move" || operation == "uninstall",
         "public recovery operation differs");
