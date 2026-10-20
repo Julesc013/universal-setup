@@ -226,7 +226,14 @@ function Invoke-OwnedPublisherFixtureTask {
         [switch]$BootstrapPreservationProcessLoss,[switch]$ActiveInstallContention,[switch]$StalePlanQualification,[switch]$InstallationGuardConflict,
         [string]$ConstructedBootstrapPrefix='none',[string]$ConstructedBootstrapDurableState='none',
         [switch]$MaintenanceQualification,[switch]$MaintenanceRecoveryQualification,[switch]$MaintenanceInitialQualification,
-        [switch]$SdkLifecycleQualification)
+        [switch]$SdkLifecycleQualification,[switch]$SdkRecoveryQualification)
+    if($SdkRecoveryQualification -and ($ActorProfile -cne 'SystemStandard' -or $PackagedAdmittedConsumer -or
+        $IdentityProbe -or $SdkLifecycleQualification -or -not $MaintenanceQualification -or
+        -not $MaintenanceRecoveryQualification -or $MaintenanceInitialQualification -or $BootstrapProcessLoss -or
+        $BootstrapPreservationProcessLoss -or $ActiveInstallContention -or $StalePlanQualification -or
+        $InstallationGuardConflict -or $ConstructedBootstrapPrefix -cne 'none' -or $ConstructedBootstrapDurableState -cne 'none')) {
+        throw 'SDK recovery launcher requires its separate standard ended-maintenance cohort'
+    }
     if($SdkLifecycleQualification -and ($ActorProfile -cne 'SystemStandard' -or $PackagedAdmittedConsumer -or
         $IdentityProbe -or -not $MaintenanceQualification -or $MaintenanceRecoveryQualification -or
         $MaintenanceInitialQualification -or $BootstrapProcessLoss -or $BootstrapPreservationProcessLoss -or
@@ -374,6 +381,7 @@ function Invoke-OwnedPublisherFixtureTask {
             $(if($MaintenanceRecoveryQualification){' -MaintenanceRecoveryQualification'}else{''})+
             $(if($MaintenanceInitialQualification){' -MaintenanceInitialQualification'}else{''})+
             $(if($SdkLifecycleQualification){' -SdkLifecycleQualification'}else{''})+
+            $(if($SdkRecoveryQualification){' -SdkRecoveryQualification'}else{''})+
             ' -ConstructedBootstrapPrefix '+(& $quote $ConstructedBootstrapPrefix)+
             ' -ConstructedBootstrapDurableState '+(& $quote $ConstructedBootstrapDurableState))
     }

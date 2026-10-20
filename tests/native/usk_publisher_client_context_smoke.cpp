@@ -312,6 +312,35 @@ int main() {
             usk::json::parse(std::string(response.json_payload.data,
                 static_cast<std::size_t>(response.json_payload.size))).at("error").at("code").as_string() ==
                 "invalid_argument");
+        // The explicit provider context advertises its native response
+        // version; an ordinary local context retains the public v1 contract.
+        const auto recovery_graph = [&](usk_context* selected, const char* suffix) {
+            const char* graph_command = "command_graph.inspect_v2";
+            usk_command_request_v1 graph_request{};
+            graph_request.struct_size = sizeof(graph_request);
+            graph_request.command_name = {graph_command, static_cast<usk_size>(std::strlen(graph_command))};
+            graph_request.json_payload = {"{}", 2};
+            usk_command_response_v1 graph_response{};
+            graph_response.struct_size = sizeof(graph_response);
+            REQUIRE(usk_command_execute_v1(selected, &graph_request, &graph_response) == USK_STATUS_OK);
+            const auto graph = usk::json::parse(std::string(graph_response.json_payload.data,
+                static_cast<std::size_t>(graph_response.json_payload.size)));
+            unsigned found = 0;
+            for (const auto& command : graph.at("payload").at("commands").as_array()) {
+                const auto name = command.at("command").as_string();
+                if (name == "recovery.inspect" || name == "recovery.apply" || name == "recovery.plan") {
+                    REQUIRE(command.at("response_schema").as_string() ==
+                        std::string(name == "recovery.plan" ? "usk.recovery_plan." : "usk.recovery_report.") + suffix);
+                    ++found;
+                }
+            }
+            REQUIRE(found == 3);
+        };
+        recovery_graph(context, "v2");
+        usk_context* ordinary = nullptr;
+        REQUIRE(usk_context_create_v1(nullptr, &ordinary) == USK_STATUS_OK && ordinary);
+        recovery_graph(ordinary, "v1");
+        usk_context_destroy_v1(ordinary);
         // A publisher context owns recovery queries too: they may not fall
         // through into local filesystem inspection. The fixed fixture endpoint
         // has no registered backend; refusal must retain this public invocation.

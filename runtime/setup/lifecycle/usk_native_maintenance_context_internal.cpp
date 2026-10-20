@@ -15,6 +15,7 @@
 #include "usk_publisher_maintenance_mutation.h"
 #include "usk_publisher_process_boundary.h"
 #include "usk_publisher_registration.h"
+#include "usk_publisher_recovery_history_internal.h"
 #include "usk_publisher_request_channel.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_tree_observation.h"
@@ -308,7 +309,18 @@ struct NativeMaintenanceContext::Impl {
     const PublisherInstallOperationGuard& guard;
     const PublisherMaintenanceStateSnapshot& original_state;
     const PublisherInstallOperationContext& original_context;
-    const PublisherInstallationLease& lease;
+    struct InspectionCustody {
+        PublisherOriginalMaintenanceHistory history;
+        Value original_active;
+        std::uint64_t deadline;
+        DWORD process = GetCurrentProcessId(), thread = GetCurrentThreadId();
+        mutable bool failed = false;
+    };
+    // Exactly one alternative is admitted by the private constructors.
+    // Inspection owns its independently acquired native facts, not a fake
+    // lease or caller-provided authority callback.
+    const PublisherInstallationLease* const lease;
+    const std::unique_ptr<InspectionCustody> inspection;
     const RegisteredPublisherAdmission* const admission;
     const PublisherRequestChannel* const channel;
     PublisherEffectExecutionOwner* const original_child;
@@ -388,12 +400,76 @@ struct NativeMaintenanceContext::Impl {
         std::size_t record_bytes = 0, snapshot_bytes = 0;
     };
 
+    const PublisherInstallationLease& writer_lease() const {
+        if (!lease || inspection)
+            throw std::runtime_error("native maintenance inspection has no writer lease");
+        return *lease;
+    }
+    void require_inspection_holder_lineage(const Value& original,
+        const PublisherInstallLeaseHistoryObservation& observed) const {
+        transaction::require_install_lease_record(original);
+        if (!inspection || original.at("status").as_string() != "active" || observed.original_completion ||
+            observed.committed_record_count != observed.committed_records.size() ||
+            observed.committed_records_sha256 != json::sha256_canonical(Value(observed.committed_records)) ||
+            observed.pending_entry_count != 0u)
+            throw transaction::InstallLeaseStale();
+        bool found = false;
+        for (const auto& record : observed.committed_records) {
+            if (record.at("generation").as_unsigned() < original.at("generation").as_unsigned()) continue;
+            if (record.at("install_id").as_string() != spec_install_id() ||
+                record.at("operation").as_string() != spec.operation ||
+                record.at("operation_id").as_string() != spec.transaction_id ||
+                record.at("operation_context_sha256").as_string() != original_context.lease_binding_sha256() ||
+                !equal(record.at("state_root_identity"), original.at("state_root_identity")) ||
+                record.at("status").as_string() == "completed")
+                throw transaction::InstallLeaseStale();
+            if (equal(record, original)) found = true;
+            if (record.at("status").as_string() == "active") {
+                const auto holder = observe_publisher_previous_lease_holder(record.at("holder"));
+                if (holder != transaction::InstallLeasePreviousHolder::ended &&
+                    holder != transaction::InstallLeasePreviousHolder::identity_reused)
+                    throw transaction::InstallLeaseConflict();
+            }
+        }
+        if (!found) throw transaction::InstallLeaseStale();
+    }
+    const std::string& spec_install_id() const {
+        return original_context.record().at("install_id").as_string();
+    }
+    void require_owner_fence() const {
+        if (!inspection) { writer_lease().require_fence(); return; }
+        try {
+            const auto require_lifetime = [&] {
+                transaction::detail::require_native_maintenance_inspection_lifetime(inspection->process,
+                    inspection->thread, reinterpret_cast<std::intptr_t>(cancel_event),
+                    inspection->deadline, inspection->failed);
+            };
+            require_lifetime();
+            original_context.require_read_only_inspection();
+            const auto current = observe_publisher_installation_lease_history(original_state.state_root(),
+                volume_root, service_name, guard, inspection->original_active);
+            const auto& expected = inspection->history.lease;
+            if (current.committed_records_sha256 != expected.committed_records_sha256 ||
+                current.committed_record_count != expected.committed_record_count ||
+                current.pending_names_sha256 != expected.pending_names_sha256 ||
+                current.pending_entry_count != 0u ||
+                !equal(current.latest_committed_record, expected.latest_committed_record))
+                throw transaction::InstallLeaseStale();
+            require_inspection_holder_lineage(inspection->original_active, current);
+            require_lifetime(); // Native calls cannot redeem expiry/cancellation during the pass.
+        } catch (...) { inspection->failed = true; throw; }
+    }
+    void require_original_lineage(const Value& original) const {
+        if (!inspection) { writer_lease().require_recovery_lineage(original); return; }
+        require_owner_fence();
+        require_inspection_holder_lineage(original, inspection->history.lease);
+    }
     std::optional<PublisherDirectoryEntry> child(HANDLE parent, const std::wstring& name) const {
         return child_with_names(parent, name, maintenance_names.get());
     }
 
     std::string read_restoration_record(const fs::path& path, std::size_t maximum) {
-        original_context.require_fence(); original_state.require_custody(); lease.require_fence();
+        original_context.require_fence(); original_state.require_custody(); require_owner_fence();
         auto& parent = open_directory(path.parent_path());
         const auto listed = child(parent.handle.value, path.filename().wstring());
         if (!listed || (listed->attributes & FILE_ATTRIBUTE_DIRECTORY))
@@ -414,7 +490,7 @@ struct NativeMaintenanceContext::Impl {
         entry->size = text.size(); entry->sha256 = raw_digest(text);
         require_bytes(*entry);
         restoration_record_observers.push_back(std::move(entry));
-        original_context.require_fence(); original_state.require_custody(); lease.require_fence();
+        original_context.require_fence(); original_state.require_custody(); require_owner_fence();
         return text;
     }
     static Value closed_record(const std::string& text, const std::set<std::string>& fields,
@@ -448,7 +524,7 @@ struct NativeMaintenanceContext::Impl {
         const auto& old_lease = original.at("original_lease_ownership");
         // The actual journal, actual current native generation and an ended
         // PID+birth holder are proved before consuming any creator/outcome.
-        lease.require_recovery_lineage(old_lease);
+        require_original_lineage(old_lease);
         if (old_lease.at("expected_state_revision").as_string() != snapshot.at("initial_state_revision").as_string() ||
             original.at("worker_security").at("process_id").as_unsigned() != old_lease.at("holder").at("process_id").as_unsigned() ||
             original.at("process_boundary").at("process_id").as_unsigned() != old_lease.at("holder").at("process_id").as_unsigned())
@@ -520,7 +596,7 @@ struct NativeMaintenanceContext::Impl {
                 !saved.snapshots.count(record.at("transaction_snapshot_sha256").as_string()))
                 throw std::runtime_error("native maintenance custody record changed its original prefix/binding");
             if (checked_writers.insert(json::sha256_canonical(record.at("writer_lease_ownership"))).second)
-                lease.require_recovery_lineage(record.at("writer_lease_ownership"));
+                require_original_lineage(record.at("writer_lease_ownership"));
             const auto& kind = record.at("kind").as_string(); const auto& details = record.at("details");
             if (kind == "confirmed_publication") {
                 members(details, {"created_closure_sha256", "root", "parent", "publication_transaction_snapshot_sha256"});
@@ -629,7 +705,7 @@ struct NativeMaintenanceContext::Impl {
                 throw std::runtime_error("native maintenance completed prefix lacks its original confirmed custody");
         saved.intents = std::move(intents);
         for (const auto& observer : restoration_record_observers) require_bytes(*observer);
-        lease.require_recovery_lineage(old_lease);
+        require_original_lineage(old_lease);
         return saved;
     }
     struct RestoredObject {
@@ -889,7 +965,7 @@ struct NativeMaintenanceContext::Impl {
                 throw std::runtime_error("native maintenance original surviving file is absent");
             auto entry = std::make_unique<Entry>();
             entry->directory = false; entry->parent = &parent; entry->name = object.path.filename().wstring();
-            entry->handle.value = read_only ? open_publisher_listed_child(parent.handle.value, *listed) :
+            entry->handle.value = (read_only || inspection) ? open_publisher_listed_child(parent.handle.value, *listed) :
                 open_publisher_listed_maintenance_file(parent.handle.value, *listed);
             entry->facts = facts(entry->handle.value, false); entry->size = object.size; entry->sha256 = object.sha256;
             entry->stream_identity = journal_identity(entry->handle.value);
@@ -1001,19 +1077,24 @@ struct NativeMaintenanceContext::Impl {
         original_source_context = saved.created.at("source_context").as_string();
         publication_attempted = true; publication_confirmed = true;
         admitted_lease_revision = installed_confirmed ? json::sha256_canonical(installed_postimage_bindings) : snapshot.at("initial_state_revision").as_string();
-        lease.require_recovery_lineage(original_lease_ownership);
+        require_original_lineage(original_lease_ownership);
     }
 
     Impl(HANDLE boundary, const std::wstring& root, const std::wstring& service_label,
         const PublisherInstallOperationGuard& installation_guard,
         const PublisherMaintenanceStateSnapshot& state,
-        const PublisherInstallOperationContext& context, const PublisherInstallationLease& active_lease,
+        const PublisherInstallOperationContext& context, const PublisherInstallationLease* active_lease,
         const RegisteredPublisherAdmission* registered, const PublisherRequestChannel* authenticated,
         PublisherEffectExecutionOwner* child_owner,
-        const transaction::TransactionSpec& transaction_spec, HANDLE cancel, bool restore = false)
+        const transaction::TransactionSpec& transaction_spec, HANDLE cancel, bool restore = false,
+        std::unique_ptr<InspectionCustody> inspection_custody = {})
         : volume(boundary), volume_root(root), service_name(service_label), guard(installation_guard),
-          original_state(state), original_context(context), lease(active_lease), admission(registered),
+          original_state(state), original_context(context), lease(active_lease),
+          inspection(std::move(inspection_custody)), admission(registered),
           channel(authenticated), original_child(child_owner), spec(transaction_spec), cancel_event(cancel) {
+        if ((lease != nullptr) == (inspection != nullptr) ||
+            (inspection && (!restore || !original_child || registered || authenticated)))
+            throw std::runtime_error("native maintenance needs one concrete writer or read-only inspection owner");
         if (original_child ? (admission || channel) : (!admission || !channel))
             throw std::runtime_error("native maintenance requires one concrete original execution owner");
         restored_owner = restore;
@@ -1040,7 +1121,8 @@ struct NativeMaintenanceContext::Impl {
         if (restore) original_state.require_custody();
         else original_state.require_initial_revision();
         original_context.require_fence();
-        lease.require_start();
+        if (inspection) require_owner_fence();
+        else writer_lease().require_start();
         if (!equal(original_state.installed_state(), snapshot.at("installed_state")) ||
             !equal(original_state.ownership_manifest(), snapshot.at("ownership_manifest")) ||
             original_state.initial_state_revision() != snapshot.at("initial_state_revision").as_string() ||
@@ -1077,7 +1159,7 @@ struct NativeMaintenanceContext::Impl {
             const auto security = original_child->security().observe_current();
             process_boundary = security.at("process_boundary");
             worker = security.at("worker_security");
-            if (!equal(lease.ownership().at("holder"), observe_publisher_lease_holder()))
+            if (!inspection && !equal(writer_lease().ownership().at("holder"), observe_publisher_lease_holder()))
                 throw std::runtime_error("native maintenance lease does not belong to its actual child");
         } else {
             process_boundary = observe_current_publisher_process_boundary();
@@ -1123,7 +1205,7 @@ struct NativeMaintenanceContext::Impl {
         installed_record_path = normalized(spec.state_root / "installed" /
             (snapshot.at("install_id").as_string() + "." + spec.transaction_id + ".json"));
         if (restore) restore_custody(read_restoration_custody());
-        else { original_lease_ownership = lease.ownership(); admitted_lease_revision = snapshot.at("initial_state_revision").as_string(); }
+        else { original_lease_ownership = writer_lease().ownership(); admitted_lease_revision = snapshot.at("initial_state_revision").as_string(); }
         require_authority(spec);
         effect_fence = [this] { require_authority(spec); };
         operations.require_authority = [this](const auto& s) { require_authority(s); };
@@ -1162,6 +1244,12 @@ struct NativeMaintenanceContext::Impl {
         if (!restore) admit_original_payload();
         require_authority(spec);
         if (!restore) prepare_original_admission();
+        if (inspection) {
+            // Keep a present, fully closed native scope. Returning null here
+            // would permit generic path fallback for an active native owner.
+            operations = transaction::detail::native_maintenance_inspection_operations(operations);
+            effect_fence = {};
+        }
     }
     static fs::path normalized(const fs::path& path) { return fs::absolute(path).lexically_normal(); }
     static fs::path owned_relative(const std::string& value) {
@@ -1524,7 +1612,7 @@ struct NativeMaintenanceContext::Impl {
             const auto listed = child(parent_handle, held.name);
             if (!listed || !(listed->attributes & FILE_ATTRIBUTE_DIRECTORY))
                 throw std::runtime_error("native maintenance required protected directory is absent");
-            held.handle.value = open_publisher_listed_child(parent_handle, *listed, true, false, true,
+            held.handle.value = open_publisher_listed_child(parent_handle, *listed, !inspection, false, !inspection,
                 false, false, maintenance_names.get());
             held.facts = facts(held.handle.value, true);
             require_entry(held); parent = &held;
@@ -1722,18 +1810,20 @@ struct NativeMaintenanceContext::Impl {
         if (GetCurrentProcessId() != worker_context.process_id || (cancel_event && WaitForSingleObject(cancel_event, 0) != WAIT_TIMEOUT))
             throw std::runtime_error("native maintenance worker stopped or changed");
         guard.require_owned(volume_root, original_context.record().at("install_id").as_string());
-        original_context.require_fence(); original_state.require_custody(); lease.require_fence();
-        const auto& ownership = lease.ownership();
+        original_context.require_fence(); original_state.require_custody(); require_owner_fence();
         const auto& snapshot = original_context.record().at("reviewed_snapshot");
-        transaction::require_install_lease_record(ownership);
-        if (ownership.at("install_id").as_string() != snapshot.at("install_id").as_string() ||
-            ownership.at("operation").as_string() != spec.operation ||
-            ownership.at("operation_id").as_string() != spec.transaction_id ||
-            ownership.at("operation_context_sha256").as_string() != original_context.lease_binding_sha256() ||
-            ownership.at("expected_state_revision").as_string() != admitted_lease_revision ||
-            !equal(ownership.at("state_root_identity"), snapshot.at("state_root_identity")))
-            throw transaction::InstallLeaseStale();
-        if (restored_owner) lease.require_recovery_lineage(original_lease_ownership);
+        if (!inspection) {
+            const auto& ownership = writer_lease().ownership();
+            transaction::require_install_lease_record(ownership);
+            if (ownership.at("install_id").as_string() != snapshot.at("install_id").as_string() ||
+                ownership.at("operation").as_string() != spec.operation ||
+                ownership.at("operation_id").as_string() != spec.transaction_id ||
+                ownership.at("operation_context_sha256").as_string() != original_context.lease_binding_sha256() ||
+                ownership.at("expected_state_revision").as_string() != admitted_lease_revision ||
+                !equal(ownership.at("state_root_identity"), snapshot.at("state_root_identity")))
+                throw transaction::InstallLeaseStale();
+        }
+        if (restored_owner) require_original_lineage(original_lease_ownership);
         // The child can complete the fixed original bytes and adjacent native
         // authority roles in one sealed scope below. SCM keeps its original
         // path. All predicates still complete before this fence returns.
@@ -2590,7 +2680,7 @@ struct NativeMaintenanceContext::Impl {
             {"transaction_id", Value(spec.transaction_id)}, {"operation", Value(spec.operation)},
             {"plan_digest", Value(spec.plan_digest)},
             {"original_context_sha256", Value(original_context.lease_binding_sha256())},
-            {"original_lease_ownership", lease.ownership()}, {"worker_security", worker},
+            {"original_lease_ownership", writer_lease().ownership()}, {"worker_security", worker},
             {"process_boundary", process_boundary}, {"registration_sha256", Value(json::sha256_canonical(registration))},
             {"authenticated_client", client}, {"original_consumer_completion", original_consumer_completion},
             {"installed_root", publisher_handle_observation_json(installed_root->facts)},
@@ -2699,7 +2789,7 @@ struct NativeMaintenanceContext::Impl {
             {"original_context_sha256", Value(original_context.lease_binding_sha256())},
             {"original_admission_sha256", Value(original_admission_sha256)},
             {"original_lease_ownership_sha256", Value(json::sha256_canonical(original_lease_ownership))},
-            {"writer_lease_ownership", lease.ownership()},
+            {"writer_lease_ownership", writer_lease().ownership()},
             {"sequence", Value(native_custody_sequence)}, {"kind", Value(kind)},
             {"previous_record_sha256", native_custody_digest.empty() ? Value{} : Value(native_custody_digest)},
             {"transaction_snapshot_sha256", Value(tx.snapshot_sha256)},
@@ -4113,7 +4203,7 @@ struct NativeMaintenanceContext::Impl {
             {"transaction_id", Value(spec.transaction_id)}, {"plan_digest", Value(spec.plan_digest)},
             {"original_context_sha256", Value(original_context.lease_binding_sha256())},
             {"original_admission_sha256", Value(original_admission_sha256)},
-            {"lease_ownership_sha256", Value(json::sha256_canonical(lease.ownership()))},
+            {"lease_ownership_sha256", Value(json::sha256_canonical(writer_lease().ownership()))},
             {"transaction_snapshot_sha256", Value(publication_transaction_sha256)},
             {"source_context", Value(original_source_context)},
             {"worker_security", worker}, {"process_boundary", process_boundary},
@@ -5172,7 +5262,7 @@ NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wst
     const PublisherInstallOperationContext& context, const PublisherInstallationLease& lease,
     const RegisteredPublisherAdmission& admission, const PublisherRequestChannel& channel,
     const transaction::TransactionSpec& spec, HANDLE cancel, bool& effects_may_exist)
-    : impl_(std::make_unique<Impl>(volume, root, service, guard, state, context, lease, &admission, &channel, nullptr, spec, cancel)) {
+    : impl_(std::make_unique<Impl>(volume, root, service, guard, state, context, &lease, &admission, &channel, nullptr, spec, cancel)) {
     bind_owner_backend();
     effects_may_exist = true;
     impl_->persist_original_admission();
@@ -5183,7 +5273,7 @@ NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wst
     const PublisherInstallOperationContext& context, const PublisherInstallationLease& lease,
     PublisherEffectExecutionOwner& original_child, const transaction::TransactionSpec& spec, HANDLE cancel,
     bool& effects_may_exist)
-    : impl_(std::make_unique<Impl>(volume, root, service, guard, state, context, lease, nullptr, nullptr,
+    : impl_(std::make_unique<Impl>(volume, root, service, guard, state, context, &lease, nullptr, nullptr,
         &original_child, spec, cancel)) {
     bind_owner_backend();
     effects_may_exist = true;
@@ -5198,7 +5288,7 @@ NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wst
     // This path resumes material from the original operation. Even a refused
     // restoration must preserve the caller's retained-material status.
     effects_may_exist = true;
-    impl_ = std::make_unique<Impl>(volume, root, service, guard, state, context, lease, &admission, &channel, nullptr, spec, cancel, true);
+    impl_ = std::make_unique<Impl>(volume, root, service, guard, state, context, &lease, &admission, &channel, nullptr, spec, cancel, true);
     bind_owner_backend();
     scope_.reset(new transaction::detail::ScopedNativeMaintenanceTransaction(impl_->operations));
 }
@@ -5208,10 +5298,106 @@ NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wst
     PublisherEffectExecutionOwner& original_child, const transaction::TransactionSpec& spec, HANDLE cancel,
     bool& effects_may_exist, RecoveryAdmission) {
     effects_may_exist = true;
-    impl_ = std::make_unique<Impl>(volume, root, service, guard, state, context, lease, nullptr, nullptr,
+    impl_ = std::make_unique<Impl>(volume, root, service, guard, state, context, &lease, nullptr, nullptr,
         &original_child, spec, cancel, true);
     bind_owner_backend();
     scope_.reset(new transaction::detail::ScopedNativeMaintenanceTransaction(impl_->operations));
+}
+NativeMaintenanceContext::NativeMaintenanceContext(HANDLE volume, const std::wstring& root, const std::wstring& service,
+    const PublisherInstallOperationGuard& guard, const PublisherMaintenanceStateSnapshot& state,
+    const PublisherInstallOperationContext& context, PublisherEffectExecutionOwner& original_child,
+    const transaction::TransactionSpec& spec, HANDLE cancel, std::uint64_t deadline, InspectionAdmission) {
+    context.require_read_only_inspection();
+    auto custody = std::make_unique<Impl::InspectionCustody>();
+    custody->history = observe_publisher_original_maintenance_history(volume, root, service, guard,
+        context, state, original_child, cancel, deadline);
+    custody->deadline = deadline;
+    custody->original_active = observe_publisher_original_maintenance_lease(state.state_root(), root, service,
+        guard, context, original_child.authenticated_object_access(volume).at("client").at("user_sid").as_string());
+    if (!custody->history.journal || !custody->history.effects ||
+        custody->history.lease.original_completion || custody->history.lease_pending_entry_count != 0u ||
+        custody->history.lease.pending_entry_count != 0u)
+        throw std::runtime_error("native maintenance inspection requires an interrupted committed operation without pending lease work");
+    impl_ = std::make_unique<Impl>(volume, root, service, guard, state, context, nullptr, nullptr, nullptr,
+        &original_child, spec, cancel, true, std::move(custody));
+    bind_reader_backend();
+    scope_.reset(new transaction::detail::ScopedNativeMaintenanceTransaction(impl_->operations));
+}
+usk::json::Value NativeMaintenanceContext::inspect_recovery() const {
+    if (!impl_->inspection)
+        throw std::runtime_error("native maintenance read-only inspection owner is absent");
+    try {
+        auto& owner = *impl_;
+        owner.require_authority(owner.spec);
+        transaction::RecoveryInspection current;
+        transaction::MaintenanceEffectInspection history;
+        owner.operations.inspect_prefix(owner.spec, current, history);
+        MaintenanceContinuationInspection continuation;
+        owner.operations.inspect_continuation(owner.spec, continuation);
+        MaintenanceEffectReconciliation reconciliation;
+        if (!history.pending_kind.empty()) owner.operations.reconcile_effect(owner.spec, reconciliation);
+        if (current.snapshot_sha256 != continuation.transaction_snapshot_sha256 ||
+            history.journal_digest != continuation.history_digest ||
+            current.snapshot_sha256 != owner.inspection->history.journal->snapshot_sha256 ||
+            history.journal_digest != owner.inspection->history.effects->journal_digest)
+            throw std::runtime_error("native maintenance inspection changed its original prefix");
+
+        // One canonical line per ordered role/entry makes membership, role,
+        // namespace, identity, security and consumed content bindings explicit.
+        // Stream the digest; do not copy the complete custody tree into a reply.
+        base::Sha256 namespace_hash;
+        std::uint64_t object_count = 0;
+        const auto add = [&](const char* role, const fs::path& path, const Impl::Entry& entry) {
+            const auto text = json::canonical(Value(Value::Object{
+                {"role", Value(role)}, {"path", Value(path.generic_u8string())},
+                {"object", publisher_handle_observation_json(entry.facts)},
+                {"size_bytes", Value(entry.size)}, {"sha256", Value(entry.sha256)}})) + "\n";
+            namespace_hash.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+            ++object_count;
+        };
+        for (const auto& entry : owner.directories) add("directory", entry.first, *entry.second);
+        for (const auto& entry : owner.original_files) add("original_file", entry.first, *entry.second);
+        for (const auto& entry : owner.files) add("created_file", entry.first, *entry.second);
+        for (const auto& entry : owner.verification_files) add("verification_file", entry.first, *entry.second);
+        for (const auto& entry : owner.restoration_record_observers)
+            add("restoration_record", fs::path(entry->facts.native_name), *entry);
+        Value::Array absent_files, absent_directories;
+        for (const auto& path : owner.absent_original_files) absent_files.emplace_back(path.generic_u8string());
+        for (const auto& path : owner.absent_original_directories) absent_directories.emplace_back(path.generic_u8string());
+        Value binding(Value::Object{
+            {"schema", Value("usk.native_maintenance_inspection_binding.v1")},
+            {"original_intent_sha256", Value(owner.inspection->history.original_intent_sha256)},
+            {"original_custody_sha256", Value(owner.inspection->history.original_custody_sha256)},
+            {"original_plan_digest", Value(owner.spec.plan_digest)},
+            {"current_installed_revision", Value(owner.inspection->history.current_installed_revision)},
+            {"lease_committed_records_sha256", Value(owner.inspection->history.lease.committed_records_sha256)},
+            {"lease_committed_record_count", Value(owner.inspection->history.lease.committed_record_count)},
+            {"lease_pending_names_sha256", Value(owner.inspection->history.lease.pending_names_sha256)},
+            {"namespace_sha256", Value(namespace_hash.finish())}, {"object_count", Value(object_count)},
+            {"absent_original_files_sha256", Value(json::sha256_canonical(Value(absent_files)))},
+            {"absent_original_directories_sha256", Value(json::sha256_canonical(Value(absent_directories)))},
+            {"journal_snapshot_sha256", Value(current.snapshot_sha256)},
+            {"effect_history_sha256", Value(history.journal_digest)},
+            {"journal_digest", Value(current.journal_digest)}, {"recorded_at", Value(current.recorded_at)},
+            {"source_digest", Value(current.stream_source_digest)},
+            {"commit_started", Value(current.commit_started)}, {"commit_confirmed", Value(current.commit_confirmed)},
+            {"observed_state", Value(current.current_state)}, {"pending_kind", Value(history.pending_kind)},
+            {"reconciliation", Value(reconciliation.state)}, {"next_kind", Value(continuation.next_kind)},
+            {"effects_complete", Value(continuation.effects_complete)}, {"sealed", Value(continuation.sealed)}});
+        // Finalize all original native/object/record/state observations after
+        // result construction and before publishing any result.
+        for (const auto& entry : owner.directories) owner.require_entry(*entry.second);
+        for (const auto& entry : owner.original_files) owner.require_bytes(*entry.second);
+        for (const auto& entry : owner.files) owner.require_bytes(*entry.second);
+        for (const auto& entry : owner.verification_files) owner.require_bytes(*entry.second);
+        for (const auto& entry : owner.restoration_record_observers) owner.require_bytes(*entry);
+        owner.require_authority(owner.spec);
+        if (observe_publisher_install_state_revision(owner.original_state.state_root(), owner.spec_install_id(),
+                owner.service.service_sid) != owner.inspection->history.current_installed_revision)
+            throw transaction::InstallStateRevisionStale();
+        owner.require_owner_fence();
+        return binding;
+    } catch (...) { impl_->inspection->failed = true; throw; }
 }
 void NativeMaintenanceContext::bind_owner_backend() {
     fence_ = std::make_unique<ScopedPublisherEffectFence>(impl_->effect_fence);
@@ -5247,6 +5433,9 @@ void NativeMaintenanceContext::bind_owner_backend() {
             throw;
         }
     };
+    bind_reader_backend();
+}
+void NativeMaintenanceContext::bind_reader_backend() {
     impl_->record_reads.read_owned_text = [this](const auto& p, auto maximum) {
         return impl_->read_owned_record(p, maximum);
     };
@@ -5262,6 +5451,7 @@ MaintenanceRecoveryOperations NativeMaintenanceContext::recovery_operations() co
     using Scope = transaction::detail::ScopedNativeMaintenanceTransaction;
     const Impl::RecoveryBackendBinding binding{impl_.get(), Scope::current_binding(), &impl_->operations};
     binding.require_current();
+    (void)impl_->writer_lease(); // Inspection can never obtain an effect backend.
     impl_->require_authority(impl_->spec);
     if (!impl_->publication_confirmed)
         throw std::runtime_error("native live maintenance recovery requires original confirmed publication");

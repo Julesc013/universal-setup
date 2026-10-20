@@ -341,3 +341,49 @@ Assert-StandardRegisteredTaskAbsent -TaskName $registeredName -ActorProfile Name
 'Launcher startup: acknowledgment, metadata identity/types, original errors and reference cleanup checked; no tasks executed'
 
 & (Join-Path $PSScriptRoot 'windows_publisher_install_guard_cleanup_smoke.ps1')
+
+
+# Evaluate only the original fixed string-building assignment. No task,
+# service/account operation or fixture process can run in this control.
+$parseTokens=$null;$parseErrors=$null
+$launcherAst=[System.Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $PSScriptRoot 'windows_publisher_standard_launcher.ps1'),[ref]$parseTokens,[ref]$parseErrors)
+if($parseErrors.Count){throw 'Actual launcher syntax is invalid'}
+$launcherFunction=$launcherAst.Find({param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -ceq 'Invoke-OwnedPublisherFixtureTask'},$true)
+$parameterNames=@($launcherFunction.Body.ParamBlock.Parameters|ForEach-Object {$_.Name.VariablePath.UserPath})
+if($parameterNames -cnotcontains 'SdkRecoveryQualification'){throw 'Actual launcher dropped SDK recovery parameter'}
+$argvNodes=@($launcherFunction.Body.FindAll({param($node)
+    $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+    $node.Left.Extent.Text -ceq '$body' -and
+    $node.Right.Extent.Text.Contains(' -PythonBinary ') -and
+    $node.Right.Extent.Text.Contains(' -ConstructedBootstrapDurableState ')},$true))
+if($argvNodes.Count -ne 1){throw 'Actual fixed standard argv builder is ambiguous'}
+$argvProjection=[scriptblock]::Create($argvNodes[0].Extent.Text+[Environment]::NewLine+'$body')
+$quote={param($value) "'"+([string]$value).Replace("'","''")+"'"}
+$probe='owned-standard-probe';$VhdPath='owned.vhd';$VolumeRoot='owned-volume'
+$ServiceBinary='owned-service';$ServiceControlBinary='owned-control';$MachineBinary='owned-machine'
+$OutputPath='owned-output';$python='owned-python';$body=@()
+$BootstrapProcessLoss=$false;$BootstrapPreservationProcessLoss=$false;$ActiveInstallContention=$false
+$StalePlanQualification=$false;$InstallationGuardConflict=$false;$MaintenanceQualification=$true
+$MaintenanceRecoveryQualification=$true;$MaintenanceInitialQualification=$false;$SdkLifecycleQualification=$false
+$ConstructedBootstrapPrefix='none';$ConstructedBootstrapDurableState='none'
+foreach($enabled in @($true,$false)) {
+    $SdkRecoveryQualification=$enabled
+    $projected=@(& $argvProjection)
+    if($projected.Count -ne 1 -or ([regex]::Matches($projected[0],' -SdkRecoveryQualification(?= |$)')).Count -ne [int]$enabled -or
+        -not $projected[0].Contains(' -MaintenanceRecoveryQualification')) {
+        throw 'Actual launcher argv lost or invented SDK recovery switch'
+    }
+}
+foreach($invalid in @(
+    @{SdkRecoveryQualification=$true},
+    @{SdkRecoveryQualification=$true;MaintenanceQualification=$true;MaintenanceRecoveryQualification=$true;ActorProfile='NamedController'},
+    @{SdkRecoveryQualification=$true;MaintenanceQualification=$true;MaintenanceRecoveryQualification=$true;PackagedAdmittedConsumer=$true},
+    @{SdkRecoveryQualification=$true;MaintenanceQualification=$true;MaintenanceRecoveryQualification=$true;SdkLifecycleQualification=$true})) {
+    $refused=$false
+    try {Invoke-OwnedPublisherFixtureTask @invalid}
+    catch {$refused=$_.Exception.Message -ceq 'SDK recovery launcher requires its separate standard ended-maintenance cohort'}
+    if(-not $refused){throw 'Actual launcher accepted an incompatible SDK recovery profile'}
+}

@@ -33,6 +33,7 @@ param(
     [switch]$PublicStandardMaintenanceRecoveryQualification,
     [switch]$PublicStandardMaintenanceInitialQualification,
     [switch]$PublicStandardSdkLifecycleQualification,
+    [switch]$PublicStandardSdkRecoveryQualification,
     [ValidateSet('none','anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')]
     [string]$PublicStandardConstructedBootstrapPrefix='none',
     [ValidateSet('none','move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')]
@@ -51,6 +52,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if($PublicStandardSdkRecoveryQualification -and (-not $PublicStandardMaintenanceRecoveryQualification -or
+    -not $PublicInstallation -or -not $PublicStandardClient -or $PublicStandardSdkLifecycleQualification)) {
+    throw 'Public SDK recovery requires its own ended maintenance cohort'
+}
 if($PublicStandardSdkLifecycleQualification -and (-not $PublicInstallation -or -not $PublicStandardClient -or
     -not $PublicStandardMaintenanceQualification -or $PublicStandardMaintenanceRecoveryQualification -or
     $PublicStandardMaintenanceInitialQualification -or $PublicStandardBootstrapLoss -or
@@ -598,6 +603,7 @@ try {
                 -MaintenanceRecoveryQualification:$PublicStandardMaintenanceRecoveryQualification `
                 -MaintenanceInitialQualification:$PublicStandardMaintenanceInitialQualification `
                 -SdkLifecycleQualification:$PublicStandardSdkLifecycleQualification `
+                -SdkRecoveryQualification:$PublicStandardSdkRecoveryQualification `
                 -ConstructedBootstrapPrefix $PublicStandardConstructedBootstrapPrefix `
                 -ConstructedBootstrapDurableState $PublicStandardConstructedBootstrapDurableState
         } elseif ($PublicInstallation) {
@@ -620,6 +626,14 @@ try {
         }
         $receipt['service_observation'] = Get-Content -LiteralPath $serviceOutput -Raw |
             ConvertFrom-Json
+        if($PublicStandardSdkRecoveryQualification -and $receipt.service_observation.status -ceq 'standard_public_install_verified_recovered') {
+            $observedSdk=@($receipt.service_observation.sdk_requests)
+            $requiredSdk=@('recovery.inspect','recovery.plan','recovery.apply','recovery.apply','recovery.apply','installed.verify')
+            if($receipt.service_observation.maintenance_recovery.schema -cne 'usk.publisher_sdk_ended_repair_recovery_probe.v1' -or
+                $observedSdk.Count -ne 6 -or (($observedSdk|ForEach-Object {$_.command}) -join '|') -cne ($requiredSdk -join '|')) {
+                throw 'Requested SDK recovery cohort did not return its actual SDK route witness'
+            }
+        }
         $expected = if ($PublicStandardClient) { 'standard_public_install_verified_recovered' } elseif ($PublicPostRenameRefusal -cne 'none') { 'public_refusal_retained' } elseif ($PublicInstallation) { 'public_install_verified_recovered' } elseif ($ExpectUnprotectedRefusal) { 'preprotected_boundary_refusal_observed' } elseif ($ExpectPreexistingAnchorRefusal) { 'preexisting_anchor_recovery_required_observed' } elseif ($MachineBinary) { 'protected_metadata_observed' } else { 'protected_publish_observed' }
         if ($receipt.service_observation.status -ne $expected) {
             throw 'protected publish service probe did not pass'

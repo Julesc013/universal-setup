@@ -3,8 +3,10 @@
 
 # Uses the existing fixture's account, native process custody, capture and
 # independent readback. This does not install or register a separate service.
-function Invoke-StandardSdkRequest([string]$Command,$Payload) {
-    if($Command -cnotin @('install_local.apply','installed.verify','repair.apply','move.apply','uninstall.apply')) {throw 'SDK fixture command differs'}
+function Invoke-StandardSdkRequest([string]$Command,$Payload,
+    [ValidateSet('ok','refused')][string]$ExpectedStatus='ok') {
+    if($Command -cnotin @('install_local.apply','installed.verify','repair.apply','move.apply','uninstall.apply',
+        'recovery.inspect','recovery.plan','recovery.apply')) {throw 'SDK fixture command differs'}
     $binary=Join-Path (Split-Path -Parent $MachineBinary) 'usk_publisher_sdk_consumer.exe'
     if(-not (Test-Path -LiteralPath $binary -PathType Leaf)) {throw 'Public SDK consumer was not built'}
     $imageSha=(Get-FileHash -LiteralPath $binary -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -22,7 +24,7 @@ function Invoke-StandardSdkRequest([string]$Command,$Payload) {
     $launch=$null;$process=$null;$attempted=$false;$requestFailure=$null
     $record=[ordered]@{request_id=$requestId;command=$Command;binary=$binary;image_sha256=$imageSha;
         request_sha256=(Get-FileHash -LiteralPath $request -Algorithm SHA256).Hash.ToLowerInvariant();
-        native_observation='not_exposed_by_public_sdk';status='prepared';response=$null;
+        native_observation='not_exposed_by_public_sdk';status='prepared';response=$null;expected_status=$ExpectedStatus;
         client_resume_attempted=$false;client_cleanup_confirmed=$false}
     if(-not $receipt.Contains('sdk_requests')) {$receipt['sdk_requests']=[Collections.Generic.List[object]]::new()}
     $receipt.sdk_requests.Add($record)
@@ -54,8 +56,11 @@ function Invoke-StandardSdkRequest([string]$Command,$Payload) {
         $record['stdout_prefix']=$text.Substring(0,[Math]::Min(8192,$text.Length))
         $result=$text|ConvertFrom-Json
         $record.response=$result
-        if($record.exit_code -ne 0 -or [IO.File]::ReadAllText($stderr).Length -ne 0 -or
-            $result.schema -cne 'usk.command_response.v1' -or $result.status -cne 'ok' -or $null -ne $result.error) {
+        $expectedExit=if($ExpectedStatus -ceq 'ok'){0}else{1}
+        if($record.exit_code -ne $expectedExit -or [IO.File]::ReadAllText($stderr).Length -ne 0 -or
+            $result.schema -cne 'usk.command_response.v1' -or $result.status -cne $ExpectedStatus -or
+            ($ExpectedStatus -ceq 'ok' -and $null -ne $result.error) -or
+            ($ExpectedStatus -ceq 'refused' -and $result.error.code -cne 'stale_plan')) {
             throw 'Public SDK did not return a completed command result'
         }
         $deadline=[DateTime]::UtcNow.AddSeconds(30)

@@ -10,6 +10,22 @@
 #include <memory>
 namespace usk::transaction { struct TransactionSpec; }
 namespace usk::platform::windows {
+namespace detail {
+class PublisherLeaseHandle final {
+public:
+    explicit PublisherLeaseHandle(HANDLE);
+    ~PublisherLeaseHandle();
+    HANDLE get() const;
+    PublisherLeaseHandle(const PublisherLeaseHandle&) = delete;
+    PublisherLeaseHandle& operator=(const PublisherLeaseHandle&) = delete;
+    PublisherLeaseHandle(PublisherLeaseHandle&&) noexcept;
+private:
+    HANDLE value_;
+};
+// Consumes the successful native open immediately, before any allocation.
+// On allocation failure the native handle closes under stack ownership.
+std::unique_ptr<PublisherLeaseHandle> retain_publisher_lease_handle(HANDLE);
+}
 class PublisherInstallationLease;
 class PublisherInstallOperationContext;
 struct PublisherTreeObservation;
@@ -85,6 +101,12 @@ struct PublisherInstallLeaseHistoryObservation {
     usk::json::Value latest_committed_record;
     std::optional<usk::json::Value> original_completion;
     std::uint64_t committed_record_count = 0;
+    // Exact ordered protected records, retained within the existing <=4096
+    // count / <=16 KiB per-record bounds. Native holder liveness is separate.
+    std::vector<usk::json::Value> committed_records;
+    // Names only; a nonempty pending set must not be treated as eligible work.
+    std::uint64_t pending_entry_count = 0;
+    std::string pending_names_sha256;
 };
 PublisherInstallLeaseHistoryObservation observe_publisher_installation_lease_history(
     HANDLE state_root, const std::wstring& volume_root, const std::wstring& service_name,

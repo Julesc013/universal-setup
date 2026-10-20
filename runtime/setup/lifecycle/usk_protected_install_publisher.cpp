@@ -19,6 +19,8 @@
 #include "usk_public_lifecycle.h"
 #include "usk_protected_install_publisher_internal.h"
 #include "usk_native_maintenance_context_internal.h"
+#include "usk_publisher_recovery_request_internal.h"
+#include "usk_publisher_response_internal.h"
 #include "usk_maintenance_recovery_internal.h"
 #include "usk_publisher_worker_security.h"
 #include "usk_publisher_security_descriptor.h"
@@ -120,9 +122,25 @@ usk::json::Value registered_native_evidence() {
     if (!registered_admission) throw std::runtime_error("registered native owner is absent");
     return registered_admission->evidence();
 }
+std::optional<usk::json::Value> maintenance_recovery_selector(const usk::json::Value& actual) {
+    using usk::json::Value;
+    if (const auto* inspection = usk::command::detail::publisher_public_recovery_inspection(actual)) {
+        if (inspection->at("operation").as_string() == "install_local") return std::nullopt;
+        return Value(Value::Object{{"schema", Value("usk.publisher_maintenance_recovery_request.v1")},
+            {"operation", inspection->at("operation")}, {"install_id", inspection->at("install_id")},
+            {"transaction_id", inspection->at("transaction_id")}});
+    }
+    if (actual.at("schema").as_string() != "usk.publisher_maintenance_recovery_request.v1") return std::nullopt;
+    return usk::platform::windows::parse_publisher_maintenance_recovery_request(usk::json::canonical(actual));
+}
 usk::json::Value selected_child_native_operation() {
     if (submitted_recovery_request) {
-        const auto schema = usk::json::parse(*submitted_recovery_request).at("schema").as_string();
+        const auto actual = usk::json::parse(*submitted_recovery_request);
+        const auto schema = actual.at("schema").as_string();
+        if (const auto* inspection = usk::command::detail::publisher_public_recovery_inspection(actual))
+            return inspection->at("operation").as_string() == "install_local" ?
+                effect_execution->selected_original_installation_recovery() :
+                effect_execution->selected_original_maintenance_recovery();
         if (schema == "usk.publisher_maintenance_recovery_request.v1") return effect_execution->selected_original_maintenance_recovery();
         if (schema == "usk.publisher_recovery_request.v1") return effect_execution->selected_original_installation_recovery();
     }
@@ -4104,15 +4122,8 @@ usk::json::Value usk::platform::windows::observe_candidate_original_consumer_ins
 std::string usk::platform::windows::execute_candidate_restricted_publisher(
     const CandidatePublisherConfiguration& config, bool& publication_effects_may_exist) {
     PublisherEffectExecutionOwner::require_engine_origin(config.effect_execution, config.service_name);
+    const auto request_deadline = GetTickCount64() + 120000u;
     ScopedExecution execution(config, config.effect_execution ? config.effect_execution->cancellation_observer() : nullptr);
-        // Replay uses its operation family's distinct actual native original
-        // selector before opening target or acquiring guards/effect resources.
-        if (effect_execution && submitted_recovery_request) {
-            const auto schema = usk::json::parse(*submitted_recovery_request).at("schema").as_string();
-            if ((schema != "usk.publisher_maintenance_recovery_request.v1" && schema != "usk.publisher_recovery_request.v1") ||
-                !selected_child_native_operation().at("present").as_boolean())
-                throw usk::transaction::CommitAuthorityUnavailable();
-        }
         // Includes staged-only/snapshot replay, which can write metadata before
         // a rename gate. Read-only verification keeps its historical ceiling.
         if (has_registered_native_owner() && !verify_installed_request &&
@@ -4124,6 +4135,23 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         }
         const auto observed =
             usk::platform::windows::observe_current_publisher_native_execution_owner(service_name).service;
+        // Preserve read-only platform/SCM admission before interpreting an
+        // ordinary caller's recovery document. Classification and the original
+        // native selector still precede every target guard, handle and effect.
+    const auto actual_recovery = submitted_recovery_request ?
+        usk::json::parse(*submitted_recovery_request) : usk::json::Value{};
+    const auto* public_inspection = submitted_recovery_request ?
+        usk::command::detail::publisher_public_recovery_inspection(actual_recovery) : nullptr;
+    const bool public_query = public_inspection &&
+        actual_recovery.at("schema").as_string() != "usk.recovery_apply_request.v1";
+        // Replay uses its operation family's distinct actual native original
+        // selector before opening target or acquiring guards/effect resources.
+        if (effect_execution && submitted_recovery_request) {
+            const auto schema = usk::json::parse(*submitted_recovery_request).at("schema").as_string();
+            if ((!public_inspection && schema != "usk.publisher_maintenance_recovery_request.v1" && schema != "usk.publisher_recovery_request.v1") ||
+                !selected_child_native_operation().at("present").as_boolean())
+                throw usk::transaction::CommitAuthorityUnavailable();
+        }
         const usk::platform::windows::PublisherVolumeOperationGuard operation_guard(volume_root, stop_event);
         std::optional<usk::platform::windows::PublisherInstallOperationGuard> install_guard;
         if (submitted_apply_request) {
@@ -4133,14 +4161,13 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
         } else if (submitted_verify_request) {
             const auto request = usk::json::parse(*submitted_verify_request);
             install_guard.emplace(volume_root, request.at("install_id").as_string(), stop_event);
-        } else if (submitted_recovery_request && usk::json::parse(*submitted_recovery_request).at("schema").as_string() ==
-                "usk.publisher_maintenance_recovery_request.v1") {
-            const auto request = parse_publisher_maintenance_recovery_request(*submitted_recovery_request);
-            install_guard.emplace(volume_root, request.at("install_id").as_string(), stop_event);
+        } else if (submitted_recovery_request && maintenance_recovery_selector(actual_recovery)) {
+            const auto selector = *maintenance_recovery_selector(actual_recovery);
+            install_guard.emplace(volume_root, selector.at("install_id").as_string(), stop_event);
         }
         // Both guards are held before source/installed-state revalidation and
         // before effects. Source-free legacy replay retains the volume guard.
-        const DWORD root_access = (recover_prepared && !has_registered_native_owner()) || verify_installed_request ?
+        const DWORD root_access = public_query || (recover_prepared && !has_registered_native_owner()) || verify_installed_request ?
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | READ_CONTROL | SYNCHRONIZE) :
             (FILE_READ_ATTRIBUTES | FILE_LIST_DIRECTORY | FILE_ADD_SUBDIRECTORY |
                 READ_CONTROL | WRITE_DAC | WRITE_OWNER | SYNCHRONIZE);
@@ -4151,11 +4178,13 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             throw std::runtime_error("cannot open admitted publisher volume root; Win32 "+std::to_string(GetLastError()));
         }
         OwnedHandle held_volume(volume);
-        if (submitted_recovery_request && usk::json::parse(*submitted_recovery_request).at("schema").as_string() ==
-                "usk.publisher_maintenance_recovery_request.v1") {
+        if (submitted_recovery_request && maintenance_recovery_selector(actual_recovery)) {
             using namespace usk::platform::windows;
             using usk::json::Value;
-            const auto request = parse_publisher_maintenance_recovery_request(*submitted_recovery_request);
+            // This derived selector locates the original operation only. The
+            // actual authenticated request, reviewed digest and action remain
+            // complete in the child/broker and terminal request hash.
+            const auto request = *maintenance_recovery_selector(actual_recovery);
             if (!has_registered_native_owner() || !has_authenticated_native_owner() || !install_guard)
                 throw std::runtime_error("maintenance recovery requires the original registered native route");
             const auto operation = request.at("operation").as_string();
@@ -4163,10 +4192,14 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             const auto operation_id = request.at("transaction_id").as_string();
             const auto kind = operation == "repair" ? PublisherOperationKind::repair :
                 operation == "move" ? PublisherOperationKind::move : PublisherOperationKind::uninstall;
-            PublisherInstallOperationContext original_context(volume, volume_root, service_name, *install_guard,
-                install_id, operation_id, kind);
+            auto original_context_owner = public_inspection ?
+                PublisherInstallOperationContext::inspect_existing(volume, volume_root, service_name, *install_guard,
+                    install_id, operation_id) :
+                std::make_unique<PublisherInstallOperationContext>(volume, volume_root, service_name, *install_guard,
+                    install_id, operation_id, kind);
+            auto& original_context = *original_context_owner;
             if (!original_context.exists()) throw std::runtime_error("maintenance recovery original intent is absent");
-            publication_effects_may_exist = true;
+            if (!public_inspection) publication_effects_may_exist = true;
             if (effect_execution) {
                 const auto selected = effect_execution->selected_original_maintenance_recovery();
                 if (!selected.at("present").as_boolean())
@@ -4208,6 +4241,55 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             require_public_mount_mapping(volume, setup.u8string(), acceptance.u8string());
             // An already completed operation is historical metadata. Prove it
             // before constructing any writer or appending a recovery generation.
+            std::optional<Value> public_native_binding;
+            std::unique_ptr<PublisherInstallOperationContext> public_writer_context;
+            const PublisherInstallOperationContext* effect_context = &original_context;
+            if (public_inspection) {
+                if (!effect_execution || public_inspection->at("operation").as_string() != operation ||
+                    public_inspection->at("install_id").as_string() != install_id ||
+                    public_inspection->at("transaction_id").as_string() != operation_id ||
+                    public_inspection->at("plan_id").as_string() != spec.plan_id ||
+                    public_inspection->at("plan_digest").as_string() != spec.plan_digest ||
+                    std::filesystem::u8path(public_inspection->at("target_root").as_string()) != spec.target_root)
+                    throw StaleReviewedInstallRequest();
+                {
+                    usk::lifecycle::detail::NativeMaintenanceContext inspector(volume, volume_root, service_name,
+                        *install_guard, *original_state, original_context, *effect_execution, spec, stop_event,
+                        request_deadline,
+                        usk::lifecycle::detail::NativeMaintenanceContext::InspectionAdmission::ended_original_holder);
+                    public_native_binding = inspector.inspect_recovery();
+                } // Reader scope and every query handle end before any writer.
+                const auto& schema = actual_recovery.at("schema").as_string();
+                const Value* plan_request = schema == "usk.recovery_inspect_request.v1" ? nullptr :
+                    schema == "usk.recovery_plan_request.v1" ? &actual_recovery : &actual_recovery.at("plan_request");
+                const auto document = usk::command::detail::public_native_recovery_document(*public_inspection, *public_native_binding, plan_request);
+                bool inspection_expired = false;
+                usk::transaction::detail::require_native_maintenance_inspection_lifetime(GetCurrentProcessId(),
+                    GetCurrentThreadId(), reinterpret_cast<std::intptr_t>(stop_event), request_deadline, inspection_expired);
+                if (public_query) {
+                    return usk::json::canonical(Value(Value::Object{
+                        {"schema", Value("usk.publisher_lab_service_observation.v1")}, {"status", Value("pass")},
+                        {"request_sha256", Value(usk::json::sha256_canonical(actual_recovery))},
+                        {"operation", Value(operation)}, {"install_id", Value(install_id)}, {"transaction_id", Value(operation_id)},
+                        {"service_name", Value(ascii(service_name))}, {"service_sid", Value(observed.service_sid)},
+                        {"process_id", Value(static_cast<std::uint64_t>(observed.process_id))},
+                        {"recovery_response", Value(Value::Object{{"schema", Value("usk.command_response.v1")},
+                            {"status", Value("ok")}, {"payload", document}})},
+                        {"operation_admission", *registered_operation_admission}})) + "\n";
+                }
+                if (actual_recovery.at("reviewed_plan_id").as_string() != document.at("plan_id").as_string() ||
+                    actual_recovery.at("reviewed_plan_digest").as_string() != document.at("plan_digest").as_string() ||
+                    actual_recovery.at("selected_action").as_string() != "finalize" ||
+                    document.at("available_actions").as_array().size() != 1u ||
+                    document.at("available_actions").as_array().front().as_string() != "finalize")
+                    throw StaleReviewedInstallRequest();
+                public_writer_context = std::make_unique<PublisherInstallOperationContext>(volume, volume_root,
+                    service_name, *install_guard, install_id, operation_id, kind);
+                if (!usk::json::equal_values(public_writer_context->record(), original_context.record()) ||
+                    public_writer_context->lease_binding_sha256() != original_context.lease_binding_sha256())
+                    throw StaleReviewedInstallRequest();
+                effect_context = public_writer_context.get();
+            }
             const auto original_active = observe_publisher_original_maintenance_lease(
                 original_state->state_root(), volume_root, service_name, *install_guard, original_context,
                 authenticated_native_access(volume).at("client").at("user_sid").as_string());
@@ -4270,7 +4352,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(report)));
                 return usk::json::canonical(Value(Value::Object{
                     {"schema", Value("usk.publisher_lab_service_observation.v1")}, {"status", Value("pass")},
-                    {"request_sha256", Value(usk::json::sha256_canonical(request))},
+                    {"request_sha256", Value(usk::json::sha256_canonical(actual_recovery))},
                     {"operation", Value(operation)}, {"install_id", Value(install_id)}, {"transaction_id", Value(operation_id)},
                     {"service_name", Value(ascii(service_name))}, {"service_sid", Value(observed.service_sid)},
                     {"process_id", Value(static_cast<std::uint64_t>(observed.process_id))},
@@ -4286,17 +4368,18 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             usk::transaction::InstallLeaseRequest wanted{install_id, operation, operation_id,
                 "recovery." + std::to_string(GetCurrentProcessId()) + "." + holder.at("process_creation_time").as_string() +
                     "." + std::to_string(++recovery_attempt), revision(), true, original_context.lease_binding_sha256()};
+            if (public_inspection) publication_effects_may_exist = true; // First possible current-invocation lease effect.
             PublisherInstallationLease lease(original_state->state_root(), volume_root, service_name, *install_guard, wanted, revision);
             lease.require_start();
             // The private constructor independently proves original native
             // custody and an ended original holder. No new source is opened.
             std::unique_ptr<usk::lifecycle::detail::NativeMaintenanceContext> owner;
             if (effect_execution) owner.reset(new usk::lifecycle::detail::NativeMaintenanceContext(
-                    volume, volume_root, service_name, *install_guard, *original_state, original_context, lease,
+                    volume, volume_root, service_name, *install_guard, *original_state, *effect_context, lease,
                     *effect_execution, spec, stop_event, publication_effects_may_exist,
                     usk::lifecycle::detail::NativeMaintenanceContext::RecoveryAdmission::ended_original_holder));
             else owner.reset(new usk::lifecycle::detail::NativeMaintenanceContext(volume, volume_root, service_name, *install_guard,
-                    *original_state, original_context, lease, *registered_admission, *authenticated_request, spec,
+                    *original_state, *effect_context, lease, *registered_admission, *authenticated_request, spec,
                     stop_event, publication_effects_may_exist,
                     usk::lifecycle::detail::NativeMaintenanceContext::RecoveryAdmission::ended_original_holder));
             const auto before = usk::transaction::TransactionSession::inspect_recovery(spec);
@@ -4315,6 +4398,16 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 {"transaction_snapshot_sha256", Value(completed.snapshot_sha256)},
                 {"effect_history_sha256", Value(effects.journal_digest)}, {"source_digest", Value(completed.stream_source_digest)},
                 {"recorded_at", Value(completed.recorded_at)}, {"report_id", Value("recovery." + operation + "." + operation_id)}});
+            if (public_inspection) {
+                report = usk::command::detail::public_native_recovery_document(*public_inspection, *public_native_binding, nullptr);
+                report.as_object().erase("report_digest");
+                report.as_object().at("status") = Value("completed");
+                report.as_object().at("recorded_at") = actual_recovery.at("applied_at");
+                for (const auto* field : {"reviewed_plan_id", "reviewed_plan_digest", "selected_action"})
+                    report.as_object().emplace(field, actual_recovery.at(field));
+                report.as_object().emplace("completed_journal_snapshot_sha256", Value(completed.snapshot_sha256));
+                report.as_object().emplace("completed_effect_history_sha256", Value(effects.journal_digest));
+            }
             report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(report)));
             {
                 const usk::diagnostics::Scope maintenance_recovery_lease_finish_diagnostic(usk::diagnostics::Phase::maintenance_recovery_lease_finish);
@@ -4322,7 +4415,7 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
             }
             return usk::json::canonical(Value(Value::Object{
                 {"schema", Value("usk.publisher_lab_service_observation.v1")}, {"status", Value("pass")},
-                {"request_sha256", Value(usk::json::sha256_canonical(request))},
+                {"request_sha256", Value(usk::json::sha256_canonical(actual_recovery))},
                 {"operation", Value(operation)}, {"install_id", Value(install_id)}, {"transaction_id", Value(operation_id)},
                 {"service_name", Value(ascii(service_name))}, {"service_sid", Value(observed.service_sid)},
                 {"process_id", Value(static_cast<std::uint64_t>(observed.process_id))},

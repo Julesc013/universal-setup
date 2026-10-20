@@ -17,6 +17,7 @@ param(
     [switch]$MaintenanceRecoveryQualification,
     [switch]$MaintenanceInitialQualification,
     [switch]$SdkLifecycleQualification,
+    [switch]$SdkRecoveryQualification,
     [ValidateSet('none','anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')]
     [string]$ConstructedBootstrapPrefix='none',
     [ValidateSet('none','move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')]
@@ -28,6 +29,9 @@ if($SdkLifecycleQualification -and (-not $MaintenanceQualification -or $Maintena
     $ActiveInstallContention -or $StalePlanQualification -or $InstallationGuardConflict -or
     $ConstructedBootstrapPrefix -cne 'none' -or $ConstructedBootstrapDurableState -cne 'none')) {
     throw 'SDK lifecycle requires its separate fresh installation and maintenance cohort'
+}
+if($SdkRecoveryQualification -and (-not $MaintenanceRecoveryQualification -or $SdkLifecycleQualification)) {
+    throw 'SDK recovery requires its distinct genuinely interrupted maintenance cohort'
 }
 if($MaintenanceInitialQualification -and (-not $MaintenanceQualification -or $MaintenanceRecoveryQualification)) {
     throw 'Initial maintenance interruption requires its distinct owned fixture'
@@ -1424,6 +1428,27 @@ try {
             throw 'SDK lifecycle did not execute all required actual consumer requests'
         }
         $receipt.sdk_lifecycle.status='observed_completed'
+    }
+    if($SdkRecoveryQualification) {
+        $expected=@('recovery.inspect','recovery.plan','recovery.apply','recovery.apply','recovery.apply','installed.verify')
+        $statuses=@('ok','ok','refused','refused','ok','ok')
+        $requests=@($receipt.sdk_requests)
+        if($receipt.maintenance_recovery.schema -cne 'usk.publisher_sdk_ended_repair_recovery_probe.v1' -or
+            $receipt.maintenance_recovery.native_response -cne 'not_exposed_by_public_sdk' -or
+            $requests.Count -ne 6 -or
+            (($requests|ForEach-Object {$_.command}) -join '|') -cne ($expected -join '|') -or
+            @($requests.request_id|Select-Object -Unique).Count -ne 6) {
+            throw 'SDK recovery did not enter the required actual consumer sequence'
+        }
+        for($i=0;$i -lt 6;$i++) {
+            $item=$requests[$i];$expectedExit=if($statuses[$i] -ceq 'ok'){0}else{1}
+            if($item.status -cne 'completed' -or $item.expected_status -cne $statuses[$i] -or
+                $item.response.status -cne $statuses[$i] -or $item.exit_code -ne $expectedExit -or
+                $item.client_capture.captured_before_primary_thread_resume -ne $true -or
+                $item.client_cleanup_confirmed -ne $true) {
+                throw 'SDK recovery lacks its actual captured request, terminal response or cleanup'
+            }
+        }
     }
     $receipt.status='standard_public_install_verified_recovered'
 } catch {$receipt.status='failed';$receipt['failure']=$_.Exception.Message}

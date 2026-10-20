@@ -120,7 +120,58 @@ function Invoke-StandardEndedRepairRecovery($Replacement,$SourceRoot) {
     $case['source_retired']=@{original_path=$source;retired_path=$retired;archive_sha256=$Replacement.archive_sha256}
     $selector=@{schema='usk.publisher_maintenance_recovery_request.v1';operation='repair';
         install_id=[string]$installed.install_id;transaction_id=$apply.transaction_id}
-    $case.response=Invoke-StandardRequest 'repair.recover' $selector
+    if($SdkRecoveryQualification) {
+        $case.schema='usk.publisher_sdk_ended_repair_recovery_probe.v1'
+        $case['native_response']='not_exposed_by_public_sdk'
+        $inspection=@{schema='usk.recovery_inspect_request.v1';request_id='sdk.recovery.inspect.'+$id;
+            install_id=[string]$installed.install_id;transaction_id=$apply.transaction_id;
+            plan_id=$apply.reviewed_plan_id;plan_digest=$apply.reviewed_plan_digest;operation='repair';
+            target_root=(Join-Path (Split-Path -Parent $installed.target_root) ('.usk-repair-'+$apply.transaction_id))}
+        $beforeSdk=Read-NativeSnapshot
+        $case['sdk_inspection']=Invoke-StandardSdkRequest 'recovery.inspect' $inspection
+        $afterInspection=Read-NativeSnapshot
+        if(($beforeSdk.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne
+            ($afterInspection.independent.rows|ConvertTo-Json -Depth 64 -Compress) -or
+            $case.sdk_inspection.payload.schema -cne 'usk.recovery_report.v2' -or
+            $case.sdk_inspection.payload.status -cne 'inspection_only' -or
+            $case.sdk_inspection.payload.inspection_request_id -cne $inspection.request_id) {
+            throw 'Public SDK inspection changed native records or returned another invocation'
+        }
+        $recoveryPlan=@{schema='usk.recovery_plan_request.v1';inspection=$inspection;
+            recovery_plan_id='sdk.recovery.plan.'+$id;created_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
+        $case['sdk_plan']=Invoke-StandardSdkRequest 'recovery.plan' $recoveryPlan
+        $afterPlan=Read-NativeSnapshot
+        if(($beforeSdk.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne
+            ($afterPlan.independent.rows|ConvertTo-Json -Depth 64 -Compress) -or
+            $case.sdk_plan.payload.schema -cne 'usk.recovery_plan.v2' -or
+            $case.sdk_plan.payload.plan_id -cne $recoveryPlan.recovery_plan_id -or
+            $case.sdk_plan.payload.plan_digest -cnotmatch '^[0-9a-f]{64}$' -or
+            @($case.sdk_plan.payload.available_actions).Count -ne 1 -or
+            $case.sdk_plan.payload.available_actions[0] -cne 'finalize') {
+            throw 'Public SDK planning changed native records or lacks its actual finalize plan'
+        }
+        $recoveryApply=@{schema='usk.recovery_apply_request.v1';plan_request=$recoveryPlan;
+            reviewed_plan_id=$recoveryPlan.recovery_plan_id;reviewed_plan_digest=$case.sdk_plan.payload.plan_digest;
+            selected_action='finalize';applied_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ');confirmation='APPLY'}
+        $wrongDigest=@{};foreach($key in $recoveryApply.Keys){$wrongDigest[$key]=$recoveryApply[$key]}
+        $wrongDigest.reviewed_plan_digest=if($recoveryApply.reviewed_plan_digest -ceq ('0'*64)){('1'*64)}else{('0'*64)}
+        $case['sdk_stale_plan']=Invoke-StandardSdkRequest 'recovery.apply' $wrongDigest 'refused'
+        $afterStale=Read-NativeSnapshot
+        $wrongAction=@{};foreach($key in $recoveryApply.Keys){$wrongAction[$key]=$recoveryApply[$key]}
+        $wrongAction.selected_action='rollback'
+        $case['sdk_unsupported_rollback']=Invoke-StandardSdkRequest 'recovery.apply' $wrongAction 'refused'
+        $afterRollback=Read-NativeSnapshot
+        foreach($unchanged in @($afterStale,$afterRollback)) {
+            if(($beforeSdk.independent.rows|ConvertTo-Json -Depth 64 -Compress) -cne
+                ($unchanged.independent.rows|ConvertTo-Json -Depth 64 -Compress)) {
+                throw 'Rejected SDK recovery acquired a lease or changed native state'
+            }
+        }
+        $case['sdk_apply_request']=$recoveryApply
+        $case.response=Invoke-StandardSdkRequest 'recovery.apply' $recoveryApply
+    } else {
+        $case.response=Invoke-StandardRequest 'repair.recover' $selector
+    }
     $after=Read-NativeSnapshot
     $case.after=$after
     $documents=@($after.independent.rows|Where-Object content_json|ForEach-Object {$_.content_json|ConvertFrom-Json})
@@ -135,7 +186,15 @@ function Invoke-StandardEndedRepairRecovery($Replacement,$SourceRoot) {
         $_.operation_id -ceq $apply.transaction_id -and $_.status -ceq 'completed'})
     $createdAfter=@($after.independent.rows|Where-Object path -ceq $original[0].path)
     $restored=@($after.independent.rows|Where-Object path -ceq $selected[0].path)
-    $report=$case.response.result.payload
+    $report=if($SdkRecoveryQualification){$case.response.payload}else{$case.response.result.payload}
+    $reportPlan=if($SdkRecoveryQualification){$report.original_plan_id}else{$report.plan_id}
+    $reportPlanDigest=if($SdkRecoveryQualification){$report.original_plan_digest}else{$report.plan_digest}
+    $reportJournal=if($SdkRecoveryQualification){$report.completed_journal_snapshot_sha256}else{$report.transaction_snapshot_sha256}
+    $reportEffects=if($SdkRecoveryQualification){$report.completed_effect_history_sha256}else{$report.effect_history_sha256}
+    $reportSchema=if($SdkRecoveryQualification){'usk.recovery_report.v2'}else{'usk.maintenance_recovery_report.v1'}
+    if($SdkRecoveryQualification -and ($report.reviewed_plan_id -cne $case.sdk_apply_request.reviewed_plan_id -or
+        $report.reviewed_plan_digest -cne $case.sdk_apply_request.reviewed_plan_digest -or
+        $report.selected_action -cne 'finalize')) {throw 'SDK completion lost its complete reviewed invocation/action'}
     if($journalAfter.Count -ne 1 -or $sealed.Count -ne 1 -or $state.Count -ne 1 -or
         @($completed.ownership_sha256|Sort-Object -Unique).Count -ne 1 -or
         $completed[0].generation -le $oldLease.generation -or
@@ -144,12 +203,12 @@ function Invoke-StandardEndedRepairRecovery($Replacement,$SourceRoot) {
             $completed[0].holder.process_creation_time -ceq $oldLease.holder.process_creation_time) -or
         $createdAfter.Count -ne 1 -or $createdAfter[0].sha256 -cne $original[0].sha256 -or
         $restored.Count -ne 1 -or $restored[0].sha256 -cne $selected[0].sha256 -or
-        $report.schema -cne 'usk.maintenance_recovery_report.v1' -or $report.status -cne 'completed' -or
+        $report.schema -cne $reportSchema -or $report.status -cne 'completed' -or
         $report.operation -cne 'repair' -or $report.install_id -cne $installed.install_id -or
-        $report.transaction_id -cne $apply.transaction_id -or $report.plan_id -cne $apply.reviewed_plan_id -or
-        $report.plan_digest -cne $apply.reviewed_plan_digest -or
-        $report.transaction_snapshot_sha256 -cne $journalAfter[0].sha256 -or
-        $report.effect_history_sha256 -cne $sealed[0].digest -or (Test-Path -LiteralPath $source)) {
+        $report.transaction_id -cne $apply.transaction_id -or $reportPlan -cne $apply.reviewed_plan_id -or
+        $reportPlanDigest -cne $apply.reviewed_plan_digest -or
+        $reportJournal -cne $journalAfter[0].sha256 -or
+        $reportEffects -cne $sealed[0].digest -or (Test-Path -LiteralPath $source)) {
         throw 'Ended repair source-free recovery lost its original custody, new generation or actual result'
     }
     $case['original_generation']=$oldLease.generation
@@ -161,8 +220,15 @@ function Invoke-StandardEndedRepairRecovery($Replacement,$SourceRoot) {
         request_id='verify.maintenance.loss.'+$id;install_id=$installed.install_id;
         transaction_id=$apply.transaction_id;report_id='verify.maintenance.loss.'+$id;
         verified_at=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')}
-    $case['verification']=Invoke-StandardRequest 'installed.verify' $verify
-    $verification=$case.verification.result.payload
+    if($SdkRecoveryQualification) {
+        $verify.schema='usk.installed_verify_request.v1'
+        $verify.Remove('transaction_id')
+        $case['verification']=Invoke-StandardSdkRequest 'installed.verify' $verify
+        $verification=$case.verification.payload
+    } else {
+        $case['verification']=Invoke-StandardRequest 'installed.verify' $verify
+        $verification=$case.verification.result.payload
+    }
     if($verification.schema -cne 'usk.verification_report.v1' -or $verification.status -cne 'pass' -or
         $verification.install_id -cne $verify.install_id -or $verification.report_id -cne $verify.report_id -or
         $verification.verified_at -cne $verify.verified_at) {

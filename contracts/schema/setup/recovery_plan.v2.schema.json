@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/recovery_plan.v2.schema.json",
+  "title": "Native original-maintenance recovery plan",
+  "type": "object",
+  "required": [
+    "operation",
+    "install_id",
+    "transaction_id",
+    "original_plan_id",
+    "original_plan_digest",
+    "inspection_request_id",
+    "target_root",
+    "native_binding",
+    "available_actions",
+    "effects",
+    "schema",
+    "status",
+    "created_at",
+    "plan_id",
+    "plan_digest"
+  ],
+  "properties": {
+    "operation": {
+      "enum": [
+        "repair",
+        "move",
+        "uninstall"
+      ]
+    },
+    "install_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "transaction_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "original_plan_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "original_plan_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "inspection_request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "target_root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "native_binding": {
+      "$ref": "native_maintenance_inspection_binding.v1.schema.json"
+    },
+    "available_actions": {
+      "type": "array",
+      "maxItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "const": "finalize"
+      }
+    },
+    "effects": {
+      "type": "array",
+      "maxItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "kind",
+          "operation"
+        ],
+        "properties": {
+          "kind": {
+            "const": "resume_original_maintenance"
+          },
+          "operation": {
+            "enum": [
+              "repair",
+              "move",
+              "uninstall"
+            ]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "schema": {
+      "const": "usk.recovery_plan.v2"
+    },
+    "status": {
+      "const": "planned"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "plan_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "plan_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "additionalProperties": false
+}

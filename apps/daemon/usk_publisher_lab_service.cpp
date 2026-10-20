@@ -25,6 +25,7 @@
 #include "usk_publisher_registration.h"
 #include "usk_publisher_effect_execution_internal.h"
 #include "usk_publisher_effect_broker_internal.h"
+#include "usk_publisher_recovery_request_internal.h"
 
 #if defined(USK_PRODUCTION_PUBLISHER) && defined(USK_TEST_REGISTERED_FAULT_GATE)
 #error Production publisher cannot include the registered fault gate
@@ -322,7 +323,8 @@ int private_effect_worker_main(int argc, wchar_t** argv) {
                 schema == "usk.installed_verify_request.v1") {
                 config.verify_installed = true;
                 config.submitted_verify_request = request;
-            } else if (schema == "usk.publisher_recovery_request.v1" || schema == "usk.publisher_maintenance_recovery_request.v1") {
+            } else if (usk::command::detail::publisher_public_recovery_inspection(usk::json::parse(request)) ||
+                schema == "usk.publisher_recovery_request.v1" || schema == "usk.publisher_maintenance_recovery_request.v1") {
                 config.recover_reviewed = true;
                 config.submitted_recovery_request = request;
             } else if (schema == "usk.install_local_apply_request.v1" || schema == "usk.repair_apply_request.v1" ||
@@ -537,8 +539,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                     config.reviewed_plan_envelope_path.clear();
                     config.reviewed_plan_envelope_sha256.clear();
                     config.submitted_verify_request=request;
-                } else if (schema == "usk.publisher_recovery_request.v1" ||
-                    schema == "usk.publisher_maintenance_recovery_request.v1") {
+                } else if (usk::command::detail::publisher_public_recovery_inspection(usk::json::parse(request)) ||
+                    schema == "usk.publisher_recovery_request.v1" || schema == "usk.publisher_maintenance_recovery_request.v1") {
                     if (schema == "usk.publisher_maintenance_recovery_request.v1")
                         (void)usk::platform::windows::parse_publisher_maintenance_recovery_request(request);
                     config.recover_reviewed=true;

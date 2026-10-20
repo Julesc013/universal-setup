@@ -14,6 +14,17 @@ bool lower_hex(const std::string&, std::size_t);
 const char* publisher_operation_error_code(const usk::json::Value&);
 usk::json::Value publisher_operation_diagnostic(const usk::json::Value&, const char*);
 
+// Correlate the complete native public recovery response, including its
+// independently versioned native binding and requested action. Pure decoding;
+// the transport still authenticates the endpoint and live server identity.
+// Pure document projection from already acquired native observations. It
+// conveys no custody, liveness or authority; the engine must supply and finish
+// its concrete inspector before exposing the result or considering an action.
+usk::json::Value public_native_recovery_document(const usk::json::Value& inspection,
+    const usk::json::Value& binding, const usk::json::Value* plan_request);
+void require_public_native_recovery_response(const usk::json::Value& submitted,
+    const usk::json::Value& observation);
+
 enum class PublisherResponseDisposition { completed, refused, recovery_required };
 struct ValidatedPublisherResponse {
     PublisherResponseDisposition disposition;
