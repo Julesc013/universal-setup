@@ -38,7 +38,11 @@ void require_shape(const std::string& command, const Value& submitted) {
         throw std::invalid_argument("publisher input must be an object");
     // All three recovery families use the existing complete closed decoder
     // below, before identity preparation or any transport callback.
-    if (recovery_command(command)) return;
+    if (recovery_command(command)) {
+        if (!submitted.contains("schema") || submitted.at("schema").type() != Value::Type::string)
+            throw std::invalid_argument("public recovery schema is absent or not a string");
+        return;
+    }
     const bool verify = command == "installed.verify";
     const std::vector<std::string> fields = verify ?
         std::vector<std::string>{"schema", "request_id", "install_id", "report_id", "verified_at"} :

@@ -267,6 +267,23 @@ int main() {
                     [&](const std::string&) { ++callbacks; return std::string("{}"); },
                     [&](const std::string&, const Value& value) { ++callbacks; return value; });
                 REQUIRE(callbacks == 0 && malformed_result.status == USK_STATUS_INVALID_ARGUMENT);
+                // A malformed recognized root schema is invalid input, not
+                // preparation uncertainty. Allocation remains a distinct error.
+                for (int form = 0; form < 3; ++form) {
+                    auto bad_schema = input;
+                    if (form == 0) bad_schema.as_object().erase("schema");
+                    else bad_schema.as_object().at("schema") =
+                        form == 1 ? Value() : Value(std::uint64_t{1});
+                    const auto invalid_schema_bytes = usk::json::canonical(bad_schema);
+                    callbacks = 0;
+                    const auto invalid_schema_result = first.execute(command,
+                        invalid_schema_bytes.data(), invalid_schema_bytes.size(),
+                        [&](const std::string&) { ++callbacks; return std::string("{}"); },
+                        [&](const std::string&, const Value& value) { ++callbacks; return value; });
+                    REQUIRE(callbacks == 0 && invalid_schema_result.status == USK_STATUS_INVALID_ARGUMENT &&
+                        usk::json::parse(invalid_schema_result.json).at("error").at("code").as_string() ==
+                            "invalid_argument");
+                }
                 REQUIRE(usk::json::canonical(input) == input_bytes);
             }
         }

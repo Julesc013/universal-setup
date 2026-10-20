@@ -27,8 +27,11 @@ complete-request preservation before dispatch. Publisher C ABI contexts now
 route inspect/plan through their owner rather than local filesystem fallback.
 Private preparation cannot reduce reviewed input to a four-field lookup or
 change action/family. Original reviewed digests and action remain intact.
-R3 strict x64/Win32 builds and actual client/C ABI CTests PASS; inventory7,
-strict9 and diff PASS. R2 /WX caught fixture variable shadowing, corrected
+R4 strict x64/Win32 builds and actual client/C ABI CTests PASS; inventory7,
+strict9 and diff PASS. R1 independent review held a missing/null/numeric root
+schema classification regression: corrected with an explicit type/presence
+check and all-family controls, without catching allocation failure as bad input.
+Delta review remains required. Earlier /WX fixture shadowing was corrected
 without lowering warnings. The native registered query/backend and response
 completion are unfinished and still refuse; these controls grant no authority
 or end-to-end public recovery qualification. Independent source review and
@@ -41,9 +44,15 @@ prerequisite classification. Retained28/30 show current-requestUNKNOWN and
 nativefileABSENT after120s, clientcleanupfalse/accountcleanuptrue. Projection
 pr297-selected-recovery-outcomes-r1.json SHA
 64e2f1ffce0a54f5c04897605b705ea8c551dea4f789cc2d5e76f8b7dbae7613.
-Inspect actual64failure before assuming the registration-original change
-worked or failed for its previous reason. Its native positive v2 route is
-not established. No fresh safe-looking ACL may replace the exact original.
+Actual64 now has source-retired native reentry pass/already_visible_bound,
+clientexit0 and28identical independent rows. The subsequent lease reconciler
+correctly rejects zero coordination records in both snapshots; exact offline
+replay gives "current producer is missing all installation coordination".
+Retain this distinction. The selected legacy engine skips lease initialization
+without an original native owner; profile/contract resolution is still required.
+Do not relax the current lease check, fabricate an owner or promote whole
+qualification. V2 intent provenance is not independently retained here.
+No fresh safe-looking ACL may replace the exact original.
 
 Keep earlier PR294 three independently verified recovery invocations plus
 later PR295/296/297 failures. No reliable recovery, publisher/main or release
