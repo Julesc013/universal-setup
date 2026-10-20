@@ -126,14 +126,15 @@ if(WIN32)
     USK_PUBLISHER_BUILD_SDK_VERSION="${CMAKE_VS_WINDOWS_TARGET_PLATFORM_VERSION}")
   target_include_directories(usk_publisher_windows_static PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/runtime/platform/windows")
-  target_link_libraries(usk_publisher_windows_static PUBLIC usk_base_static usk_transaction_static advapi32 bcrypt shell32 ole32 usk_publisher_transport_client_static)
+  target_link_libraries(usk_publisher_windows_static PUBLIC usk_base_static usk_transaction_static advapi32 bcrypt shell32 ole32 usk_publisher_transport_client_static usk_publisher_response_static)
   set_target_properties(usk_publisher_windows_static PROPERTIES EXCLUDE_FROM_ALL ON)
   usk_enable_strict_warnings(usk_publisher_windows_static)
 endif()
 
-# Shared, client-only reply validation. No C API dispatch or publisher engine.
+# Shared, pure request/reply validation. No C API dispatch or publisher engine.
 add_library(usk_publisher_response_static STATIC
-  runtime/command/usk_publisher_response_internal.cpp)
+  runtime/command/usk_publisher_response_internal.cpp
+  runtime/command/usk_publisher_recovery_request_internal.cpp)
 target_compile_features(usk_publisher_response_static PRIVATE cxx_std_17)
 target_include_directories(usk_publisher_response_static PUBLIC
   "${CMAKE_CURRENT_SOURCE_DIR}/runtime/command")
@@ -265,6 +266,7 @@ endif()
 
 set(USK_CORE_SOURCES
   runtime/command/usk_publisher_client_context_internal.cpp
+  runtime/command/usk_publisher_recovery_request_internal.cpp
   runtime/command/usk_publisher_response_internal.cpp
   runtime/base/usk_diagnostic_metrics.cpp
   $<TARGET_OBJECTS:usk_zlib_inflate_objects>

@@ -4,6 +4,7 @@
 #include "usk_publisher_client_context_internal.h"
 #include "usk_publisher_client_bridge.h"
 #include "usk_publisher_response_internal.h"
+#include "usk_publisher_recovery_request_internal.h"
 #include "usk_effect_dispatch.h"
 #include "usk/usk_result.h"
 #include <cstring>
@@ -138,6 +139,18 @@ PublisherClientResult PublisherClientContext::execute(const char* command_name,
         require_shape(command, submitted);
         if (submitted.at("schema").as_string() != expected_schema)
             throw std::invalid_argument("registered command schema differs");
+        if (command == "recovery.apply") {
+            // Pure shape/binding decoding only. This precedes identity/fallback
+            // preparation and every callback that could dispatch request bytes.
+            // Allocation failure remains preparation failure, never malformed
+            // input or evidence that a native operation was refused.
+            try {
+                if (!publisher_public_recovery_inspection(submitted))
+                    throw std::invalid_argument("registered recovery family differs");
+            } catch (const std::runtime_error&) {
+                throw std::invalid_argument("registered recovery request is malformed");
+            }
+        }
         // The wire retains the complete public request. The bounded receipt
         // binds its digest and recovery identity, never permission to replay.
         invocation = invocation_identity(command, submitted);

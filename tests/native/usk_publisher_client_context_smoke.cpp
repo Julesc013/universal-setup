@@ -88,7 +88,7 @@ int main() {
         REQUIRE(dispatched == 0 && usk::json::parse(early.json).at("error").at("code").as_string() ==
             "publisher_request_not_dispatched");
 
-        const auto recovery = usk::json::parse(
+        auto recovery = usk::json::parse(
             "{\"schema\":\"usk.recovery_apply_request.v1\",\"plan_request\":{\"schema\":\"usk.recovery_plan_request.v1\","
             "\"inspection\":{\"schema\":\"usk.recovery_inspect_request.v1\",\"request_id\":\"recovery.a\","
             "\"install_id\":\"example\",\"transaction_id\":\"install.example\",\"plan_id\":\"plan.example\","
@@ -97,6 +97,12 @@ int main() {
             "\"created_at\":\"2026-10-19T00:00:00Z\"},\"reviewed_plan_id\":\"recover.plan\","
             "\"reviewed_plan_digest\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\","
             "\"selected_action\":\"rollback\",\"applied_at\":\"2026-10-19T00:00:00Z\",\"confirmation\":\"APPLY\"}");
+#if !defined(_WIN32)
+        // The registered transport is local; use this host's absolute path
+        // grammar even when exercising only the pure fake transport.
+        recovery.as_object().at("plan_request").as_object().at("inspection")
+            .as_object().at("target_root") = Value("/product");
+#endif
         const auto bytes = usk::json::canonical(recovery);
         bool full_request_observed = false;
         auto unknown_recovery = first.execute("recovery.apply", bytes.data(), bytes.size(),
@@ -112,6 +118,88 @@ int main() {
             retained.at("payload").at("reviewed_plan_digest").as_string() ==
                 recovery.at("reviewed_plan_digest").as_string() &&
             !retained.at("payload").contains("request"));
+
+        // Recognized malformed public recovery must fail before preparer or
+        // transport callbacks. These are ordinary client checks, not grants.
+        const auto inspection = [](Value& value) -> Value& {
+            return value.as_object().at("plan_request").as_object().at("inspection");
+        };
+        const auto no_dispatch = [&](const Value& invalid) {
+            int prepared = 0, dispatched = 0;
+            const auto input = usk::json::canonical(invalid);
+            const auto result = first.execute("recovery.apply", input.data(), input.size(),
+                [&](const std::string&) -> std::string {
+                    ++dispatched; throw std::runtime_error("unexpected dispatch");
+                },
+                [&](const std::string&, const Value& value) {
+                    ++prepared; return value;
+                });
+            REQUIRE(result.status == USK_STATUS_INVALID_ARGUMENT && prepared == 0 && dispatched == 0);
+        };
+        auto invalid_recovery = recovery;
+        inspection(invalid_recovery).as_object().erase("plan_id");
+        no_dispatch(invalid_recovery);
+        invalid_recovery = recovery;
+        inspection(invalid_recovery).as_object().at("request_id") = Value("");
+        no_dispatch(invalid_recovery);
+        invalid_recovery = recovery;
+        inspection(invalid_recovery).as_object().at("install_id") = Value("../other");
+        no_dispatch(invalid_recovery);
+        invalid_recovery = recovery;
+        inspection(invalid_recovery).as_object().at("operation") = Value("other");
+        no_dispatch(invalid_recovery);
+        invalid_recovery = recovery;
+        inspection(invalid_recovery).as_object().at("target_root") = Value("relative/product");
+        no_dispatch(invalid_recovery);
+        invalid_recovery = recovery;
+        inspection(invalid_recovery).as_object().at("plan_digest") = Value(std::string(64u, 'X'));
+        no_dispatch(invalid_recovery);
+        invalid_recovery = recovery;
+        inspection(invalid_recovery).as_object().emplace("unknown", Value(true));
+        no_dispatch(invalid_recovery);
+        invalid_recovery = recovery;
+        inspection(invalid_recovery).as_object().at("operation") = Value("repair");
+        inspection(invalid_recovery).as_object().emplace("install_plan_request", Value(Value::Object{}));
+        no_dispatch(invalid_recovery);
+        invalid_recovery = recovery;
+        invalid_recovery.as_object().at("plan_request").as_object().at("schema") = Value("other");
+        no_dispatch(invalid_recovery);
+        invalid_recovery = recovery;
+        invalid_recovery.as_object().at("plan_request").as_object().erase("created_at");
+        no_dispatch(invalid_recovery);
+        invalid_recovery = recovery;
+        invalid_recovery.as_object().at("plan_request").as_object().at("recovery_plan_id") = Value("other.plan");
+        no_dispatch(invalid_recovery);
+        invalid_recovery = recovery;
+        invalid_recovery.as_object().at("plan_request").as_object().at("inspection") = Value();
+        no_dispatch(invalid_recovery);
+        invalid_recovery = recovery;
+        invalid_recovery.as_object().at("reviewed_plan_digest") = Value(std::string(63u, 'b'));
+        no_dispatch(invalid_recovery);
+        invalid_recovery = recovery;
+        invalid_recovery.as_object().at("applied_at") = Value(std::string("date\0suffix", 11u));
+        no_dispatch(invalid_recovery);
+        for (const auto* operation : {"install_local", "repair", "move", "uninstall"}) {
+            for (const auto* action : {"finalize", "rollback"}) {
+                auto valid = recovery;
+                inspection(valid).as_object().at("operation") = Value(operation);
+                valid.as_object().at("selected_action") = Value(action);
+                const auto input = usk::json::canonical(valid);
+                bool observed = false;
+                const auto result = first.execute("recovery.apply", input.data(), input.size(),
+                    [&](const std::string& sent) -> std::string {
+                        observed = sent == input;
+                        throw std::runtime_error("reply unavailable after possible dispatch");
+                    }, prepare);
+                const auto response = usk::json::parse(result.json);
+                REQUIRE(observed && result.status == USK_STATUS_ERROR &&
+                    response.at("status").as_string() == "unknown" &&
+                    response.at("payload").at("selected_action").as_string() == action &&
+                    response.at("payload").at("operation").as_string() == operation &&
+                    response.at("payload").at("reviewed_plan_digest").as_string() ==
+                        valid.at("reviewed_plan_digest").as_string());
+            }
+        }
 
         usk_publisher_client_config_v1 config{};
         config.struct_size = sizeof(config);
