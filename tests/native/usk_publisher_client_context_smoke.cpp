@@ -201,6 +201,76 @@ int main() {
             }
         }
 
+        // Query preparation uses the same public closed decoder and fresh
+        // invocation buffer as apply. These fake transports establish only
+        // preparation/uncertainty semantics, never native query completion.
+        for (const auto* operation : {"install_local", "repair", "move", "uninstall"}) {
+            for (const auto* command : {"recovery.inspect", "recovery.plan", "recovery.apply"}) {
+                auto apply = recovery;
+                auto& selected_inspection = inspection(apply);
+                selected_inspection.as_object().at("operation") = Value(operation);
+                selected_inspection.as_object().at("request_id") = Value(std::string(command) + "." + operation);
+                const Value input = std::string(command) == "recovery.inspect" ? selected_inspection :
+                    std::string(command) == "recovery.plan" ? apply.at("plan_request") : apply;
+                const auto input_bytes = usk::json::canonical(input);
+                const auto expected_inspection = selected_inspection;
+                for (bool allocation : {false, true}) {
+                    bool exact_wire = false;
+                    auto result = first.execute(command, input_bytes.data(), input_bytes.size(),
+                        [&](const std::string& sent) -> std::string {
+                            exact_wire = sent == input_bytes;
+                            if (allocation) throw std::bad_alloc();
+                            return "{"; // Invalid reply after dispatch remains unknown.
+                        }, prepare);
+                    const auto response = usk::json::parse(result.json);
+                    const auto& bound = response.at("payload");
+                    REQUIRE(exact_wire && result.status == USK_STATUS_ERROR &&
+                        response.at("status").as_string() == "unknown" &&
+                        bound.at("command").as_string() == command &&
+                        bound.at("request_sha256").as_string() == usk::json::sha256_canonical(input));
+                    for (const auto* field : {"request_id", "install_id", "transaction_id", "operation", "plan_id", "plan_digest"})
+                        REQUIRE(usk::json::equal_values(bound.at(field), expected_inspection.at(field)));
+                    REQUIRE(!bound.contains("target_root") && !bound.contains("request"));
+                    if (std::string(command) == "recovery.apply")
+                        REQUIRE(bound.at("selected_action").as_string() == "rollback" &&
+                            bound.at("reviewed_plan_digest").as_string() == input.at("reviewed_plan_digest").as_string());
+                    else REQUIRE(!bound.contains("selected_action") && !bound.contains("reviewed_plan_digest"));
+                    if (std::string(command) == "recovery.plan")
+                        REQUIRE(bound.at("recovery_plan_id").as_string() == input.at("recovery_plan_id").as_string());
+                }
+                const auto pre_dispatch = [&](const PublisherClientPrepare& preparer) {
+                    int dispatched = 0;
+                    const auto result = first.execute(command, input_bytes.data(), input_bytes.size(),
+                        [&](const std::string&) -> std::string {
+                            ++dispatched; throw std::runtime_error("unexpected transport");
+                        }, preparer);
+                    REQUIRE(dispatched == 0 && result.status == USK_STATUS_ERROR &&
+                        usk::json::parse(result.json).at("error").at("code").as_string() ==
+                            "publisher_request_not_dispatched");
+                };
+                pre_dispatch([](const std::string&, const Value&) -> Value { throw std::bad_alloc(); });
+                pre_dispatch([](const std::string&, const Value&) {
+                    return Value(Value::Object{{"schema", Value("usk.publisher_maintenance_recovery_request.v1")},
+                        {"request_id", Value("lookup")}, {"install_id", Value("example")},
+                        {"transaction_id", Value("install.example")}});
+                });
+                pre_dispatch([](const std::string&, const Value& original) {
+                    auto changed = original;
+                    changed.as_object().emplace("adapter_annotation", Value(true));
+                    return changed;
+                });
+                auto invalid = input;
+                invalid.as_object().emplace("unknown", Value(true));
+                const auto malformed_bytes = usk::json::canonical(invalid);
+                int callbacks = 0;
+                const auto malformed_result = first.execute(command, malformed_bytes.data(), malformed_bytes.size(),
+                    [&](const std::string&) { ++callbacks; return std::string("{}"); },
+                    [&](const std::string&, const Value& value) { ++callbacks; return value; });
+                REQUIRE(callbacks == 0 && malformed_result.status == USK_STATUS_INVALID_ARGUMENT);
+                REQUIRE(usk::json::canonical(input) == input_bytes);
+            }
+        }
+
         usk_publisher_client_config_v1 config{};
         config.struct_size = sizeof(config);
         config.service_name = {endpoint.data(), endpoint.size()};
@@ -225,6 +295,23 @@ int main() {
             usk::json::parse(std::string(response.json_payload.data,
                 static_cast<std::size_t>(response.json_payload.size))).at("error").at("code").as_string() ==
                 "invalid_argument");
+        // A publisher context owns recovery queries too: they may not fall
+        // through into local filesystem inspection. The fixed fixture endpoint
+        // has no registered backend; refusal must retain this public invocation.
+        for (const auto* command : {"recovery.inspect", "recovery.plan"}) {
+            const Value query = std::string(command) == "recovery.inspect" ?
+                recovery.at("plan_request").at("inspection") : recovery.at("plan_request");
+            const auto query_bytes = usk::json::canonical(query);
+            invalid.command_name = {command, static_cast<usk_size>(std::strlen(command))};
+            invalid.json_payload = {query_bytes.data(), static_cast<usk_size>(query_bytes.size())};
+            REQUIRE(usk_command_execute_v1(context, &invalid, &response) == USK_STATUS_ERROR &&
+                response.json_payload.data);
+            const auto query_refused = usk::json::parse(std::string(response.json_payload.data,
+                static_cast<std::size_t>(response.json_payload.size)));
+            REQUIRE(query_refused.at("status").as_string() == "refused" &&
+                query_refused.at("payload").at("command").as_string() == command &&
+                query_refused.at("payload").at("request_sha256").as_string() == usk::json::sha256_canonical(query));
+        }
         usk_context_destroy_v1(context);
         REQUIRE(allocation.live == 0);
         context = nullptr; allocation.fail = true;

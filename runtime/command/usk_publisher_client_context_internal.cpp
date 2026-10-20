@@ -30,15 +30,20 @@ constexpr char invalid_request[] =
     "{\"schema\":\"usk.command_response.v1\",\"status\":\"invalid_argument\",\"payload\":null,"
     "\"error\":{\"code\":\"invalid_argument\",\"message\":\"Public publisher request is invalid\"}}";
 
+bool recovery_command(const std::string& command) {
+    return command == "recovery.inspect" || command == "recovery.plan" || command == "recovery.apply";
+}
 void require_shape(const std::string& command, const Value& submitted) {
     if (submitted.type() != Value::Type::object)
         throw std::invalid_argument("publisher input must be an object");
+    // All three recovery families use the existing complete closed decoder
+    // below, before identity preparation or any transport callback.
+    if (recovery_command(command)) return;
     const bool verify = command == "installed.verify";
-    const bool recovery = command == "recovery.apply";
     const std::vector<std::string> fields = verify ?
         std::vector<std::string>{"schema", "request_id", "install_id", "report_id", "verified_at"} :
         std::vector<std::string>{"schema", "plan_request", "reviewed_plan_id",
-            "reviewed_plan_digest", recovery ? "selected_action" : "transaction_id",
+            "reviewed_plan_digest", "transaction_id",
             "applied_at", "confirmation"};
     const auto& object = submitted.as_object();
     for (const auto& field : fields) {
@@ -62,9 +67,6 @@ void require_shape(const std::string& command, const Value& submitted) {
     }
     if (!verify && submitted.at("confirmation").as_string() != "APPLY")
         throw std::invalid_argument("publisher effect requires explicit confirmation");
-    if (recovery && submitted.at("selected_action").as_string() != "finalize" &&
-        submitted.at("selected_action").as_string() != "rollback")
-        throw std::invalid_argument("publisher recovery action differs");
 }
 void identity_field(Value& result, const Value& source, const char* field) {
     const auto& value = source.at(field).as_string();
@@ -80,19 +82,22 @@ Value invocation_identity(const std::string& command, const Value& submitted) {
     if (command == "installed.verify") {
         for (const auto field : {"request_id", "install_id", "report_id"})
             identity_field(result, submitted, field);
-    } else {
-        for (const auto field : {"reviewed_plan_id", "reviewed_plan_digest"})
-            identity_field(result, submitted, field);
+    } else if (recovery_command(command)) {
+        const auto& inspection = command == "recovery.inspect" ? submitted :
+            command == "recovery.plan" ? submitted.at("inspection") :
+                submitted.at("plan_request").at("inspection");
+        for (const auto field : {"request_id", "install_id", "transaction_id", "operation", "plan_id", "plan_digest"})
+            identity_field(result, inspection, field);
+        if (command == "recovery.plan") identity_field(result, submitted, "recovery_plan_id");
         if (command == "recovery.apply") {
-            const auto& inspection = submitted.at("plan_request").at("inspection");
-            for (const auto field : {"request_id", "install_id", "transaction_id", "operation"})
-                identity_field(result, inspection, field);
-            identity_field(result, submitted, "selected_action");
-        } else {
-            identity_field(result, submitted, "transaction_id");
-            identity_field(result, submitted.at("plan_request"), "request_id");
-            identity_field(result, submitted.at("plan_request"), "install_id");
+            for (const auto field : {"reviewed_plan_id", "reviewed_plan_digest", "selected_action"})
+                identity_field(result, submitted, field);
         }
+    } else {
+        for (const auto field : {"reviewed_plan_id", "reviewed_plan_digest", "transaction_id"})
+            identity_field(result, submitted, field);
+        identity_field(result, submitted.at("plan_request"), "request_id");
+        identity_field(result, submitted.at("plan_request"), "install_id");
     }
     return result;
 }
@@ -107,6 +112,8 @@ const char* request_schema(const std::string& command) {
     if (command == "repair.apply") return "usk.repair_apply_request.v1";
     if (command == "move.apply") return "usk.move_apply_request.v1";
     if (command == "uninstall.apply") return "usk.uninstall_apply_request.v1";
+    if (command == "recovery.inspect") return "usk.recovery_inspect_request.v1";
+    if (command == "recovery.plan") return "usk.recovery_plan_request.v1";
     if (command == "recovery.apply") return "usk.recovery_apply_request.v1";
     throw std::invalid_argument("registered public command is unavailable");
 }
@@ -139,7 +146,7 @@ PublisherClientResult PublisherClientContext::execute(const char* command_name,
         require_shape(command, submitted);
         if (submitted.at("schema").as_string() != expected_schema)
             throw std::invalid_argument("registered command schema differs");
-        if (command == "recovery.apply") {
+        if (recovery_command(command)) {
             // Pure shape/binding decoding only. This precedes identity/fallback
             // preparation and every callback that could dispatch request bytes.
             // Allocation failure remains preparation failure, never malformed
@@ -162,6 +169,11 @@ PublisherClientResult PublisherClientContext::execute(const char* command_name,
         if (!prepare || !transport)
             throw std::invalid_argument("registered client route unavailable");
         const auto wire = prepare(command, submitted);
+        // Public recovery dispatch must preserve the entire reviewed request.
+        // A private adapter may not substitute a smaller lookup request or
+        // change an inspect/plan into an effect. This is still pre-dispatch.
+        if (recovery_command(command) && !usk::json::equal_values(wire, submitted))
+            throw std::runtime_error("public recovery preparation changed its complete request");
         const auto bytes = usk::json::canonical(wire);
         if (bytes.empty() || bytes.size() > request_limit)
             throw std::invalid_argument("registered wire request exceeds bound");
