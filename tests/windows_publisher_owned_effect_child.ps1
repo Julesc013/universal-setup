@@ -97,6 +97,89 @@ public sealed class UskOwnedEffectChildObserver : IDisposable {
         }
         return true;
     }
+
+    // Failure-only bounded observations; never pair selection or termination.
+    static Dictionary<string,object> PreselectionFacts(IntPtr handle,uint expectedId,string expectedImage) {
+        var facts=new Dictionary<string,object>();
+        facts["status"]="query_failed";
+        try {
+            uint actualId=GetProcessId(handle);
+            if(actualId==0) throw new Win32Exception(Marshal.GetLastWin32Error(),"Diagnostic PID unavailable");
+            facts["native_process_id"]=actualId;
+            facts["native_birth_file_time"]=Birth(handle).ToString("x16");
+            uint wait=WaitForSingleObject(handle,0);
+            int waitError=wait==0xffffffff?Marshal.GetLastWin32Error():0;
+            facts["native_wait_result"]=wait;
+            if(wait!=0 && wait!=258) throw new Win32Exception(waitError,"Diagnostic wait unavailable");
+            ProcessBasicInformation basic;
+            uint returned;
+            int status=NtQueryInformationProcess(handle,0,out basic,48,out returned);
+            facts["basic_query_status"]=status;facts["basic_query_bytes"]=returned;
+            if(status!=0 || returned!=48 || basic.UniqueProcessId.ToUInt64()!=actualId || actualId!=expectedId)
+                throw new InvalidOperationException("Diagnostic native process information differs");
+            facts["native_parent_process_id"]=basic.InheritedFromUniqueProcessId.ToUInt64();
+            string image=Image(handle);
+            facts["native_image_length"]=image.Length;
+            facts["native_image_prefix"]=image.Substring(0,Math.Min(image.Length,512));
+            facts["native_image_truncated"]=image.Length>512;
+            facts["native_image_matches_expected"]=String.Equals(image,expectedImage,StringComparison.OrdinalIgnoreCase);
+            facts["status"]="observed";
+        } catch(Exception error) {
+            facts["error_type"]=error.GetType().FullName;facts["error_hresult"]=error.HResult;
+            var nativeError=error as Win32Exception;
+            if(nativeError!=null) facts["win32_error"]=nativeError.NativeErrorCode;
+        }
+        return facts;
+    }
+    public static Dictionary<string,object> ObservePreselectionCensus(
+        uint parentId,long expectedParentBirth,uint[] candidateIds,string expectedImage) {
+        if(parentId==0 || expectedParentBirth<=0 || candidateIds==null || candidateIds.Length>8 ||
+            expectedImage==null || expectedImage.Length>32768)
+            throw new ArgumentException("Bounded diagnostic census inputs differ");
+        const uint access=0x00101400; // Query information and synchronize only.
+        var result=new Dictionary<string,object>();
+        var children=new List<Dictionary<string,object>>();
+        result["sampling"]="sequential_non_atomic";result["qualification_granted"]=false;
+        result["requested_access"]=access;result["children"]=children;
+        IntPtr parent=OpenProcess(access,false,parentId);
+        int parentError=parent==IntPtr.Zero?Marshal.GetLastWin32Error():0;
+        if(parent==IntPtr.Zero) {
+            result["status"]="parent_unavailable";result["parent_open_error"]=parentError;
+            return result;
+        }
+        try {
+            var before=PreselectionFacts(parent,parentId,expectedImage);result["parent_before"]=before;
+            if((string)before["status"]!="observed" ||
+                (string)before["native_birth_file_time"]!=expectedParentBirth.ToString("x16") ||
+                (uint)before["native_wait_result"]!=258) {
+                result["status"]="parent_instance_unavailable";return result;
+            }
+            foreach(uint id in candidateIds) {
+                var child=new Dictionary<string,object>();
+                child["requested_process_id"]=id;children.Add(child);
+                IntPtr handle=OpenProcess(access,false,id);
+                int openError=handle==IntPtr.Zero?Marshal.GetLastWin32Error():0;
+                if(handle==IntPtr.Zero) {
+                    child["status"]="open_unavailable";child["open_error"]=openError;continue;
+                }
+                try {
+                    child["status"]="sampled";child["facts"]=PreselectionFacts(handle,id,expectedImage);
+                } finally {
+                    bool closed=CloseHandle(handle);
+                    int error=closed?0:Marshal.GetLastWin32Error();
+                    child["observer_close_confirmed"]=closed;child["observer_close_error"]=error;
+                }
+            }
+            result["parent_after"]=PreselectionFacts(parent,parentId,expectedImage);
+            result["status"]="sampled";
+        } finally {
+            bool closed=CloseHandle(parent);
+            int error=closed?0:Marshal.GetLastWin32Error();
+            result["parent_observer_close_confirmed"]=closed;result["parent_observer_close_error"]=error;
+        }
+        return result;
+    }
+
     public UskOwnedEffectChildObserver(Process actualParent,uint actualParentId,long actualParentBirth,
         uint observedChildId,long observedChildUtcTicks,string expectedImage,string observedPrivateCommand) {
         if(!Environment.Is64BitProcess || actualParent==null || actualParentId==0 || observedChildId==0 ||

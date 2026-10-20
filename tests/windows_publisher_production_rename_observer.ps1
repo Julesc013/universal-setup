@@ -9,6 +9,43 @@ $effectPair=$null
 $held=$null
 $config=Get-Content -LiteralPath $ConfigPath -Raw -ErrorAction Stop|ConvertFrom-Json
 
+
+function Get-OwnedEffectChildCensusDiagnostic($Rows,[uint32]$ParentId,[long]$ParentBirth,[string]$ExpectedImage) {
+    $limit=8
+    $samples=[Collections.Generic.List[object]]::new()
+    $ids=[Collections.Generic.List[uint32]]::new()
+    for($index=0;$index -lt [Math]::Min($Rows.Count,$limit);$index++) {
+        $candidate=$Rows[$index]
+        $sample=[ordered]@{ordinal=$index;process_id=$candidate.ProcessId;parent_process_id=$candidate.ParentProcessId;
+            creation_utc=$null;creation_utc_ticks=$null;creation_observation='unavailable';
+            image_present=[bool]$candidate.ExecutablePath;image_matches_expected=$null;
+            command_present=[bool]$candidate.CommandLine;command_length=0;command_content_retained=$false}
+        if($candidate.CreationDate -is [DateTime]) {
+            $birth=$candidate.CreationDate.ToUniversalTime()
+            $sample.creation_utc=$birth.ToString('o');$sample.creation_utc_ticks=$birth.Ticks
+            $sample.creation_observation='cim_only'
+        }
+        if($candidate.ExecutablePath) {$sample.image_matches_expected=([string]$candidate.ExecutablePath -ceq $ExpectedImage)}
+        if($candidate.CommandLine) {$sample.command_length=([string]$candidate.CommandLine).Length}
+        [uint32]$id=0
+        if($null -ne $candidate.ProcessId -and [uint32]::TryParse([string]$candidate.ProcessId,[ref]$id)) {
+            $ids.Add($id)
+        }else{$ids.Add(0)}
+        $samples.Add($sample)
+    }
+    $diagnostic=[ordered]@{schema='usk.publisher.effect_child_preselection_census.v1';
+        scope='failed_preselection_only';qualification_granted=$false;selection_unchanged=$true;
+        sampling='sequential_non_atomic';total_cim_rows=$Rows.Count;row_limit=$limit;
+        rows_truncated=($Rows.Count -gt $limit);parent_process_id=$ParentId;
+        expected_parent_birth_file_time=$ParentBirth.ToString('x16');
+        rows=$samples.ToArray();native=$null;native_capture_failure=$null}
+    try {
+        $diagnostic.native=[UskOwnedEffectChildObserver]::ObservePreselectionCensus(
+            $ParentId,$ParentBirth,$ids.ToArray(),$ExpectedImage)
+    } catch {$diagnostic.native_capture_failure=$_.Exception.GetType().FullName}
+    return $diagnostic
+}
+
 function New-OriginalScmTermination($pair) {
     return @{confirmed=$true;terminated=1;kill_invoked=$true;method='TerminateProcess_owned_held_root';
         process_id=$pair.parent_process_id;process_creation_file_time=$pair.parent_process_birth;native_wait_result=$pair.parent_native_wait_result}
@@ -139,7 +176,18 @@ try {
         if($held.HasExited){throw 'Production service exited before visible rename'}
         if(-not $effectPair) {
             $children=@(Get-CimInstance Win32_Process -Filter ('ParentProcessId='+$config.process_id) -ErrorAction Stop)
-            if($children.Count -gt 1){throw 'Owned SCM has an ambiguous native effect-child population'}
+            if($children.Count -gt 1) {
+                # No pair has been selected. Diagnostic failure cannot change
+                # the ambiguity refusal or permit selection/termination.
+                $refusal='Owned SCM has an ambiguous native effect-child population'
+                try {
+                    $arguments=@{Rows=$children;ParentId=[uint32]$config.process_id;
+                        ParentBirth=[Convert]::ToInt64($result.process_creation_file_time,16);
+                        ExpectedImage=$config.process_executable}
+                    $result['effect_child_preselection_census']=Get-OwnedEffectChildCensusDiagnostic @arguments
+                } catch {} # Best effort only; retain the original refusal.
+                throw $refusal
+            }
             if(-not $children.Count){Start-Sleep -Milliseconds 1;continue}
             $child=$children[0]
             $result['effect_child_candidate']=[ordered]@{

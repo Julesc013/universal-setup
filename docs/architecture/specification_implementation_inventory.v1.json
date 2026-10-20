@@ -2707,7 +2707,7 @@
         },
         {
           "path": "tests/windows_publisher_production_rename_observer.ps1",
-          "sha256": "dec956ac2fc44b70f1b70cc39f30f0a893ddcc53470e12b25434c030f2d83466"
+          "sha256": "39e0e8d73d4bbe421c4c495a20d097de0f8b9e3086563628bc5f8b3d4fa0fb62"
         },
         {
           "path": "tests/windows_publisher_standard_client_cleanup_smoke.ps1",
@@ -3170,7 +3170,7 @@
         },
         {
           "path": "tests/windows_publisher_production_rename_observer.ps1",
-          "sha256": "dec956ac2fc44b70f1b70cc39f30f0a893ddcc53470e12b25434c030f2d83466"
+          "sha256": "39e0e8d73d4bbe421c4c495a20d097de0f8b9e3086563628bc5f8b3d4fa0fb62"
         },
         {
           "path": "tests/windows_publisher_standard_client_cleanup_smoke.ps1",
@@ -3633,7 +3633,7 @@
         },
         {
           "path": "tests/windows_publisher_production_rename_observer.ps1",
-          "sha256": "dec956ac2fc44b70f1b70cc39f30f0a893ddcc53470e12b25434c030f2d83466"
+          "sha256": "39e0e8d73d4bbe421c4c495a20d097de0f8b9e3086563628bc5f8b3d4fa0fb62"
         },
         {
           "path": "tests/windows_publisher_standard_client_cleanup_smoke.ps1",
@@ -5503,7 +5503,7 @@
         },
         {
           "path": "tests/windows_publisher_production_rename_observer.ps1",
-          "sha256": "dec956ac2fc44b70f1b70cc39f30f0a893ddcc53470e12b25434c030f2d83466"
+          "sha256": "39e0e8d73d4bbe421c4c495a20d097de0f8b9e3086563628bc5f8b3d4fa0fb62"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
@@ -6019,7 +6019,7 @@
         },
         {
           "path": "tests/windows_publisher_production_rename_observer.ps1",
-          "sha256": "dec956ac2fc44b70f1b70cc39f30f0a893ddcc53470e12b25434c030f2d83466"
+          "sha256": "39e0e8d73d4bbe421c4c495a20d097de0f8b9e3086563628bc5f8b3d4fa0fb62"
         },
         {
           "path": "runtime/platform/windows/usk_publisher_registration.cpp",
@@ -6259,7 +6259,7 @@
         },
         {
           "path": "tests/windows_publisher_owned_effect_child.ps1",
-          "sha256": "5fd36406fed9dabf764d88ee301835dba9239c3c8ae0c6bfa215a55590cb491e"
+          "sha256": "8ff7a9cd3cb01554c27a7a4a9bde9beab81671485397c42fa0e86b838aef7da6"
         },
         {
           "path": "tests/windows_publisher_legacy_rename_observer.ps1",
