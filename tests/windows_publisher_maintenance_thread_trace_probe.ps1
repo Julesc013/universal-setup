@@ -36,10 +36,11 @@ New-Item -ItemType Directory -Path $retainedRoot -ErrorAction Stop | Out-Null
 $instance='USKMaintenanceCreator'+[Guid]::NewGuid().ToString('N')
 $etl=Join-Path $traceRoot 'maintenance-thread-creator.etl'
 $profileFile=if($cpuCapture){'windows_publisher_maintenance_fresh_cpu_trace.wprp'}else{'windows_publisher_maintenance_thread_trace.wprp'}
-$profileName=if($cpuCapture){'USKFreshCPU'}else{'USKThreadCreator'}
-$captureKind=if($cpuCapture){'cpu_stacks_scheduler_events_and_thread_creation'}else{'cpu_scheduler_and_thread_creation'}
+$profileName=if($RecoveryCpuDiagnostic){'USKRecoveryCPU'}elseif($FreshQualification){'USKFreshCPU'}else{'USKThreadCreator'}
+$captureKind=if($RecoveryCpuDiagnostic){'cpu_stacks_and_thread_creation'}elseif($FreshQualification){'cpu_stacks_scheduler_events_and_thread_creation'}else{'cpu_scheduler_and_thread_creation'}
+$captureKeywords=if($RecoveryCpuDiagnostic){@('ProcessThread','Loader','SampledProfile')}else{@('ProcessThread','Loader','SampledProfile','CSwitch','ReadyThread')}
 $captureStacks=if($cpuCapture){@('ThreadCreate','SampledProfile')}else{@('ThreadCreate','SampledProfile','CSwitch','ReadyThread')}
-$interpretation=if($cpuCapture){'Circular coverage remains unproved; join actual request/PID/birth/TID/module/ancestry and retained interval before interpreting CPU/thread stacks or scheduler events. Scheduler/wakeup stacks are omitted; this capture cannot attribute wait call stacks or establish a call cycle or thread creator'}else{'Circular coverage remains unproved; join actual request/PID/birth/TID/module/ancestry and retained interval before interpreting CPU or wait stacks. Wait stacks alone do not establish a call cycle or thread creator'}
+$interpretation=if($RecoveryCpuDiagnostic){'CPU attribution diagnostic only; no scheduler or wait events are collected. Circular coverage remains unproved; independently join the actual complete request interval, PID/birth, TID/birth, module and ancestry before interpreting samples. Fewer events do not establish complete capture, improved runtime or a successful operation'}elseif($FreshQualification){'Circular coverage remains unproved; join actual request/PID/birth/TID/module/ancestry and retained interval before interpreting CPU/thread stacks or scheduler events. Scheduler/wakeup stacks are omitted; this capture cannot attribute wait call stacks or establish a call cycle or thread creator'}else{'Circular coverage remains unproved; join actual request/PID/birth/TID/module/ancestry and retained interval before interpreting CPU or wait stacks. Wait stacks alone do not establish a call cycle or thread creator'}
 $profile=Join-Path $PSScriptRoot $profileFile
 # Pin the OS tool: hosted PATH can contain both System32 and WPT installations.
 $wpr=[IO.Path]::GetFullPath((Join-Path $env:SystemRoot 'System32\wpr.exe'))
@@ -53,9 +54,9 @@ $receipt=[ordered]@{
     schema='usk.publisher_maintenance_thread_trace.v1';scope='external_owned_diagnostic_no_authority';
     profile_qualified=$false;creator_attribution_proven=$false;status='running';
     journey=$journey;capture_kind=$captureKind;
-    captured_keywords=@('ProcessThread','Loader','SampledProfile','CSwitch','ReadyThread');
+    captured_keywords=$captureKeywords;
     captured_stacks=$captureStacks;profile_file=$profileFile;profile_name=$profileName;
-    scheduler_stacks_requested=(-not $cpuCapture);
+    scheduler_stacks_requested=(-not $cpuCapture);scheduler_events_requested=(-not $RecoveryCpuDiagnostic);
     maximum_retained_etl_bytes=134217728;maximum_command_log_characters=32768;
     original_request_identity_source='Original probe receipt; join native process birth and ancestry with raw ETL';
     capture_start_precedes_probe=$false;capture_end_follows_probe=$false;
@@ -260,4 +261,4 @@ try {
 }
 if($probeFailure){throw $probeFailure}
 if($receipt.diagnostic_failures.Count){throw ($receipt.diagnostic_failures -join '; ')}
-Write-Output 'Owned maintenance CPU scheduler and thread diagnostic retained; coverage attribution and runtime qualification remain unproved'
+Write-Output ($captureKind+' diagnostic retained; coverage attribution and runtime qualification remain unproved')

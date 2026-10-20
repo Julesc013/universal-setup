@@ -25,6 +25,19 @@
         <Stack Value="SampledProfile" />
       </Stacks>
     </SystemProvider>
+    <!-- Recovery needs complete CPU attribution within the same ring budget.
+         Scheduler events remain in the fresh/thread profiles. -->
+    <SystemProvider Id="RecoveryCPUProvider">
+      <Keywords>
+        <Keyword Value="ProcessThread" Strict="true" />
+        <Keyword Value="Loader" Strict="true" />
+        <Keyword Value="SampledProfile" Strict="true" />
+      </Keywords>
+      <Stacks>
+        <Stack Value="ThreadCreate" />
+        <Stack Value="SampledProfile" />
+      </Stacks>
+    </SystemProvider>
     <EventProvider Id="QualificationProvider" Name="7e4a4d0e-4d53-4c2d-93a3-6ba61cf46711" Level="4">
       <Keywords><Keyword Value="0x1" /></Keywords>
     </EventProvider>
@@ -38,6 +51,19 @@
     <Profile Id="USKFreshCPU.Verbose.File" Name="USKFreshCPU" Description="Owned fresh maintenance CPU stacks and scheduler events diagnostic; file mode not admitted" DetailLevel="Verbose" LoggingMode="File">
       <Collectors>
         <SystemCollectorId Value="CreatorSystemCollector"><SystemProviderId Value="CreatorSystemProvider" /></SystemCollectorId>
+        <EventCollectorId Value="QualificationCollector"><EventProviders><EventProviderId Value="QualificationProvider" /></EventProviders></EventCollectorId>
+      </Collectors>
+    </Profile>
+    <Profile Id="USKRecoveryCPU.Verbose.Memory" Name="USKRecoveryCPU" Description="Owned recovery CPU stacks and process identity diagnostic; no scheduler events" DetailLevel="Verbose" LoggingMode="Memory">
+      <Collectors>
+        <SystemCollectorId Value="CreatorSystemCollector"><SystemProviderId Value="RecoveryCPUProvider" /></SystemCollectorId>
+        <EventCollectorId Value="QualificationCollector"><EventProviders><EventProviderId Value="QualificationProvider" /></EventProviders></EventCollectorId>
+      </Collectors>
+    </Profile>
+    <!-- Paired schema definition only; the wrapper still never selects file mode. -->
+    <Profile Id="USKRecoveryCPU.Verbose.File" Name="USKRecoveryCPU" Description="Owned recovery CPU diagnostic; file mode not admitted" DetailLevel="Verbose" LoggingMode="File">
+      <Collectors>
+        <SystemCollectorId Value="CreatorSystemCollector"><SystemProviderId Value="RecoveryCPUProvider" /></SystemCollectorId>
         <EventCollectorId Value="QualificationCollector"><EventProviders><EventProviderId Value="QualificationProvider" /></EventProviders></EventCollectorId>
       </Collectors>
     </Profile>

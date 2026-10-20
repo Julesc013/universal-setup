@@ -2943,7 +2943,7 @@
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
-          "sha256": "6676c4270917371f039698263c00177534bfd162b3a7706d1342dd6668d45f80"
+          "sha256": "3cea2e3ed4c1ad97dfe60e2a35ca6b5585f3d0d781ad54782f06d5a045e37839"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace.wprp",
@@ -3406,7 +3406,7 @@
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
-          "sha256": "6676c4270917371f039698263c00177534bfd162b3a7706d1342dd6668d45f80"
+          "sha256": "3cea2e3ed4c1ad97dfe60e2a35ca6b5585f3d0d781ad54782f06d5a045e37839"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace.wprp",
@@ -3869,7 +3869,7 @@
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
-          "sha256": "6676c4270917371f039698263c00177534bfd162b3a7706d1342dd6668d45f80"
+          "sha256": "3cea2e3ed4c1ad97dfe60e2a35ca6b5585f3d0d781ad54782f06d5a045e37839"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace.wprp",
@@ -5675,7 +5675,7 @@
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
-          "sha256": "6676c4270917371f039698263c00177534bfd162b3a7706d1342dd6668d45f80"
+          "sha256": "3cea2e3ed4c1ad97dfe60e2a35ca6b5585f3d0d781ad54782f06d5a045e37839"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace.wprp",
@@ -5727,7 +5727,7 @@
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
-          "sha256": "6676c4270917371f039698263c00177534bfd162b3a7706d1342dd6668d45f80"
+          "sha256": "3cea2e3ed4c1ad97dfe60e2a35ca6b5585f3d0d781ad54782f06d5a045e37839"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace.wprp",
@@ -6199,7 +6199,7 @@
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace_probe.ps1",
-          "sha256": "6676c4270917371f039698263c00177534bfd162b3a7706d1342dd6668d45f80"
+          "sha256": "3cea2e3ed4c1ad97dfe60e2a35ca6b5585f3d0d781ad54782f06d5a045e37839"
         },
         {
           "path": "tests/windows_publisher_maintenance_thread_trace.wprp",
