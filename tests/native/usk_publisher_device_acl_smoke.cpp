@@ -179,6 +179,52 @@ int main() {
     const Value policy(Value::Object{{"owner", Value("S-1-5-18")}, {"dacl_protected", Value(true)},
         {"aces", Value(Value::Array{Value(Value::Object{{"type", Value(std::uint64_t{0})},
             {"flags", Value(std::uint64_t{0})}, {"mask", Value(std::uint64_t{2032127})}, {"sid", Value("S-1-5-18")}})})}});
+    const Value captured_default(Value::Object{
+        {"original_owner_dacl", Value("O:BAD:(A;;FA;;;BA)(A;;FA;;;SY)(A;;0x1200a9;;;BU)")},
+        {"intended_policy", policy}});
+    auto captured_intended = captured_default;
+    captured_intended.as_object()["original_owner_dacl"] =
+        Value("O:BAD:P(A;;FA;;;S-1-5-80-100-200-300-400-500)(A;;FA;;;BA)(A;;FA;;;SY)(A;;0x1200a9;;;BU)");
+    const auto default_before = usk::json::canonical(captured_default);
+    const auto intended_before = usk::json::canonical(captured_intended);
+    const auto default_diagnostic = usk::platform::windows::publisher_device_transition_diagnostic(
+        captured_default, false);
+    const auto intended_diagnostic = usk::platform::windows::publisher_device_transition_diagnostic(
+        captured_intended, true);
+    if (default_diagnostic.at("provenance").as_string() != "legacy_locked_capture" ||
+        intended_diagnostic.at("provenance").as_string() != "unpublished_retained" ||
+        default_diagnostic.at("original_owner_dacl_prefix").as_string() !=
+            captured_default.at("original_owner_dacl").as_string() ||
+        intended_diagnostic.at("original_owner_dacl_prefix").as_string() !=
+            captured_intended.at("original_owner_dacl").as_string() ||
+        default_diagnostic.at("original_owner_dacl_canonical_sha256").as_string() !=
+            usk::json::sha256_canonical(captured_default.at("original_owner_dacl")) ||
+        intended_diagnostic.at("original_owner_dacl_canonical_sha256").as_string() !=
+            usk::json::sha256_canonical(captured_intended.at("original_owner_dacl")) ||
+        default_diagnostic.at("original_owner_dacl_canonical_sha256").as_string() ==
+            intended_diagnostic.at("original_owner_dacl_canonical_sha256").as_string() ||
+        default_diagnostic.at("intended_policy_sha256").as_string() !=
+            intended_diagnostic.at("intended_policy_sha256").as_string() ||
+        default_diagnostic.at("original_owner_dacl_prefix_truncated").as_boolean() ||
+        usk::json::canonical(captured_default) != default_before ||
+        usk::json::canonical(captured_intended) != intended_before) return 12;
+    auto bounded_transition = captured_default;
+    bounded_transition.as_object()["original_owner_dacl"] = Value(std::string(8192u, 'x'));
+    const auto bounded = usk::platform::windows::publisher_device_transition_diagnostic(
+        bounded_transition, false);
+    if (bounded.at("original_owner_dacl_prefix").as_string().size() != 2048u ||
+        !bounded.at("original_owner_dacl_prefix_truncated").as_boolean() ||
+        bounded.at("original_owner_dacl_bytes").as_unsigned() != 8192u ||
+        bounded.at("original_owner_dacl_canonical_sha256").as_string() !=
+            usk::json::sha256_canonical(bounded_transition.at("original_owner_dacl"))) return 13;
+    for (const auto length : {0u, 8193u}) {
+        bounded_transition.as_object()["original_owner_dacl"] = Value(std::string(length, 'x'));
+        bool refused = false;
+        try { (void)usk::platform::windows::publisher_device_transition_diagnostic(
+            bounded_transition, false); }
+        catch (const std::runtime_error&) { refused = true; }
+        if (!refused) return 14;
+    }
     const Value intent(Value::Object{{"schema", Value("usk.publisher_target_intent.v3")},
         {"identity", Value(Value::Object{})}, {"original_metadata", Value(Value::Array{})},
         {"original_owner_dacl", Value("O:SYD:P(A;;FA;;;SY)")},
