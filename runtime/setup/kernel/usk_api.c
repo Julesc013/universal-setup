@@ -470,6 +470,8 @@ static usk_static_response usk_handle_public_lifecycle(
          strcmp(descriptor->command_name, "repair.apply") == 0 ||
          strcmp(descriptor->command_name, "move.apply") == 0 ||
          strcmp(descriptor->command_name, "uninstall.apply") == 0 ||
+         strcmp(descriptor->command_name, "recovery.inspect") == 0 ||
+         strcmp(descriptor->command_name, "recovery.plan") == 0 ||
          strcmp(descriptor->command_name, "recovery.apply") == 0)) {
         if (request->json_payload.size > 1024u * 1024u ||
             request->json_payload.data == 0 || request->json_payload.size == 0) {
