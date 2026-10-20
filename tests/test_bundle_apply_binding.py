@@ -10,7 +10,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
-from usk_bundle_apply_binding import BindingError, compose_binding
+from usk_bundle_apply_binding import BindingError, compose_binding, review_response
 
 
 class BundleApplyBindingTests(unittest.TestCase):
@@ -55,6 +55,20 @@ class BundleApplyBindingTests(unittest.TestCase):
         self.assertEqual(envelope["apply_request"], apply)
         self.assertEqual(envelope["reviewed_plan_digest"], "d" * 64)
         self.assertEqual(envelope["activation"], "operator_acceptance_candidate")
+
+    def test_authored_review_requires_entire_independently_composed_request(self) -> None:
+        review = {"schema": "usk.authored_install_review.v1", "request": self.request, "response": self.response}
+        self.assertEqual(review_response(self.request, review), self.response)
+        changed = copy.deepcopy(review)
+        changed["request"]["payload"]["archive"]["budgets"] = {"max_entries": 99}
+        with self.assertRaises(BindingError):
+            review_response(self.request, changed)
+        changed = copy.deepcopy(review)
+        changed["request"]["dry_run"] = 1  # Python equality alone considers this True.
+        with self.assertRaises(BindingError):
+            review_response(self.request, changed)
+        with self.assertRaises(BindingError):
+            review_response(self.request, dict(review, extra=True))
 
     def test_reviewed_child_may_vary_only_beneath_protected_parent(self) -> None:
         request = copy.deepcopy(self.request)

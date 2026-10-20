@@ -65,11 +65,17 @@ bool prebound_publisher_unknown(const std::string& input, const char* request_id
 }
 
 bool prebound_publisher_unknown_checks() {
+    const std::string plan = R"({"schema":"usk.oneshot_request.v1","request_id":"allocation.plan","command":"install_local.plan","payload":{"schema":"usk.install_local_plan_request.v1","request_id":"plan.payload"},"dry_run":true})";
+    unsigned candidate_calls = 0;
+    const auto unavailable = usk::command::run_candidate_one_shot(plan,
+        [&](const std::string&) { ++candidate_calls; return std::string("{}"); });
+    if (candidate_calls || unavailable.exit_code != 2) return false;
     const std::string a = R"({"schema":"usk.oneshot_request.v1","request_id":"allocation.A","command":"install_local.apply","payload":{"schema":"usk.install_local_apply_request.v1","plan_request":{"install_id":"example"},"transaction_id":"tx-A","applied_at":"2026-10-17T00:00:00Z"},"dry_run":false})";
     const std::string b = R"({"schema":"usk.oneshot_request.v1","request_id":"allocation.B","command":"install_local.apply","payload":{"schema":"usk.install_local_apply_request.v1","plan_request":{"install_id":"example"},"transaction_id":"tx-B","applied_at":"2026-10-17T00:00:00Z"},"dry_run":false})";
     const std::string observation = R"({"schema":"usk.oneshot_request.v1","request_id":"allocation.observe","command":"publisher.observe","payload":{"schema":"usk.publisher_capability_request.v5","request_id":"allocation.observe"},"dry_run":false})";
     for (const unsigned failure_kind : {0u, 1u, 2u}) {
-        if (!prebound_publisher_unknown(a, "allocation.A", "publisher_outcome_unknown", failure_kind) ||
+        if (!prebound_publisher_unknown(plan, "allocation.plan", "publisher_outcome_unknown", failure_kind) ||
+            !prebound_publisher_unknown(a, "allocation.A", "publisher_outcome_unknown", failure_kind) ||
             !prebound_publisher_unknown(b, "allocation.B", "publisher_outcome_unknown", failure_kind) ||
             !prebound_publisher_unknown(observation, "allocation.observe", "publisher_observation_unknown", failure_kind))
             return false;

@@ -6,6 +6,7 @@ from __future__ import annotations
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
@@ -113,6 +114,23 @@ class SelectedCandidatePackageTests(unittest.TestCase):
                              1024 * 1024)
             self.assertIn(str(fixture / "product" / "addon.bin"),
                           inputs["source_files"])
+
+    def test_packaged_fixture_preserves_exact_payload_and_all_retirement_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime = root / "usk_machine.exe"
+            runtime.write_bytes(b"MZ\x00native-packaging-fixture")
+            fixture = root / "fixture"
+            fixture.mkdir()
+            with patch("tests.windows_publisher_metadata_inputs.host_target", return_value="windows-x64"):
+                inputs = create_inputs(fixture, root / "target", "packaged.fixture", packaged_runtime=runtime)
+            self.assertEqual(Path(inputs["packaged_host"]).read_bytes(), runtime.read_bytes())
+            self.assertEqual(Path(inputs["archive_file"]), fixture / "packaged" / "payload.zip")
+            self.assertEqual(Path(inputs["archive_file"]).read_bytes(), (fixture / "selected" / "payload.zip").read_bytes())
+            self.assertFalse((fixture / "prefixed.zip").exists())
+            self.assertTrue(Path(inputs["options_file"]).is_file())
+            self.assertIn(inputs["packaged_host"], inputs["source_files"])
+            self.assertIn(inputs["bundle_file"], inputs["source_files"])
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@
 #include "usk_publisher_volume_stream_observation.h"
 #include "usk_publisher_request_channel.h"
 #include "usk_publisher_registration.h"
+#include "usk_registered_install_plan_internal.h"
 #include "usk_publisher_effect_execution_internal.h"
 #include "usk_publisher_effect_broker_internal.h"
 #include "usk_publisher_recovery_request_internal.h"
@@ -476,6 +477,7 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
     std::unique_ptr<usk::platform::windows::PublisherRequestChannel> request_channel;
     std::unique_ptr<usk::platform::windows::RegisteredPublisherAdmission> registered_admission;
     std::string capability_request_id;
+    bool install_plan_request = false;
         unsigned capability_protocol_version = 2;
     try {
         report_status(SERVICE_START_PENDING);
@@ -518,6 +520,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
             config.authenticated_request=request_channel.get();
             const auto submitted=usk::json::parse(request);
             const auto schema=submitted.at("schema").as_string();
+            if (schema == "usk.install_local_plan_request.v1" && (!registered_admission || !registered_reviewed_mode))
+                throw std::runtime_error("read-only planning requires original reviewed registered admission");
             if (schema == "usk.publisher_capability_request.v2" || schema == "usk.publisher_capability_request.v5") {
                 capability_protocol_version = schema == "usk.publisher_capability_request.v5" ? 5u : 2u;
                 if (!registered_admission || submitted.as_object().size() != 2)
@@ -532,7 +536,11 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 // Later requests may select only verification or source-free
                 // recovery of that protected installation. Neither mode may
                 // inherit the envelope as fresh publication authority.
-                if (schema == "usk.publisher_installed_verify_request.v1" ||
+                if (schema == "usk.install_local_plan_request.v1") {
+                    if (!registered_admission)
+                        throw std::runtime_error("read-only planning requires registered admission");
+                    install_plan_request = true;
+                } else if (schema == "usk.publisher_installed_verify_request.v1" ||
                 schema == "usk.installed_verify_request.v1") {
                     config.verify_installed=true;
                     config.selected_archive_mode=false;
@@ -594,6 +602,8 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 {"service_name", Value(ascii(service_name))},
                 {"service_sid", registered_admission->evidence().at("service_sid")},
                 {"capability_observation", registered_admission->capability_observation(capability_request_id, capability_protocol_version)}});
+        } else if (install_plan_request) {
+            response = usk::lifecycle::registered_install_plan(*registered_admission, *request_channel);
         } else if (registered_admission) {
             response = execute_registered_child(*registered_admission, *request_channel, publication_effects_may_exist);
         } else {
@@ -610,7 +620,9 @@ VOID WINAPI service_main(DWORD, LPWSTR*) {
                 response.as_object().emplace("process_id", usk::json::Value(pid));
                 response.as_object().emplace("registered_admission", registered_admission->evidence());
             }
-            return usk::json::canonical(response);
+            auto serialized = usk::json::canonical(response);
+            if (install_plan_request) request_channel->require_active_request();
+            return serialized;
         }();
         if (!receipt_path.empty()) write_receipt(data);
         if (request_channel) {

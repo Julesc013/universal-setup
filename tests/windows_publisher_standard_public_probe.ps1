@@ -24,6 +24,8 @@ param(
     [string]$ConstructedBootstrapDurableState='none'
 )
 $ErrorActionPreference='Stop'
+$authoredProduct=$MaintenanceQualification -and -not ($MaintenanceRecoveryQualification -or
+    $MaintenanceInitialQualification -or $SdkLifecycleQualification -or $SdkRecoveryQualification)
 if($SdkLifecycleQualification -and (-not $MaintenanceQualification -or $MaintenanceRecoveryQualification -or
     $MaintenanceInitialQualification -or $BootstrapProcessLoss -or $BootstrapPreservationProcessLoss -or
     $ActiveInstallContention -or $StalePlanQualification -or $InstallationGuardConflict -or
@@ -777,11 +779,15 @@ function Read-FailedStandardClientOutput([string]$Path,[long]$Limit,[int]$Prefix
 }
 function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[switch]$BootstrapLoss,[switch]$PreservationLoss,
     [switch]$StalePlanRefusal,[switch]$StateRevisionRefusal,[switch]$InstallGuardRefusal,[switch]$MaintenanceProcessLoss,[switch]$MaintenanceInitialProcessLoss,
-    [switch]$MaintenanceInitialRecoveryRetention) {
+    [switch]$MaintenanceInitialRecoveryRetention,[switch]$AuthoredProductApply,[switch]$PlanningRefusal) {
     if((Get-Service $service).Status -ne 'Stopped') {throw 'Standard request did not begin at a stopped service'}
     $maintenanceLoss=$MaintenanceProcessLoss -or $MaintenanceInitialProcessLoss
     $processLoss=$BootstrapLoss -or $PreservationLoss -or $maintenanceLoss
-    $structuredRefusal=$StalePlanRefusal -or $StateRevisionRefusal -or $InstallGuardRefusal
+    $structuredRefusal=$StalePlanRefusal -or $StateRevisionRefusal -or $InstallGuardRefusal -or $PlanningRefusal
+    if(($PlanningRefusal -and ($Command -cne 'install_local.plan' -or $ExpectedExit -ne 4 -or $processLoss)) -or
+        ($AuthoredProductApply -and (-not $authoredProduct -or $Command -cne 'install_local.apply' -or $ExpectedExit -ne 0 -or $processLoss))) {
+        throw 'Authored planning/application fixture scope differs'
+    }
     if($MaintenanceInitialRecoveryRetention -and (-not $MaintenanceInitialQualification -or $processLoss -or $structuredRefusal -or
         $Command -cne 'repair.recover' -or $ExpectedExit -ne 5 -or
         $Payload.schema -cne 'usk.publisher_maintenance_recovery_request.v1' -or $Payload.operation -cne 'repair' -or
@@ -817,7 +823,18 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
     if($Command -cin @('publisher.inspect','publisher.observe')){$Payload.request_id=$requestId}
     $request=Join-Path $lab ($requestId+'.json');$stdout=$request+'.stdout';$stderr=$request+'.stderr'
     $nativeOutput=Join-Path (Join-Path $lab 'native-observations') ($requestId+'.json')
-    Write-Json $request @{schema='usk.oneshot_request.v1';request_id=$requestId;command=$Command;payload=$Payload;dry_run=($Command -ceq 'publisher.inspect')}
+    Write-Json $request @{schema='usk.oneshot_request.v1';request_id=$requestId;command=$Command;payload=$Payload;dry_run=($Command -cin @('publisher.inspect','install_local.plan'))}
+    $clientBinary=$MachineBinary;$clientSha256=$receipt.machine_sha256
+    $clientArguments='--machine --publisher '+$service+' --request-file "'+$request+'" --publisher-observation-file "'+$nativeOutput+'"'
+    if($AuthoredProductApply) {
+        $clientBinary=$inputs.packaged_host;$clientSha256=$receipt.authored_product.runtime_sha256
+        $confirmation=Join-Path $lab ($requestId+'.confirmation.json')
+        Write-Json $confirmation @{schema='usk.authored_install_confirmation.v1';request_id=$requestId;
+            reviewed_plan_id=$Payload.reviewed_plan_id;reviewed_plan_digest=$Payload.reviewed_plan_digest;
+            transaction_id=$Payload.transaction_id;applied_at=$Payload.applied_at;confirmation='APPLY'}
+        $clientArguments='--product-apply "'+$inputs.bundle_file+'" --review-file "'+$authoredReview+
+            '" --request-file "'+$confirmation+'" --publisher '+$service+' --publisher-observation-file "'+$nativeOutput+'"'
+    }
     if($clientTokenLease) {
         if(-not $observersClosed -or (Get-FileHash -LiteralPath $clientCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant() -cne $clientCaptureSha256) {
             throw 'Prior standard observer/capture is not closed and stable'
@@ -829,18 +846,17 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
     $requestFailure=$null;$diagnosticObserverClosed=$true
     try {
         $launchAttempted=$true
-        $launch=[UskPublisherPausedClient]::CreateOwnedStandard($MachineBinary,('--machine --publisher '+$service+
-            ' --request-file "'+$request+'" --publisher-observation-file "'+$nativeOutput+'"'),$stdout,$stderr,$accountName,$secret,$accountSid)
+        $launch=[UskPublisherPausedClient]::CreateOwnedStandard($clientBinary,$clientArguments,$stdout,$stderr,$accountName,$secret,$accountSid)
         $process=Get-Process -Id $launch.ProcessId;$null=$process.Handle
         $script:clientTokenLease=[UskPublisherEffectiveRights]::new($launch.ProcessId,$launch.CreationFileTime,$accountSid,$sid)
-        $capture=$clientTokenLease.CaptureBinding($PID,[long]$ownerCreation,$MachineBinary)
-        $capture['client_sha256']=$receipt.machine_sha256;$capture['request_id']=$requestId;$capture['command']=$Command
+        $capture=$clientTokenLease.CaptureBinding($PID,[long]$ownerCreation,$clientBinary)
+        $capture['client_sha256']=$clientSha256;$capture['request_id']=$requestId;$capture['command']=$Command
         if(Test-Path -LiteralPath $clientCaptureFile){throw 'Standard held-client capture already exists'}
         Write-Json $clientCaptureFile $capture
         $script:clientCaptureSha256=(Get-FileHash -LiteralPath $clientCaptureFile -Algorithm SHA256).Hash.ToLowerInvariant()
         $clientCapture=[ordered]@{request_id=$requestId;command=$Command;process_id=$launch.ProcessId;
             creation_file_time=$launch.CreationFileTime.ToString();captured_before_primary_thread_resume=$true;
-            primary_token=$launch.OwnedStandardPrimaryFacts;launcher_token=$launch.OwnedStandardLauncherFacts;image_sha256=$receipt.machine_sha256;
+            primary_token=$launch.OwnedStandardPrimaryFacts;launcher_token=$launch.OwnedStandardLauncherFacts;image_sha256=$clientSha256;
             capture_sha256=$clientCaptureSha256;initiating_token_id=$capture.initiating_token_id;filtered_token_id=$capture.filtered_token_id}
         if($processLoss) {
             $receipt[$lossKey]=[ordered]@{schema=$(if($maintenanceLoss){
@@ -954,6 +970,10 @@ function Invoke-StandardRequest([string]$Command,$Payload,[int]$ExpectedExit=0,[
                 $result.result.inspection_reference -ceq $reference
             $receipt.installation_guard_conflict.response=$result
             $receipt.installation_guard_conflict.exit_code=$exit
+        }
+        if($PlanningRefusal) {
+            $responseMatches=$responseMatches -and $result.status -ceq 'refused' -and
+                $null -eq $result.result -and $result.error.code -ceq 'publisher_failed'
         }
         if($MaintenanceInitialRecoveryRetention) {
             $responseMatches=$responseMatches -and $result.status -ceq 'recovery_required' -and
@@ -1194,19 +1214,32 @@ try {
     }
     $fixture=Join-Path $lab 'standard-authored-inputs';New-Item -ItemType Directory -Path $fixture|Out-Null
     $fixtureArguments=@('--output',$fixture,'--target',($drive+'publication\destination\visible'),'--request-id',('standard.'+$id))
+    if($authoredProduct){$fixtureArguments+=@('--packaged-runtime',$MachineBinary)}
     if($ActiveInstallContention){$fixtureArguments+=@('--core-bytes','33554432')}
     $generated=& $PythonBinary -B (Join-Path $PSScriptRoot 'windows_publisher_metadata_inputs.py') @fixtureArguments
     if($LASTEXITCODE -ne 0){throw 'Standard authored fixture failed'}
     $inputs=($generated -join "`n")|ConvertFrom-Json
     $context=Join-Path $lab 'context.json'
     Write-Json $context @{schema='usk.oneshot_context.v1';state_root=$drive+'setup-state';authorized_acceptance_root=$drive;target_policy_activation='operator_acceptance_candidate'}
-    $output=& $MachineBinary --machine --request-file $inputs.request_file --context-file $context
+    $authoredReview=Join-Path $lab 'authored-review.json'
+    if($authoredProduct) {
+        $output=& $inputs.packaged_host --product-plan $inputs.bundle_file --request-file $inputs.options_file --context-file $context
+    } else {$output=& $MachineBinary --machine --request-file $inputs.request_file --context-file $context}
     if($LASTEXITCODE -ne 0){throw 'Standard fixture planning failed'}
     $planned=($output -join "`n")|ConvertFrom-Json
+    if($authoredProduct) {
+        if($planned.schema -cne 'usk.authored_install_review.v1'){throw 'Packaged native review is unavailable'}
+        [IO.File]::WriteAllText($authoredReview,($output -join "`n")+"`n",$utf8)
+        $planned=$planned.response
+        $receipt['authored_product']=[ordered]@{scope='packaged_native_review_registered_revalidation_apply_then_source_retirement';
+            runtime_sha256=(Get-FileHash -LiteralPath $inputs.packaged_host -Algorithm SHA256).Hash.ToLowerInvariant();
+            original_machine_sha256=$receipt.machine_sha256;review_sha256=(Get-FileHash -LiteralPath $authoredReview -Algorithm SHA256).Hash.ToLowerInvariant()}
+    }
     if($planned.result.payload.commit_authority_available -ne $false){throw 'Unqualified plan claimed availability'}
-    $planResponse=Join-Path $lab 'plan-response.json';[IO.File]::WriteAllText($planResponse,($output -join "`n")+"`n",$utf8)
+    $planResponse=Join-Path $lab 'plan-response.json';Write-Json $planResponse $planned
+    $reviewArguments=if($authoredProduct){@('--review-file',$authoredReview)}else{@('--response-file',$planResponse)}
     $bound=& $PythonBinary -B (Join-Path $PSScriptRoot '..\tools\usk_bundle_apply_binding.py') --request-file $inputs.request_file `
-        --response-file $planResponse --acceptance-root $drive --state-root ($drive+'setup-state') `
+        @reviewArguments --acceptance-root $drive --state-root ($drive+'setup-state') `
         --transaction-id ('install.'+$id) --applied-at ([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')) --output-dir (Join-Path $fixture 'binding')
     if($LASTEXITCODE -ne 0){throw 'Standard reviewed binding failed'}
     $binding=($bound -join "`n")|ConvertFrom-Json;$apply=Get-Content -LiteralPath $binding.apply_file -Raw|ConvertFrom-Json
@@ -1271,6 +1304,26 @@ try {
         $receipt.changed_state_revision.enrolled_at_file_time=[DateTime]::UtcNow.ToFileTimeUtc().ToString()
     }
     $receipt['service_policy']=Read-ServicePolicy
+    if($authoredProduct) {
+        $rootPolicy=(Get-Acl -LiteralPath $drive).Sddl
+        $queries=[Collections.Generic.List[object]]::new()
+        foreach($field in @('archive','target')) {
+            $changed=$apply.plan_request|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json
+            if($field -ceq 'archive'){$changed.archive.path=Join-Path $lab 'unadmitted-source.zip'}
+            else{$changed.target.root=$drive+'publication\destination\unadmitted'}
+            $queries.Add((Invoke-StandardRequest 'install_local.plan' $changed 4 -PlanningRefusal))
+        }
+        $providerPlan=Invoke-StandardRequest 'install_local.plan' $apply.plan_request
+        if(($providerPlan.result|ConvertTo-Json -Depth 64 -Compress) -cne ($planned.result|ConvertTo-Json -Depth 64 -Compress)) {
+            throw 'Authenticated provider plan differs from the complete native reviewed result'
+        }
+        if((Test-Path -LiteralPath ($drive+'setup-state')) -or (Test-Path -LiteralPath ($drive+'publication')) -or
+            (Get-Acl -LiteralPath $drive).Sddl -cne $rootPolicy){throw 'Read-only query changed setup/publication state or target policy'}
+        $receipt.authored_product['planning_refusals']=$queries
+        $receipt.authored_product['provider_plan']=$providerPlan
+        $receipt.authored_product['no_setup_or_publication_created']=$true
+        $receipt.authored_product['target_policy_unchanged']=$true
+    }
     $receipt['discovery']=Invoke-StandardRequest 'publisher.inspect' @{schema='usk.publisher_capability_request.v1';request_id='inspect.'+$id} 2
     if($receipt.discovery.status -cne 'refused' -or $receipt.discovery.error.code -cne 'publisher_capability_unavailable'){throw 'Unqualified standard discovery did not refuse explicitly'}
     $receipt['capability_protocol']='usk.publisher_capability.v5'
@@ -1303,7 +1356,8 @@ try {
         }else{$receipt.bootstrap_loss.readback}
         $receipt['constructed_bootstrap_durable_state']=New-OwnedBootstrapDurableState $ConstructedBootstrapDurableState $original
     }
-    $receipt['apply']=Invoke-StandardLifecycleRequest 'install_local.apply' $apply
+    $receipt['apply']=if($authoredProduct){Invoke-StandardRequest 'install_local.apply' $apply -AuthoredProductApply}
+        else{Invoke-StandardLifecycleRequest 'install_local.apply' $apply}
     $installed=Get-StandardLifecyclePayload $receipt.apply
     if($installed.install_id -cne $apply.plan_request.install_id -or $installed.transaction_id -cne $apply.transaction_id -or
         $installed.created_at -cne $apply.applied_at -or $installed.lifecycle_status -cne 'installed'){throw 'Standard installed state identity differs'}

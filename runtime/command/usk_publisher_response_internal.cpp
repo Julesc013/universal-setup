@@ -4,6 +4,7 @@
 #include "usk_publisher_response_internal.h"
 #include "usk_publisher_recovery_request_internal.h"
 #include <set>
+#include <filesystem>
 #include <stdexcept>
 
 namespace usk::command::detail {
@@ -224,6 +225,51 @@ void require_public_native_recovery_response(const Value& submitted, const Value
         throw std::runtime_error("native recovery completion differs from reviewed invocation");
 }
 
+void require_public_install_plan_response(const Value& submitted, const Value& observed)
+{
+    const auto closed = [](const Value& value, std::initializer_list<const char*> fields) {
+        if (value.as_object().size() != fields.size()) throw std::runtime_error("registered plan field count differs");
+        for (const char* field : fields)
+            if (!value.contains(field)) throw std::runtime_error("registered plan field is absent");
+    };
+    closed(observed, {"schema", "status", "service_name", "service_sid", "process_id",
+        "registered_admission", "request_sha256", "plan_response"});
+    const auto& endpoint = observed.at("registered_admission");
+    const auto pid = observed.at("process_id").as_unsigned();
+    if (observed.at("schema").as_string() != "usk.publisher_lab_service_observation.v1" ||
+        observed.at("status").as_string() != "pass" || !pid || pid > 0xffffffffu ||
+        observed.at("request_sha256").as_string() != usk::json::sha256_canonical(submitted) ||
+        endpoint.at("schema").as_string() != "usk.publisher_registered_admission_observation.v1" ||
+        endpoint.at("process_id").as_unsigned() != pid ||
+        endpoint.at("service_name").as_string() != observed.at("service_name").as_string() ||
+        endpoint.at("service_sid").as_string() != observed.at("service_sid").as_string() ||
+        observed.at("service_name").as_string().empty() || observed.at("service_sid").as_string().empty())
+        throw std::runtime_error("registered plan response request or endpoint differs");
+    const auto& response = observed.at("plan_response");
+    closed(response, {"schema", "status", "payload", "error"});
+    const auto& plan = response.at("payload");
+    const auto& identity = plan.at("input_identity");
+    const auto path = [](const Value& value) { return std::filesystem::u8path(value.as_string()).lexically_normal(); };
+    if (response.at("schema").as_string() != "usk.command_response.v1" ||
+        response.at("status").as_string() != "ok" || response.at("error").type() != Value::Type::null_value ||
+        submitted.at("schema").as_string() != "usk.install_local_plan_request.v1" ||
+        plan.at("schema").as_string() != "usk.install_plan.v1" ||
+        plan.at("operation").as_string() != "install_local" || plan.at("status").as_string() != "planned" ||
+        plan.at("plan_id").as_string() != submitted.at("request_id").as_string() ||
+        plan.at("created_at").as_string() != submitted.at("created_at").as_string() ||
+        !lower_hex(plan.at("plan_digest").as_string(), 64) ||
+        plan.at("required_commit_authority").as_string() != "staged_child_bound_v1" ||
+        plan.at("commit_authority_available").as_boolean() ||
+        plan.at("source").at("sha256").as_string() != submitted.at("archive").at("expected_sha256").as_string() ||
+        path(plan.at("source").at("path")) != path(submitted.at("archive").at("path")) ||
+        path(plan.at("target").at("root")) != path(submitted.at("target").at("root")) ||
+        identity.at("recipe_digest").as_string() != submitted.at("recipe").at("recipe_digest").as_string() ||
+        identity.at("provider_revision").as_string() != submitted.at("recipe").at("provider_revision").as_string() ||
+        identity.at("source_digest").as_string() != submitted.at("archive").at("expected_sha256").as_string() ||
+        !usk::json::equal_values(plan.at("component_selection"), submitted.at("recipe").at("components")))
+        throw std::runtime_error("registered plan response differs from the native request");
+}
+
 ValidatedPublisherResponse validate_publisher_response(const std::string& candidate_command,
     const Value& submitted, const std::string& response, bool retain_observation)
 {
@@ -231,6 +277,7 @@ ValidatedPublisherResponse validate_publisher_response(const std::string& candid
     const bool public_recovery = candidate_command == "recovery.inspect" ||
         candidate_command == "recovery.plan" || candidate_command == "recovery.apply";
     if (public_recovery) response_field = "recovery_response";
+    else if (candidate_command == "install_local.plan") response_field = "plan_response";
     else if (candidate_command == "install_local.apply") response_field = "apply_response";
     else if (candidate_command == "installed.verify") response_field = "verify_response";
     else if (candidate_command == "install_local.recover") response_field = "recovery_installed_response";
@@ -248,6 +295,11 @@ ValidatedPublisherResponse validate_publisher_response(const std::string& candid
         throw std::runtime_error("candidate response schema differs");
     const std::string status = observed.at("status").as_string();
     if (status == "pass") {
+        if (candidate_command == "install_local.plan") {
+            require_public_install_plan_response(submitted, observed);
+            return {PublisherResponseDisposition::completed,
+                retain_observation ? observed : observed.at("plan_response"), nullptr};
+        }
         if (public_recovery) {
             require_public_native_recovery_response(submitted, observed);
             return {PublisherResponseDisposition::completed,

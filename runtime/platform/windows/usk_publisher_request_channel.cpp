@@ -251,6 +251,13 @@ std::string PublisherRequestChannel::authenticated_canonical_request() const {
         throw std::runtime_error("authenticated request binding is unavailable or changed");
     return usk::json::canonical(usk::json::parse(state.received_request));
 }
+void PublisherRequestChannel::require_active_request() const {
+    (void)authenticated_canonical_request();
+    const auto& state = *state_;
+    const DWORD cancelled = state.stop ? WaitForSingleObject(state.stop, 0) : WAIT_TIMEOUT;
+    if (cancelled != WAIT_TIMEOUT || !detail::channel_io::remaining(state.until))
+        throw std::runtime_error("publisher read-only request cancelled or expired");
+}
 usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HANDLE object) const {
     const usk::diagnostics::DurationCounter elapsed(
         usk::diagnostics::Counter::authenticated_access_elapsed_us,

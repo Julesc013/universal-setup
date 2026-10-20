@@ -443,7 +443,10 @@ static OneShotResult run_publisher_request(const std::string& request_json,
         const std::string command = input.at("command").as_string();
         candidate_command = command;
         std::string expected_schema;
-        if (command == "install_local.apply") {
+        if (command == "install_local.plan" && !retain_observation) {
+            expected_schema = "usk.install_local_plan_request.v1";
+            response_field = "plan_response";
+        } else if (command == "install_local.apply") {
             expected_schema = "usk.install_local_apply_request.v1";
             response_field = "apply_response";
         } else if (command == "installed.verify") {
@@ -476,7 +479,7 @@ static OneShotResult run_publisher_request(const std::string& request_json,
             return failure(request_id, "command_unavailable");
         }
         const bool inspection = command == "publisher.inspect";
-        const bool read_only = inspection || (public_recovery && command != "recovery.apply");
+        const bool read_only = inspection || command == "install_local.plan" || (public_recovery && command != "recovery.apply");
         if (input.at("dry_run").as_boolean() != read_only ||
             input.at("payload").type() != Value::Type::object ||
             input.at("payload").at("schema").as_string() != expected_schema)

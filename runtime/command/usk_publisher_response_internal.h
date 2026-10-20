@@ -24,6 +24,10 @@ usk::json::Value public_native_recovery_document(const usk::json::Value& inspect
     const usk::json::Value& binding, const usk::json::Value* plan_request);
 void require_public_native_recovery_response(const usk::json::Value& submitted,
     const usk::json::Value& observation);
+// Correlates the complete request and original registered endpoint; no digest
+// of a public projection is substituted for the native plan digest.
+void require_public_install_plan_response(const usk::json::Value& submitted,
+    const usk::json::Value& observation);
 
 enum class PublisherResponseDisposition { completed, refused, recovery_required };
 struct ValidatedPublisherResponse {
