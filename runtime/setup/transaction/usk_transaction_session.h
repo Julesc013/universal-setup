@@ -69,6 +69,22 @@ struct RecoveryInspection {
     std::vector<std::string> available_actions;
 };
 
+// Supplied bounded journal bytes only. There are deliberately no observed
+// namespace flags or available actions here. History validates data binding;
+// the native inspector must separately prove membership, custody, currentness,
+// lease/effect history and every action-specific precondition before use.
+struct TransactionJournalHistory {
+    std::string current_state;
+    std::string journal_digest;
+    std::string recorded_at;
+    std::string snapshot_sha256;
+    StreamJournal stream;
+    bool commit_started = false;
+    bool commit_confirmed = false;
+    bool retained_stream_cleanup = false;
+    bool retained_commit_cleanup = false;
+};
+
 // Historical metadata only. No current namespace facts, recovery actions or
 // mutation authority are inferred from an already completed journal.
 struct CompletedTransactionHistory {
@@ -127,6 +143,11 @@ public:
         FaultInjector injector = {});
     static RecoveryInspection inspect_recovery(const TransactionSpec& spec);
     static CompletedTransactionHistory inspect_completed_history(const TransactionSpec& spec);
+    // No path is opened or observed, and no replay/lease authority is granted.
+    // Supports unfinished and terminal histories without conflating missing
+    // namespace observations with an observed absence.
+    static TransactionJournalHistory decode_journal_history(
+        const TransactionSpec& spec, const std::string& text);
     // Historical metadata from supplied bounded bytes only. Does not open
     // paths, observe current payload/revision, select replay or grant effects.
     static CompletedTransactionHistory decode_completed_history(

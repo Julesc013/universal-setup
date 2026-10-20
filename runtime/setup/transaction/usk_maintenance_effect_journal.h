@@ -47,6 +47,10 @@ struct MaintenanceEffectInspection {
     std::vector<CompletedMaintenanceEffect> completed;
 };
 
+// Bounded supplied-byte validation only, including an interrupted prefix
+// before the first effect record. Opens no path and grants no authority.
+void require_maintenance_source_context(const TransactionSpec& spec, const std::string& text);
+
 // One bounded metadata sequence. The caller independently proves complete
 // native membership and directory identity; this reader opens no path and
 // grants no custody, replay, currentness or effect authority. The declared

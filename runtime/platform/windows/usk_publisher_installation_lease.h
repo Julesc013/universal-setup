@@ -5,6 +5,7 @@
 #if defined(_WIN32)
 #include "usk_install_lease.h"
 #include "usk_publisher_volume_operation_guard.h"
+#include <cstdint>
 #include <functional>
 #include <memory>
 namespace usk::transaction { struct TransactionSpec; }
@@ -71,6 +72,24 @@ usk::json::Value observe_publisher_lease_holder();
 usk::json::Value observe_publisher_lease_root_identity(HANDLE root);
 std::string observe_publisher_install_state_revision(HANDLE state_root,
     const std::string& install_id, const std::string& service_sid);
+// Data from an existing-only guarded read/recheck of ordered committed g
+// records. The digest hashes their canonical JSON array, not raw file bytes
+// or namespace identity. Count excludes the pending directory; its children
+// are NOT observed or hashed here. The native inspector/apply must separately
+// check pending-work eligibility, current state/revision and holder liveness.
+// This neither acquires a lease nor permits recovery, and nothing keeps the
+// data current after return. A reviewed plan binds these observations; apply
+// must reobserve its complete required state and acquire its own lease.
+struct PublisherInstallLeaseHistoryObservation {
+    std::string committed_records_sha256;
+    usk::json::Value latest_committed_record;
+    std::optional<usk::json::Value> original_completion;
+    std::uint64_t committed_record_count = 0;
+};
+PublisherInstallLeaseHistoryObservation observe_publisher_installation_lease_history(
+    HANDLE state_root, const std::wstring& volume_root, const std::wstring& service_name,
+    const PublisherInstallOperationGuard& guard, const usk::json::Value& original_active);
+
 // Existing-only protected journal inspection under the actual installation
 // guard. Creates no directory, pending file or generation. The original active
 // record must be an exact member; an old completion is independent of today's
@@ -153,6 +172,8 @@ public:
     // guarded original intent. Supplied observations confer no effect rights.
     void require_original_recovery_intent_observation(const usk::json::Value&) const;
     void require_fence() const;
+    // Refuse a writer-capable context even when its current operation is idle.
+    void require_read_only_inspection() const;
     // Read-only inspection of this operation's reserved, pre-candidate
     // bootstrap. Only an exact original sourceful apply may preserve it.
     bool bootstrap_resume_required() const;

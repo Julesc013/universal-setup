@@ -879,6 +879,117 @@ void effect_execution_record_controls() {
             else require_publisher_effect_original_maintenance_selection(v, min, recovery_broker);
         };
         validate_selection(selection, minimum);
+        // Public requests keep their complete authenticated identity. These
+        // are retained-data controls, with no actual native selection/effect.
+        Value public_inspection(Value::Object{{"schema", Value("usk.recovery_inspect_request.v1")},
+            {"request_id", Value("inspect.public.synthetic")}, {"install_id", minimum.at("install_id")},
+            {"transaction_id", minimum.at("transaction_id")}, {"plan_id", apply.at("reviewed_plan_id")},
+            {"plan_digest", apply.at("reviewed_plan_digest")}, {"operation", Value(operation)},
+            {"target_root", Value(install || operation == "move" ? "Q:\\payload" :
+                "Q:\\.usk-" + operation + "-maintenance.synthetic")}});
+        if (install) public_inspection.as_object().emplace("install_plan_request", plan_request);
+        const Value public_plan(Value::Object{{"schema", Value("usk.recovery_plan_request.v1")},
+            {"inspection", public_inspection}, {"recovery_plan_id", Value("recovery.plan.synthetic")},
+            {"created_at", Value("2026-10-20T00:00:00Z")}});
+        const Value public_apply(Value::Object{{"schema", Value("usk.recovery_apply_request.v1")},
+            {"plan_request", public_plan}, {"reviewed_plan_id", Value("recovery.plan.synthetic")},
+            {"reviewed_plan_digest", Value(std::string(64, 'f'))}, {"selected_action", Value("finalize")},
+            {"applied_at", Value("2026-10-20T00:00:01Z")}, {"confirmation", Value("APPLY")}});
+        const auto bind_public = [&](const Value& request) {
+            const auto digest = usk::json::sha256_canonical(request);
+            auto bound_broker = recovery_broker;
+            bound_broker.as_object().at("request_sha256") = Value(digest);
+            bound_broker.as_object().at("custody").as_object().at("request_sha256") = Value(digest);
+            auto bound_selection = selection;
+            bound_selection.as_object().at("schema") = Value(install ?
+                "usk.publisher_effect_original_installation_selection.v2" :
+                "usk.publisher_effect_original_maintenance_selection.v2");
+            bound_selection.as_object().at("scope") = Value(
+                "actual_public_request_to_native_protected_original_and_held_enrollment");
+            bound_selection.as_object().at("intent").as_object().at("transport_request_sha256") = Value(digest);
+            return std::make_pair(std::move(bound_broker), std::move(bound_selection));
+        };
+        const auto public_selection = [&](const Value& request, const Value& selected, const Value& bound_broker) {
+            if (install) require_publisher_effect_original_installation_selection(selected, request, bound_broker);
+            else require_publisher_effect_original_maintenance_selection(selected, request, bound_broker);
+        };
+        const auto public_refuses = [&](const Value& request, const Value& selected, const Value& bound_broker) {
+            bool refused = false;
+            try { public_selection(request, selected, bound_broker); } catch (const std::exception&) { refused = true; }
+            check(refused, "public recovery selection lost its full request or original binding");
+        };
+        for (const auto& request : {public_inspection, public_plan, public_apply}) {
+            const auto bound = bind_public(request);
+            public_selection(request, bound.second, bound.first);
+            auto prefix_only = bound.second;
+            prefix_only.as_object().at("intent").as_object().at("transport_request_sha256") = Value(minimum_sha);
+            public_refuses(request, prefix_only, bound.first);
+            auto legacy = bound.second;
+            legacy.as_object().at("schema") = selection.at("schema");
+            public_refuses(request, legacy, bound.first);
+            legacy = bound.second;
+            legacy.as_object().at("scope") = selection.at("scope");
+            public_refuses(request, legacy, bound.first);
+            const Value reply(Value::Object{{"schema", Value("usk.publisher_effect_broker_readback_response.v5")},
+                {"kind", Value(install ? "original_installation_recovery_bracket" : "original_maintenance_recovery_bracket")},
+                {"profile_before", bound.first}, {"profile", bound.first}, {"result", bound.second}});
+            require_publisher_effect_selection_readback(reply, request);
+            auto changed_endpoint = reply;
+            changed_endpoint.as_object().at("profile_before").as_object().at("request_sha256") = Value(minimum_sha);
+            changed_endpoint.as_object().at("profile_before").as_object().at("custody").as_object()
+                .at("request_sha256") = Value(minimum_sha);
+            bool changed_refused = false;
+            try { require_publisher_effect_selection_readback(changed_endpoint, request); }
+            catch (const std::exception&) { changed_refused = true; }
+            check(changed_refused, "public recovery bracket accepted a different request before reading");
+        }
+        const auto bound_apply = bind_public(public_apply);
+        for (unsigned variant = 0; variant != 7; ++variant) {
+            auto changed = public_apply;
+            if (variant == 0) changed.as_object().at("selected_action") = Value("rollback");
+            if (variant == 1) changed.as_object().at("reviewed_plan_digest") = Value(std::string(64, 'a'));
+            if (variant == 2) changed.as_object().at("applied_at") = Value("2026-10-20T00:00:02Z");
+            auto& changed_plan = changed.as_object().at("plan_request").as_object();
+            if (variant == 3) changed_plan.at("created_at") = Value("2026-10-20T00:00:03Z");
+            auto& changed_inspection = changed_plan.at("inspection").as_object();
+            if (variant == 4) changed_inspection.at("target_root") = Value("Q:\\other");
+            if (variant == 5) changed_inspection.at("transaction_id") = Value("another.transaction");
+            if (variant == 6) changed_inspection.at("request_id") = Value("another.request");
+            public_refuses(changed, bound_apply.second, bound_apply.first);
+        }
+        // Rebinding a well-formed different action describes another request;
+        // this metadata relation grants neither action nor reviewed-plan truth.
+        auto rollback = public_apply; rollback.as_object().at("selected_action") = Value("rollback");
+        const auto bound_rollback = bind_public(rollback);
+        public_selection(rollback, bound_rollback.second, bound_rollback.first);
+        const auto coherent_refuses = [&](const Value& changed) {
+            const auto bound = bind_public(changed);
+            public_refuses(changed, bound.second, bound.first);
+        };
+        auto changed_public = public_inspection;
+        changed_public.as_object().at("plan_id") = Value("other.original.plan");
+        coherent_refuses(changed_public);
+        changed_public = public_inspection;
+        changed_public.as_object().at("plan_digest") = Value(std::string(64, 'a'));
+        coherent_refuses(changed_public);
+        changed_public = public_apply; changed_public.as_object().at("confirmation") = Value("DENY");
+        coherent_refuses(changed_public);
+        changed_public = public_apply; changed_public.as_object().at("selected_action") = Value("resume");
+        coherent_refuses(changed_public);
+        changed_public = public_apply; changed_public.as_object().at("reviewed_plan_id") = Value("other.recovery.plan");
+        coherent_refuses(changed_public);
+        changed_public = public_plan; changed_public.as_object().emplace("authority", Value(true));
+        coherent_refuses(changed_public);
+        changed_public = public_inspection; changed_public.as_object().at("target_root") = Value("relative");
+        coherent_refuses(changed_public);
+        changed_public = public_inspection; changed_public.as_object().at("schema") = Value("usk.recovery_inspect_request.v2");
+        coherent_refuses(changed_public);
+        if (install) {
+            changed_public = public_inspection;
+            changed_public.as_object().at("install_plan_request").as_object().at("plan_id") = Value("other.plan.request");
+            coherent_refuses(changed_public);
+        }
+
         // New closed selection bracket: retained-data controls only. BOTH
         // original broker endpoints and the exact enrolled request must join;
         // a parsed tuple cannot manufacture the concrete native owner.

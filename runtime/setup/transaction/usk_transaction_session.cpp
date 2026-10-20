@@ -1663,6 +1663,18 @@ TransactionJournalMetadata decode_transaction_metadata(
 }
 } // namespace
 
+TransactionJournalHistory TransactionSession::decode_journal_history(
+    const TransactionSpec& input, const std::string& text)
+{
+    const auto spec = normalized_inspection_spec(input);
+    auto metadata = decode_transaction_metadata(spec, text);
+    auto& inspection = metadata.inspection;
+    return {std::move(inspection.current_state), std::move(inspection.journal_digest),
+        std::move(inspection.recorded_at), std::move(inspection.snapshot_sha256),
+        std::move(metadata.stream), inspection.commit_started, inspection.commit_confirmed,
+        metadata.retained_stream, metadata.retained_commit};
+}
+
 CompletedTransactionHistory TransactionSession::decode_completed_history(
     const TransactionSpec& input, const std::string& text)
 {

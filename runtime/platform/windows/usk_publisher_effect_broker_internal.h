@@ -76,10 +76,12 @@ private:
 };
 PublisherWorkerTokenContext publisher_effect_worker_record_context(const usk::json::Value&);
 PublisherServiceObservation publisher_effect_broker_service_record(const usk::json::Value&);
+// The actual complete authenticated request is required. Public selections
+// use a distinct v2 data family and hash every field; lookup IDs grant nothing.
 void require_publisher_effect_original_maintenance_selection(const usk::json::Value& selection,
-    const usk::json::Value& minimal_request, const usk::json::Value& broker_record);
+    const usk::json::Value& actual_request, const usk::json::Value& broker_record);
 void require_publisher_effect_original_installation_selection(const usk::json::Value& selection,
-    const usk::json::Value& minimal_request, const usk::json::Value& broker_record);
+    const usk::json::Value& actual_request, const usk::json::Value& broker_record);
 // Closed v5 retained-data validation of the selected operation against BOTH
 // actual broker endpoints. Parsing cannot create an execution route or proof.
 void require_publisher_effect_selection_readback(const usk::json::Value& reply,
