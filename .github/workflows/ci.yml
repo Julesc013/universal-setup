@@ -214,6 +214,28 @@ jobs:
           name: usk-wu007-public-sdk-lifecycle-probe
           path: ${{ runner.temp }}\usk-wu007-public-sdk-lifecycle-probe.json
           if-no-files-found: error
+      # Measure the failing public SDK route separately from private recovery
+      # and the release-default SDK cohort. Retention never redeems a timeout.
+      - name: Observe public C SDK interrupted recovery CPU phases
+        id: sdk_recovery_diagnostic
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: pwsh
+        run: ./tests/windows_publisher_maintenance_thread_trace_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-public-sdk-recovery-diagnostic-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -RecoveryCpuDiagnostic -SdkRecoveryQualification
+      - name: Retain public C SDK recovery diagnostic observation
+        if: ${{ always() && (steps.sdk_recovery_diagnostic.outcome == 'success' || steps.sdk_recovery_diagnostic.outcome == 'failure' || steps.sdk_recovery_diagnostic.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu007-public-sdk-recovery-diagnostic-probe
+          path: ${{ runner.temp }}\usk-wu007-public-sdk-recovery-diagnostic-probe.json
+          if-no-files-found: error
+      - name: Retain bounded public C SDK recovery CPU diagnostic
+        if: ${{ always() && (steps.sdk_recovery_diagnostic.outcome == 'success' || steps.sdk_recovery_diagnostic.outcome == 'failure' || steps.sdk_recovery_diagnostic.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu007-public-sdk-recovery-diagnostic-trace
+          path: ${{ runner.temp }}\usk-wu007-sdk-recovery-trace\retained\*
+          if-no-files-found: error
+          retention-days: 7
       # Each cohort creates its own owned volume, service and request. A failure
       # in another journey must not suppress these independent observations.
       # The actor-qualified build is required; every failure still fails this

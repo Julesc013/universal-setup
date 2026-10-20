@@ -136,7 +136,7 @@ function Assert-IndependentLegacyRegisteredRetention {
     } else {
         if($null -ne $native.protected_anchors -or $null -ne $native.apply_response -or
             $native.recovery_observation.decision -cnotin @('snapshot_only_completed_forward',
-                'installed_state_completed_forward','already_visible_bound')) {
+                'installed_state_completed_forward','already_visible_bound','visible_bound_forward')) {
             throw 'Legacy recovery baseline has an unrecognized native response shape'
         }
         $anchors=$native.recovery_observation.protected_anchors

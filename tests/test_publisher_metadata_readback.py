@@ -116,7 +116,9 @@ foreach($case in @('legacy','admitted_missing_ledger','command_mismatch','wrong_
  'broker_marker','before_coordination','after_coordination','empty','duplicate',
  'missing','additional','changed','wrong_root','wrong_observer','cleanup_unknown',
  'original_drift','wrong_installed','stale_effect','verify_effect','initial_no_anchors',
- 'recover_snapshot','recover_completed','recover_reentry','recover_unknown','recover_wrong_volume',
+ 'recover_snapshot','recover_completed','recover_reentry','recover_forward','recover_forward_case',
+ 'recover_forward_anchors','recover_forward_apply','recover_forward_installed','recover_forward_operation',
+ 'recover_unknown','recover_wrong_volume',
  'recover_mixed','recover_wrong_installed','recover_impossible_guard','recover_absent_payload','recover_unheld_false','recover_held_null','recover_missing_guard_field')) {
  $receipt=$base|ConvertFrom-Json
  $receipt|Add-Member service ('USK_PUB_'+('1'*32))
@@ -152,7 +154,8 @@ foreach($case in @('legacy','admitted_missing_ledger','command_mismatch','wrong_
  $receipt.native|Add-Member volume_file_id_serial ([Convert]::ToUInt64($nativeRoot.Substring(0,16),16))
  $receipt.native|Add-Member apply_response ([pscustomobject]@{
   status='ok';payload=($installed|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json)})
- $recover=$case -cin @('recover_snapshot','recover_completed','recover_reentry','recover_unknown',
+ $recover=$case -cin @('recover_snapshot','recover_completed','recover_reentry','recover_forward','recover_forward_case',
+  'recover_forward_anchors','recover_forward_apply','recover_forward_installed','recover_forward_operation','recover_unknown',
   'recover_wrong_volume','recover_mixed','recover_wrong_installed','recover_impossible_guard',
   'recover_absent_payload','recover_unheld_false','recover_held_null','recover_missing_guard_field')
  if($recover) {
@@ -161,6 +164,8 @@ foreach($case in @('legacy','admitted_missing_ledger','command_mismatch','wrong_
   $decision=switch($case) {
    recover_snapshot {'snapshot_only_completed_forward'}
    recover_completed {'installed_state_completed_forward'}
+   recover_forward_case {'Visible_bound_forward';break}
+   {$_ -clike 'recover_forward*'} {'visible_bound_forward'}
    recover_unknown {'unexpected_recovery'}
    default {'already_visible_bound'}
   }
@@ -195,6 +200,10 @@ foreach($case in @('legacy','admitted_missing_ledger','command_mismatch','wrong_
    recover_wrong_volume {$receipt.native.volume_file_id_serial=[uint64]1}
    recover_mixed {$receipt.native|Add-Member protected_anchors @{boundary_file_id=$nativeRoot}}
    recover_wrong_installed {$receipt.native.recovery_installed_response.payload.transaction_id='changed'}
+   recover_forward_anchors {$receipt.native.recovery_observation|Add-Member protected_anchors @{boundary_file_id=$nativeRoot}}
+   recover_forward_apply {$receipt.native.apply_response=$receipt.native.recovery_installed_response}
+   recover_forward_installed {$receipt.native.recovery_installed_response.payload.transaction_id='changed'}
+   recover_forward_operation {$receipt.registered_execution_profile.original_operation='initial_install'}
    recover_impossible_guard {$receipt.native.install_operation_guard_held=$false}
    recover_absent_payload {$receipt.native.recovery_installed_response=$null}
    recover_unheld_false {$receipt.native.install_operation_guard_held=$false;$receipt.native.install_operation_guard_abandoned=$false}
@@ -246,13 +255,14 @@ $rows|ConvertTo-Json -Depth 12 -Compress
                                     env=environment, capture_output=True, text=True, timeout=60)
             self.assertEqual(result.returncode, 0, result.stderr[-4096:])
             rows = json.loads(result.stdout)
-            self.assertEqual(len(rows), 32)
+            self.assertEqual(len(rows), 38)
             for row in rows:
                 expected = {'legacy': 3, 'recover_snapshot': 3, 'recover_completed': 3,
-                            'recover_reentry': 3, 'stale_effect': 1, 'verify_effect': 2}.get(row['case'], 0)
+                            'recover_reentry': 3, 'recover_forward': 3,
+                            'stale_effect': 1, 'verify_effect': 2}.get(row['case'], 0)
                 self.assertEqual(row['completed'], expected, row)
                 self.assertIs(row['broker_proof_present'], False, row)
-                if row['case'] in ('legacy', 'recover_snapshot', 'recover_completed', 'recover_reentry'):
+                if row['case'] in ('legacy', 'recover_snapshot', 'recover_completed', 'recover_reentry', 'recover_forward'):
                     self.assertIsNone(row['failure'])
                     for proof in row['legacy']:
                         self.assertEqual(proof['status'], 'unchanged_legacy_endpoints')
@@ -265,7 +275,7 @@ $rows|ConvertTo-Json -Depth 12 -Compress
                         self.assertEqual(proof['original_install_guard_held'], row['case'] != 'recover_completed')
                         self.assertIs(proof['original_install_guard_abandoned'],
                                       None if row['case'] == 'recover_completed' else
-                                      row['case'] in ('recover_snapshot', 'recover_reentry'))
+                                      row['case'] in ('recover_snapshot', 'recover_reentry', 'recover_forward'))
                 else:
                     self.assertIsNotNone(row['failure'], row)
                     if row['case'] == 'admitted_missing_ledger':
