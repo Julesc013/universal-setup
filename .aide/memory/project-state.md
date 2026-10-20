@@ -6,11 +6,11 @@ job. Fixed20GiB stop and old VM retirement are superseded. Windows10 VM remains
 shared/untouched. Daily reviewed dev integration; qualified weekly main
 promotion, publication and consumer adoption remain separate obligations.
 
-Accepted dev95801579bbaf621e436413619966e8462c44f679/tree
-1e983e757aad605d356f5162f8426ca27ad4f259 integrated PR294 after independent
-committed review and all7core39372487235/1 PASS. Accepted-dev push39374113983/1
-also all7corePASS, publisherSKIPPED. Mainc048f7f1ae2e5922c15a08ee572bdafc29027c63
-remains unqualified. Current successor starts from that accepted dev.
+Accepted dev cc2444e84a1e3bac485ee00e44d6d53f0ad60037/tree
+f1da20be44bcec36d8c236b0b2eedc5f2961c401 integrated PR295 after independent
+committed review,all7core39379530326/1 PASS and fresh live merge gate.
+Accepted-dev push39381149013/1 and full publisher39379530326/1 remain watched.
+Main c048f7f1ae2e5922c15a08ee572bdafc29027c63 remains unqualified.
 
 PR294 full hosted run39372487235/1 is terminalFAIL solely in publisher job;
 all7corePASS. Fresh public CSDK install/maintenance21, untraced fresh23, traced
@@ -34,8 +34,19 @@ OFF rawSHAcc685b92d5883d5e03017b8e803ce503e569fe4f3be912b059bd12ddedac77ca.
 Other publisher failures remain distinct. Bootstrap-loss35 failed before its
 required interruption because the observer rejected an effect-child candidate's
 image/command/birth. The captured original client exited0, but the required
-kill/preservation journey was not exercised and is unqualified. Investigate
-the bounded candidate-identity selection; do not weaken the kill predicate.
+kill/preservation journey was not exercised and is unqualified. Observer now
+retries incomplete CIM metadata only before native construction. Nonpositive/parent PID and known exact-image mismatch still refuse
+immediately.
+Complete metadata enters unchanged held parent/child,birth,native ancestry/
+image,private argv,access and handle checks. Existing120s loop/liveness,
+kill/window/closure and post-begin failure paths remain unchanged. A finite
+last-row presence projection records actual CIM fields without authority.
+Existing apply-control driver executes19 actual AST preselection cases,
+including all7 incomplete combinations,complete row,invalid PID,known image
+mismatch,zero/ambiguous candidates and no provisional observer/outcome.
+One-row cases require the diagnostic projection. Actual full fixture checks
+pass PS5.1/PS7; native apply-control CTest,inventory7 and strict9 PASS.
+Actual missing-field cause and hosted cure remain unestablished.
 
 Legacy registered-service64 completes
 first native installation/terminal stop, retires sources, then second product
@@ -46,7 +57,7 @@ intended prestate or authorize fresh safe-looking ACL. Later legacy probes
 stopped before their scenarios on occupied C:\USK-Lab; preserve failed material
 and distinguish the cascade from independent runtime defects.
 
-Current diagnostic increment exposes the already retained selected transition:
+Integrated PR295 diagnostic increment exposes the already retained selected transition:
 provenance, <=2048-byte original prefix, full <=8192-byte length/canonical-string
 SHA/truncation and intended-policy SHA. Native call order and every admission
 predicate/effect remain unchanged. Original refusal is constructed before
@@ -65,7 +76,7 @@ PDB. Inclusive original-record/authority and durable-record ancestry does not
 establish removable cost. No new runtime optimization, deadline or safety
 reduction follows from this measurement. Old eight-query preview remains HOLD.
 
-Public SDK recovery decoder/native read-only history foundations are integrated;
+Public SDK decoder,broker full-request/v2 selectors and native history exist;
 ordinary native recovery.inspect/plan/apply still need connection. Inspection
 must use existing-only owner/history before any writer lease; preserve all
 reviewed bindings and selected finalize/rollback action through native dispatch,
