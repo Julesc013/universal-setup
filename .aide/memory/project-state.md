@@ -35,8 +35,8 @@ Other publisher failures remain distinct. Bootstrap-loss35 failed before its
 required interruption because the observer rejected an effect-child candidate's
 image/command/birth. The captured original client exited0, but the required
 kill/preservation journey was not exercised and is unqualified. Observer now
-retries incomplete CIM metadata only before native construction. Positive
-distinct PID and known exact-image mismatch still refuse immediately.
+retries incomplete CIM metadata only before native construction. Nonpositive/parent PID and known exact-image mismatch still refuse
+immediately.
 Complete metadata enters unchanged held parent/child,birth,native ancestry/
 image,private argv,access and handle checks. Existing120s loop/liveness,
 kill/window/closure and post-begin failure paths remain unchanged. A finite
