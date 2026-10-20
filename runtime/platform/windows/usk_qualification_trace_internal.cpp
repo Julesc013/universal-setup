@@ -41,6 +41,28 @@ bool final_path_phase(usk::diagnostics::Phase phase) noexcept {
     default: return false;
     }
 }
+// INFO retains the request, operation, authority and complete record brackets.
+// VERBOSE selects their inner timing detail. Filtering is diagnostic only:
+// the sink reports it as not submitted, without consuming an event slot.
+bool detailed_phase(usk::diagnostics::Phase phase) noexcept {
+    using usk::diagnostics::Phase;
+    switch (phase) {
+    case Phase::child_native_before:
+    case Phase::child_native_after:
+    case Phase::broker_collect:
+    case Phase::record_first_round:
+    case Phase::record_byte_read:
+    case Phase::record_second_round:
+    case Phase::record_final_validation:
+    case Phase::record_readiness:
+    case Phase::record_result_receive:
+    case Phase::record_result_validation:
+    case Phase::record_owner_validation:
+    case Phase::broker_original_selection:
+        return true;
+    default: return false;
+    }
+}
 bool claim_event(usk::diagnostics::Phase phase) noexcept {
     const bool final = final_path_phase(phase);
     auto& emitted = final ? final_emitted : ordinary_emitted;
@@ -53,35 +75,41 @@ bool claim_event(usk::diagnostics::Phase phase) noexcept {
 }
 bool write_event(const usk::diagnostics::Event& event) noexcept {
     const DWORD error = GetLastError();
-    if (!TraceLoggingProviderEnabled(usk_qualification_provider, WINEVENT_LEVEL_INFO, 1) ||
+    const bool detailed = detailed_phase(event.phase);
+    const UCHAR level = static_cast<UCHAR>(detailed ? WINEVENT_LEVEL_VERBOSE : WINEVENT_LEVEL_INFO);
+    if (!TraceLoggingProviderEnabled(usk_qualification_provider, level, 1) ||
         !claim_event(event.phase)) {
         SetLastError(error);
         return false;
     }
     const auto& c = event.counters.totals;
-    TraceLoggingWrite(usk_qualification_provider, "Phase",
-        TraceLoggingLevel(WINEVENT_LEVEL_INFO), TraceLoggingKeyword(1),
-        TraceLoggingUInt32(static_cast<std::uint32_t>(event.phase), "PhaseId"),
-        TraceLoggingUInt64(event.scope_id, "ScopeId"), TraceLoggingBool(event.exiting, "Exiting"),
-        TraceLoggingBool(event.unwinding, "Unwinding"), TraceLoggingBool(event.sink_selected, "SinkSelectedAtEmission"),
-        TraceLoggingUInt64(event.elapsed_us, "ElapsedUs"),
-        TraceLoggingUInt64(c[0], "HeldFileInstances"), TraceLoggingUInt64(c[1], "HashCalls"),
-        TraceLoggingUInt64(c[2], "HashSuccesses"), TraceLoggingUInt64(c[3], "HashBytes"),
-        TraceLoggingUInt64(c[4], "ExactReadCalls"), TraceLoggingUInt64(c[5], "ExactReadBytes"),
-        TraceLoggingUInt64(c[6], "ProviderOpenCalls"), TraceLoggingUInt64(c[7], "ProviderOpenSuccesses"),
-        TraceLoggingUInt64(c[8], "WireSendPackets"), TraceLoggingUInt64(c[9], "WireSendBytes"),
-        TraceLoggingUInt64(c[10], "WireReceivePackets"), TraceLoggingUInt64(c[11], "WireReceiveBytes"),
-        TraceLoggingUInt64(c[12], "AccessCheckCalls"), TraceLoggingUInt64(c[13], "NotSubmittedEvents"),
-        TraceLoggingUInt64(c[14], "HashElapsedUs"), TraceLoggingUInt64(c[15], "WireReceiveElapsedUs"),
-        TraceLoggingUInt64(c[16], "WireReadElapsedUs"), TraceLoggingUInt64(c[17], "WireWriteElapsedUs"),
-        TraceLoggingUInt64(c[18], "WireParseElapsedUs"), TraceLoggingUInt64(c[19], "WirePeerElapsedUs"),
-        TraceLoggingBool(event.counters.saturated, "CountersSaturated"),
-        TraceLoggingBool(false, "NativeWriteResultAvailable"),
-        // Append fields: preserve all existing ordinals and the old payload prefix.
-        TraceLoggingUInt64(c[20], "AuthenticatedAccessCalls"), TraceLoggingUInt64(c[21], "AuthenticatedAccessElapsedUs"),
-        TraceLoggingUInt64(c[22], "ClientTokenFactsCalls"), TraceLoggingUInt64(c[23], "ClientTokenFactsElapsedUs"),
-        TraceLoggingUInt64(c[24], "HandleObservationCalls"), TraceLoggingUInt64(c[25], "HandleObservationElapsedUs"),
+#define USK_WRITE_QUALIFICATION_PHASE(level) \
+    TraceLoggingWrite(usk_qualification_provider, "Phase", \
+        TraceLoggingLevel(level), TraceLoggingKeyword(1), \
+        TraceLoggingUInt32(static_cast<std::uint32_t>(event.phase), "PhaseId"), \
+        TraceLoggingUInt64(event.scope_id, "ScopeId"), TraceLoggingBool(event.exiting, "Exiting"), \
+        TraceLoggingBool(event.unwinding, "Unwinding"), TraceLoggingBool(event.sink_selected, "SinkSelectedAtEmission"), \
+        TraceLoggingUInt64(event.elapsed_us, "ElapsedUs"), \
+        TraceLoggingUInt64(c[0], "HeldFileInstances"), TraceLoggingUInt64(c[1], "HashCalls"), \
+        TraceLoggingUInt64(c[2], "HashSuccesses"), TraceLoggingUInt64(c[3], "HashBytes"), \
+        TraceLoggingUInt64(c[4], "ExactReadCalls"), TraceLoggingUInt64(c[5], "ExactReadBytes"), \
+        TraceLoggingUInt64(c[6], "ProviderOpenCalls"), TraceLoggingUInt64(c[7], "ProviderOpenSuccesses"), \
+        TraceLoggingUInt64(c[8], "WireSendPackets"), TraceLoggingUInt64(c[9], "WireSendBytes"), \
+        TraceLoggingUInt64(c[10], "WireReceivePackets"), TraceLoggingUInt64(c[11], "WireReceiveBytes"), \
+        TraceLoggingUInt64(c[12], "AccessCheckCalls"), TraceLoggingUInt64(c[13], "NotSubmittedEvents"), \
+        TraceLoggingUInt64(c[14], "HashElapsedUs"), TraceLoggingUInt64(c[15], "WireReceiveElapsedUs"), \
+        TraceLoggingUInt64(c[16], "WireReadElapsedUs"), TraceLoggingUInt64(c[17], "WireWriteElapsedUs"), \
+        TraceLoggingUInt64(c[18], "WireParseElapsedUs"), TraceLoggingUInt64(c[19], "WirePeerElapsedUs"), \
+        TraceLoggingBool(event.counters.saturated, "CountersSaturated"), \
+        TraceLoggingBool(false, "NativeWriteResultAvailable"), \
+        /* Append fields; preserve existing ordinals and payload prefix. */ \
+        TraceLoggingUInt64(c[20], "AuthenticatedAccessCalls"), TraceLoggingUInt64(c[21], "AuthenticatedAccessElapsedUs"), \
+        TraceLoggingUInt64(c[22], "ClientTokenFactsCalls"), TraceLoggingUInt64(c[23], "ClientTokenFactsElapsedUs"), \
+        TraceLoggingUInt64(c[24], "HandleObservationCalls"), TraceLoggingUInt64(c[25], "HandleObservationElapsedUs"), \
         TraceLoggingUInt64(c[26], "HandleNameCalls"), TraceLoggingUInt64(c[27], "HandleNameElapsedUs"));
+    if (detailed) { USK_WRITE_QUALIFICATION_PHASE(WINEVENT_LEVEL_VERBOSE); }
+    else { USK_WRITE_QUALIFICATION_PHASE(WINEVENT_LEVEL_INFO); }
+#undef USK_WRITE_QUALIFICATION_PHASE
     // TraceLoggingWrite returns void. Submission is not confirmation of ETW
     // retention, coverage or native write success; analyse actual capture loss.
     SetLastError(error);

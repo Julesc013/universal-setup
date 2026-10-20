@@ -52,12 +52,18 @@ class PublisherWprProfileCompatibilityTests(unittest.TestCase):
             self.assertEqual(len(events), 1)
             self.assertEqual(nodes[events[0].attrib["Value"]].attrib["Name"],
                              "7e4a4d0e-4d53-4c2d-93a3-6ba61cf46711")
+            self.assertEqual(nodes[events[0].attrib["Value"]].attrib["Level"], "4")
+            self.assertEqual([keyword.attrib["Value"] for keyword in
+                              nodes[events[0].attrib["Value"]].findall("Keywords/Keyword")],
+                             ["0x1"])
             event_collector = nodes[event_ref.attrib["Value"]]
             self.assertEqual(int(event_collector.find("BufferSize").attrib["Value"]) *
                              int(event_collector.find("Buffers").attrib["Value"]), 64 * 128)
         # Existing fresh capture keeps scheduler observations for its distinct task.
         fresh = next(node for node in definitions.findall("Profile")
                      if node.attrib["Name"] == "USKFreshCPU" and node.attrib["LoggingMode"] == "Memory")
+        fresh_event_ref = fresh.find("Collectors/EventCollectorId/EventProviders/EventProviderId")
+        self.assertEqual(nodes[fresh_event_ref.attrib["Value"]].attrib["Level"], "5")
         provider_ref = fresh.find("Collectors/SystemCollectorId/SystemProviderId")
         self.assertEqual({node.attrib["Value"] for node in nodes[provider_ref.attrib["Value"]].findall("Keywords/Keyword")},
                          {"ProcessThread", "Loader", "SampledProfile", "CSwitch", "ReadyThread"})

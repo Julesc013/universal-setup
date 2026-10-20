@@ -38,7 +38,12 @@
         <Stack Value="SampledProfile" />
       </Stacks>
     </SystemProvider>
-    <EventProvider Id="QualificationProvider" Name="7e4a4d0e-4d53-4c2d-93a3-6ba61cf46711" Level="4">
+    <EventProvider Id="QualificationProvider" Name="7e4a4d0e-4d53-4c2d-93a3-6ba61cf46711" Level="5">
+      <Keywords><Keyword Value="0x1" /></Keywords>
+    </EventProvider>
+    <!-- Recovery selects major phase boundaries. The same payload and the
+         original event/buffer ceilings remain; detailed fresh capture is level5. -->
+    <EventProvider Id="RecoveryQualificationProvider" Name="7e4a4d0e-4d53-4c2d-93a3-6ba61cf46711" Level="4">
       <Keywords><Keyword Value="0x1" /></Keywords>
     </EventProvider>
     <Profile Id="USKFreshCPU.Verbose.Memory" Name="USKFreshCPU" Description="Owned fresh maintenance CPU stacks and scheduler events diagnostic" DetailLevel="Verbose" LoggingMode="Memory">
@@ -57,14 +62,14 @@
     <Profile Id="USKRecoveryCPU.Verbose.Memory" Name="USKRecoveryCPU" Description="Owned recovery CPU stacks and process identity diagnostic; no scheduler events" DetailLevel="Verbose" LoggingMode="Memory">
       <Collectors>
         <SystemCollectorId Value="CreatorSystemCollector"><SystemProviderId Value="RecoveryCPUProvider" /></SystemCollectorId>
-        <EventCollectorId Value="QualificationCollector"><EventProviders><EventProviderId Value="QualificationProvider" /></EventProviders></EventCollectorId>
+        <EventCollectorId Value="QualificationCollector"><EventProviders><EventProviderId Value="RecoveryQualificationProvider" /></EventProviders></EventCollectorId>
       </Collectors>
     </Profile>
     <!-- Paired schema definition only; the wrapper still never selects file mode. -->
     <Profile Id="USKRecoveryCPU.Verbose.File" Name="USKRecoveryCPU" Description="Owned recovery CPU diagnostic; file mode not admitted" DetailLevel="Verbose" LoggingMode="File">
       <Collectors>
         <SystemCollectorId Value="CreatorSystemCollector"><SystemProviderId Value="RecoveryCPUProvider" /></SystemCollectorId>
-        <EventCollectorId Value="QualificationCollector"><EventProviders><EventProviderId Value="QualificationProvider" /></EventProviders></EventCollectorId>
+        <EventCollectorId Value="QualificationCollector"><EventProviders><EventProviderId Value="RecoveryQualificationProvider" /></EventProviders></EventCollectorId>
       </Collectors>
     </Profile>
   </Profiles>
