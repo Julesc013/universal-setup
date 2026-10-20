@@ -41,6 +41,13 @@ std::vector<BYTE> publisher_read_only_device_admission_postimage(PSID owner, PAC
 std::optional<std::vector<BYTE>> publisher_try_read_only_device_admission_postimage(
     PSID owner, PACL dacl, PSID service_sid);
 
+// Failure-only projection of already retained transition data. No native reads,
+// policy derivation or authority. Original text is at most8192 bytes; return only
+// its first2048 bytes with full length/canonical-string digest and truncation.
+// Invalid input/allocation can throw; the owning refusal path must contain it.
+json::Value publisher_device_transition_diagnostic(
+    const json::Value& transition, bool unpublished_retained);
+
 // Closed data-shape check only. V3 must carry a nonnull mounted transition;
 // false is reserved for legacy v2. Native identity, intended-policy derivation
 // and mutation authority remain mandatory checks in the owning controller.

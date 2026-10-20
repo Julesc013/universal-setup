@@ -886,9 +886,9 @@ void require_exclusive_volume_admission(const std::wstring& name,
             throw std::runtime_error("mounted device differs from retained intended policy");
     };
     std::unique_ptr<FileHandle> remounted_acl_writer;
+    const auto* transition = unpublished_device_transition ? unpublished_device_transition :
+        legacy_safe_transition ? &*legacy_safe_transition : nullptr;
     try {
-        const auto* transition = unpublished_device_transition ? unpublished_device_transition :
-            legacy_safe_transition ? &*legacy_safe_transition : nullptr;
         if (transition) {
             const auto expected = usk::json::canonical(*expected_mounted_policy);
             if (usk::json::canonical(device_owner_dacl_policy(
@@ -963,7 +963,7 @@ void require_exclusive_volume_admission(const std::wstring& name,
         const auto remounted_kernel = device_acl_diagnostic(remounted.get());
         const auto locking_file_api = device_file_api_diagnostic(locking_volume);
         const auto remounted_file_api = device_file_api_diagnostic(remounted.get());
-        const auto diagnostic = usk::json::Value(usk::json::Value::Object{
+        auto diagnostic = usk::json::Value(usk::json::Value::Object{
             {"schema", usk::json::Value("usk.publisher_device_remount_diagnostic.v1")},
             {"locked_admitted_device", locked_admitted_device},
             {"fresh_observations_after_refusal", usk::json::Value(usk::json::Value::Object{
@@ -975,9 +975,28 @@ void require_exclusive_volume_admission(const std::wstring& name,
             {"read_order", usk::json::Value(usk::json::Value::Array{
                 usk::json::Value("kernel_locking"), usk::json::Value("kernel_remounted"),
                 usk::json::Value("file_locking"), usk::json::Value("file_remounted")})}});
-        throw std::runtime_error(
+        // Construct the original refusal before optional enrichment. Every
+        // added allocation, including augmented serialization and exception
+        // construction, stays inside the guard. runtime_error copies retain
+        // their message without allocation when the final refusal is thrown.
+        std::runtime_error refusal(
             std::string("remounted publisher volume device ACL admission: ") + error.what() +
             "; diagnostic " + usk::json::canonical(diagnostic));
+        try {
+            if (transition) {
+                // This is retained pre-write data, not another native read or
+                // the post-hardening snapshot used by the old diagnostic.
+                diagnostic.as_object().emplace("selected_transition",
+                    publisher_device_transition_diagnostic(
+                        *transition, unpublished_device_transition != nullptr));
+                refusal = std::runtime_error(
+                    std::string("remounted publisher volume device ACL admission: ") + error.what() +
+                    "; diagnostic " + usk::json::canonical(diagnostic));
+            }
+        } catch (...) {
+            // Keep the already constructed original refusal unchanged.
+        }
+        throw refusal;
     }
     // Keep a read-only mounted root while releasing the actual raw writer.
     // No controller WRITE_DAC/direct-write handle survives successful admission.

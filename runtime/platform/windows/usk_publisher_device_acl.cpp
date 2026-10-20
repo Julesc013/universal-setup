@@ -211,6 +211,24 @@ std::optional<std::vector<BYTE>> publisher_try_read_only_device_admission_postim
     return publisher_device_admission_postimage(owner, dacl, service_sid);
 }
 
+json::Value publisher_device_transition_diagnostic(
+    const json::Value& transition, bool unpublished_retained) {
+    const auto& original = transition.at("original_owner_dacl").as_string();
+    if (original.empty() || original.size() > 8192u)
+        throw std::runtime_error("diagnostic captured original exceeds its bound");
+    using json::Value;
+    constexpr std::size_t prefix_limit = 2048u;
+    return Value(Value::Object{
+        {"schema", Value("usk.publisher_device_transition_diagnostic.v1")},
+        {"provenance", Value(unpublished_retained ?
+            "unpublished_retained" : "legacy_locked_capture")},
+        {"original_owner_dacl_bytes", Value(static_cast<std::uint64_t>(original.size()))},
+        {"original_owner_dacl_prefix", Value(original.substr(0, prefix_limit))},
+        {"original_owner_dacl_prefix_truncated", Value(original.size() > prefix_limit)},
+        {"original_owner_dacl_canonical_sha256", Value(json::sha256_canonical(Value(original)))},
+        {"intended_policy_sha256", Value(json::sha256_canonical(transition.at("intended_policy")))}});
+}
+
 bool publisher_target_intent_has_device_transition(const json::Value& intent) {
     const auto keys = [](const json::Value& value, const std::set<std::string>& expected) {
         std::set<std::string> actual;
