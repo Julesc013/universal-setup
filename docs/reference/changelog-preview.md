@@ -12,8 +12,8 @@ py -3 .aide/scripts/aide_lite.py changelog status
 Inputs:
 
 - Conventional Commit subjects.
-- Structured Markdown commit bodies with `## Summary`, `## Why`, `## Changed`, `## Validation`, `## Changelog`, `## Risks`, and `## Follow-up`.
-- Machine-readable `## Changelog` bullets such as `- Added:` and `- Fixed:`.
+- Compact-v1 prose and final trailers (`AIDE-Format: compact-v1`), or preserved legacy v0 structured bodies.
+- Explicit `Changelog: Fixed: ...` trailers, or legacy `## Changelog` category bullets. Both feed the existing preview schema. Malformed compact messages emit no release entries.
 - AIDE trailers such as `AIDE-Task`, `AIDE-Phase`, and `AIDE-Result`.
 
 Outputs:

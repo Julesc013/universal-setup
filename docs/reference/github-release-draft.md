@@ -87,6 +87,10 @@ The tag is only text in the draft. Q48 never creates or pushes it.
 
 ## Publication Checklist
 
+The manual list comes from the owning project's `manual_review_items` in `.aide/policies/release-checklist.yaml`, in declared order. It includes the current documentation, populated changelog, release presentation and download-label obligations. The existing simple-list format supports one string per item; a missing or empty list is a blocker, with no hardcoded fallback.
+
+Draft validation and the golden checklist check require that exact projection. `release checklist` reports `manual_review_current: false` and exits nonzero when a cached list is missing or stale; reconcile the policy and regenerate the local draft through `release draft`. It does not rebuild published packages, intercept Git tags, or grant publication authority. The JSON schema remains `aide.github-release-checklist.v0`; the Markdown checklist uses H3/H4 headings and logical prose lines.
+
 The checklist records source state, validation gates, artifact gates, security
 gates, target install caveats, publication blockers, and manual review items.
 Dirty source state is recorded for review. Missing required assets, failed

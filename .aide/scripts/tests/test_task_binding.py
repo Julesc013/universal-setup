@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -141,6 +143,117 @@ class SelectedTaskBinding(unittest.TestCase):
         packet = aide.build_task_packet(self.root, name).text
         self.assertIn('task_id: ' + name, packet)
         self.assertIn('project/**', packet)
+
+    def context_fixture(self, status='running'):
+        aide.write_text(self.root / f'.aide/queue/{self.selected}/status.yaml',
+                        f'task_id: {self.selected}\nstatus: {status}\n')
+        aide.write_text(self.root / '.aide/queue/Q17-router-profile-v0/status.yaml',
+                        'status: passed\n')
+
+    def context_packet(self):
+        return aide.build_context_packet(self.root, {}, {}, {})
+
+    def test_context_selected_task_overrides_historical_and_other_active_work(self):
+        self.context_fixture()
+        text = self.context_packet().text
+        self.assertEqual(aide.current_queue_ref(self.root), f'.aide/queue/{self.selected}/')
+        self.assertIn(f'selected_task: `{self.selected}`', text)
+        self.assertNotIn('Q17-router-profile-v0', text)
+        self.assertNotIn(self.other, text)
+
+    def test_context_selection_provenance_matches_current_view(self):
+        self.context_fixture()
+        view = aide.build_current_task_view(self.root)
+        self.assertEqual(view['selection'],
+                         {'mode': 'task_packet', 'source': aide.LATEST_PACKET_PATH})
+        explicit = aide.build_current_task_view(self.root, self.other)
+        self.assertEqual(explicit['selection'], {'mode': 'explicit_request', 'source': 'request'})
+        text = self.context_packet().text
+        self.assertIn('selection_mode: task_packet', text)
+        self.assertIn(f"selection_source: `{view['selection']['source']}`", text)
+        self.assertIn('acceptance_verified: false', text)
+
+    def test_context_missing_packet_uses_existing_queue_fallback(self):
+        self.context_fixture()
+        (self.root / aide.LATEST_PACKET_PATH).unlink()
+        view = aide.build_current_task_view(self.root)
+        self.assertEqual(view['task_id'], self.other)
+        self.assertEqual(view['selection'],
+                         {'mode': 'queue_fallback', 'source': '.aide/queue/index.yaml'})
+        self.assertIn(f'current_queue_ref: `.aide/queue/{self.other}/`', self.context_packet().text)
+        aide.write_text(self.root / '.aide/queue/index.yaml', 'items: []\n')
+        self.assertEqual(aide.current_queue_ref(self.root), '.aide/queue/index.yaml')
+        self.assertIn('selected_task: `unresolved`', self.context_packet().text)
+
+    def test_context_retains_completed_blocked_and_review_selections(self):
+        for status in ['passed', 'passed_with_notes', 'blocked', 'needs_review']:
+            with self.subTest(status=status):
+                self.context_fixture(status)
+                text = self.context_packet().text
+                self.assertIn(f'selected_task: `{self.selected}`', text)
+                self.assertIn('recorded_status: ' + json.dumps(status), text)
+                self.assertIn('index_status_conflict', text)
+                self.assertIn('not an active worker or permission', text)
+                self.assertNotIn(self.other, text)
+
+    def test_context_legacy_phase_identity_remains_selected(self):
+        self.context_fixture()
+        aide.write_text(self.root / aide.LATEST_PACKET_PATH,
+                        '# Task\n\n## PHASE\n\nphase: ' + self.selected + '\n')
+        text = self.context_packet().text
+        self.assertIn(f'selected_task: `{self.selected}`', text)
+        self.assertIn('selection_mode: task_packet', text)
+
+    def test_context_invalid_selection_exposes_issue_without_historical_fallback(self):
+        self.context_fixture()
+        for identity in ['AIDE-MISSING-01', '../../outside', '',
+                         self.selected + '\nphase: ' + self.other,
+                         self.selected + '\n' + 'x' * 131073]:
+            with self.subTest(identity=identity[:80]):
+                self.packet(identity)
+                view = aide.build_current_task_view(self.root)
+                self.assertEqual(view['task_id'], '')
+                self.assertTrue(view['issues'])
+                text = self.context_packet().text
+                self.assertIn('current_queue_ref: `.aide/queue/index.yaml`', text)
+                self.assertIn('selected_task: `unresolved`', text)
+                self.assertNotIn('selection_issues: none', text)
+                self.assertNotIn('Q17-router-profile-v0', text)
+
+    def test_context_render_is_deterministic_read_only_and_preserves_accounting(self):
+        self.context_fixture()
+        before = {p.relative_to(self.root): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+        packet = self.context_packet()
+        self.assertEqual(packet.text, self.context_packet().text)
+        for section in aide.CONTEXT_PACKET_REQUIRED_SECTIONS:
+            self.assertIn(f'## {section}', packet.text)
+        self.assertEqual(packet.stats.chars, len(packet.text))
+        self.assertEqual(packet.stats.approx_tokens, (len(packet.text) + 3) // 4)
+        self.assertEqual(before, {p.relative_to(self.root): p.read_bytes()
+                                 for p in self.root.rglob('*') if p.is_file()})
+
+    def test_actual_context_cli_preserves_selected_task_and_history(self):
+        self.context_fixture('blocked')
+        before = {p.relative_to(self.root): p.read_bytes() for p in self.root.rglob('*') if p.is_file()}
+        command = [sys.executable, '-B', str(Path(aide.__file__).resolve()),
+                   '--repo-root', str(self.root)]
+        completed = subprocess.run(command + ['context'], capture_output=True, text=True,
+                                   encoding='utf-8', timeout=30)
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        text = (self.root / aide.LATEST_CONTEXT_PACKET_PATH).read_text(encoding='utf-8')
+        self.assertIn(f'current_queue_ref: `.aide/queue/{self.selected}/`', text)
+        self.assertIn('recorded_status: "blocked"', text)
+        self.assertIn(f'chars: {len(text)}', completed.stdout)
+        for section in aide.CONTEXT_PACKET_REQUIRED_SECTIONS:
+            self.assertIn(f'## {section}', text)
+        current = subprocess.run(command + ['task', 'current', '--json'], capture_output=True,
+                                 text=True, encoding='utf-8', timeout=30)
+        view = json.loads(current.stdout)
+        self.assertEqual(view['task_id'], self.selected)
+        self.assertEqual(view['status'], 'blocked')
+        self.assertEqual(view['selection']['mode'], 'task_packet')
+        for relative, data in before.items():
+            self.assertEqual((self.root / relative).read_bytes(), data)
 
 
 if __name__ == '__main__':

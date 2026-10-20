@@ -92,7 +92,7 @@ commands:
     notes: index-only deterministic repo inventory and maps; no file moves, deletes, refactors, target mutation, provider/model/network calls, or deletion advice.
   - id: aide-lite-quality
     display_name: AIDE Lite file quality ledger
-    invocation: py -3 .aide/scripts/aide_lite.py quality <ledger|validate|status|explain-file|docs|tests|modules|reuse>
+    invocation: py -3 .aide/scripts/aide_lite.py quality <ledger|validate|status|explain-file|inspect-symbol|docs|tests|modules|reuse>
     command_kind: repo-local-helper
     status: implemented-portable
     owner_component: file-quality-ledger

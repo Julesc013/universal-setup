@@ -95,6 +95,28 @@ Use `python` instead of `py -3` only when the Windows launcher is unavailable.
 
 ## Validation And Tests
 
+`validate` runs every applicable repository check. Its default text shows the
+overall status, total and severity counts, and every warning, failure or unfamiliar
+finding in order. Successful check details are omitted only from this view.
+
+```bash
+py -3 .aide/scripts/aide_lite.py validate
+py -3 .aide/scripts/aide_lite.py validate --full
+py -3 .aide/scripts/aide_lite.py validate --json
+```
+
+`--full` preserves the previous complete text format, including individual PASS
+lines. Automation consuming those lines must select `--full`; title/status lines
+and exit semantics are unchanged. `--json` produces a single
+`aide.validation-result.v1` object with `status`, `total`, `counts` (PASS, WARN,
+FAIL, OTHER) and the complete ordered `messages` list. Duplicates and message
+text are preserved. The two options are mutually exclusive. All modes return
+zero for a passing validation and one for validation failure; warnings remain
+warnings. Output goes to stdout without creating a report or changing repository
+files. These are repository contract checks, not a substitute for execution tests
+or release qualification. Compact output changes presentation, not check coverage
+or the cost of collecting the checks.
+
 Use the QFIX-02 canonical AIDE Lite test command for routine validation:
 
 ```bash
