@@ -4124,6 +4124,20 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
     PublisherEffectExecutionOwner::require_engine_origin(config.effect_execution, config.service_name);
     const auto request_deadline = GetTickCount64() + 120000u;
     ScopedExecution execution(config, config.effect_execution ? config.effect_execution->cancellation_observer() : nullptr);
+        // Includes staged-only/snapshot replay, which can write metadata before
+        // a rename gate. Read-only verification keeps its historical ceiling.
+        if (has_registered_native_owner() && !verify_installed_request &&
+            !publisher_registered_execution_platform_qualified(observe_publisher_execution_platform()))
+            throw usk::transaction::CommitAuthorityUnavailable();
+        if (submitted_apply_request || submitted_recovery_request || submitted_verify_request) {
+            usk::platform::windows::require_publisher_execution_platform(
+                usk::platform::windows::observe_publisher_execution_platform());
+        }
+        const auto observed =
+            usk::platform::windows::observe_current_publisher_native_execution_owner(service_name).service;
+        // Preserve read-only platform/SCM admission before interpreting an
+        // ordinary caller's recovery document. Classification and the original
+        // native selector still precede every target guard, handle and effect.
     const auto actual_recovery = submitted_recovery_request ?
         usk::json::parse(*submitted_recovery_request) : usk::json::Value{};
     const auto* public_inspection = submitted_recovery_request ?
@@ -4138,17 +4152,6 @@ std::string usk::platform::windows::execute_candidate_restricted_publisher(
                 !selected_child_native_operation().at("present").as_boolean())
                 throw usk::transaction::CommitAuthorityUnavailable();
         }
-        // Includes staged-only/snapshot replay, which can write metadata before
-        // a rename gate. Read-only verification keeps its historical ceiling.
-        if (has_registered_native_owner() && !verify_installed_request &&
-            !publisher_registered_execution_platform_qualified(observe_publisher_execution_platform()))
-            throw usk::transaction::CommitAuthorityUnavailable();
-        if (submitted_apply_request || submitted_recovery_request || submitted_verify_request) {
-            usk::platform::windows::require_publisher_execution_platform(
-                usk::platform::windows::observe_publisher_execution_platform());
-        }
-        const auto observed =
-            usk::platform::windows::observe_current_publisher_native_execution_owner(service_name).service;
         const usk::platform::windows::PublisherVolumeOperationGuard operation_guard(volume_root, stop_event);
         std::optional<usk::platform::windows::PublisherInstallOperationGuard> install_guard;
         if (submitted_apply_request) {

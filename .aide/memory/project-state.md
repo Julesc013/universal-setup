@@ -9,10 +9,22 @@ Accepted devcf923fdac79caed9f670f94cf12d22ac3b944c91/tree7109bd279ed566823f27d70
 normally integrates PR299 client/CABI ownership/preparation. Seven core
 39404539429/1, independent committed review and freshlivegate PASS.
 Accepted-dev push39406418243/1 all7corePASS,publisherSKIPPED;9196CLOSED0.
-FullPR299 publisher39404539429/1 remains separate under34598.
+FullPR299 publisher39404539429/1 TERMINALFAIL;34598CLOSED1. All three
+selected recoveries deadlineUNKNOWN/nativeabsent, independently projected.
+Legacy native reentryPASS then independentleaseclosureFAIL(28rows,zero coordination).
 Mainc048f7f1ae2e5922c15a08ee572bdafc29027c63 unchanged/unqualified.
 
 Current branch task/usk-wu-006-native-recovery-inspection from accepteddev.
+PR300 initialhead7f0a61e3c251a0052b0dc86c6809d3e0097fdd48/tree727c47f
+received independent exact committed source approval. CI39412648532/1 has
+5corePASS; both Windows suites fail only candidate_context_smoke. Publisher
+SKIPPED, added SDK cohort UNEXECUTED; controller16270CLOSED1/no merge.
+The recovery document classifier moved before existing readonly SCM admission.
+Exact linked x64/Win32 local reproduction confirms the original empty-object
+recover case fails; repair restores platform/SCM admission first, keeping all
+classification/selected-original gates before target guards/handles/effects.
+Original test cases unchanged, plus both private and all3public request families.
+Repair validation/review and new exact-head CI remain required.
 This native SDK increment connects actual readonly original maintenance
 inspection/plan to reviewed finalize. No fakelease or cached grant: exact
 protected original, native ended holders, immutable custody/current namespace,
@@ -33,7 +45,8 @@ flag just before firstpossibleleaseappend. Tests cover actual bad_alloc handle
 closure, native expiry/cancel/wrongthread, 12writer/7reader, fully resealed bad
 bindings/actions, public/local commandgraph versions and C ABI ownership.
 R1/R3/R4 strict targeted builds/tests PASS; R2 missing purecodec dependency
-retained and corrected. R5 strict x64/Win32 service/SDK/three targeted CTests PASS. R6 full Python462tests PASS(1skip). R2 confirms production repairs; launcher flag gap repaired with actual argv/profile controls and dual SDK route witnesses; R8 configured launcher CTest PASS. R3 delta review pending.
+retained and corrected. R5 strict x64/Win32 service/SDK/three targeted CTests PASS. R6 full Python462tests PASS(1skip). R2 confirms production repairs; launcher flag gap repaired with actual argv/profile controls and dual SDK route witnesses; R8 configured launcher CTest PASS. R3 SOURCE APPROVE, exact committed review3379b1a/comment6289486676;
+source approval does not waive the subsequent actual core failure.
 
 Existing hosted runner gains a distinct real C SDK genuine-interruption cohort:
 original worker/broker closure+source retired; inspect/plan exact unchanged
@@ -49,16 +62,22 @@ Selected untraced28 independently COMPLETE: matchingclient/native, journal,
 26records/12effects, generation4->5, payload/verify/cleanup, unchangeddeadline;
 rawSHAd1c80247e93122d4a71e1088e3170159ce5d5b3b993031ccd8ab357545b6d501.
 CPUwrapped30 deadlineUNKNOWN/nativeabsent; clientcleanupfalse. Release-default92
-job PASS, raw/projection still to retain before claiming independent result.
-Legacy64 and other failures remain; later occupied-root cascades need own
-classification. No numerical speedup, reliability or fullprofile qualification.
+also independently COMPLETE with the same journal/effect/generation/payload/
+verification/cleanup joins; rawSHAae99688362249007a276a35947f377f82c539b1f4c48616b282553b2c03e8ecb.
+PR298 packaged native installPASS but unrelated attacker had0rename overlap;
+legacy64 refused an unsafe remounted device ACL before native recovery.
+Current failure map retained; later scenarios require own cascade classification. No numerical speedup, reliability or fullprofile qualification.
 PR297 legacy native reentryPASS then independentleaseclosure fails:28equalrows,
 zero coordination; no generic waiver/fakeowner or native check relaxation.
 EarlierPR294 three independentlyverified recoverypasses remain historical.
 Old8querypreview HOLD; no further speculative perfdelta stacked.
 
-AIDE frozenLite1.1 imported preserving customization. Actualhost binding
-and safe-selftest defect are separate; no newclone/queue/coordinator.
+AIDE frozenLite1.1 published/imported preserving customization. Latestmain8e5581c
+development export prepared outsideW, complete875Gitblob pins/4.8MB; safe
+dryrun0conflicts, preview36payloads independently source-approved, full-export
+selftestPASS. NOT APPLIED. Safe-installed selftest defect is inherited/unclosed;
+full-export pass does not qualify installed layout. SDK core repair has priority.
+Actualhost binding remains separate; no newclone/queue/coordinator.
 Necessary evidence retained. Do not replay rejected duplicate evidence deletion.
 
 ## 2026-10-19 qualified development integration and AIDE consumer update

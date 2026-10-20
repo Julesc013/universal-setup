@@ -2595,7 +2595,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "28a329e6fffbbe0dc8bb07c5e334e24e6798af737a9adfe6921540ceb4f2784f"
+          "sha256": "b3f96973d10dfc96d5a1e90da36d10d88d85ce8767aa4b6562389cc24568764c"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -2903,7 +2903,7 @@
         },
         {
           "path": "tests/native/usk_publisher_candidate_context_smoke.cpp",
-          "sha256": "5c1b087374f60d05c4f6f085599285366fe54571e42920c9cc8b39f7467603cf"
+          "sha256": "14a23bdba8bdac0a528b81ba30d5380d8cbeabc727b73472f12da957a03c951d"
         },
         {
           "path": "tests/windows_publisher_public_maintenance_probe.ps1",
@@ -3058,7 +3058,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "28a329e6fffbbe0dc8bb07c5e334e24e6798af737a9adfe6921540ceb4f2784f"
+          "sha256": "b3f96973d10dfc96d5a1e90da36d10d88d85ce8767aa4b6562389cc24568764c"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -3366,7 +3366,7 @@
         },
         {
           "path": "tests/native/usk_publisher_candidate_context_smoke.cpp",
-          "sha256": "5c1b087374f60d05c4f6f085599285366fe54571e42920c9cc8b39f7467603cf"
+          "sha256": "14a23bdba8bdac0a528b81ba30d5380d8cbeabc727b73472f12da957a03c951d"
         },
         {
           "path": "tests/windows_publisher_public_maintenance_probe.ps1",
@@ -3521,7 +3521,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "28a329e6fffbbe0dc8bb07c5e334e24e6798af737a9adfe6921540ceb4f2784f"
+          "sha256": "b3f96973d10dfc96d5a1e90da36d10d88d85ce8767aa4b6562389cc24568764c"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -3829,7 +3829,7 @@
         },
         {
           "path": "tests/native/usk_publisher_candidate_context_smoke.cpp",
-          "sha256": "5c1b087374f60d05c4f6f085599285366fe54571e42920c9cc8b39f7467603cf"
+          "sha256": "14a23bdba8bdac0a528b81ba30d5380d8cbeabc727b73472f12da957a03c951d"
         },
         {
           "path": "tests/windows_publisher_public_maintenance_probe.ps1",
@@ -5459,7 +5459,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "28a329e6fffbbe0dc8bb07c5e334e24e6798af737a9adfe6921540ceb4f2784f"
+          "sha256": "b3f96973d10dfc96d5a1e90da36d10d88d85ce8767aa4b6562389cc24568764c"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -5467,7 +5467,7 @@
         },
         {
           "path": "tests/native/usk_publisher_candidate_context_smoke.cpp",
-          "sha256": "5c1b087374f60d05c4f6f085599285366fe54571e42920c9cc8b39f7467603cf"
+          "sha256": "14a23bdba8bdac0a528b81ba30d5380d8cbeabc727b73472f12da957a03c951d"
         },
         {
           "path": "apps/daemon/usk_publisher_service_control.cpp",
@@ -5963,7 +5963,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "28a329e6fffbbe0dc8bb07c5e334e24e6798af737a9adfe6921540ceb4f2784f"
+          "sha256": "b3f96973d10dfc96d5a1e90da36d10d88d85ce8767aa4b6562389cc24568764c"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -5971,7 +5971,7 @@
         },
         {
           "path": "tests/native/usk_publisher_candidate_context_smoke.cpp",
-          "sha256": "5c1b087374f60d05c4f6f085599285366fe54571e42920c9cc8b39f7467603cf"
+          "sha256": "14a23bdba8bdac0a528b81ba30d5380d8cbeabc727b73472f12da957a03c951d"
         },
         {
           "path": "apps/daemon/usk_publisher_service_control.cpp",
@@ -6443,7 +6443,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "28a329e6fffbbe0dc8bb07c5e334e24e6798af737a9adfe6921540ceb4f2784f"
+          "sha256": "b3f96973d10dfc96d5a1e90da36d10d88d85ce8767aa4b6562389cc24568764c"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -6499,7 +6499,7 @@
         },
         {
           "path": "tests/native/usk_publisher_candidate_context_smoke.cpp",
-          "sha256": "5c1b087374f60d05c4f6f085599285366fe54571e42920c9cc8b39f7467603cf"
+          "sha256": "14a23bdba8bdac0a528b81ba30d5380d8cbeabc727b73472f12da957a03c951d"
         },
         {
           "path": ".github/workflows/ci.yml",
@@ -6710,7 +6710,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "28a329e6fffbbe0dc8bb07c5e334e24e6798af737a9adfe6921540ceb4f2784f"
+          "sha256": "b3f96973d10dfc96d5a1e90da36d10d88d85ce8767aa4b6562389cc24568764c"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -6766,7 +6766,7 @@
         },
         {
           "path": "tests/native/usk_publisher_candidate_context_smoke.cpp",
-          "sha256": "5c1b087374f60d05c4f6f085599285366fe54571e42920c9cc8b39f7467603cf"
+          "sha256": "14a23bdba8bdac0a528b81ba30d5380d8cbeabc727b73472f12da957a03c951d"
         },
         {
           "path": ".github/workflows/ci.yml",
@@ -7878,7 +7878,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "28a329e6fffbbe0dc8bb07c5e334e24e6798af737a9adfe6921540ceb4f2784f"
+          "sha256": "b3f96973d10dfc96d5a1e90da36d10d88d85ce8767aa4b6562389cc24568764c"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -7934,7 +7934,7 @@
         },
         {
           "path": "tests/native/usk_publisher_candidate_context_smoke.cpp",
-          "sha256": "5c1b087374f60d05c4f6f085599285366fe54571e42920c9cc8b39f7467603cf"
+          "sha256": "14a23bdba8bdac0a528b81ba30d5380d8cbeabc727b73472f12da957a03c951d"
         },
         {
           "path": ".github/workflows/ci.yml",
@@ -8131,7 +8131,7 @@
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher.cpp",
-          "sha256": "28a329e6fffbbe0dc8bb07c5e334e24e6798af737a9adfe6921540ceb4f2784f"
+          "sha256": "b3f96973d10dfc96d5a1e90da36d10d88d85ce8767aa4b6562389cc24568764c"
         },
         {
           "path": "runtime/setup/lifecycle/usk_protected_install_publisher_internal.h",
@@ -8187,7 +8187,7 @@
         },
         {
           "path": "tests/native/usk_publisher_candidate_context_smoke.cpp",
-          "sha256": "5c1b087374f60d05c4f6f085599285366fe54571e42920c9cc8b39f7467603cf"
+          "sha256": "14a23bdba8bdac0a528b81ba30d5380d8cbeabc727b73472f12da957a03c951d"
         },
         {
           "path": ".github/workflows/ci.yml",

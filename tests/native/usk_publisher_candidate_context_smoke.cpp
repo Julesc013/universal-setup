@@ -134,16 +134,48 @@ int main(int argc, char** argv)
     // Authenticated requests without the optional consumer-read policy must
     // reach read-only platform/SCM admission. The service is deliberately
     // absent and the ordinary process must cause no target effects.
-    for (const char* operation : {"apply", "recover", "verify"}) {
+    using usk::json::Value;
+    const Value inspection(Value::Object{{"schema", Value("usk.recovery_inspect_request.v1")},
+        {"request_id", Value("inspection.request")}, {"install_id", Value("install.original")},
+        {"transaction_id", Value("maintenance.original")}, {"plan_id", Value("original.plan")},
+        {"plan_digest", Value(std::string(64u, 'a'))}, {"operation", Value("repair")},
+        {"target_root", Value("Q:/publication/destination/selected-app")}});
+    const Value recovery_plan(Value::Object{{"schema", Value("usk.recovery_plan_request.v1")},
+        {"inspection", inspection}, {"recovery_plan_id", Value("recovery.plan")},
+        {"created_at", Value("2026-10-20T00:00:00Z")}});
+    const Value recovery_apply(Value::Object{{"schema", Value("usk.recovery_apply_request.v1")},
+        {"plan_request", recovery_plan}, {"reviewed_plan_id", Value("recovery.plan")},
+        {"reviewed_plan_digest", Value(std::string(64u, 'a'))}, {"selected_action", Value("finalize")},
+        {"applied_at", Value("2026-10-20T00:00:01Z")}, {"confirmation", Value("APPLY")}});
+    // Keep the original empty-object regression cases and also cover both
+    // private selectors and all three complete public document families.
+    // These values grant no channel, native owner or filesystem authority.
+    for (const char* operation : {"apply", "recover", "verify", "recover.install",
+            "recover.maintenance", "recover.inspect", "recover.plan", "recover.apply"}) {
         auto ungranted = config;
         ungranted.prepare_disposable_boundary = {};
         ungranted.submitted_apply_request.reset();
         ungranted.submitted_recovery_request.reset();
         ungranted.submitted_verify_request.reset();
         if (std::string(operation) == "apply") ungranted.submitted_apply_request = "{}";
-        if (std::string(operation) == "recover") {
+        if (std::string(operation).rfind("recover", 0) == 0) {
             ungranted.recover_reviewed = true;
             ungranted.submitted_recovery_request = "{}";
+            if (std::string(operation) == "recover.install" ||
+                    std::string(operation) == "recover.maintenance") {
+                Value selector(Value::Object{
+                    {"schema", Value(std::string(operation) == "recover.install" ?
+                        "usk.publisher_recovery_request.v1" : "usk.publisher_maintenance_recovery_request.v1")},
+                    {"install_id", Value("install.original")}, {"transaction_id", Value("maintenance.original")}});
+                if (std::string(operation) == "recover.maintenance")
+                    selector.as_object().emplace("operation", Value("repair"));
+                ungranted.submitted_recovery_request = usk::json::canonical(selector);
+            } else if (std::string(operation) == "recover.inspect")
+                ungranted.submitted_recovery_request = usk::json::canonical(inspection);
+            else if (std::string(operation) == "recover.plan")
+                ungranted.submitted_recovery_request = usk::json::canonical(recovery_plan);
+            else if (std::string(operation) == "recover.apply")
+                ungranted.submitted_recovery_request = usk::json::canonical(recovery_apply);
         }
         if (std::string(operation) == "verify") {
             ungranted.verify_installed = true;
