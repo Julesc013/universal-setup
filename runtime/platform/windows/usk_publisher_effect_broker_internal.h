@@ -253,6 +253,14 @@ void require_publisher_maintenance_read_only_access(const usk::json::Value&,
 // then restores the producer's owned raw8 grammar. Neither creates authority.
 usk::json::Value publisher_compact_record_access(usk::json::Value raw,
     const usk::json::Value& client, const usk::json::Value& object);
+// Compact rows keep the original supplied commitments/descriptor/raw9 checks.
+// These pure validators grant no native authority. A local owned result view
+// shares one literal client and ordered ledger; every occurrence still joins
+// those exact values to its independent owner before finalization.
+void require_publisher_compact_maintenance_read_only_access(const usk::json::Value&,
+    const PublisherAuthenticatedClientValidation&, const usk::json::Value& object);
+void require_publisher_record_result_access(const usk::json::Value& view, std::size_t index,
+    const PublisherAuthenticatedClientValidation&, const usk::json::Value& object);
 usk::json::Value publisher_expand_record_access(usk::json::Value compact,
     const usk::json::Value& client, const usk::json::Value& object);
 // Local-context overloads preserve literal joins, denials and private v4 data.
@@ -262,8 +270,9 @@ usk::json::Value publisher_compact_record_access(usk::json::Value raw,
     const PublisherAuthenticatedClientValidation&, const usk::json::Value& object);
 usk::json::Value publisher_expand_record_access(usk::json::Value compact,
     const PublisherAuthenticatedClientValidation&, const usk::json::Value& object);
-// Check exact expanded bytes before cloning. Full expanded packet parser limits
-// and original cumulative charging remain mandatory at the original consumer.
+// Validate the complete logical expanded raw8 packet and its actual wrapper
+// under all original parser limits, returning exact body bytes for cumulative
+// charging. Compact storage never reduces this logical resource accounting.
 std::size_t publisher_preflight_expanded_record_results(const usk::json::Value& packet,
     const usk::json::Value& client, const usk::json::Value& objects, std::size_t remaining_proof_bytes);
 class PublisherEffectRecordByteRound final {
@@ -422,6 +431,9 @@ private:
     virtual const usk::json::Value& ledger() const = 0;
     virtual void run_round(usk::platform::windows::PublisherEffectRecordByteRound&) = 0;
     virtual void read_original_bytes() = 0;
+    // Local owned client/ordered-ledger/results view, never a wire grant.
+    // Implementations must join literal client/object bindings and validate
+    // every compact row before their unchanged final native rechecks.
     virtual void finalize(const usk::json::Value&) = 0;
     virtual void query_chunk(usk::platform::windows::PublisherEffectRecordByteRound&,
         const std::vector<HANDLE>&) = 0;

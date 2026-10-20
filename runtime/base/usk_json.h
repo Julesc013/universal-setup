@@ -86,6 +86,13 @@ std::size_t require_canonical_object_encoded_size(const CanonicalObjectView& fie
 // The selected member must exist; no value or authorization result is cached.
 std::size_t require_canonical_object_member_parse_limits(const CanonicalObjectView& fields,
     const ParseLimits& limits, const std::string& selected);
+// Same complete root/wrapper limits and selected-member byte count, replacing
+// one existing array with ephemeral object fields. The array must occur exactly
+// once inside selected, with the same number/order of entries. Every referenced
+// value stays alive and unchanged during this call; nothing is retained.
+std::size_t require_canonical_object_array_view_member_parse_limits(
+    const CanonicalObjectView& fields, const ParseLimits& limits, const std::string& selected,
+    const Value& array, const std::vector<CanonicalObjectView>& entries);
 // Exact value equality, equivalent to comparing the canonical encodings.
 bool equal_values(const Value& left, const Value& right);
 std::string sha256_canonical(const Value& value);
