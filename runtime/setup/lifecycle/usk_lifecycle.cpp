@@ -9,6 +9,7 @@
 
 #include "usk_audit_repository.h"
 #include "usk_json.h"
+#include "usk_diagnostic_metrics.h"
 #include "usk_record_io.h"
 #include "usk_maintenance_effect_journal.h"
 #include "usk_replacement_session.h"
@@ -3255,16 +3256,15 @@ json::Value read_maintenance_reviewed_plan(const transaction::TransactionSpec& s
     return read_maintenance_reviewed_plan_impl(spec, false);
 }
 
-static MaintenanceContinuationInspection inspect_maintenance_prefix(const transaction::TransactionSpec& spec,
-    bool completed_history, const CompletedMaintenanceRecords* records = nullptr)
+static MaintenanceContinuationInspection inspect_maintenance_prefix_from_observations(
+    const transaction::TransactionSpec& spec, bool completed_history,
+    const CompletedMaintenanceRecords* records,
+    const transaction::CompletedTransactionHistory& historical,
+    const transaction::RecoveryInspection& current,
+    const transaction::MaintenanceEffectInspection& history)
 {
-    const auto historical = records ? records->transaction : completed_history ? transaction::TransactionSession::inspect_completed_history(spec) :
-        transaction::CompletedTransactionHistory{};
-    const auto current = completed_history ? transaction::RecoveryInspection{} :
-        transaction::TransactionSession::inspect_recovery(spec);
     const auto snapshot_sha256 = completed_history ? historical.snapshot_sha256 : current.snapshot_sha256;
     const auto source_digest = completed_history ? historical.stream.source_digest : current.stream_source_digest;
-    const auto history = records ? records->effects : transaction::MaintenanceEffectJournal::inspect(spec, source_digest, true);
     if (completed_history && (!history.sealed || !history.pending_kind.empty()))
         throw std::runtime_error("maintenance historical result lacks a completed sealed original prefix");
     const auto artifact = read_maintenance_reviewed_plan_impl(spec, completed_history, records);
@@ -3595,6 +3595,18 @@ static MaintenanceContinuationInspection inspect_maintenance_prefix(const transa
     return result;
 }
 
+static MaintenanceContinuationInspection inspect_maintenance_prefix(const transaction::TransactionSpec& spec,
+    bool completed_history, const CompletedMaintenanceRecords* records = nullptr)
+{
+    const auto historical = records ? records->transaction : completed_history ? transaction::TransactionSession::inspect_completed_history(spec) :
+        transaction::CompletedTransactionHistory{};
+    const auto current = completed_history ? transaction::RecoveryInspection{} :
+        transaction::TransactionSession::inspect_recovery(spec);
+    const auto source_digest = completed_history ? historical.stream.source_digest : current.stream_source_digest;
+    const auto history = records ? records->effects : transaction::MaintenanceEffectJournal::inspect(spec, source_digest, true);
+    return inspect_maintenance_prefix_from_observations(spec, completed_history, records, historical, current, history);
+}
+
 MaintenanceContinuationInspection inspect_maintenance_continuation(const transaction::TransactionSpec& spec)
 {
 #if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
@@ -3607,6 +3619,22 @@ MaintenanceContinuationInspection inspect_maintenance_continuation(const transac
 MaintenanceContinuationInspection inspect_maintenance_continuation_unscoped(const transaction::TransactionSpec& spec)
 {
     return inspect_maintenance_prefix(spec, false);
+}
+
+MaintenanceContinuationInspection inspect_maintenance_continuation_from_inspected_prefix(
+    const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& current,
+    const transaction::MaintenanceEffectInspection& history)
+{
+    if (history.source_digest != current.stream_source_digest ||
+        history.source_context != current.stream_source_context)
+        throw std::runtime_error("maintenance continuation supplied prefix changed its original source");
+    // Label admission to this fixed pure route, not native authority or success.
+    const usk::diagnostics::Scope diagnostic(usk::diagnostics::Phase::maintenance_continuation_prefix_selection);
+    // All ordinary plan/stream/installed/ownership reads and the selector's
+    // fresh closing TX/history pin remain in this shared body. The native
+    // caller additionally finishes its enclosing prefix/global exit.
+    return inspect_maintenance_prefix_from_observations(spec, false, nullptr, {}, current, history);
 }
 
 MaintenanceContinuationInspection inspect_completed_maintenance_history(const transaction::TransactionSpec& spec)

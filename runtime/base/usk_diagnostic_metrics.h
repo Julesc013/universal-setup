@@ -55,7 +55,9 @@ enum class Phase : std::uint32_t {
     effect_worker_failure_reporting,
     // Fixed pure group entry labels only; no result, identity or authority.
     maintenance_step_pending_reads,
-    maintenance_reconcile_completion_reads
+    maintenance_reconcile_completion_reads,
+    // Entry to the fixed pure supplied-prefix selector; not native authority.
+    maintenance_continuation_prefix_selection
 };
 struct Snapshot {
     std::array<std::uint64_t, static_cast<std::size_t>(Counter::count)> totals{};

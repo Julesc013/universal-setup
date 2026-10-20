@@ -55,6 +55,16 @@ MaintenanceEffectReconciliation reconcile_maintenance_effect_unscoped(
 // exit before any result escapes or effect begins. This helper neither
 // revalidates a prefix nor supplies native authority. Ordinary callers keep
 // the independently reading unscoped wrapper above.
+// The continuation variant requires retain_completed=true on the actual
+// history inspection. It preserves its independent fresh closing pair and all
+// other reads. A supplied value is not proof of acquisition/currentness and
+// this pure selector grants no native authority. Only the fixed native owner
+// supplies its immediately inspected pair and completes its full outer exit.
+MaintenanceContinuationInspection inspect_maintenance_continuation_from_inspected_prefix(
+    const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& transaction,
+    const transaction::MaintenanceEffectInspection& history);
+
 MaintenanceEffectReconciliation reconcile_maintenance_effect_from_inspected_prefix(
     const transaction::TransactionSpec& spec,
     const transaction::RecoveryInspection& transaction,
