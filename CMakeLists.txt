@@ -509,6 +509,7 @@ if(USK_BUILD_APPS)
   add_executable(usk_machine
     apps/cli/usk_machine.cpp
     apps/cli/usk_product_info.cpp
+    apps/cli/usk_product_install.cpp
     runtime/command/usk_one_shot.cpp)
   target_compile_features(usk_machine PRIVATE cxx_std_17)
   target_include_directories(usk_machine PRIVATE
@@ -641,6 +642,27 @@ if(USK_BUILD_TESTS)
   usk_enable_strict_warnings(usk_one_shot_public_recovery_smoke)
   add_test(NAME usk_one_shot_public_recovery_smoke COMMAND usk_one_shot_public_recovery_smoke)
   if(USK_BUILD_APPS)
+    if(WIN32)
+      add_executable(usk_product_install_probe
+        tests/native/usk_product_install_probe.cpp
+        apps/cli/usk_product_info.cpp
+        apps/cli/usk_product_install.cpp
+        runtime/command/usk_one_shot.cpp)
+      target_compile_features(usk_product_install_probe PRIVATE cxx_std_17)
+      target_include_directories(usk_product_install_probe PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/apps/cli"
+        "${CMAKE_CURRENT_SOURCE_DIR}/runtime/command"
+        "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base"
+        "${CMAKE_CURRENT_SOURCE_DIR}/runtime/setup/package"
+        "${CMAKE_CURRENT_SOURCE_DIR}/include")
+      target_link_libraries(usk_product_install_probe PRIVATE
+        usk_static usk_base_static usk_archive_static usk_publisher_response_static)
+      usk_enable_strict_warnings(usk_product_install_probe)
+      add_test(NAME usk_product_install_process_smoke
+        COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/usk_product_install_process_probe.py"
+          "$<TARGET_FILE:usk_machine>" "$<TARGET_FILE:usk_product_install_probe>")
+    endif()
     add_test(NAME usk_machine_process_smoke
       COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/native/usk_machine_process_probe.py"
