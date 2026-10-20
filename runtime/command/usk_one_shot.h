@@ -41,6 +41,9 @@ OneShotResult run_candidate_one_shot(const std::string& request_json,
 // already admitted registration; it grants no authority, holds no execution
 // lease, and reports incomplete qualification/unsupported strict availability.
 // This does not make an unqualified profile available.
+// Public recovery.inspect/plan/apply retain their complete SDK requests and v2
+// native results. Inspect/plan require dry_run=true; reviewed apply requires
+// false. The pre-dispatch UNKNOWN response retains this invocation's identity.
 OneShotResult run_publisher_one_shot(const std::string& request_json,
                                    const CandidateTransport& transport);
 OneShotContextConfig read_context_config(std::istream& input);

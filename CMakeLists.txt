@@ -628,6 +628,18 @@ if(USK_BUILD_TESTS)
   target_link_libraries(usk_one_shot_smoke PRIVATE usk_static usk_base_static usk_publisher_response_static)
   usk_enable_strict_warnings(usk_one_shot_smoke)
   add_test(NAME usk_one_shot_smoke COMMAND usk_one_shot_smoke)
+  add_executable(usk_one_shot_public_recovery_smoke
+    tests/native/usk_one_shot_public_recovery_smoke.cpp
+    runtime/command/usk_one_shot.cpp)
+  target_compile_features(usk_one_shot_public_recovery_smoke PRIVATE cxx_std_17)
+  target_include_directories(usk_one_shot_public_recovery_smoke PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/command"
+    "${CMAKE_CURRENT_SOURCE_DIR}/runtime/base"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include")
+  target_link_libraries(usk_one_shot_public_recovery_smoke PRIVATE
+    usk_static usk_base_static usk_publisher_response_static)
+  usk_enable_strict_warnings(usk_one_shot_public_recovery_smoke)
+  add_test(NAME usk_one_shot_public_recovery_smoke COMMAND usk_one_shot_public_recovery_smoke)
   if(USK_BUILD_APPS)
     add_test(NAME usk_machine_process_smoke
       COMMAND "${Python3_EXECUTABLE}"

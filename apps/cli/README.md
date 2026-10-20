@@ -70,3 +70,26 @@ choosing a candidate service does not grant publisher authority. Planning
 contexts cannot be combined with this mode. The hosted machine-client check
 exercises this envelope through the restricted service, validates its result,
 and independently reads the installed resources.
+
+The registered `--publisher` route also accepts the public SDK recovery family:
+`recovery.inspect`, `recovery.plan`, and `recovery.apply`. Put the complete matching
+`usk.recovery_inspect_request.v1`, `usk.recovery_plan_request.v1`, or
+`usk.recovery_apply_request.v1` document in the one-shot envelope's `payload`.
+Use `dry_run=true` for inspection/planning and `dry_run=false` for reviewed apply.
+The apply request retains the reviewed plan ID/digest, selected finalize/rollback
+choice, timestamp and explicit `APPLY` confirmation. The service determines which
+actions its actual interrupted operation supports; selecting an unsupported action
+does not enable it.
+
+The host forwards that complete request and validates the native v2 report/plan
+using the same codecs as the SDK. A successful outer `result` is the public
+`usk.command_response.v1`; read its `payload` for the versioned recovery document.
+When dispatch may have occurred but a matching reply cannot be established, exit5
+and outer `status=unknown` retain an inner uncertainty response bound to this
+invocation, including the original operation and reviewed recovery identity.
+Inspect the actual operation before deciding what to do next. A transport failure
+does not establish its terminal state or authorize a fresh operation.
+
+The existing operation-specific recovery routes remain compatible. Public recovery
+is unavailable through `--candidate-service`. This adapter does not establish
+protected recovery, publisher, customer installation or release qualification.
