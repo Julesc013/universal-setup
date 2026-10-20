@@ -7,11 +7,15 @@ param(
     [Parameter(Mandatory=$true)][string]$ServiceControlBinary,
     [Parameter(Mandatory=$true)][string]$MachineBinary,
     [switch]$FreshQualification,
-    [switch]$RecoveryCpuDiagnostic
+    [switch]$RecoveryCpuDiagnostic,
+    [switch]$SdkRecoveryQualification
 )
 
 $ErrorActionPreference='Stop'
 if($FreshQualification -and $RecoveryCpuDiagnostic) {throw 'Recovery CPU diagnostic requires the ended-recovery journey'}
+if($SdkRecoveryQualification -and ($FreshQualification -or -not $RecoveryCpuDiagnostic)) {
+    throw 'SDK recovery tracing requires its separate ended-recovery CPU diagnostic'
+}
 $cpuCapture=$FreshQualification -or $RecoveryCpuDiagnostic
 $identity=[Security.Principal.WindowsIdentity]::GetCurrent()
 $principal=[Security.Principal.WindowsPrincipal]::new($identity)
@@ -26,7 +30,7 @@ if((Split-Path -Parent $out) -cne $runnerTemp -or (Test-Path -LiteralPath $out))
     throw 'Thread trace requires a fresh original probe receipt inside runner temporary storage'
 }
 $journey=if($FreshQualification){'fresh'}else{'ended_recovery'}
-$traceDirectory=if($FreshQualification){'usk-wu007-maintenance-fresh-trace'}else{'usk-wu007-maintenance-thread-trace'}
+$traceDirectory=if($SdkRecoveryQualification){'usk-wu007-sdk-recovery-trace'}elseif($FreshQualification){'usk-wu007-maintenance-fresh-trace'}else{'usk-wu007-maintenance-thread-trace'}
 $traceRoot=Join-Path $runnerTemp $traceDirectory
 if(Test-Path -LiteralPath $traceRoot) {throw 'Preserve the existing diagnostic trace directory'}
 New-Item -ItemType Directory -Path $traceRoot -ErrorAction Stop | Out-Null
@@ -54,6 +58,7 @@ $receipt=[ordered]@{
     schema='usk.publisher_maintenance_thread_trace.v1';scope='external_owned_diagnostic_no_authority';
     profile_qualified=$false;creator_attribution_proven=$false;status='running';
     journey=$journey;capture_kind=$captureKind;
+    request_route=$(if($SdkRecoveryQualification){'public_c_sdk'}else{'machine_one_shot'});
     captured_keywords=$captureKeywords;
     captured_stacks=$captureStacks;profile_file=$profileFile;profile_name=$profileName;
     scheduler_stacks_requested=(-not $cpuCapture);scheduler_events_requested=(-not $RecoveryCpuDiagnostic);
@@ -161,6 +166,10 @@ try {
         MachineBinary=$MachineBinary;PublicInstallation=$true;PublicStandardClient=$true}
     if($FreshQualification){$probeArguments.PublicStandardMaintenanceQualification=$true}
     else{$probeArguments.PublicStandardMaintenanceRecoveryQualification=$true}
+    if($SdkRecoveryQualification){
+        $probeArguments.PublicStandardSdkRecoveryQualification=$true
+        $probeArguments.ExpectedQualificationDiagnostics='ON'
+    }
     & (Join-Path $PSScriptRoot 'windows_publisher_lab_probe.ps1') @probeArguments
     $receipt.probe_passed=$true
 } catch {
@@ -223,6 +232,31 @@ try {
         $receipt.probe_receipt=[ordered]@{name=$file.Name;bytes=$file.Length;
             sha256=(Get-FileHash -LiteralPath $out -Algorithm SHA256).Hash.ToLowerInvariant();
             status=$original.status;build_profile=$original.build_profile}
+        if($SdkRecoveryQualification) {
+            # These are recorded attempts, including failures. Preserve the raw
+            # receipt as authority for full replies and independent final state.
+            $sdkRequests=@($original.service_observation.sdk_requests)
+            $expectedCommands=@('recovery.inspect','recovery.plan','recovery.apply',
+                'recovery.apply','recovery.apply','installed.verify')
+            if($sdkRequests.Count -lt 1 -or $sdkRequests.Count -gt $expectedCommands.Count) {
+                throw 'SDK recovery request observations are absent or exceed their fixed cohort'
+            }
+            $requests=@(for($index=0;$index -lt $sdkRequests.Count;$index++) {
+                $request=$sdkRequests[$index]
+                if($request.command -cne $expectedCommands[$index] -or
+                    $request.request_id -cnotmatch '^public\.[0-9a-f]{32}$' -or
+                    $request.image_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+                    $request.request_sha256 -cnotmatch '^[0-9a-f]{64}$') {
+                    throw 'SDK recovery trace request binding is malformed'
+                }
+                [ordered]@{request_id=$request.request_id;command=$request.command;
+                    image_sha256=$request.image_sha256;request_sha256=$request.request_sha256;
+                    client_capture=$request.client_capture;status=$request.status;
+                    failure=$request.failure;client_cleanup_confirmed=$request.client_cleanup_confirmed;
+                    cleanup_failure=$request.cleanup_failure}
+            })
+            $receipt['sdk_request_observations']=$requests
+        }
     } catch {$receipt.diagnostic_failures.Add('Original probe receipt readback failed: '+[string]$_.Exception.Message)}
     if($cpuCapture) {
         try {
