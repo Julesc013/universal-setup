@@ -51,6 +51,14 @@ int main() {
         // parent binding or admit a native maintenance operation.
         using usk::platform::windows::is_publisher_generated_maintenance_component;
         using usk::platform::windows::is_publisher_canonical_component;
+        check(is_publisher_canonical_component(L"Example Product") &&
+            is_publisher_canonical_component(std::wstring(129, L'a')) &&
+            is_publisher_canonical_component(std::wstring(255, L'a')) &&
+            !is_publisher_canonical_component(std::wstring(256, L'a')),
+            "ordinary publication filename bounds differ from identifier bounds");
+        for (const auto* name : {L"CON", L"NUL.txt", L"COM1", L"LPT9", L"trailing.",
+                 L"trailing ", L".hidden", L".", L"..", L"nested/name", L"nested\\name"})
+            check(!is_publisher_canonical_component(name), "unsafe publication filename was admitted");
         for (const auto* operation : {"repair", "move", "uninstall"}) {
             check(is_publisher_generated_maintenance_component(L".usk-stage-tx.1", "tx.1", operation, true),
                 "original generated staging component was refused");

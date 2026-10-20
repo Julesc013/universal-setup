@@ -359,7 +359,7 @@ RegisteredClientRequest parse_registered_client_request(const std::wstring& name
                 throw std::runtime_error("publisher inspection request differs");
             windows_build = observe_supported_discovery_windows_build();
         } else if (!usk::command::detail::publisher_public_recovery_inspection(submitted) &&
-            schema != "usk.install_local_apply_request.v1" &&
+            schema != "usk.install_local_apply_request.v1" && schema != "usk.install_local_plan_request.v1" &&
             schema != "usk.repair_apply_request.v1" && schema != "usk.move_apply_request.v1" &&
             schema != "usk.uninstall_apply_request.v1" &&
             schema != "usk.publisher_recovery_request.v1" &&

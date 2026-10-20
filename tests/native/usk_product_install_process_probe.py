@@ -83,6 +83,27 @@ def main(machine: str, adapter: str) -> None:
         def no_dispatch() -> None:
             result = run("pass")
             assert result["refused"] and result["calls"] == 0, result
+        # Provider mode uses a real native plan behind a CONTROLLED adapter.
+        # Its per-call provenance is unwrapped before whole-plan comparison.
+        result = subprocess.run([adapter, "provider-plan", str(bundle), str(options_file),
+                                 str(confirmation_file), str(context_file)],
+                                capture_output=True, timeout=40, check=True)
+        provider_review = json.loads(result.stdout)
+        assert provider_review["response"] == review, provider_review
+        assert provider_review["plan_calls"] == 1 and provider_review["effect_calls"] == 0, provider_review
+        for mode, code, status in [("provider-pass", 0, "ok"), ("provider-unknown-apply", 5, "unknown")]:
+            result = run(mode)
+            assert not result["refused"] and result["plan_calls"] == 1 and result["effect_calls"] == 1, result
+            assert result["code"] == code and result["response"]["status"] == status, result
+        for mode in ("provider-unknown-plan", "provider-query-refuse", "provider-bad-pid",
+                     "provider-bad-hash", "provider-bad-target"):
+            result = run(mode)
+            assert not result["refused"] and result["plan_calls"] == 1 and result["effect_calls"] == 0, result
+            assert result["response"]["request_id"] == options["request_id"], result
+            assert result["response"]["status"] == ("refused" if mode == "provider-query-refuse" else "unknown"), result
+            assert result["code"] == (2 if mode == "provider-query-refuse" else 5), result
+        result = run("provider-stale")
+        assert result["refused"] and result["plan_calls"] == 1 and result["effect_calls"] == 0, result
         # Tampered review cannot retain an old digest and trick the preview consumer.
         changed = copy.deepcopy(review)
         changed["response"]["result"]["payload"]["planned_entries"][0]["sha256"] = "a" * 64
@@ -114,6 +135,10 @@ def main(machine: str, adapter: str) -> None:
         assert actual.returncode == 2, (actual.returncode, actual.stdout, actual.stderr)
         assert actual.stdout, (actual.returncode, actual.stderr)
         assert json.loads(actual.stdout)["error"]["code"] == "publisher_admission_refused", actual.stdout
+        # Registered mode needs no ordinary access to a private planning context.
+        actual = subprocess.run([machine, "--product-plan", str(bundle), "--request-file", str(options_file),
+            "--publisher", "USK_PUB_" + "0" * 32], capture_output=True, timeout=40)
+        assert actual.returncode == 2 and json.loads(actual.stdout)["error"]["code"] == "publisher_admission_refused", actual
         # An existing target invalidates the reviewed plan before transport.
         target.mkdir()
         no_dispatch()

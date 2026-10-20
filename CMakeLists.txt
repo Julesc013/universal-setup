@@ -242,6 +242,7 @@ target_link_libraries(usk_lifecycle_static PUBLIC
 )
 if(WIN32)
   target_sources(usk_lifecycle_static PRIVATE runtime/setup/lifecycle/usk_protected_install_publisher.cpp)
+  target_sources(usk_lifecycle_static PRIVATE runtime/setup/lifecycle/usk_registered_install_plan_internal.cpp)
   target_sources(usk_lifecycle_static PRIVATE runtime/setup/lifecycle/usk_native_maintenance_context_internal.cpp)
   target_sources(usk_lifecycle_static PRIVATE runtime/setup/lifecycle/usk_owned_publisher_retirement.cpp)
   target_sources(usk_lifecycle_static PRIVATE runtime/setup/lifecycle/usk_owned_retirement_object_history_internal.cpp)

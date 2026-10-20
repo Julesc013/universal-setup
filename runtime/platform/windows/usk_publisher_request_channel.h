@@ -101,6 +101,9 @@ public:
     // only while its original authenticated token is unchanged and unreplied.
     // A caller cannot replace this binding with supplied request text.
     std::string authenticated_canonical_request() const;
+    // Read-only query boundary: same authenticated request, cancellation and
+    // original absolute channel deadline. This does not extend the deadline.
+    void require_active_request() const;
     // Actual authenticated identification token and current held file-object
     // descriptor only. This is read-only evidence, not publication admission.
     // The token stays private to this one-request channel and is never exported.

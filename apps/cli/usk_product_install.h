@@ -14,9 +14,14 @@ namespace usk::command {
 // It is untrusted user data, never a publisher admission or authority grant.
 OneShotResult plan_product_install(const std::filesystem::path& bundle,
     const std::string& options, const OneShotContextConfig& context);
+OneShotResult plan_product_install(const std::filesystem::path& bundle,
+    const std::string& options, const CandidateTransport& transport);
 OneShotResult apply_product_install(const std::filesystem::path& bundle,
     const std::string& review, const std::string& confirmation,
     const OneShotContextConfig& context, const CandidateTransport& transport);
+OneShotResult apply_product_install_registered(const std::filesystem::path& bundle,
+    const std::string& review, const std::string& confirmation,
+    const CandidateTransport& transport);
 
 } // namespace usk::command
 #endif

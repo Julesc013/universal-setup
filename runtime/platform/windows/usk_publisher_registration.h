@@ -55,9 +55,17 @@ public:
         const PublisherRequestChannel& channel, std::wstring& envelope_path,
         std::string& envelope_sha256) const;
     bool has_selected_reviewed_operation() const noexcept;
+    // One read-only request, exactly equal to the original SCM-bound install
+    // envelope's plan_request. Retains that source through explicit completion;
+    // neither method selects an effect approval or permits worker launch.
+    usk::json::Value admit_install_plan(const PublisherRequestChannel& channel) const;
+    void finish_install_plan(const PublisherRequestChannel& channel) const;
+    void fail_install_plan() const noexcept;
     usk::json::Value selected_reviewed_envelope() const;
     usk::json::Value selected_reviewed_operation_observation() const;
 private:
+    void check_install_plan(const PublisherRequestChannel& channel) const;
+    void check_install_plan_registration() const;
     friend class PublisherEffectBrokerReadback;
     // Only the original admission owner constructs this completed native
     // observation. The broker consumes its actual collected fields within

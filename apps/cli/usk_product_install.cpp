@@ -73,12 +73,12 @@ const Value& successful_plan(const Value& response, const Value& request)
 }
 } // namespace
 
-OneShotResult plan_product_install(const std::filesystem::path& bundle,
-    const std::string& options, const OneShotContextConfig& context)
+static OneShotResult plan_product_install_using(const std::filesystem::path& bundle,
+    const std::string& options, const std::function<OneShotResult(const std::string&)>& planner)
 {
     const auto request_text = compose_product_install_plan(bundle, options);
     const auto request = parse(request_text, max_request_bytes);
-    auto response = run_one_shot(request_text, &context);
+    auto response = planner(request_text);
     if (response.exit_code != 0) return response;
     const auto native = parse(response.document, max_response_bytes);
     (void)successful_plan(native, request);
@@ -90,9 +90,10 @@ OneShotResult plan_product_install(const std::filesystem::path& bundle,
     return response;
 }
 
-OneShotResult apply_product_install(const std::filesystem::path& bundle,
+static OneShotResult apply_product_install_using(const std::filesystem::path& bundle,
     const std::string& review_text, const std::string& confirmation_text,
-    const OneShotContextConfig& context, const CandidateTransport& transport)
+    const std::function<OneShotResult(const std::string&)>& planner, const CandidateTransport& transport,
+    bool registered_planning = false)
 {
     const auto review = parse(review_text, max_response_bytes);
     fields(review, {"schema", "request", "response"});
@@ -128,7 +129,10 @@ OneShotResult apply_product_install(const std::filesystem::path& bundle,
     // Never infer a plan digest by hashing its public response: the lifecycle's
     // digest has a different projection. Re-plan read-only and compare ALL bytes
     // semantically, including policy, source, target, effects and planned files.
-    const auto fresh_plan = run_one_shot(fresh_request, &context);
+    const auto fresh_plan = planner(fresh_request);
+    // A failed remote query has its own owned correlated result. Preserve it;
+    // it is not an apply outcome, and it must never trigger effect dispatch.
+    if (registered_planning && fresh_plan.exit_code != 0) return fresh_plan;
     if (fresh_plan.exit_code != 0 ||
         !usk::json::equal_values(parse(fresh_plan.document, max_response_bytes), review.at("response")))
         throw std::runtime_error("review is stale or differs from the native plan");
@@ -146,5 +150,31 @@ OneShotResult apply_product_install(const std::filesystem::path& bundle,
     // dispatch; the registered publisher independently revalidates the plan.
     // No post-dispatch work here may reinterpret a transport failure as refusal.
     return run_publisher_one_shot(request, transport);
+}
+
+OneShotResult plan_product_install(const std::filesystem::path& bundle,
+    const std::string& options, const OneShotContextConfig& context)
+{
+    return plan_product_install_using(bundle, options,
+        [&](const std::string& request) { return run_one_shot(request, &context); });
+}
+OneShotResult plan_product_install(const std::filesystem::path& bundle,
+    const std::string& options, const CandidateTransport& transport)
+{
+    return plan_product_install_using(bundle, options,
+        [&](const std::string& request) { return run_publisher_one_shot(request, transport); });
+}
+OneShotResult apply_product_install(const std::filesystem::path& bundle,
+    const std::string& review, const std::string& confirmation,
+    const OneShotContextConfig& context, const CandidateTransport& transport)
+{
+    return apply_product_install_using(bundle, review, confirmation,
+        [&](const std::string& request) { return run_one_shot(request, &context); }, transport);
+}
+OneShotResult apply_product_install_registered(const std::filesystem::path& bundle,
+    const std::string& review, const std::string& confirmation, const CandidateTransport& transport)
+{
+    return apply_product_install_using(bundle, review, confirmation,
+        [&](const std::string& request) { return run_publisher_one_shot(request, transport); }, transport, true);
 }
 } // namespace usk::command

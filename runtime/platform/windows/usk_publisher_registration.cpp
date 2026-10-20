@@ -3466,6 +3466,10 @@ struct RegisteredPublisherAdmission::State {
     std::unique_ptr<usk::base::StableFile> selected_envelope_source;
     usk::json::Value selected_approval, selected_envelope;
     std::filesystem::path selected_approval_path;
+    std::unique_ptr<usk::base::StableFile> planning_source;
+    std::string planning_bytes, planning_request;
+    bool planning_finished = false;
+    mutable bool planning_failed = false;
     std::wstring name;
 };
 
@@ -3625,7 +3629,7 @@ RegisteredPublisherAdmission::ExecutionObservation RegisteredPublisherAdmission:
 bool RegisteredPublisherAdmission::select_reviewed_operation(const std::string& request,
     const PublisherRequestChannel& channel, std::wstring& envelope_path,
     std::string& envelope_sha256) const {
-    if (state_->selected_envelope_source)
+    if (state_->selected_envelope_source || state_->planning_source || state_->planning_failed)
         throw std::runtime_error("one-request registration already selected its operation");
     const auto admission = evidence();
     const auto parsed = usk::json::parse(request);
@@ -3669,6 +3673,91 @@ bool RegisteredPublisherAdmission::has_selected_reviewed_operation() const noexc
     return state_->selected_envelope_source != nullptr;
 }
 
+usk::json::Value RegisteredPublisherAdmission::admit_install_plan(const PublisherRequestChannel& channel) const {
+    if (state_->planning_source || state_->selected_envelope_source || state_->planning_failed)
+        throw std::runtime_error("one-request registration already selected its operation");
+    channel.require_active_request();
+    check_install_plan_registration();
+    const auto before = evidence();
+    const auto request = channel.authenticated_canonical_request();
+    const auto args = command_arguments(state_->configuration.binary_path);
+    if (args.size() < 8 || args[5] != L"--reviewed-plan-envelope" || !lower_sha256(args[7]))
+        throw std::runtime_error("read-only planning requires the original reviewed SCM source");
+    auto source = std::make_unique<usk::base::StableFile>(std::filesystem::path(args[6]));
+    const auto size = source->identity().size_bytes;
+    if (!size || size > 1024u * 1024u)
+        throw std::runtime_error("registered planning envelope exceeds bound");
+    const auto bytes = source->read(0, static_cast<std::size_t>(size));
+    const std::string text(bytes.begin(), bytes.end());
+    usk::base::Sha256 hash;
+    hash.update(bytes.data(), bytes.size());
+    if (hash.finish() != utf8(args[7]))
+        throw std::runtime_error("registered planning consumed envelope bytes differ");
+    usk::json::ParseLimits limits;
+    limits.max_bytes = 1024u * 1024u;
+    limits.max_string_bytes = 512u * 1024u;
+    const auto document = usk::json::parse(text, limits);
+    const auto envelope = parse_reviewed_operation_envelope(text,
+        usk::json::canonical(document.at("apply_request")));
+    // No caller-selected source, target or context is read before this entire
+    // request matches the trusted original. A prefix/digest subset is not enough.
+    if (envelope.at("schema").as_string() != "usk.publisher.lab_reviewed_plan_envelope.v2" ||
+        envelope.at("plan_request").at("schema").as_string() != "usk.install_local_plan_request.v1" ||
+        usk::json::canonical(envelope.at("plan_request")) != request)
+        throw std::runtime_error("planning request differs from the original registered scope");
+    source->verify_unchanged();
+    if (!usk::json::equal_values(evidence(), before) || channel.authenticated_canonical_request() != request)
+        throw std::runtime_error("registered planning admission changed");
+    state_->planning_source = std::move(source);
+    state_->planning_bytes = text;
+    state_->planning_request = request;
+    // Includes fresh registration and native disk observations before any
+    // source/target planner work. Failure cannot select another execution path.
+    check_install_plan(channel);
+    return envelope;
+}
+
+void RegisteredPublisherAdmission::check_install_plan(const PublisherRequestChannel& channel) const {
+    if (!state_->planning_source || state_->planning_finished || state_->planning_failed ||
+        channel.authenticated_canonical_request() != state_->planning_request)
+        throw std::runtime_error("registered planning scope is unavailable or already finished");
+    state_->planning_failed = true;
+    channel.require_active_request();
+    const auto before = evidence();
+    check_install_plan_registration();
+    const auto bytes = state_->planning_source->read(0, state_->planning_bytes.size());
+    if (std::string(bytes.begin(), bytes.end()) != state_->planning_bytes)
+        throw std::runtime_error("registered planning envelope changed");
+    state_->planning_source->verify_unchanged();
+    if (!usk::json::equal_values(evidence(), before) || channel.authenticated_canonical_request() != state_->planning_request)
+        throw std::runtime_error("registered planning scope changed before completion");
+    channel.require_active_request();
+    state_->planning_failed = false;
+}
+
+void RegisteredPublisherAdmission::check_install_plan_registration() const {
+    const auto before = evidence();
+    const auto args = command_arguments(state_->configuration.binary_path);
+    const auto binding = read_registration_binding(state_->name, state_->configuration.binary_path, args.at(4), false);
+    const auto admitted = read_protected_document(registration_binding_path(state_->name).parent_path() /
+        (state_->name + L".target-admitted.json"));
+    if (usk::json::sha256_canonical(binding) != before.at("registration_sha256").as_string() ||
+        usk::json::sha256_canonical(admitted) != before.at("target_admitted_sha256").as_string() ||
+        !usk::json::equal_values(admitted.at("identity").at("disk_identity"), dedicated_target_disk_identity(args.at(4))))
+        throw std::runtime_error("registered planning target admission changed");
+    if (!usk::json::equal_values(evidence(), before))
+        throw std::runtime_error("registered planning native registration changed");
+}
+
+void RegisteredPublisherAdmission::finish_install_plan(const PublisherRequestChannel& channel) const {
+    check_install_plan(channel);
+    state_->planning_finished = true;
+}
+
+void RegisteredPublisherAdmission::fail_install_plan() const noexcept {
+    state_->planning_failed = true;
+}
+
 usk::json::Value RegisteredPublisherAdmission::execution_configuration_observation() const {
     const auto before = evidence();
     const auto current = query_configuration(state_->service->get());
@@ -3697,6 +3786,8 @@ usk::json::Value RegisteredPublisherAdmission::execution_configuration_observati
 
 std::unique_ptr<PublisherEffectWorkerCustody> RegisteredPublisherAdmission::launch_effect_worker(
     const PublisherRequestChannel& channel, HANDLE cancel_event) const {
+    if (state_->planning_source || state_->planning_failed)
+        throw std::runtime_error("read-only planning cannot launch an effect worker");
     const auto before = evidence();
     const auto request = channel.authenticated_canonical_request();
     const auto& sid = before.at("service_sid").as_string();

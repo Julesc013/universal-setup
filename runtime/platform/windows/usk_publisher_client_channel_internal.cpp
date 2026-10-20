@@ -216,6 +216,12 @@ void require_publisher_response_binding(const std::wstring& service_name,
         throw std::runtime_error("publisher response service identity is absent");
     }
 
+    if (schema == "usk.install_local_plan_request.v1") {
+        usk::command::detail::require_public_install_plan_response(submitted, observed);
+        if (expected_process_id && observed.at("process_id").as_unsigned() != expected_process_id)
+            throw std::runtime_error("registered plan belongs to another live endpoint");
+        return;
+    }
     if (usk::command::detail::publisher_public_recovery_inspection(submitted)) {
         usk::command::detail::require_public_native_recovery_response(submitted, observed);
         if (observed.at("service_name").as_string() != expected_service ||
@@ -419,6 +425,28 @@ std::string submit_publisher_request(const std::wstring& service_name,
         write_message(pipe.value, request, request_limit, options.cancel_event, until);
         const std::string response = read_message(pipe.value, response_limit, options.cancel_event, until);
         require_publisher_response_binding(service_name, request, response, expected);
+        if (usk::json::parse(request).at("schema").as_string() == "usk.install_local_plan_request.v1") {
+            // The one-request query must release its original worker before a
+            // following apply can start. Close this pipe exactly once, then
+            // observe the held process and same SCM entry under THIS deadline.
+            const HANDLE closing = pipe.value;
+            pipe.value = nullptr;
+            if (!CloseHandle(closing)) throw std::runtime_error("publisher query channel closure is unknown");
+            for (;;) {
+                require_request_not_cancelled(options, inspection_reference);
+                if (!remaining(until)) throw std::runtime_error("publisher query disposal exceeded its deadline");
+                SERVICE_STATUS_PROCESS status{};
+                DWORD needed = 0;
+                const DWORD ended = WaitForSingleObject(process.value, 0);
+                if (!QueryServiceStatusEx(service.value, SC_STATUS_PROCESS_INFO,
+                        reinterpret_cast<BYTE*>(&status), sizeof(status), &needed) ||
+                    (status.dwProcessId != 0 && status.dwProcessId != expected) ||
+                    (ended != WAIT_TIMEOUT && ended != WAIT_OBJECT_0))
+                    throw std::runtime_error("publisher query worker disposal is uncertain");
+                if (ended == WAIT_OBJECT_0 && status.dwCurrentState == SERVICE_STOPPED && status.dwProcessId == 0) break;
+                Sleep(std::min<DWORD>(remaining(until), 10));
+            }
+        }
         return response;
     } catch (const usk::base::EffectRequestNotDispatched&) {
         if (write_attempted) throw PublisherRequestOutcomeUnknown("request dispatch was attempted");

@@ -17,10 +17,12 @@ sys.path.insert(0, str(ROOT / "tools"))
 from usk_bundle_author import compile_bundle
 from usk_bundle_plan import compose_plan, host_target
 from usk_bundle_selection import finalize_selection
+from usk_prefab_envelope import build_envelope
 
 
 def create_inputs(root: Path, target: Path, request_id: str, application_binary: Path | None = None,
-                  core_bytes: int = 0, addon_bytes: int = 0) -> dict:
+                  core_bytes: int = 0, addon_bytes: int = 0,
+                  packaged_runtime: Path | None = None) -> dict:
     # The caller creates one fresh owned directory. Never overwrite inputs.
     if any(root.iterdir()):
         raise ValueError("metadata fixture directory must be empty")
@@ -66,35 +68,52 @@ def create_inputs(root: Path, target: Path, request_id: str, application_binary:
     selected.mkdir()
     compile_bundle(definition, host_target(), compiled)
     finalize_selection(compiled / "product.bundle.json", ["addon"], selected)
+    bundle = selected / "product.bundle.json"
+    packaged = root / "packaged"
+    if packaged_runtime is not None:
+        packaged.mkdir()
+        build_envelope(bundle, packaged_runtime, "sidecar", packaged)
+        bundle = packaged / "product.bundle.json"
     request = compose_plan(
-        selected / "product.bundle.json", target, request_id=request_id,
+        bundle, target, request_id=request_id,
         install_id="org.example.metadata.probe", created_at="2026-09-26T00:00:00Z",
         entrypoint_id="main", entrypoint_kind="application",
         entrypoint_path="bin/core.exe" if application_binary is not None else "bin/core.bin")
     # Exercise the accepted source-prefix contract, preserving exact selected
     # payload bytes. The resulting archive is separately hashed and reviewed
     # by the native planner; the intermediate bundle is not a signed product.
-    prefixed = root / "prefixed.zip"
-    with zipfile.ZipFile(selected / "payload.zip") as source:
-        with zipfile.ZipFile(prefixed, "w", compression=zipfile.ZIP_STORED) as output:
-            for item in source.infolist():
-                info = zipfile.ZipInfo("pkg/" + item.filename, (2026, 1, 1, 0, 0, 0))
-                output.writestr(info, source.read(item))
-    request["payload"]["archive"].update({
-        "path": str(prefixed), "strip_prefix": "pkg",
-        "expected_sha256": hashlib.sha256(prefixed.read_bytes()).hexdigest(),
-    })
-    request["payload"]["archive"]["budgets"]["max_depth"] += 1
+    archive = bundle.parent / "payload.zip"
+    if packaged_runtime is None:
+        archive = root / "prefixed.zip"
+        with zipfile.ZipFile(selected / "payload.zip") as source:
+            with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as output:
+                for item in source.infolist():
+                    info = zipfile.ZipInfo("pkg/" + item.filename, (2026, 1, 1, 0, 0, 0))
+                    output.writestr(info, source.read(item))
+        request["payload"]["archive"].update({
+            "path": str(archive), "strip_prefix": "pkg",
+            "expected_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+        })
+        request["payload"]["archive"]["budgets"]["max_depth"] += 1
     destination = root / "request.json"
     destination.write_text(json.dumps(request) + "\n", encoding="utf-8")
-    return {"request_file": str(destination), "archive_file": str(prefixed),
+    options = root / "authored-options.json"
+    if packaged_runtime is not None:
+        payload = request["payload"]
+        options.write_text(json.dumps({"schema": "usk.authored_install_options.v1",
+            "request_id": request_id, "install_id": payload["install_id"],
+            "created_at": payload["created_at"], "target_root": payload["target"]["root"],
+            "entrypoint": payload["recipe"]["entrypoints"][0]}) + "\n", encoding="utf-8")
+    return {"request_file": str(destination), "archive_file": str(archive),
             "archive_sha256": request["payload"]["archive"]["expected_sha256"],
-            "bundle_file": str(selected / "product.bundle.json"),
+            "bundle_file": str(bundle), "options_file": str(options) if packaged_runtime is not None else None,
+            "packaged_host": str(packaged / "usk_machine.exe") if packaged_runtime is not None else None,
             "source_files": [str(path) for path in (
                 definition, *source_paths,
                 compiled / "product.bundle.json", compiled / "payload.zip",
                 selected / "product.bundle.json", selected / "payload.zip",
-                selected / "selection.receipt.json")]}
+                selected / "selection.receipt.json",
+                *(sorted(packaged.iterdir()) if packaged_runtime is not None else []))]}
 
 
 if __name__ == "__main__":
@@ -105,7 +124,8 @@ if __name__ == "__main__":
     parser.add_argument("--application-binary", type=Path)
     parser.add_argument("--core-bytes", type=int, default=0)
     parser.add_argument("--addon-bytes", type=int, default=0)
+    parser.add_argument("--packaged-runtime", type=Path)
     args = parser.parse_args()
     print(json.dumps(create_inputs(args.output, args.target, args.request_id,
                                    args.application_binary, args.core_bytes,
-                                   args.addon_bytes)))
+                                   args.addon_bytes, args.packaged_runtime)))

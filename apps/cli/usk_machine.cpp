@@ -198,45 +198,60 @@ int product_install(int argc, char** argv, bool apply)
 {
     bool dispatch_possible = false;
     try {
-        if (argc < 3 || argv[2][0] == '\0' || argc > 13 || (argc - 3) % 2 != 0)
+        if (argc < 3 || argv[2][0] == '\0' || argc > 15 || (argc - 3) % 2 != 0)
             throw std::runtime_error("invalid product installation options");
         std::map<std::string, std::string> options;
         for (int index = 3; index < argc; index += 2) {
             const std::string key(argv[index]);
-            if ((key != "--request-file" && key != "--context-file" &&
-                    (!apply || (key != "--review-file" && key != "--publisher"))) ||
+            if ((key != "--request-file" && key != "--context-file" && key != "--publisher" &&
+                    key != "--publisher-observation-file" && (!apply || key != "--review-file")) ||
                 argv[index + 1][0] == '\0' || !options.emplace(key, argv[index + 1]).second)
                 throw std::runtime_error("invalid product installation option");
         }
-        if (options.size() != (apply ? 4u : 2u))
+        const bool local = options.count("--context-file") != 0;
+        const bool publisher = options.count("--publisher") != 0;
+        if (!options.count("--request-file") || (apply && (!publisher || !options.count("--review-file"))) ||
+            (!apply && local == publisher) || (!publisher && options.count("--publisher-observation-file")))
             throw std::runtime_error("missing product installation options");
-        std::ifstream context_input(std::filesystem::path(options.at("--context-file")), std::ios::binary);
-        if (!context_input) throw std::runtime_error("planning context unavailable");
-        const auto context = usk::command::read_context_config(context_input);
+        usk::command::OneShotContextConfig context;
+        if (local) {
+            std::ifstream context_input(std::filesystem::path(options.at("--context-file")), std::ios::binary);
+            if (!context_input) throw std::runtime_error("planning context unavailable");
+            context = usk::command::read_context_config(context_input);
+        }
         const auto request = read_product_document(options.at("--request-file"), 16384);
 #ifdef _WIN32
         if (_setmode(_fileno(stdout), _O_BINARY) == -1)
             throw std::runtime_error("binary output unavailable");
 #endif
         usk::command::OneShotResult result;
-        if (apply) {
+        usk::command::CandidateTransport transport;
+        if (publisher) {
 #ifdef _WIN32
             const auto& name = options.at("--publisher");
             const std::wstring service(name.begin(), name.end());
             if (!generated_service_name(service)) throw std::runtime_error("invalid publisher name");
-            const auto review = read_product_document(options.at("--review-file"), usk::command::max_response_bytes);
-            result = usk::command::apply_product_install(std::filesystem::path(argv[2]),
-                review, request, context, [&](const std::string& payload) {
+            transport = [&, service](const std::string& payload) {
                     // Conservative before any transport action. Typed pre-send
                     // refusal and UNKNOWN classification remain in the adapter.
-                    dispatch_possible = true;
-                    return registered_publisher_request(service, payload, 0);
-                });
+                    const bool query = usk::json::parse(payload).at("schema").as_string() == "usk.install_local_plan_request.v1";
+                    if (!query) dispatch_possible = true;
+                    const char* observation = options.count("--publisher-observation-file") && (!apply || !query) ?
+                        options.at("--publisher-observation-file").c_str() : nullptr;
+                    return registered_publisher_request(service, payload, 0, observation);
+                };
 #else
             throw std::runtime_error("registered publisher requires Windows");
 #endif
+        }
+        if (apply) {
+            const auto review = read_product_document(options.at("--review-file"), usk::command::max_response_bytes);
+            result = local ? usk::command::apply_product_install(std::filesystem::path(argv[2]),
+                review, request, context, transport) :
+                usk::command::apply_product_install_registered(std::filesystem::path(argv[2]), review, request, transport);
         } else {
-            result = usk::command::plan_product_install(std::filesystem::path(argv[2]), request, context);
+            result = local ? usk::command::plan_product_install(std::filesystem::path(argv[2]), request, context) :
+                usk::command::plan_product_install(std::filesystem::path(argv[2]), request, transport);
         }
         usk::command::write_result(std::cout, result.document, false);
         if (!result.diagnostic.empty()) std::cerr << "usk_machine: " << result.diagnostic << '\n';
@@ -303,9 +318,9 @@ int main(int argc, char** argv)
             " [--publisher NAME [--publisher-wait-ms 0..30000] [--publisher-observation-file PATH]]"
             " | --product-info product.bundle.json"
             " | --product-select product.bundle.json [--select ID ...]"
-            " | --product-plan BUNDLE --request-file OPTIONS --context-file CONTEXT"
+            " | --product-plan BUNDLE --request-file OPTIONS --context-file CONTEXT|--publisher NAME"
             " | --product-apply BUNDLE --review-file REVIEW --request-file CONFIRMATION"
-            " --context-file CONTEXT --publisher NAME"
+            " --publisher NAME [--context-file CONTEXT] [--publisher-observation-file PATH]"
             " | --candidate-service NAME --request-file path (Windows only)\n";
         return 2;
     }
