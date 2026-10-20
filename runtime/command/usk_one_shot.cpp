@@ -6,6 +6,8 @@
 #include "usk/usk_api.h"
 #include "usk_json.h"
 #include "usk_publisher_response_internal.h"
+#include "usk_publisher_client_context_internal.h"
+#include "usk_publisher_recovery_request_internal.h"
 #include "usk_effect_dispatch.h"
 
 #include <array>
@@ -424,6 +426,7 @@ static OneShotResult run_publisher_request(const std::string& request_json,
     std::string response_field;
     std::string candidate_command;
     Value submitted;
+    bool public_recovery = false;
     try {
         usk::json::ParseLimits limits;
         limits.max_bytes = max_request_bytes;
@@ -457,6 +460,11 @@ static OneShotResult run_publisher_request(const std::string& request_json,
                 command == "uninstall.recover")) {
             expected_schema = "usk.publisher_maintenance_recovery_request.v1";
             response_field = "recovery_response";
+        } else if (!retain_observation && (command == "recovery.inspect" ||
+                command == "recovery.plan" || command == "recovery.apply")) {
+            public_recovery = true;
+            expected_schema = command == "recovery.inspect" ? "usk.recovery_inspect_request.v1" :
+                command == "recovery.plan" ? "usk.recovery_plan_request.v1" : "usk.recovery_apply_request.v1";
         } else if (command == "publisher.inspect" && !retain_observation) {
             expected_schema = "usk.publisher_capability_request.v1";
         } else if (command == "publisher.observe") {
@@ -468,11 +476,17 @@ static OneShotResult run_publisher_request(const std::string& request_json,
             return failure(request_id, "command_unavailable");
         }
         const bool inspection = command == "publisher.inspect";
-        if (input.at("dry_run").as_boolean() != inspection ||
+        const bool read_only = inspection || (public_recovery && command != "recovery.apply");
+        if (input.at("dry_run").as_boolean() != read_only ||
             input.at("payload").type() != Value::Type::object ||
             input.at("payload").at("schema").as_string() != expected_schema)
             return failure(request_id, "invalid_request");
         submitted = input.at("payload");
+        // The SDK's complete closed decoder precedes all transport callbacks.
+        // Preserve the full request, reviewed digests and selected action;
+        // never reduce public recovery to the older private lookup selector.
+        if (public_recovery && !detail::publisher_public_recovery_inspection(submitted))
+            return failure(request_id, "invalid_request");
         if (response_field == "recovery_response" && (submitted.as_object().size() != 4 ||
             submitted.at("operation").as_string() != command.substr(0, command.find('.')) ||
             !safe_id(submitted.at("install_id").as_string()) || !safe_id(submitted.at("transaction_id").as_string())))
@@ -490,7 +504,14 @@ static OneShotResult run_publisher_request(const std::string& request_json,
     // reply, returns these already owned bytes without another allocation.
     static_assert(std::is_nothrow_move_constructible<OneShotResult>::value,
         "publisher uncertainty return must not allocate");
-    auto unknown_response = candidate_outcome(request_id, "unknown", Value(),
+    Value unknown_result;
+    if (public_recovery) {
+        unknown_result = Value(Value::Object{{"schema", Value("usk.command_response.v1")},
+            {"status", Value("unknown")},
+            {"payload", detail::publisher_client_invocation_identity(candidate_command, submitted)},
+            {"error", Value(Value::Object{{"code", Value("publisher_outcome_unknown")}})}});
+    }
+    auto unknown_response = candidate_outcome(request_id, "unknown", std::move(unknown_result),
         candidate_command == "publisher.observe" ? "publisher_observation_unknown" :
             "publisher_outcome_unknown", 5);
 

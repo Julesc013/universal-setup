@@ -12,6 +12,11 @@ using PublisherClientPrepare = std::function<usk::json::Value(
     const std::string&, const usk::json::Value&)>;
 struct PublisherClientResult { int status; const char* json; };
 
+// Pure projection after the caller's complete closed request decoding. Binds
+// uncertainty to this invocation; supplies neither dispatch nor native authority.
+usk::json::Value publisher_client_invocation_identity(
+    const std::string& command, const usk::json::Value& submitted);
+
 // Private adapter seam only. The public C factory always supplies the actual
 // authenticated client and its fixed preparation. No callback is in the ABI.
 // A context is externally serialized; independent contexts own separate buffers.

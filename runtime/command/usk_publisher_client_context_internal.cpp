@@ -123,6 +123,10 @@ const char* request_schema(const std::string& command) {
 }
 }
 
+Value publisher_client_invocation_identity(const std::string& command, const Value& submitted) {
+    return invocation_identity(command, submitted);
+}
+
 PublisherClientContext::PublisherClientContext(std::string endpoint) : endpoint_(std::move(endpoint)) {
     if (endpoint_.size() != 40u || endpoint_.compare(0, 8, "USK_PUB_") != 0 ||
         endpoint_.find_first_not_of("0123456789abcdef", 8) != std::string::npos)

@@ -6,27 +6,35 @@ RAM/commit reserves, one local heavy job and the existing Windows 10 VM.
 The fixed20GiB stop is superseded. Daily reviewed dev integration and qualified
 weekly main promotion are separate. History remains in Git and decisions.md.
 
-Accepted dev52154036a00659aafc5e6487b9fc9849fe7b2a41 integrates PR306 after
-seven core checks, actual committed independent review and fresh live gate.
-Accepted push39460644778/1 passed all seven core checks; publisher skipped.
-PR306 fixes inert fixture helper extraction/expectations after retained failed
-f2b9a01 core run; all56 observer and five failed-preparation controls remain.
-Native product preparation still precedes gated dispatch, holds/checks service
-identity, cooperatively stops, checks held exit/SCM PID0/unchanged command/three
-absent paths, then observes lab device read-only. Dispose uncertainty is sticky.
-Inert tests do not qualify SCM/VHD/ACL effects or bound whole SCM elapsed time.
-PR305 preserves Count>1 ambiguity refusal; its bounded failure census grants no
-selection/filter/retry/termination authority. IsolationR3 remains HOLD/unapplied:
-fixed-root receipt grammar and legacy inherited Modify conflict. Preserve both
-protections and retained inputs; do not replay rejected evidence deletion.
+Accepted dev0f9dbeb3b3d4891dc8072a69e934fa0d62f59cac integrates PR307 after
+all seven exact-head core checks39465380021/1, actual committed independent
+review and fresh live gate. Full publisher39465380021/1 and accepted-dev
+push39467912329/1 await their terminal records; never replay the merge.
+PR306 preparation checks service identity/stop/path absence before read-only
+lab observation; inert controls do not qualify SCM/VHD/ACL effects. PR305 census
+preserves Count>1 refusal without selection/retry/termination authority.
+IsolationR3 HOLD: receipt-root grammar and legacy Modify conflict; retain both
+protections/inputs. Never replay rejected evidence deletion.
 
-Current continuation-prefix reuse extracts the existing selector after actual
-TX/history acquisition. Only the fixed eligible original-child restored route
-supplies its immediate owned pair instead of reacquiring both. Nested-active
-and ordinary wrappers retain their paths. Source/context joins, selector's fresh
-closing pair, result comparison and outer fresh pair/full authority exit remain.
-Common selector body is unchanged. Removing the duplicate initial observations
-changes refusal timing; held handles/read-only code do not prove immutability.
+Current WU013 connects full public recovery.inspect/plan/apply to the existing
+registered one-shot host using shared SDK closed decoding, invocation identity
+and response validation. Query dry_run=true, apply=false; complete reviewed
+request/action retained without private-selector reduction. Before transport,
+owned UNKNOWN includes current SDK invocation identity; post-dispatch allocation/
+reply failure cannot become refusal. Candidate-service and legacy routes retain
+their limits. Six focused native/process tests pass x64/Win32, including72
+post-dispatch allocation-denial controls and equal SDK uncertainty responses.
+Synthetic transport data is not native authority or runtime/120s qualification.
+Exact committed review and fresh hosted gates remain before integration.
+This helps connect authoring; envelopes remain inspect-only and unsupported
+native recovery states remain unsupported.
+
+PR307 continuation reuse supplies the fixed original-child restored route's
+actual TX/complete history to the original selector. Nested-active and ordinary
+paths retain their behavior. Source/context joins, fresh closing pair, result
+comparison and outer fresh pair/full authority exit remain; common selector
+body is unchanged. Removing duplicate observations changes refusal timing.
+Held handles/read-only code do not prove immutability.
 No provisional result escapes before finish; post-begin failure remains sticky
 without fallback. R1 was held for extended completed-vector lifetime; R2 releases
 both elements/capacity before outer exit at the former lifetime boundary.
@@ -53,13 +61,11 @@ Its eight ordinary SDK lifecycle calls and selected private recoveries passed
 independent state/closure; those selected passes do not establish reliability.
 Keep these executions separate and retain the120s contract.
 
-Pinned offline PR304 CPU/phase diagnosis is partial-window, not whole-request:
-kernel End/argv joins lack full birth/interval identity,7310 ordinary events were
-not submitted after event ceiling, inclusive scopes overlap, no scheduler/wait
-events or terminal payload/state. Exact PE/PDB GUID/age was independently bound.
-Product stacks show JSON copy/encode/budget/UTF8, authority/original-record and
-entry batch work; native file-hash/provider counts exclude canonical JSON hashes.
-No numerical removable cost, protected-route frequency or deadline cure follows.
+Pinned PR304 CPU/phase evidence covers a partial window; End/argv lacks full
+birth/interval identity,7310 events were not submitted, inclusive scopes overlap,
+and no scheduler/wait/terminal payload/state is captured. Exact PE/PDB is bound.
+Product stacks show JSON and authority work; native hash/provider counts exclude
+canonical JSON hashes. No numerical removable cost or deadline cure follows.
 Use existing bounded diagnostic records; do not redo traces or stack speculative
 hash/provider optimizations. Error32 holder/cause unknown; preserve sharing.
 Current step-read-groupsR4 is integrated; old R102/eight-query preview remains HOLD.
