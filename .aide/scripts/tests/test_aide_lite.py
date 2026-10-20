@@ -66,6 +66,16 @@ class AideLiteWorkflowTests(unittest.TestCase):
 
     def test_portable_apply_descriptions_match_shipped_modules(self) -> None:
         root = self.make_repo()
+        # Re-export needs its import policy explicitly in this scratch fixture.
+        # A delivered pack keeps that policy beside files/, not inside files/.
+        policy = REPO_ROOT / aide_lite.EXPORT_IMPORT_POLICY_TEMPLATE_PATH
+        if not policy.is_file():
+            self.assertEqual(REPO_ROOT.name, "files")
+            policy = REPO_ROOT.parent / "import-policy.yaml"
+        self.assertTrue(policy.is_file())
+        destination = root / aide_lite.EXPORT_IMPORT_POLICY_TEMPLATE_PATH
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(policy.read_bytes())
         for relative in (
             ".aide/templates/portable-apply/README.md",
             ".aide/templates/portable-apply/__init__.py",

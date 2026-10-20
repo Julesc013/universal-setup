@@ -2,12 +2,17 @@ schema_version: aide.commit-message-policy.v0
 policy_id: aide-commit-message-standard-v0
 status: active
 purpose: >
-  Require structured, changelog-ready Git commit messages for AIDE-managed work
+  Require compact, changelog-ready Git commit messages for AIDE-managed work
   so future agents can audit, replay, summarize, and release from repo-local
   history without long chat context.
-standard: Conventional Commits with structured Markdown body
+standard: Conventional Commits with compact-v1 authoring and legacy-v0 reading
+default_format: compact-v1
+reference: docs/reference/commit-discipline.md
 subject:
-  format: "type(scope): summary"
+  format: "type[(scope)][!]: summary"
+  legacy_format: "type(scope): summary"
+  compact_length_enforcement: advisory
+  compact_additional_types: [style]
   subject_max_chars: 72
   allowed_types:
     - feat
@@ -67,7 +72,7 @@ subject:
     - work
     - fix
     - fixes
-body:
+legacy_body:
   markdown_required: true
   required_headings:
     - "## Summary"
@@ -102,7 +107,7 @@ body:
     - Internal
     - Risks
     - Follow-up
-trailers:
+legacy_trailers:
   required_for_aide_queue_work: true
   allowed:
     - AIDE-Task
@@ -136,7 +141,39 @@ non_goals:
   - no automatic release publishing
   - no rewriting published history
 
-# Owner-directed 2026-10-07 adoption. Only ancestors of this immutable local
-# checkpoint qualify. Future commits and repositories without this object stay
-# strict. Targets must adopt their own boundary; this is not target authority.
-historical_presentation_advisory_through: 143ed76134c7fa19b8954e6061df3c1799206403
+# Owner-directed 2026-10-07 adoption; reviewed extension on 2026-10-18 under
+# AIDE-HISTORICAL-PRESENTATION-BOUNDARY-02. Original cutoff143ed761 remains in
+# history. Only proven ancestors qualify; future commits and targets lacking
+# this object stay strict. Targets own their boundary. No individual waiver.
+historical_presentation_advisory_through: dfae9356241dda6a03e2cc48cf9acb245c9a6be1
+
+compact:
+  marker: "AIDE-Format: compact-v1"
+  required: [informative_body, Validation, Changelog, AIDE-Task]
+  optional: [Risk, Follow-up, BREAKING_CHANGE, attributed_standard_trailers]
+  final_trailer_block: true
+  repeatable: [Changelog]
+  validation: actual_outcome_and_checks_or_reason_NOT_RUN
+  breaking_marker_requires_impact_and_migration_explanation: true
+  ambiguous_metadata: fail
+  unknown_format: fail
+  changelog_category_inference: never
+  style_warnings: subject_length_trailing_period_and_H1_H2
+  legacy_messages: preserve_original_v0_checks_and_dispositions
+communication_defaults:
+  applicability: AIDE_and_adopting_projects_with_project_owned_customization
+  objective: maximum_useful_information_with_minimum_repetition
+  commits: plain_text_rationale_bullets_when_useful_and_small_trailer_block
+  rendered_surfaces: short_prose_bold_labels_bullets_inline_code
+  headings: H3_H4_only_when_navigation_helps_no_H1_H2_defaults
+  underline: sparse_ins_HTML_only_in_known_supporting_renderers
+  length: proportional_to_behavior_risk_and_review_needs_no_word_quota
+  required_meaning: outcome_reason_observed_validation_material_limits
+  optional_meaning: compatibility_migration_recovery_reviewer_focus_follow_up
+  avoid: empty_sections_None_filler_log_dumps_diff_narration_chat_history
+  comments: finding_trigger_impact_evidence_action_and_required_or_optional
+  merge_records: integration_identity_resolution_and_combined_validation
+  status: distinguish_candidate_validated_integrated_published_adopted
+  release_claim: independent_qualification_never_inferred_from_message
+  overrides: preserve_project_sources_templates_compatibility_and_grants
+  history: no_reformatting_rewrite_or_implicit_historical_waiver

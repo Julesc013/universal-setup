@@ -878,6 +878,10 @@ Q36_REQUIRED_FILES = [
 ]
 
 Q36_PORTABLE_SOURCE_FILES = [
+    ".aide/scripts/task_handoff.py",
+    ".aide/scripts/quality_symbols.py",
+    ".aide/scripts/task_brief_view.py",
+    ".aide/scripts/outcome_lessons.py",
     INTENT_POLICY_PATH,
     WORKUNIT_SIZING_POLICY_PATH,
     TASK_CLASSES_POLICY_PATH,
@@ -3827,6 +3831,7 @@ class OutcomeRecord:
     verifier_status: str
     recommendation_id: str
     notes: str
+    extra_fields: tuple[tuple[str, object], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -4472,7 +4477,115 @@ def parse_commit_trailers(message: str) -> dict[str, str]:
     return dict(reversed(list(trailers.items())))
 
 
+def commit_unfenced_lines(text: str) -> list[tuple[int, str]]:
+    """Metadata and presentation checks ignore examples in fenced code."""
+    result: list[tuple[int, str]] = []
+    fence = ""
+    for index, line in enumerate(text.splitlines()):
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", line)
+        if marker:
+            token = marker.group(1)
+            if not fence and not (token[0] == "`" and "`" in marker.group(2)):
+                fence = token
+            elif fence and token[0] == fence[0] and len(token) >= len(fence) and not marker.group(2).strip():
+                fence = ""
+            continue
+        if not fence:
+            result.append((index, line))
+    return result
+
+
+def has_compact_commit_marker(text: str) -> bool:
+    return any(re.match(r"^AIDE-Format\s*:", line, re.IGNORECASE)
+               for _, line in commit_unfenced_lines(text))
+
+
+def parse_compact_commit(text: str) -> tuple[dict[str, object], list[Check]]:
+    """One compact-v1 reader for checking and changelog projection; no inference."""
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").rstrip().split("\n")
+    visible = dict(commit_unfenced_lines("\n".join(lines)))
+    end = len(lines)
+    while end and (not lines[end - 1].strip() or lines[end - 1].startswith("#")):
+        end -= 1
+    trailing_comments = "\n".join(lines[end:]).strip()
+    lines = lines[:end]
+    checks: list[Check] = []
+    subject = lines[0] if lines else ""
+    info = parse_conventional_subject(subject)
+    check_pass(checks, bool(info["valid"]), "compact subject follows type[(scope)][!]: description")
+    check_pass(checks, info["type"] in COMMIT_ALLOWED_TYPES | {"style"}, "compact commit type is allowed")
+    check_pass(checks, bool(info["summary"]) and str(info["summary"]).lower() not in COMMIT_VAGUE_SUMMARIES,
+               "compact subject describes a specific change")
+    check_warn(checks, len(subject) <= 72, "compact subject fits the 72-character guideline")
+    check_warn(checks, not subject.endswith("."), "compact subject omits a trailing period")
+    check_pass(checks, len(lines) > 2 and not lines[1].strip(), "compact subject has a blank separator")
+    start = len(lines) - 1
+    while start > 0 and lines[start - 1].strip():
+        start -= 1
+    fields: dict[str, list[str]] = {}
+    last = ""
+    trailer = re.compile(r"^([A-Za-z][A-Za-z0-9-]*|BREAKING CHANGE):[ \t]*(.*)$")
+    valid_block = start > 1
+    for index in range(start, len(lines)):
+        line = lines[index]
+        match = trailer.fullmatch(line) if index in visible else None
+        if match:
+            key, value = match.groups()
+            last = "BREAKING CHANGE" if key == "BREAKING-CHANGE" else key
+            fields.setdefault(last, []).append(value)
+        elif last and line.startswith((" ", "\t")) and index in visible:
+            fields[last][-1] += "\n" + line.strip()
+        else:
+            valid_block = False
+    check_pass(checks, valid_block, "compact metadata is one final trailer block")
+    for key in ("AIDE-Format", "AIDE-Task", "Validation"):
+        values = fields.get(key, [])
+        check_pass(checks, len(values) == 1 and bool(values[0].strip()), f"compact singleton present: {key}")
+    for key in ("Risk", "Follow-up", "BREAKING CHANGE", *COMMIT_TRAILERS):
+        check_pass(checks, len(fields.get(key, [])) <= 1, f"compact singleton is unambiguous: {key}")
+    check_pass(checks, fields.get("AIDE-Format") == ["compact-v1"], "compact format is supported")
+    markers = [i for i, line in visible.items() if re.match(r"^AIDE-Format\s*:", line, re.IGNORECASE)]
+    check_pass(checks, len(markers) == 1 and markers[0] >= start, "compact format marker occurs once in trailers")
+    reserved = {"AIDE-Format", "AIDE-Task", "Validation", "Changelog", "Risk", "Follow-up", "BREAKING CHANGE", "BREAKING-CHANGE"}
+    check_pass(checks, not any((match := trailer.fullmatch(line)) and match.group(1) in reserved
+                              for i, line in visible.items() if 2 <= i < start),
+               "compact metadata is not duplicated or misplaced in prose")
+    body = "\n".join(lines[2:start]).strip()
+    prose = "\n".join(line for i, line in visible.items() if 2 <= i < start).strip()
+    check_pass(checks, bool(re.search(r"[A-Za-z0-9]", prose)) and prose.lower() not in {"todo", "tbd", "none"},
+               "compact body explains the change and rationale")
+    validation = "\n".join(fields.get("Validation", []))
+    check_pass(checks, bool(re.match(r"^(?:PASS|WARN|FAIL|NOT RUN)\b[ \t:;-]+\S", validation)),
+               "compact validation names an outcome and the actual checks or reason")
+    entries: dict[str, list[str]] = {}
+    for value in fields.get("Changelog", []):
+        category, separator, detail = value.partition(":")
+        valid = bool(separator and category in COMMIT_CHANGELOG_CATEGORIES and detail.strip())
+        check_pass(checks, valid, "compact changelog has a known category and description")
+        if valid:
+            entries.setdefault(category, []).append(detail.strip())
+    check_pass(checks, bool(entries), "compact changelog records at least one explicit entry")
+    breaking = "\n".join(fields.get("BREAKING CHANGE", []))
+    check_pass(checks, not info["breaking"] or bool(breaking.strip()), "compact breaking marker has an impact and migration explanation")
+    check_pass(checks, "BREAKING CHANGE" not in fields or bool(breaking.strip()), "compact breaking footer is not empty")
+    check_warn(checks, not any(re.match(r"^ {0,3}#{1,2}\s", line) for _, line in visible.items()),
+               "compact presentation avoids H1/H2; use plain text or H3/H4")
+    check_pass(checks, not any(ord(c) < 32 and c not in "\n\r\t" for c in text), "compact message excludes control characters")
+    for forbidden in ("raw_prompt_body", "raw_response_body", "begin private key", "openai_api_key",
+                      "anthropic_api_key", "deepseek_api_key", "sk-ant"):
+        check_pass(checks, forbidden not in text.lower(), f"commit message excludes {forbidden}")
+    return {"subject": subject, "info": info, "body": body, "fields": fields,
+            "entries": entries, "validation": validation, "breaking": bool(info["breaking"] or breaking),
+            "trailing_comments": trailing_comments}, checks
+
+
 def validate_commit_message_text(text: str) -> list[Check]:
+    if has_compact_commit_marker(text):
+        return parse_compact_commit(text)[1]
+    return validate_legacy_commit_message_text(text)
+
+
+def validate_legacy_commit_message_text(text: str) -> list[Check]:
     message = strip_commit_message_comments(text)
     lines = message.splitlines()
     checks: list[Check] = []
@@ -4535,6 +4648,8 @@ def commit_message_result(checks: Iterable[Check]) -> str:
 
 def normalize_commit_draft(message: str) -> str:
     """Mechanical layout only; never invent headings, claims or trailers."""
+    if has_compact_commit_marker(message):
+        return message.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n") + "\n"
     lines = message.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     headings = {heading.lower(): heading for heading in COMMIT_REQUIRED_BODY_HEADINGS}
     fence = ""
@@ -5051,8 +5166,11 @@ def evaluate_historical_commit_disposition(
     return result
 
 
+COMPACT_COMMIT_TEMPLATE = 'fix(component): describe the resulting behavior\n\nExplain the concrete problem and why this change solves it. Add bullets\nonly for distinct effects. Include material compatibility or recovery\ndetails when needed; omit empty sections.\n\nValidation: NOT RUN - replace with actual checks, outcomes or reason\nChangelog: Fixed: describe the user or operator impact\nAIDE-Task: <queue-id>\nAIDE-Format: compact-v1\n'
+
+
 def render_commit_template() -> str:
-    return read_text(repo_root_from_script() / COMMIT_TEMPLATE_PATH) if (repo_root_from_script() / COMMIT_TEMPLATE_PATH).exists() else COMMIT_GOOD_EXAMPLE
+    return read_text(repo_root_from_script() / COMMIT_TEMPLATE_PATH) if (repo_root_from_script() / COMMIT_TEMPLATE_PATH).exists() else COMPACT_COMMIT_TEMPLATE
 
 
 def current_hook_path(repo_root: Path) -> str:
@@ -5113,6 +5231,9 @@ def parse_conventional_subject(subject: str) -> dict[str, object]:
 
 
 def extract_changelog_entries(message: str) -> dict[str, list[str]]:
+    if has_compact_commit_marker(message):
+        parsed, checks = parse_compact_commit(message)
+        return parsed["entries"] if result_from_checks(checks) != "FAIL" else {}
     entries = {category: [] for category in COMMIT_CHANGELOG_CATEGORIES}
     section = markdown_heading_body(strip_commit_message_comments(message), "## Changelog")
     for line in section.splitlines():
@@ -5205,7 +5326,37 @@ def first_meaningful_line(text: str) -> str:
     return ""
 
 
+def compact_commit_for_changelog(commit_hash: str, subject: str, message: str) -> dict[str, object]:
+    parsed, checks = parse_compact_commit(message)
+    check_pass(checks, parsed["subject"] == subject, "compact subject matches the Git record")
+    info, fields = parsed["info"], parsed["fields"]
+    trailers = {key: "\n".join(values) for key, values in fields.items()}
+    failures = [check.message for check in checks if check.severity == "FAIL"]
+    sections = ["Body", *fields]
+    common = {"commit_sha": commit_hash, "commit": commit_hash[:12], "subject": subject,
+              "type": info["type"], "scope": info["scope"], "breaking": parsed["breaking"],
+              "validation": parsed["validation"], "risks": trailers.get("Risk", ""),
+              "follow_up": trailers.get("Follow-up", "")}
+    entries = []
+    if not failures:
+        for category, values in parsed["entries"].items():
+            for value in values:
+                entries.append({**common, "category": category, "summary": value, "entry": value,
+                                "message_format": "compact-v1",
+                                "aide_phase": trailers.get("AIDE-Phase", ""),
+                                "aide_result": trailers.get("AIDE-Result", ""),
+                                "source_sections_present": sections,
+                                "breaking_change": trailers.get("BREAKING CHANGE", "")})
+    return {**common, "summary": info["summary"], "trailers": trailers,
+            "sections_present": sections, "entries": entries, "malformed": bool(failures),
+            "malformed_reasons": failures, "warnings": [c.message for c in checks if c.severity == "WARN"],
+            "legacy": False, "ignored": False, "message_format": "compact-v1",
+            "trailing_comments": parsed["trailing_comments"]}
+
+
 def parse_commit_for_changelog(commit_hash: str, subject: str, message: str) -> dict[str, object]:
+    if has_compact_commit_marker(message):
+        return compact_commit_for_changelog(commit_hash, subject, message)
     clean = strip_commit_message_comments(message)
     subject_info = parse_conventional_subject(subject)
     trailers = parse_commit_trailers(clean)
@@ -5377,10 +5528,17 @@ def make_release_notes_preview_data(changelog_data: dict[str, object]) -> dict[s
     validation_summary = []
     risk_summary = []
     follow_up = []
+    breaking_changes = []
     for entry in entries:
-        validation_text = markdown_block_summary(str(entry.get("validation", "")), fallback="")
-        risk_text = markdown_block_summary(str(entry.get("risks", "")), fallback="")
-        follow_text = markdown_block_summary(str(entry.get("follow_up", "")), fallback="")
+        compact = entry.get("message_format") == "compact-v1"
+        def detail(key: str) -> str:
+            value = str(entry.get(key, ""))
+            return value.strip() if compact else markdown_block_summary(value, fallback="")
+        validation_text, risk_text, follow_text = detail("validation"), detail("risks"), detail("follow_up")
+        if compact and entry.get("breaking_change"):
+            item = {"commit": entry.get("commit", ""), "summary": entry["breaking_change"]}
+            if item not in breaking_changes:
+                breaking_changes.append(item)
         if validation_text:
             validation_summary.append({"commit": entry.get("commit", ""), "summary": validation_text})
         if risk_text and risk_text.lower() not in {"none", "`none`"}:
@@ -5398,6 +5556,7 @@ def make_release_notes_preview_data(changelog_data: dict[str, object]) -> dict[s
         "validation_summary": validation_summary,
         "risk_summary": risk_summary,
         "follow_up": follow_up,
+        **({"breaking_changes": breaking_changes} if breaking_changes else {}),
         "warnings": warnings,
         "preview_only": True,
     }
@@ -5438,6 +5597,12 @@ def render_changelog_preview(data: dict[str, object]) -> str:
                 if isinstance(item, dict):
                     breaking = " BREAKING" if item.get("breaking") else ""
                     lines.append(f"- {item.get('summary') or item.get('entry', '')} ({item.get('commit', '')} {item.get('subject', '')}{breaking})")
+                    if item.get("message_format") == "compact-v1":
+                        for key, label in (("validation", "Validation"), ("risks", "Risk"),
+                                           ("follow_up", "Follow-up"), ("breaking_change", "Breaking change")):
+                            if item.get(key):
+                                text = str(item[key]).replace("\n", "\n    ")
+                                lines.append(f"  - **{label}:** {text}")
             lines.append("")
     else:
         lines.extend(["## No Structured Entries", "", "- No structured changelog entries found in range.", ""])
@@ -5476,12 +5641,18 @@ def render_release_notes_preview(data: dict[str, object], release_data: dict[str
                 lines.append(f"- {item.get('category', 'Changed')}: {item.get('summary', '')} ({item.get('commit', '')}{breaking})")
     else:
         lines.append("- No release highlights were extracted from structured changelog entries.")
+    if release.get("breaking_changes"):
+        lines.extend(["", "### Breaking changes and migration", ""])
+        for item in release["breaking_changes"]:
+            text = str(item["summary"]).replace("\n", "\n  ")
+            lines.append(f"- {item['commit']}: {text}")
     lines.extend(["", "## Validation Summary", ""])
     validation = release.get("validation_summary", [])
     if isinstance(validation, list) and validation:
         for item in validation[:10]:
             if isinstance(item, dict):
-                lines.append(f"- {item.get('commit', '')}: {item.get('summary', '')}")
+                text = str(item.get('summary', '')).replace("\n", "\n  ")
+                lines.append(f"- {item.get('commit', '')}: {text}")
     else:
         lines.append("- No validation summaries were extracted.")
     lines.extend(["", "## Known Risks", ""])
@@ -5489,7 +5660,8 @@ def render_release_notes_preview(data: dict[str, object], release_data: dict[str
     if isinstance(risks, list) and risks:
         for item in risks[:10]:
             if isinstance(item, dict):
-                lines.append(f"- {item.get('commit', '')}: {item.get('summary', '')}")
+                text = str(item.get('summary', '')).replace("\n", "\n  ")
+                lines.append(f"- {item.get('commit', '')}: {text}")
     else:
         lines.append("- No risk summaries were extracted.")
     lines.extend(["", "## Follow-up", ""])
@@ -5497,7 +5669,8 @@ def render_release_notes_preview(data: dict[str, object], release_data: dict[str
     if isinstance(follow, list) and follow:
         for item in follow[:10]:
             if isinstance(item, dict):
-                lines.append(f"- {item.get('commit', '')}: {item.get('summary', '')}")
+                text = str(item.get('summary', '')).replace("\n", "\n  ")
+                lines.append(f"- {item.get('commit', '')}: {text}")
     else:
         lines.append("- No follow-up summaries were extracted.")
     warnings = release.get("warnings", [])
@@ -12533,14 +12706,10 @@ def quality_file_explanation(ledger: dict[str, object], rel: str) -> dict[str, o
     return result
 
 
-def command_quality_explain_file(args: argparse.Namespace) -> int:
-    rel = normalize_rel(args.path)
+def build_quality_file_explanation(repo_root: Path, rel: str) -> dict[str, object]:
+    """Share the bounded report reader; never scan or regenerate source facts."""
     try:
-        # This lookup reads one bounded report, never target source or new indexes.
-        with (args.repo_root / FILE_QUALITY_LEDGER_JSON_PATH).open("rb") as stream:
-            raw = stream.read(16 * 1024 * 1024 + 1)
-        if len(raw) > 16 * 1024 * 1024:
-            raise ValueError("quality ledger exceeds the 16 MiB lookup limit")
+        raw = task_view_read(repo_root, FILE_QUALITY_LEDGER_JSON_PATH, limit=16 * 1024 * 1024)
         ledger = json.loads(raw)
         if not isinstance(ledger, dict):
             raise ValueError("quality ledger must be an object")
@@ -12551,6 +12720,11 @@ def command_quality_explain_file(args: argparse.Namespace) -> int:
     except (OSError, ValueError, RecursionError) as error:
         result = {"result": "INVALID", "path": rel, "error": str(error),
                   "next_action": "inspect the retained report; no regeneration was attempted"}
+    return result
+
+
+def command_quality_explain_file(args: argparse.Namespace) -> int:
+    result = build_quality_file_explanation(args.repo_root, normalize_rel(args.path))
     if getattr(args, "json", False):
         rendered = stable_json_text(result)
     else:
@@ -12576,6 +12750,148 @@ def command_quality_explain_file(args: argparse.Namespace) -> int:
         rendered = stable_json_text(result) if getattr(args, "json", False) else "\n".join(f"{key}: {value}" for key, value in result.items()) + "\n"
     print(rendered, end="")
     return {"PASS": 0, "MISSING": 1, "INVALID": 2}[result["result"]]
+
+
+
+def quality_symbol_parser():
+    # The helper belongs to this distribution, never the selected project.
+    path = Path(__file__).resolve().with_name("quality_symbols.py")
+    _job_wait_root(str(path.parent))
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+            or getattr(info, "st_file_attributes", 0) & 0x400 or info.st_size > 64 * 1024):
+        raise ValueError("symbol helper is not an ordinary bounded module")
+    spec = importlib.util.spec_from_file_location("aide_quality_symbols", path)
+    module = importlib.util.module_from_spec(spec)
+    previous = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
+    return module
+
+
+def build_quality_symbol_inspection(repo_root: Path, name: str, paths: list[str]) -> dict:
+    parser = quality_symbol_parser()
+    parser.validate_symbol(name)
+    if not 1 <= len(paths) <= 8:
+        raise ValueError("select one to eight explicit files")
+    selected = []
+    for path in paths:
+        if len(path) > 1024 or any(ord(char) < 32 for char in path):
+            raise ValueError("invalid source path")
+        selected.append("/".join(task_view_reference_parts(path)))
+    if len({path.casefold() for path in selected}) != len(selected):
+        raise ValueError("duplicate or case-colliding source paths")
+
+    def capture(path, limit, *, advisory=False):
+        try:
+            return ("read", task_view_read(repo_root, path, limit=limit))
+        except FileNotFoundError:
+            return ("missing", None)
+        except (OSError, ValueError):
+            if advisory:
+                return ("unreadable", None)
+            raise ValueError("unsafe, unreadable or oversized source input")
+
+    ledger_capture = capture(FILE_QUALITY_LEDGER_JSON_PATH, 16 * 1024 * 1024, advisory=True)
+    ledger = None
+    ledger_state = ledger_capture[0]
+    if ledger_state == "read":
+        try:
+            ledger = json.loads(ledger_capture[1])
+            if not isinstance(ledger, dict):
+                raise ValueError
+            ledger_state = "recorded"
+        except (ValueError, UnicodeError, RecursionError):
+            ledger_state = "invalid"
+    observed = {}
+    files = []
+    total = 0
+    for path in selected:
+        snapshot = capture(path, 4 * 1024 * 1024)
+        observed[path] = snapshot
+        raw = snapshot[1]
+        total += len(raw) if raw is not None else 0
+        if total > 8 * 1024 * 1024:
+            raise ValueError("selected source exceeds 8 MiB")
+        if raw is None:
+            syntax = {"state": "missing", "match_state": "unknown"}
+        elif Path(path).suffix.lower() not in (".py", ".pyi"):
+            syntax = {"state": "unsupported", "match_state": "unknown",
+                      "sha256": hashlib.sha256(raw).hexdigest(), "bytes": len(raw)}
+        else:
+            syntax = parser.inspect_python(raw, name)
+        context = {"state": ledger_state, "freshness": "unverified", "advisory": True}
+        if ledger_state == "recorded":
+            try:
+                context["evidence"] = quality_file_explanation(ledger, path)
+            except (ValueError, TypeError, KeyError, RecursionError):
+                context["state"] = "invalid"
+        files.append({"path": path, "syntax": syntax, "recorded_context": context})
+
+    # Sequential before/after checks detect observed changes, not an atomic
+    # filesystem snapshot or access control against another unrestricted writer.
+    for path, snapshot in observed.items():
+        if capture(path, 4 * 1024 * 1024) != snapshot:
+            raise ValueError("selected source changed during inspection")
+    if capture(FILE_QUALITY_LEDGER_JSON_PATH, 16 * 1024 * 1024, advisory=True) != ledger_capture:
+        raise ValueError("quality ledger changed during inspection")
+    return {
+        "schema_version": "aide.quality-symbol-inspection.v1",
+        "result": "PASS" if all(item["syntax"]["state"] == "parsed" for item in files) else "PARTIAL",
+        "symbol": name, "files": files, "selected_bytes": total, "read_only": True,
+        "ledger_sha256": hashlib.sha256(ledger_capture[1]).hexdigest() if ledger_capture[1] is not None else None,
+        "coverage": "explicit_selected_files_only",
+        "caveats": [
+            "Names, scopes and calls describe syntax; runtime binding, aliases and behavior remain unresolved.",
+            "Not found is not semantic absence; unselected files and unsupported syntax remain outside coverage.",
+            "Recorded owner, documentation and likely tests are advisory; freshness and complete impact are unverified.",
+            "Sequential byte rechecks are not an atomic snapshot; no project code was imported or executed.",
+        ],
+        "next_action": "Inspect the matching definitions and recorded checks before deciding reuse; broaden checks when coverage is incomplete.",
+    }
+
+
+def command_quality_inspect_symbol(args: argparse.Namespace) -> int:
+    try:
+        result = build_quality_symbol_inspection(args.repo_root, args.name, args.path)
+    except (OSError, ValueError, RecursionError) as error:
+        result = {"result": "REFUSED", "reason": str(error), "read_only": True}
+    if args.json:
+        rendered = json.dumps(result, indent=2, sort_keys=True, ensure_ascii=True) + "\n"
+    else:
+        lines = ["AIDE Lite quality inspect-symbol", "result: " + result["result"]]
+        if result["result"] == "REFUSED":
+            lines.append("reason: " + json.dumps(result["reason"], ensure_ascii=True))
+        else:
+            lines += ["symbol: " + json.dumps(result["symbol"], ensure_ascii=True), "coverage: " + result["coverage"],
+                      "ledger_sha256: " + str(result["ledger_sha256"])]
+            for item in result["files"]:
+                syntax = item["syntax"]
+                lines.append(json.dumps(item["path"], ensure_ascii=True) + ": " + syntax["state"]
+                             + "; matches: " + syntax["match_state"])
+                lines.append("  source_sha256: " + str(syntax.get("sha256")))
+                if "parser" in syntax:
+                    lines.append("  parser: " + json.dumps(syntax["parser"], ensure_ascii=True))
+                if "reason" in syntax:
+                    lines.append("  reason: " + syntax["reason"])
+                for key in ("definitions", "calls", "imports"):
+                    if key not in syntax:
+                        continue
+                    for match in syntax[key]["items"]:
+                        lines.append("  " + key + ": " + json.dumps(match, ensure_ascii=True))
+                    lines.append("  " + key + " omitted: " + str(syntax[key]["omitted"]))
+                lines.append("  recorded_context: " + json.dumps(item["recorded_context"], ensure_ascii=True))
+            lines += ["caveat: " + caveat for caveat in result["caveats"]]
+            lines.append("next_action: " + result["next_action"])
+        rendered = "\n".join(lines) + "\n"
+    if len(rendered.encode("utf-8")) > 64 * 1024:
+        result = {"result": "REFUSED", "reason": "output exceeds 64 KiB; select fewer files", "read_only": True}
+        rendered = json.dumps(result, ensure_ascii=True) + "\n"
+    print(rendered, end="")
+    return {"PASS": 0, "PARTIAL": 1, "REFUSED": 2}[result["result"]]
 
 
 def command_quality_report_file(args: argparse.Namespace, title: str, path: str) -> int:
@@ -19966,6 +20282,12 @@ def render_github_release_upload_plan_md(data: dict[str, object]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def github_release_manual_review_items(repo_root: Path) -> list[str]:
+    policy = repo_root / RELEASE_CHECKLIST_POLICY_PATH
+    items = parse_simple_list(read_text(policy), "manual_review_items") if policy.is_file() else []
+    return items if all(item.strip() for item in items) else []
+
+
 def github_release_checklist_data(repo_root: Path, blockers: list[str], warnings: list[str]) -> dict[str, object]:
     checks = [
         {"section": "source repo state", "item": "branch checked", "status": "recorded", "evidence": github_release_source_branch(repo_root)},
@@ -19982,15 +20304,9 @@ def github_release_checklist_data(repo_root: Path, blockers: list[str], warnings
         {"section": "security gates", "item": "no local state or secret assets", "status": "required", "evidence": "targeted secret scan"},
         {"section": "target install caveats", "item": "target install readiness not claimed", "status": "pass", "evidence": "Q49/Q50/Q54/Q55 remain future work"},
     ]
-    manual_review = [
-        "review release body",
-        "review suggested tag",
-        "review asset list",
-        "review known risks",
-        "review target install caveats",
-        "decide whether this is pre-release/draft/stable",
-        "decide whether to publish",
-    ]
+    manual_review = github_release_manual_review_items(repo_root)
+    if not manual_review:
+        blockers = [*blockers, f"release checklist policy has no manual review items: {RELEASE_CHECKLIST_POLICY_PATH}"]
     return {
         "schema_version": "aide.github-release-checklist.v0",
         "checklist_id": f"{github_release_draft_id(repo_root)}-checklist",
@@ -20007,24 +20323,24 @@ def github_release_checklist_data(repo_root: Path, blockers: list[str], warnings
 def render_github_release_checklist_md(data: dict[str, object]) -> str:
     checks = data.get("checks", []) if isinstance(data.get("checks"), list) else []
     lines = [
-        "# GitHub Release Publication Checklist",
+        "### GitHub Release Publication Checklist",
         "",
         f"- checklist_id: {data.get('checklist_id')}",
         f"- source_commit: {data.get('source_commit')}",
         "- no_publish: true",
         "",
-        "## Checks",
+        "#### Checks",
     ]
     for check in checks:
         if isinstance(check, dict):
             lines.append(f"- [{check.get('section')}] {check.get('item')}: {check.get('status')} ({check.get('evidence')})")
-    lines.extend(["", "## Blockers"])
+    lines.extend(["", "#### Blockers"])
     blockers = data.get("blockers", []) if isinstance(data.get("blockers"), list) else []
     lines.extend(f"- {item}" for item in blockers) if blockers else lines.append("- none")
-    lines.extend(["", "## Warnings"])
+    lines.extend(["", "#### Warnings"])
     warnings = data.get("warnings", []) if isinstance(data.get("warnings"), list) else []
     lines.extend(f"- {item}" for item in warnings) if warnings else lines.append("- none")
-    lines.extend(["", "## Manual Review Required"])
+    lines.extend(["", "#### Manual Review Required"])
     lines.extend(f"- {item}" for item in data.get("manual_review_required", []) if isinstance(item, str))
     return "\n".join(lines) + "\n"
 
@@ -20102,6 +20418,8 @@ def validate_github_release_draft_files(repo_root: Path, require_outputs: bool =
         text = read_text(repo_root / rel) if (repo_root / rel).exists() else ""
         for anchor in anchors:
             check_pass(checks, anchor in text, f"github release draft policy {rel} contains anchor: {anchor}")
+    policy_manual = github_release_manual_review_items(repo_root)
+    check_pass(checks, bool(policy_manual), "release checklist policy declares nonempty manual review items")
     for rel in Q48_SCHEMA_FILES:
         if not (repo_root / rel).exists():
             continue
@@ -20148,10 +20466,9 @@ def validate_github_release_draft_files(repo_root: Path, require_outputs: bool =
         for action in ["create_git_tag", "create_github_release", "upload_release_asset", "call_network"]:
             check_pass(checks, action in blocked_actions, f"upload plan blocks {action}")
     checklist = read_json_file(repo_root / GITHUB_RELEASE_CHECKLIST_JSON_PATH) if (repo_root / GITHUB_RELEASE_CHECKLIST_JSON_PATH).exists() else {}
-    if checklist:
-        check_pass(checks, checklist.get("no_publish") is True, "publication checklist no_publish true")
-        manual_review = checklist.get("manual_review_required", []) if isinstance(checklist.get("manual_review_required"), list) else []
-        check_pass(checks, "review release body" in manual_review, "publication checklist includes manual release body review")
+    check_pass(checks, checklist.get("no_publish") is True, "publication checklist no_publish true")
+    manual_review = checklist.get("manual_review_required", []) if isinstance(checklist.get("manual_review_required"), list) else []
+    check_pass(checks, bool(policy_manual) and manual_review == policy_manual, "publication checklist matches current manual review policy")
     boundary = github_release_boundary_data()
     for key in ["tag_created", "github_release_created", "upload_performed", "network_api_call", "branch_mutation", "active_ci_installed"]:
         check_pass(checks, boundary.get(key) is False, f"publication boundary {key} false")
@@ -20315,17 +20632,21 @@ def command_release_upload_plan(args: argparse.Namespace) -> int:
 
 
 def command_release_checklist(args: argparse.Namespace) -> int:
-    if not (args.repo_root / GITHUB_RELEASE_CHECKLIST_JSON_PATH).exists():
-        build_github_release_draft_outputs(args.repo_root)
-    checklist = read_json_file(args.repo_root / GITHUB_RELEASE_CHECKLIST_JSON_PATH)
+    path = args.repo_root / GITHUB_RELEASE_CHECKLIST_JSON_PATH
+    checklist = read_json_file(path) if path.is_file() else {}
     blockers = checklist.get("blockers", []) if isinstance(checklist.get("blockers"), list) else []
     manual = checklist.get("manual_review_required", []) if isinstance(checklist.get("manual_review_required"), list) else []
+    policy_manual = github_release_manual_review_items(args.repo_root)
+    current = bool(policy_manual) and manual == policy_manual
     print("AIDE Lite release checklist")
     print(f"path: {GITHUB_RELEASE_CHECKLIST_JSON_PATH}")
     print(f"blockers: {len(blockers)}")
     print(f"manual_review_items: {len(manual)}")
+    print(f"manual_review_current: {str(current).lower()}")
+    if not current:
+        print("next_action: reconcile manual_review_items in policy and regenerate the local release draft")
     print("no_publish: true")
-    return 0 if checklist.get("no_publish") is True else 1
+    return 0 if checklist.get("no_publish") is True and current else 1
 
 
 def command_release_publication_boundary(args: argparse.Namespace) -> int:
@@ -26682,10 +27003,12 @@ def run_golden_github_release_checklist(repo_root: Path) -> GoldenTaskResult:
     policy = read_text(repo_root / RELEASE_CHECKLIST_POLICY_PATH) if (repo_root / RELEASE_CHECKLIST_POLICY_PATH).exists() else ""
     for marker in ["source repo state", "validation gates", "security gates", "manual review items"]:
         check_pass(checks, marker in policy, f"release checklist policy contains {marker}")
+    policy_manual = github_release_manual_review_items(repo_root)
+    check_pass(checks, bool(policy_manual), "release checklist policy declares nonempty manual review items")
     if (repo_root / GITHUB_RELEASE_CHECKLIST_JSON_PATH).exists():
         data = read_json_file(repo_root / GITHUB_RELEASE_CHECKLIST_JSON_PATH)
         manual = data.get("manual_review_required", []) if isinstance(data.get("manual_review_required"), list) else []
-        check_pass(checks, "review release body" in manual, "checklist includes release body review")
+        check_pass(checks, bool(policy_manual) and manual == policy_manual, "checklist matches current manual review policy")
     return golden_task_result(
         "github_release_checklist_golden",
         checks,
@@ -27868,7 +28191,7 @@ def assert_controller_related_path(repo_root: Path, requested: str) -> str:
 
 
 def outcome_record_to_dict(record: OutcomeRecord) -> dict[str, object]:
-    return {
+    known = {
         "run_id": record.run_id,
         "phase": record.phase,
         "source": record.source,
@@ -27883,13 +28206,34 @@ def outcome_record_to_dict(record: OutcomeRecord) -> dict[str, object]:
         "recommendation_id": record.recommendation_id,
         "notes": record.notes,
     }
+    extra = dict(record.extra_fields)
+    if set(extra) & set(known):
+        raise ValueError("outcome metadata conflicts with a known field")
+    return {**extra, **known}
 
 
 def outcome_record_from_dict(data: dict[str, object]) -> OutcomeRecord:
+    if not isinstance(data, dict):
+        raise ValueError("outcome record must be an object")
+    text_fields = ("run_id", "phase", "source", "result", "failure_class", "severity",
+                   "budget_status", "golden_task_status", "verifier_status",
+                   "recommendation_id", "notes")
+    for key in text_fields:
+        if key in data and not isinstance(data[key], str):
+            raise ValueError(f"outcome field {key} must be text")
+    for key in ("run_id", "phase", "source"):
+        if not data.get(key, "").strip():
+            raise ValueError(f"outcome identity {key} is missing")
+    if data.get("result", "WARN") not in {"PASS", "WARN", "FAIL"}:
+        raise ValueError("outcome result is invalid")
+    if data.get("severity", "warning") not in {"info", "warning", "error"}:
+        raise ValueError("outcome severity is invalid")
     related = data.get("related_paths", [])
-    if not isinstance(related, list):
-        related = []
+    if not isinstance(related, list) or any(not isinstance(path, str) for path in related):
+        raise ValueError("outcome related_paths must be a list of text paths")
     approx = data.get("approx_tokens")
+    if approx is not None and (type(approx) is not int or approx < 0):
+        raise ValueError("outcome approx_tokens must be a nonnegative integer or null")
     return OutcomeRecord(
         run_id=str(data.get("run_id", "")),
         phase=str(data.get("phase", "")),
@@ -27904,7 +28248,22 @@ def outcome_record_from_dict(data: dict[str, object]) -> OutcomeRecord:
         verifier_status=str(data.get("verifier_status", "UNKNOWN")),
         recommendation_id=str(data.get("recommendation_id", "")),
         notes=str(data.get("notes", "")),
+        extra_fields=tuple((key, value) for key, value in data.items()
+                           if key not in (*text_fields, "related_paths", "approx_tokens")),
     )
+
+
+def _outcome_json_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON object key")
+        result[key] = value
+    return result
+
+
+def _outcome_json_constant(_value: str) -> None:
+    raise ValueError("non-finite JSON number")
 
 
 def read_outcome_records(repo_root: Path) -> list[OutcomeRecord]:
@@ -27912,29 +28271,57 @@ def read_outcome_records(repo_root: Path) -> list[OutcomeRecord]:
     if not path.exists():
         return []
     records: list[OutcomeRecord] = []
-    for line in read_text(path).splitlines():
+    for number, line in enumerate(read_text(path).splitlines(), 1):
         if not line.strip():
             continue
         try:
-            records.append(outcome_record_from_dict(json.loads(line)))
-        except (json.JSONDecodeError, TypeError, ValueError):
-            continue
+            data = json.loads(line, object_pairs_hook=_outcome_json_object,
+                              parse_constant=_outcome_json_constant)
+            json.dumps(data, allow_nan=False)  # Also reject exponent overflow to infinity.
+            records.append(outcome_record_from_dict(data))
+        except RecursionError as exc:
+            raise ValueError(f"invalid outcome ledger record at {OUTCOME_LEDGER_PATH}:{number}: JSON nesting exceeds reader capacity") from exc
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"invalid outcome ledger record at {OUTCOME_LEDGER_PATH}:{number}: {exc}") from exc
     return records
 
 
 def write_outcome_records(repo_root: Path, records: Iterable[OutcomeRecord]) -> WriteResult:
     sorted_records = sorted(records, key=lambda item: (item.run_id, item.phase, item.source, item.failure_class, item.recommendation_id))
-    lines = [
-        json.dumps(outcome_record_to_dict(record), sort_keys=True, separators=(",", ":"))
-        for record in sorted_records
-    ]
-    return write_text_if_changed(repo_root / OUTCOME_LEDGER_PATH, "\n".join(lines) + ("\n" if lines else ""))
+    lines = []
+    for record in sorted_records:
+        data = outcome_record_to_dict(record)
+        outcome_record_from_dict(data)  # Refuse newly constructed invalid records too.
+        lines.append(json.dumps(data, sort_keys=True, separators=(",", ":"), allow_nan=False))
+    data = ("\n".join(lines) + ("\n" if lines else "")).encode("utf-8")
+    return atomic_write_bytes_if_changed(repo_root / OUTCOME_LEDGER_PATH, data)
+
+
+def preserve_outcome_metadata(previous: Iterable[OutcomeRecord], replacements: Iterable[OutcomeRecord]) -> list[OutcomeRecord]:
+    """Carry opaque metadata only across an unambiguous existing update identity."""
+    old, new = list(previous), list(replacements)
+    identity = lambda record: (record.run_id, record.phase, record.source)
+    for record in old:
+        if not record.extra_fields:
+            continue
+        matches = [index for index, item in enumerate(new) if identity(item) == identity(record)]
+        if len(matches) != 1 or sum(identity(item) == identity(record) for item in old) != 1:
+            raise ValueError("outcome update would drop or ambiguously merge unfamiliar metadata; reconcile the recorded identity")
+        index = matches[0]
+        data = outcome_record_to_dict(new[index])
+        for key, value in record.extra_fields:
+            if key in data and json.dumps(data[key], sort_keys=True, allow_nan=False) != json.dumps(value, sort_keys=True, allow_nan=False):
+                raise ValueError("outcome update conflicts with unfamiliar metadata; reconcile it explicitly")
+            data[key] = value
+        new[index] = outcome_record_from_dict(data)
+    return new
 
 
 def merge_outcome_records(repo_root: Path, new_records: Iterable[OutcomeRecord], run_id: str = "q16.current") -> tuple[WriteResult, list[OutcomeRecord]]:
     existing = read_outcome_records(repo_root)
     retained = [record for record in existing if record.run_id != run_id]
-    merged = [*retained, *list(new_records)]
+    replaced = [record for record in existing if record.run_id == run_id]
+    merged = [*retained, *preserve_outcome_metadata(replaced, new_records)]
     return write_outcome_records(repo_root, merged), merged
 
 
@@ -29536,24 +29923,16 @@ def write_context_index(repo_root: Path, repo_map: dict[str, object], test_map: 
     return result, context_index
 
 
-def current_queue_ref(repo_root: Path) -> str:
-    for queue_id in [
-        "Q17-router-profile-v0",
-        "Q16-outcome-controller-v0",
-        "Q15-golden-tasks-v0",
-        "Q14-token-ledger-savings-report",
-        "Q13-evidence-review-workflow",
-        "Q12-verifier-v0",
-        "Q11-context-compiler-v0",
-        "Q10-aide-lite-hardening",
-        "Q09-token-survival-core",
-    ]:
-        if (repo_root / f".aide/queue/{queue_id}/status.yaml").exists():
-            return f".aide/queue/{queue_id}/"
-    return ".aide/queue/index.yaml"
+def current_queue_ref(repo_root: Path, task_view: dict[str, object] | None = None) -> str:
+    view = build_current_task_view(repo_root) if task_view is None else task_view
+    selected = view["task_id"]
+    return f".aide/queue/{selected}/" if selected else ".aide/queue/index.yaml"
 
 
 def render_context_packet(repo_root: Path, repo_map: dict[str, object], test_map: dict[str, object], context_index: dict[str, object], chars: int = 0, tokens: int = 0) -> str:
+    task_view = build_current_task_view(repo_root)
+    selection = task_view["selection"]
+    selection_issues = ", ".join(sorted({item["code"] for item in task_view["issues"]})) or "none"
     role_counts = context_index.get("role_counts", {})
     role_lines = []
     for role in ROLE_ORDER:
@@ -29603,8 +29982,16 @@ def render_context_packet(repo_root: Path, repo_map: dict[str, object], test_map
 
 ## CURRENT_QUEUE
 
-- current_queue_ref: `{current_queue_ref(repo_root)}`
+- current_queue_ref: `{current_queue_ref(repo_root, task_view)}`
 - queue_index: `.aide/queue/index.yaml`
+- selected_task: `{task_view['task_id'] or 'unresolved'}`
+- recorded_status: {json.dumps(task_view['status'], ensure_ascii=True)}
+- selection_mode: {selection['mode']}
+- selection_source: `{selection['source'] or 'unresolved'}`
+- selection_issues: {selection_issues}
+- acceptance_verified: false
+- Selection describes recorded context, not an active worker or permission to execute.
+- Reconcile selection issues before acting; a completed selected task is not a new assignment.
 
 ## EXACT_REFS
 
@@ -30096,67 +30483,41 @@ def test_validation_policy_paths() -> list[str]:
 
 
 def git_diff_name_only(repo_root: Path, from_ref: str) -> tuple[list[str], str]:
-    if not from_ref.strip():
-        return [], "missing_from_ref"
     paths: list[str] = []
+    warnings: list[str] = []
 
-    def add_lines(text: str) -> None:
-        for line in text.splitlines():
+    def observe(args: list[str], label: str) -> bool:
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(repo_root), *args], check=False,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                text=True, encoding="utf-8",
+            )
+        except OSError as exc:
+            warnings.append(f"{label}: {exc}")
+            return False
+        if result.returncode != 0:
+            warnings.append(f"{label}: {result.stderr.strip() or 'git observation failed'}")
+            return False
+        for line in result.stdout.splitlines():
             rel = normalize_rel(line)
             if rel and rel not in paths:
                 paths.append(rel)
+        return True
 
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(repo_root), "diff", "--name-only", f"{from_ref}...HEAD"],
-            check=False,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-        )
-    except OSError as exc:
-        return [], str(exc)
-    if result.returncode != 0:
-        try:
-            fallback = subprocess.run(
-                ["git", "-C", str(repo_root), "diff", "--name-only", f"{from_ref}..HEAD"],
-                check=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-            )
-        except OSError as exc:
-            return [], str(exc)
-        if fallback.returncode != 0:
-            return [], fallback.stderr.strip() or result.stderr.strip() or "git diff failed"
-        add_lines(fallback.stdout)
-    else:
-        add_lines(result.stdout)
-    extra_commands = [
-        ["git", "-C", str(repo_root), "diff", "--name-only"],
-        ["git", "-C", str(repo_root), "diff", "--name-only", "--cached"],
-        ["git", "-C", str(repo_root), "ls-files", "--others", "--exclude-standard"],
-    ]
-    warnings: list[str] = []
-    for command in extra_commands:
-        try:
-            extra = subprocess.run(
-                command,
-                check=False,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-            )
-        except OSError as exc:
-            warnings.append(str(exc))
-            continue
-        if extra.returncode != 0:
-            warnings.append(extra.stderr.strip() or f"{' '.join(command)} failed")
-            continue
-        add_lines(extra.stdout)
+    if not from_ref.strip():
+        warnings.append("missing_from_ref")
+    elif not observe(["diff", "--name-only", f"{from_ref}...HEAD"], "base_diff_unavailable"):
+        # Endpoint comparison can retain useful paths but does not establish the
+        # requested merge-base observation. Keep the original failure explicit.
+        if observe(["diff", "--name-only", f"{from_ref}..HEAD"], "endpoint_diff_unavailable"):
+            warnings.append("endpoint_comparison_fallback")
+    for args, label in [
+        (["diff", "--name-only"], "working_diff_unavailable"),
+        (["diff", "--name-only", "--cached"], "staged_diff_unavailable"),
+        (["ls-files", "--others", "--exclude-standard"], "untracked_paths_unavailable"),
+    ]:
+        observe(args, label)
     return paths, "; ".join(warnings)
 
 
@@ -30254,8 +30615,19 @@ def build_test_impact_plan(repo_root: Path, from_ref: str) -> dict[str, object]:
     warnings: list[str] = []
     if warning:
         warnings.append(warning)
-    if not changed:
+        # Failed observation is unknown scope, even if a subset was observed.
+        # Reuse the existing conservative fallback; this is not test admission.
+        tiers.append("T2")
+    elif not changed:
         warnings.append("no_changed_paths_detected")
+    observation = "incomplete" if warning else "available"
+    next_action = (
+        "Reconcile the missing changed-path observations before narrowing checks; "
+        "T2 is conservative advice, not complete impact coverage or execution authority."
+        if warning else
+        "Review heuristic mappings and applicable validation obligations; "
+        "observed paths do not establish complete dependency or test coverage."
+    )
     for rel in changed:
         tier, targets, mapped_commands, confidence, reason = impacted_test_mapping_for_path(rel)
         tiers.append(tier)
@@ -30284,6 +30656,9 @@ def build_test_impact_plan(repo_root: Path, from_ref: str) -> dict[str, object]:
         "from_ref": from_ref,
         "mode": "report_only",
         "proof_status": "plan_not_proof",
+        "changed_path_observation": observation,
+        "mapping_coverage": "heuristic_incomplete",
+        "next_action": next_action,
         "changed_paths": changed,
         "recommended_tier": max_test_tier(tiers),
         "entries": entries,
@@ -30299,6 +30674,9 @@ def render_test_impact_plan_md(plan: dict[str, object]) -> str:
         "",
         f"- mode: {plan.get('mode')}",
         f"- proof_status: {plan.get('proof_status')}",
+        f"- changed_path_observation: {plan.get('changed_path_observation')}",
+        f"- mapping_coverage: {plan.get('mapping_coverage')}",
+        f"- next_action: {plan.get('next_action')}",
         f"- from_ref: {plan.get('from_ref')}",
         f"- recommended_tier: {plan.get('recommended_tier')}",
         f"- changed_paths: {len(plan.get('changed_paths', [])) if isinstance(plan.get('changed_paths'), list) else 0}",
@@ -33777,7 +34155,30 @@ def command_doctor(args: argparse.Namespace) -> int:
 
 def command_validate(args: argparse.Namespace) -> int:
     ok, messages = validate_repo(args.repo_root)
-    return print_messages("AIDE Lite validate", ok, messages)
+    if getattr(args, "full", False):
+        return print_messages("AIDE Lite validate", ok, messages)
+    counts = dict.fromkeys(("PASS", "WARN", "FAIL", "OTHER"), 0)
+    findings = []
+    for message in messages:
+        severity = message.partition(" ")[0]
+        severity = severity if severity in ("PASS", "WARN", "FAIL") else "OTHER"
+        counts[severity] += 1
+        if severity != "PASS":
+            findings.append(message)
+    if getattr(args, "json", False):
+        print(json.dumps({"schema": "aide.validation-result.v1",
+                          "status": "PASS" if ok else "FAIL",
+                          "total": len(messages), "counts": counts,
+                          "messages": messages}, ensure_ascii=True))
+    else:
+        print("AIDE Lite validate")
+        print(f"status: {'PASS' if ok else 'FAIL'}")
+        print(f"checks: {len(messages)}; " + "; ".join(
+            f"{severity}: {count}" for severity, count in counts.items()))
+        for message in findings:
+            print(f"- {message}")
+        print(f"omitted PASS details: {counts['PASS']}; use validate --full or --json for all results")
+    return 0 if ok else 1
 
 
 def command_estimate(args: argparse.Namespace) -> int:
@@ -34214,7 +34615,7 @@ def command_commit_create(args: argparse.Namespace) -> int:
 def command_commit_template(args: argparse.Namespace) -> int:
     template_path = args.repo_root / COMMIT_TEMPLATE_PATH
     if not template_path.exists():
-        write_text_if_changed(template_path, COMMIT_GOOD_EXAMPLE)
+        write_text_if_changed(template_path, COMPACT_COMMIT_TEMPLATE)
     text = read_text(template_path)
     if args.output:
         target = safe_repo_path(args.repo_root, args.output)
@@ -39919,8 +40320,8 @@ def command_task_evidence(args: argparse.Namespace) -> int:
     return 0
 
 
-def task_view_read(repo_root: Path, relative: str, *, limit: int = 131072) -> bytes:
-    """Read one bounded ordinary repository record; never follow a link."""
+def task_view_reference_parts(relative: str) -> list[str]:
+    """Validate a public reference without reading its target."""
     parts = relative.replace("\\", "/").split("/")
     public_queue_record = (len(parts) == 4 and parts[:2] == [".aide", "queue"]
                            and parts[-1] in ("task.yaml", "status.yaml"))
@@ -39931,6 +40332,12 @@ def task_view_read(repo_root: Path, relative: str, *, limit: int = 131072) -> by
                    or part.lower().startswith(".env") for part in parts)
             or (not public_queue_record and install_rel_is_secret_like(relative))):
         raise ValueError("unsafe_reference")
+    return parts
+
+
+def task_view_path(repo_root: Path, relative: str, *, limit: int) -> Path:
+    """Check one ordinary repository path and its observed size before opening."""
+    parts = task_view_reference_parts(relative)
     path = repo_root.resolve()
     for part in parts:
         path /= part
@@ -39941,11 +40348,31 @@ def task_view_read(repo_root: Path, relative: str, *, limit: int = 131072) -> by
         raise ValueError("unsafe_reference")
     if info.st_size > limit:
         raise ValueError("record_too_large")
+    return path
+
+
+def task_view_read(repo_root: Path, relative: str, *, limit: int = 131072) -> bytes:
+    """Read one bounded ordinary repository record; never follow a link."""
+    path = task_view_path(repo_root, relative, limit=limit)
     with path.open("rb") as stream:
         data = stream.read(limit + 1)
     if len(data) > limit:
         raise ValueError("record_too_large")
     return data
+
+
+def task_view_digest(repo_root: Path, relative: str, *, limit: int = 1048576) -> str:
+    """Hash bounded evidence without retaining its body in the task observation."""
+    path = task_view_path(repo_root, relative, limit=limit)
+    digest = hashlib.sha256()
+    consumed = 0
+    with path.open("rb") as stream:
+        while chunk := stream.read(min(65536, limit + 1 - consumed)):
+            consumed += len(chunk)
+            if consumed > limit:
+                raise ValueError("record_too_large")
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def task_view_fields(text: str, source: str, issues: list[dict[str, str]]) -> dict[str, object]:
@@ -40045,7 +40472,8 @@ def build_current_task_view(repo_root: Path, task_id: str | None = None) -> dict
         "status": "missing", "result": None, "objective": None, "owner": None,
         "next_action": None, "remaining_obligations": None, "scope": {},
         "declared_status": None, "index_status": None, "evidence": [], "sources": {},
-        "issues": issues, "read_only": True, "acceptance_verified": False}
+        "issues": issues, "read_only": True, "acceptance_verified": False,
+        "selection": {"mode": "unresolved", "source": None}}
     def observe(relative: str, *, optional: bool = False, limit: int = 131072) -> str:
         try:
             text = task_view_read(repo_root, relative, limit=limit).decode("utf-8-sig")
@@ -40067,9 +40495,13 @@ def build_current_task_view(repo_root: Path, task_id: str | None = None) -> dict
     try:
         if task_id is None:
             raw, explicit = task_packet_identity(packet_text)
+            view["selection"] = {"mode": "task_packet" if raw or explicit else "queue_fallback",
+                                 "source": LATEST_PACKET_PATH if raw or explicit else ".aide/queue/index.yaml"}
             if explicit and not raw:
                 raise ValueError("invalid declared task identity")
             task_id = current_task_id(repo_root) or ""
+        else:
+            view["selection"] = {"mode": "explicit_request", "source": "request"}
         if not task_id:
             return view
         if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", task_id):
@@ -40127,13 +40559,13 @@ def build_current_task_view(repo_root: Path, task_id: str | None = None) -> dict
             ref = ref.replace("\\", "/")
             relative = ref if ref.startswith(".aide/") else f".aide/queue/{selected}/{ref}"
             try:
-                data = task_view_read(repo_root, relative)
+                actual_digest = task_view_digest(repo_root, relative)
                 item.update(path=relative, availability="present")
                 expected = record.get(key[:-4] + "_sha256")
                 if expected is not None:
                     if not isinstance(expected, str) or not re.fullmatch(r"[a-f0-9]{64}", expected):
                         item["availability"] = "invalid_digest"
-                    elif hashlib.sha256(data).hexdigest() != expected:
+                    elif actual_digest != expected:
                         item["availability"] = "digest_mismatch"
                     else:
                         item["digest_verified"] = True
@@ -40141,6 +40573,8 @@ def build_current_task_view(repo_root: Path, task_id: str | None = None) -> dict
                 item.update(path=relative, availability="missing")
             except ValueError as exc:
                 item["availability"] = str(exc)
+                if str(exc) == "record_too_large":
+                    item["path"] = relative
             except OSError:
                 item["availability"] = "unreadable"
         view["evidence"].append(item)
@@ -40178,6 +40612,210 @@ def build_task_resume_plan(repo_root: Path, task_id: str | None = None) -> dict[
             "execution_admitted": False, "report_only": True, "read_only": True}
 
 
+def task_handoff_codec():
+    # Binding follows the executing CLI, never a module in the selected project.
+    path = Path(__file__).resolve().with_name("task_handoff.py")
+    _job_wait_root(str(path.parent))
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+            or getattr(info, "st_file_attributes", 0) & 0x400 or info.st_size > 64 * 1024):
+        raise ValueError("task handoff helper is not an ordinary bounded module")
+    spec = importlib.util.spec_from_file_location("aide_task_handoff", path)
+    module = importlib.util.module_from_spec(spec)
+    previous = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
+    return module
+
+
+def task_handoff_records(repo_root: Path, paths: list[str], *, inspection=False):
+    records = {}
+    for path in paths:
+        try:
+            records[path] = task_view_read(repo_root, path)
+        except FileNotFoundError:
+            records[path] = None
+        except (OSError, ValueError):
+            if not inspection:
+                raise ValueError("unsafe or unreadable task record: " + path)
+            records[path] = "unsafe_or_unreadable"
+    return records
+
+
+def validate_handoff_identity(bundle):
+    selected = bundle["task_id"]
+    for name in ("task.yaml", "status.yaml"):
+        path = f".aide/queue/{selected}/{name}"
+        item = bundle["records"][path]
+        if item["state"] == "missing":
+            continue
+        issues = []
+        fields = task_view_fields(item["text"].lstrip("\ufeff"), path, issues)
+        if ((name == "task.yaml" and fields.get("id") != selected)
+                or any(fields[key] != selected for key in ("id", "task_id") if key in fields)
+                or any(x["field"] in ("id", "task_id") for x in issues)):
+            raise ValueError("handoff_record_identity_mismatch")
+
+
+def command_task_handoff_export(args: argparse.Namespace) -> int:
+    codec = task_handoff_codec()
+    paths = codec.record_paths(args.task_id)
+    before = task_handoff_records(args.repo_root, paths)
+    selected = getattr(args, "input", None)
+    inputs = task_handoff_capture(args.repo_root, codec.input_paths(selected)) if selected else {}
+    if before[paths[0]] is None:
+        raise ValueError("task record missing")
+    continuation = build_task_resume_plan(args.repo_root, args.task_id)
+    if continuation["task"]["task_id"] != args.task_id:
+        raise ValueError("task identity could not be observed")
+    records = {path: codec.record(raw) for path, raw in before.items()}
+    for path, item in records.items():
+        if item["text"] is not None and any(f.severity == "ERROR" for f in scan_secret_text(item["text"], path)):
+            raise ValueError("secret-like task content refused")
+    commit = safe_git_head_commit(args.repo_root)
+    bundle = {"schema_version": codec.SCHEMA, "required_features": sorted(codec.REQUIRED),
+              "task_id": args.task_id, "records": records,
+              "source": {"git_head": commit if re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", commit) else None},
+              "continuation": continuation, "read_only": True, "execution_admitted": False}
+    if selected:
+        bundle.update(schema_version=codec.REQUEST_SCHEMA,
+                      required_features=sorted(codec.REQUEST_REQUIRED),
+                      inputs={path: codec.record(raw) for path, raw in inputs.items()})
+    validate_handoff_identity(bundle)
+    data = codec.encode(bundle)
+    if before != task_handoff_records(args.repo_root, paths):
+        raise ValueError("task records changed during export")
+    if selected and (inputs != task_handoff_capture(args.repo_root, selected)
+                     or commit != safe_git_head_commit(args.repo_root)):
+        raise ValueError("selected inputs changed during export")
+    print(data.decode("ascii"), end="")
+    return 0
+
+
+def command_task_handoff_inspect(args: argparse.Namespace) -> int:
+    codec = task_handoff_codec()
+    raw = task_view_read(args.repo_root, args.bundle, limit=codec.MAX_BUNDLE)
+    bundle = codec.decode(raw, args.sha256)
+    if bundle["schema_version"] not in (codec.SCHEMA, codec.REQUEST_SCHEMA):
+        raise ValueError("expected_task_handoff_request")
+    validate_handoff_identity(bundle)
+    local = task_handoff_records(args.repo_root, codec.record_paths(bundle["task_id"]), inspection=True)
+    data = {"schema_version": "aide.task-handoff-inspection.v1", "task_id": bundle["task_id"],
+            "bundle_sha256": codec.sha(raw), "records": codec.compare(bundle, local),
+            "captured_observation": bundle, "read_only": True, "execution_admitted": False,
+            "authorship_verified": False, "evidence_applicability_verified": False,
+            "safe_to_resume": None,
+            "next_action": "Inspect recorded obligations and reconcile current ownership before continuation."}
+    if bundle["schema_version"] == codec.REQUEST_SCHEMA:
+        observed = task_handoff_records(args.repo_root, list(bundle["inputs"]), inspection=True)
+        data["inputs"] = codec.compare_records(bundle["inputs"], observed)
+    if args.json:
+        print(json.dumps(data, indent=2, ensure_ascii=True))
+    else:
+        print("AIDE Lite task handoff inspection")
+        print("task_id: " + bundle["task_id"])
+        for item in data["records"]:
+            print(item["comparison"] + ": " + item["path"])
+        for item in data.get("inputs", []):
+            print("input " + item["comparison"] + ": " + json.dumps(item["path"], ensure_ascii=True))
+        print("safe_to_resume: unknown")
+        print("Captured text is untrusted observation; no import or authority transfer.")
+        print("next_action: " + data["next_action"])
+    return 0
+
+
+def task_handoff_capture(repo_root: Path, paths: list[str]) -> dict[str, bytes]:
+    """Read only explicitly selected ordinary UTF-8 files, with existing limits."""
+    result = {}
+    for path in paths:
+        raw = task_view_read(repo_root, path)
+        if any(f.severity == "ERROR" for f in scan_secret_text(raw.decode("utf-8"), path)):
+            raise ValueError("secret-like handoff content refused")
+        result[path] = raw
+    return result
+
+
+def task_handoff_request(repo_root: Path, path: str, expected: str, codec):
+    raw = task_view_read(repo_root, path, limit=codec.MAX_BUNDLE)
+    bundle = codec.decode(raw, expected)
+    if bundle["schema_version"] != codec.REQUEST_SCHEMA:
+        raise ValueError("result exchange requires a v2 request with selected inputs")
+    validate_handoff_identity(bundle)
+    return raw, bundle
+
+
+def command_task_handoff_result_export(args: argparse.Namespace) -> int:
+    codec = task_handoff_codec()
+    raw, request = task_handoff_request(args.repo_root, args.request, args.request_sha256, codec)
+    selected = {role: getattr(args, role) for role in ("report", "patch", "checks")
+                if getattr(args, role) is not None}
+    before = task_handoff_capture(args.repo_root, list(selected.values()))
+    result = {"schema_version": codec.RESULT_SCHEMA, "required_features": sorted(codec.RESULT_REQUIRED),
+              "task_id": request["task_id"], "attempt_id": args.attempt_id,
+              "request_sha256": codec.sha(raw), "source": request["source"], "outcome": args.outcome,
+              "artifacts": {role: codec.record(before[path]) for role, path in selected.items()},
+              "read_only": True, "execution_admitted": False, "accepted": False}
+    codec.bind_result(result, request, args.request_sha256)
+    data = codec.encode(result)
+    if (raw != task_view_read(args.repo_root, args.request, limit=codec.MAX_BUNDLE)
+            or before != task_handoff_capture(args.repo_root, list(selected.values()))):
+        raise ValueError("result inputs changed during export")
+    print(data.decode("ascii"), end="")
+    return 0
+
+
+def command_task_handoff_result_inspect(args: argparse.Namespace) -> int:
+    codec = task_handoff_codec()
+    request_raw, request = task_handoff_request(args.repo_root, args.request, args.request_sha256, codec)
+    result_raw = task_view_read(args.repo_root, args.result, limit=codec.MAX_BUNDLE)
+    result = codec.decode(result_raw, args.result_sha256)
+    codec.bind_result(result, request, args.request_sha256)
+    paths = codec.record_paths(request["task_id"])
+    records = task_handoff_records(args.repo_root, paths, inspection=True)
+    inputs = task_handoff_records(args.repo_root, list(request["inputs"]), inspection=True)
+    compared = codec.compare_records(request["inputs"], inputs)
+    states = {item["comparison"] for item in compared}
+    state = "matching" if states == {"matching"} else ("changed" if "changed" in states else "unavailable")
+    commit = safe_git_head_commit(args.repo_root)
+    source_commit = request["source"].get("git_head")
+    commit_state = ("unknown" if source_commit is None or not re.fullmatch(r"[a-f0-9]{40}|[a-f0-9]{64}", commit)
+                    else "matching" if commit == source_commit else "different")
+    if (request_raw != task_view_read(args.repo_root, args.request, limit=codec.MAX_BUNDLE)
+            or result_raw != task_view_read(args.repo_root, args.result, limit=codec.MAX_BUNDLE)
+            or records != task_handoff_records(args.repo_root, paths, inspection=True)
+            or inputs != task_handoff_records(args.repo_root, list(request["inputs"]), inspection=True)
+            or commit != safe_git_head_commit(args.repo_root)):
+        raise ValueError("receiving inputs changed during inspection")
+    data = {"schema_version": "aide.task-handoff-result-inspection.v1",
+            "task_id": request["task_id"], "attempt_id": result["attempt_id"],
+            "request_sha256": args.request_sha256, "result_sha256": args.result_sha256,
+            "recorded_outcome": result["outcome"], "selected_input_state": state,
+            "source_commit_comparison": commit_state, "records": codec.compare(request, records),
+            "inputs": compared, "captured_result": result, "read_only": True,
+            "execution_admitted": False, "accepted": False, "safe_to_apply": None,
+            "authorship_verified": False, "evidence_applicability_verified": False,
+            "next_action": ("Reconcile changed or unavailable inputs before reviewing returned work."
+                            if state != "matching" else
+                            "Review returned work, source revision, task state, permissions and applicable checks."),
+            "limitations": "Selected inputs are incomplete dependency coverage; checksums do not prove authorship or acceptance."}
+    if args.json:
+        print(json.dumps(data, ensure_ascii=True, sort_keys=True, separators=(",", ":")))
+    else:
+        print("AIDE Lite offline result inspection")
+        for key in ("task_id", "attempt_id", "recorded_outcome", "selected_input_state", "source_commit_comparison"):
+            print(key + ": " + json.dumps(data[key], ensure_ascii=True))
+        for item in compared:
+            print(item["comparison"] + ": " + json.dumps(item["path"], ensure_ascii=True))
+        print("artifacts: " + ", ".join(sorted(result["artifacts"])))
+        print("safe_to_apply: unknown; accepted: false")
+        print("next_action: " + data["next_action"])
+        print(data["limitations"])
+    return 0
+
+
 def command_task_current(args: argparse.Namespace) -> int:
     view = build_current_task_view(args.repo_root, getattr(args, "task_id", None))
     if getattr(args, "json", False):
@@ -40186,6 +40824,7 @@ def command_task_current(args: argparse.Namespace) -> int:
         print("AIDE Lite task current")
         print(f"task_id: {view['task_id']}")
         print(f"status: {view['status']}")
+        print("selection: " + json.dumps(view["selection"], sort_keys=True))
         for key in ("result", "objective", "owner", "next_action", "remaining_obligations"):
             print(f"{key}: {view[key] if view[key] is not None else 'unknown'}")
         print("scope: " + json.dumps(view["scope"], sort_keys=True))
@@ -40194,6 +40833,194 @@ def command_task_current(args: argparse.Namespace) -> int:
         if view["issues"]:
             print("issues: " + ", ".join(sorted({item["code"] for item in view["issues"]})))
     return 0 if view["task_id"] else 1
+
+
+def build_task_development_brief(repo_root: Path, task_id: str, path: str, *,
+                                 symbol: str | None = None,
+                                 related_paths: list[str] | None = None) -> dict[str, object]:
+    """Compose existing advisory readers for one explicit task and file."""
+    boundary = {"schema_version": "aide.task-brief.v1", "read_only": True,
+                "execution_admitted": False, "acceptance_verified": False,
+                "usage_coverage": "unknown", "snapshot": "bounded_sequential_observations"}
+
+    def refused(reason):
+        return {**boundary, "result": "REFUSED", "reason": reason,
+                "next_action": "reconcile the selected records before requesting another brief"}
+
+    try:
+        if related_paths and symbol is None:
+            return refused("related source selection requires an explicit symbol")
+        if not isinstance(task_id, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", task_id):
+            return refused("an explicit exact task identity is required")
+        outcome_lessons_codec().relative_path(path)
+        task_view_reference_parts(path)
+        task_ref = f".aide/queue/{task_id}/task.yaml"
+        status_ref = f".aide/queue/{task_id}/status.yaml"
+
+        def records():
+            observed = {}
+            refs = [(task_ref, 131072), (status_ref, 131072), (".aide/queue/index.yaml", 1048576)]
+            if symbol is not None:
+                refs.append((FILE_QUALITY_LEDGER_JSON_PATH, 16 * 1024 * 1024))
+            for ref, limit in refs:
+                try:
+                    observed[ref] = task_view_read(repo_root, ref, limit=limit)
+                except FileNotFoundError:
+                    observed[ref] = None
+            return observed
+
+        before = records()
+        continuation = build_task_resume_plan(repo_root, task_id)
+        task = continuation["task"]
+        if task["task_id"] != task_id or task["issues"] or before[task_ref] is None or before[status_ref] is None:
+            return refused("selected task records are missing, conflicting or invalid")
+        quality = build_quality_file_explanation(repo_root, path)
+        try:
+            lessons = build_outcome_lessons(repo_root, path)
+            lesson_state = lessons["ledger_state"]
+        except (OSError, ValueError, RecursionError):
+            lessons = None
+            lesson_state = "invalid"
+        inspection = None
+        if symbol is not None:
+            inspection = build_quality_symbol_inspection(repo_root, symbol, [path, *(related_paths or [])])
+            captured = before[FILE_QUALITY_LEDGER_JSON_PATH]
+            if inspection["ledger_sha256"] != (hashlib.sha256(captured).hexdigest() if captured is not None else None):
+                return refused("quality ledger changed while assembling the brief")
+        if before != records():
+            return refused("selected task records changed while assembling the brief")
+        partial = (quality["result"] != "PASS" or lesson_state != "observed"
+                   or any(item["availability"] != "present" for item in task["evidence"])
+                   or (inspection is not None and inspection["result"] != "PASS"))
+        invalid = quality["result"] == "INVALID" or lesson_state == "invalid"
+        result = {**boundary, "result": "PARTIAL" if partial else "OBSERVED", "path": path,
+                  "continuation": continuation, "quality": quality, "lessons": lessons,
+                  "lesson_state": lesson_state,
+                  "task_record_sha256s": {ref: hashlib.sha256(data).hexdigest() if data is not None else None
+                                         for ref, data in before.items()},
+                  "scope_ref": task_ref,
+                  "next_action": "reconcile invalid auxiliary records" if invalid else continuation["recommendation"],
+                  "limitations": ["No edit permission or task acceptance is established.",
+                                  "Quality links are incomplete and their freshness is unverified; do not narrow required checks.",
+                                  "Lessons retain unverified authorship and semantic correctness.",
+                                  "Missing information does not establish absence; no indexes were generated."]}
+        if inspection is not None:
+            result["symbol_inspection"] = inspection
+            result["symbol_selection"] = [
+                {"path": item["path"], "reason": "task_target" if index == 0 else "explicit_related_source"}
+                for index, item in enumerate(inspection["files"])
+            ]
+            result["limitations"].append(
+                "Fresh syntax covers selected files only; runtime binding, alias behavior and semantic equivalence remain unresolved.")
+        if len(json.dumps(result, ensure_ascii=True, allow_nan=False).encode("ascii")) > 65536:
+            return refused("brief exceeds the 64 KiB output bound; inspect the component views separately")
+        return result
+    except (OSError, ValueError, RecursionError):
+        return refused("unsafe, unreadable or invalid selected input")
+
+
+def render_task_development_brief(data: dict[str, object]) -> str:
+    def quote(value, limit=320):
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=True)
+        omitted = max(0, len(text) - limit)
+        return json.dumps(text[:limit], ensure_ascii=True) + (f" (+{omitted} characters; see --json)" if omitted else "")
+
+    lines = ["AIDE Lite task brief", "observation: " + data["result"]]
+    if data["result"] == "REFUSED":
+        return "\n".join([*lines, "reason: " + data["reason"], "next_action: " + data["next_action"]])
+    continuation = data["continuation"]
+    task = continuation["task"]
+    lines.extend(["task: " + quote(task["task_id"]), "file: " + quote(data["path"])])
+    for key in ("objective", "status", "result", "owner", "next_action", "remaining_obligations"):
+        lines.append("recorded_" + key + ": " + quote(task[key] if task[key] is not None else "unknown"))
+    lines.extend(["continuation: " + continuation["recommendation"], "reason: " + continuation["reason"],
+                  "scope_ref: " + quote(data["scope_ref"]), "file_owner: " + quote(data["quality"].get("owner", "unknown")),
+                  "quality: " + data["quality"]["result"] + "; freshness unverified; coverage incomplete"])
+    for name, relation in data["quality"].get("relations", {}).items():
+        lines.append(name + ": " + quote(relation["state"]) + "; " + relation["reason"])
+        lines.extend("- " + quote(ref) for ref in relation["items"][:3])
+        lines.append("omitted: " + str(relation["omitted"] + max(0, len(relation["items"]) - 3)))
+    reuse = data["quality"].get("reuse", {})
+    lines.append("reuse: " + quote(reuse.get("state", "unknown")) + "; inspect --json for candidates")
+    for item in reuse.get("items", [])[:3]:
+        lines.append("- " + item["reason"] + ": " + quote(item["match"]) + "; peers: "
+                     + quote(item["peers"]["items"][:3]))
+    lines.append("omitted reuse candidates: " + str(reuse.get("omitted", 0) + max(0, len(reuse.get("items", [])) - 3)))
+    lines.append("task evidence: " + (", ".join(quote(item["field"]) + "=" + quote(item["availability"])
+                                             for item in task["evidence"]) or "unknown"))
+    lessons = data["lessons"] or {"selected": [], "excluded": []}
+    lines.append("lessons: " + data["lesson_state"] + f"; {len(lessons['selected'])} selected; {len(lessons['excluded'])} excluded")
+    lines.extend("- " + quote(item["id"]) + f" revision {item['revision']}: " + quote(item["lesson"]["summary"])
+                 for item in lessons["selected"][:3])
+    lines.append("omitted lessons: " + str(max(0, len(lessons["selected"]) - 3)) + "; exclusion reasons and hashes: --json")
+    inspection = data.get("symbol_inspection")
+    if inspection is not None:
+        lines.extend(["fresh symbol: " + quote(inspection["symbol"]),
+                      "source coverage: " + inspection["coverage"] + "; runtime binding unresolved"])
+        for item, selection in zip(inspection["files"], data["symbol_selection"]):
+            syntax = item["syntax"]
+            lines.append(quote(item["path"]) + ": " + syntax["state"] + "; matches: "
+                         + syntax["match_state"] + "; selected: " + selection["reason"])
+            displayed = 0
+            omitted = 0
+            for group in ("definitions", "calls", "imports"):
+                bucket = syntax.get(group, {"items": [], "omitted": 0})
+                for match in bucket["items"]:
+                    if displayed < 3:
+                        lines.append("- " + group + " line " + str(match["line"]) + ": "
+                                     + quote(match.get("qualified_name", match["scope"])))
+                        displayed += 1
+                    else:
+                        omitted += 1
+                omitted += bucket["omitted"]
+            lines.append("omitted source matches: " + str(omitted) + "; complete locations and hashes: --json")
+    lines.extend(["next_action: " + data["next_action"], "usage: unknown; no execution or acceptance authority",
+                  *data["limitations"]])
+    return "\n".join(lines)
+
+
+def task_brief_renderer():
+    # Renderer comes from this distribution, not the selected project.
+    path = Path(__file__).resolve().with_name("task_brief_view.py")
+    _job_wait_root(str(path.parent))
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+            or getattr(info, "st_file_attributes", 0) & 0x400 or info.st_size > 64 * 1024):
+        raise ValueError("brief renderer is not an ordinary bounded module")
+    spec = importlib.util.spec_from_file_location("aide_task_brief_view", path)
+    module = importlib.util.module_from_spec(spec)
+    previous = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
+    return module
+
+
+def command_task_brief(args: argparse.Namespace) -> int:
+    data = build_task_development_brief(args.repo_root, args.task_id, args.path,
+                                      symbol=getattr(args, "symbol", None),
+                                      related_paths=getattr(args, "related_path", None))
+    if getattr(args, "html", False):
+        try:
+            renderer = task_brief_renderer()
+        except (OSError, ValueError, ImportError):
+            print("AIDE task brief HTML unavailable: restore the distribution-owned renderer.", file=sys.stderr)
+            return 1
+        try:
+            rendered = renderer.render(data)
+        except ValueError:
+            data = {"schema_version": "aide.task-brief.v1", "result": "REFUSED",
+                    "acceptance_verified": False, "execution_admitted": False,
+                    "reason": "The observation cannot be safely presented within HTML bounds.",
+                    "next_action": "Inspect the existing text or JSON brief and reconcile its inputs."}
+            rendered = renderer.render(data)
+        print(rendered, end="")
+    else:
+        print(json.dumps(data, ensure_ascii=True, sort_keys=True, separators=(",", ":")) if args.json
+              else render_task_development_brief(data))
+    return {"OBSERVED": 0, "PARTIAL": 2, "REFUSED": 1}[data["result"]]
 
 
 def command_blocker_status(args: argparse.Namespace) -> int:
@@ -40502,6 +41329,93 @@ def command_git_prune(args: argparse.Namespace) -> int:
     return 0 if dry_run or plan.get("status") == "applied" else 1
 
 
+def outcome_lessons_codec():
+    # Bind to the executing distribution, never a selected project's module.
+    path = Path(__file__).resolve().with_name("outcome_lessons.py")
+    _job_wait_root(str(path.parent))
+    info = path.lstat()
+    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+            or getattr(info, "st_file_attributes", 0) & 0x400 or info.st_size > 65536):
+        raise ValueError("outcome lesson helper is not an ordinary bounded module")
+    spec = importlib.util.spec_from_file_location("aide_outcome_lessons", path)
+    module = importlib.util.module_from_spec(spec)
+    previous = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
+    return module
+
+
+def build_outcome_lessons(repo_root: Path, path: str) -> dict[str, object]:
+    codec = outcome_lessons_codec()
+    codec.relative_path(path)
+    try:
+        raw = task_view_read(repo_root, OUTCOME_LEDGER_PATH, limit=codec.MAX_LEDGER)
+    except FileNotFoundError:
+        result = codec.select([], path, None)
+        return {**result, "ledger_state": "missing", "ledger_sha256": None}
+    lines = raw.decode("utf-8").splitlines()
+    if len(lines) > 2048:
+        raise ValueError("outcome lesson ledger row limit exceeded")
+    records = []
+    for number, line in enumerate(lines, 1):
+        if not line.strip():
+            continue
+        try:
+            data = json.loads(line, object_pairs_hook=_outcome_json_object,
+                              parse_constant=_outcome_json_constant)
+            json.dumps(data, allow_nan=False)
+            outcome_record_from_dict(data)
+            records.append(data)
+        except (TypeError, ValueError, RecursionError) as exc:
+            raise ValueError(f"invalid lesson ledger row {number}: {type(exc).__name__}") from exc
+    observations = {}
+
+    def read_evidence(relative):
+        try:
+            data = task_view_read(repo_root, relative, limit=codec.MAX_EVIDENCE)
+            return "observed", hashlib.sha256(data).hexdigest()
+        except FileNotFoundError:
+            return "missing", None
+        except (OSError, ValueError):
+            return "unsafe_or_unreadable", None
+
+    def observe(relative):
+        if relative not in observations:
+            if len(observations) >= 128:
+                raise ValueError("lesson evidence read limit exceeded")
+            observations[relative] = read_evidence(relative)
+        return observations[relative]
+
+    try:
+        result = codec.select(records, path, observe)
+    except (RecursionError, TypeError) as exc:
+        raise ValueError("invalid lesson metadata structure") from exc
+    if raw != task_view_read(repo_root, OUTCOME_LEDGER_PATH, limit=codec.MAX_LEDGER):
+        raise ValueError("outcome ledger changed during lesson selection")
+    if any(read_evidence(relative) != value for relative, value in observations.items()):
+        raise ValueError("lesson evidence changed during selection")
+    return {**result, "ledger_state": "observed", "ledger_sha256": hashlib.sha256(raw).hexdigest()}
+
+
+def command_outcome_lessons(args: argparse.Namespace) -> int:
+    result = build_outcome_lessons(args.repo_root, args.path)
+    if args.json:
+        print(json.dumps(result, indent=2, ensure_ascii=True))
+    else:
+        print("AIDE Lite outcome lessons")
+        print("ledger: " + result["ledger_state"])
+        print(f"selected: {len(result['selected'])}; excluded: {len(result['excluded'])}")
+        for item in result["selected"]:
+            print(f"- {item['id']} revision {item['revision']}: " + json.dumps(item["lesson"]["summary"], ensure_ascii=True))
+        for item in result["excluded"]:
+            print(f"- {item['id']} revision {item['revision']}: {item['reason']}")
+        print("Advisory observations only; no authorship, semantic correctness or execution authority established.")
+    return 0
+
+
 def command_outcome_add(args: argparse.Namespace) -> int:
     record = make_outcome_record(
         args.repo_root,
@@ -40515,6 +41429,9 @@ def command_outcome_add(args: argparse.Namespace) -> int:
         run_id=args.run_id,
     )
     existing = read_outcome_records(args.repo_root)
+    replaced = [item for item in existing
+                if (item.run_id, item.phase, item.source) == (record.run_id, record.phase, record.source)]
+    record = preserve_outcome_metadata(replaced, [record])[0]
     retained = [
         item
         for item in existing
@@ -41449,7 +42366,7 @@ commands:
     notes: index-only deterministic repo inventory and maps; no file moves, deletes, refactors, target mutation, provider/model/network calls, or deletion advice.
   - id: aide-lite-quality
     display_name: AIDE Lite file quality ledger
-    invocation: py -3 .aide/scripts/aide_lite.py quality <ledger|validate|status|explain-file|docs|tests|modules|reuse>
+    invocation: py -3 .aide/scripts/aide_lite.py quality <ledger|validate|status|explain-file|inspect-symbol|docs|tests|modules|reuse>
     command_kind: repo-local-helper
     status: implemented-portable
     owner_component: file-quality-ledger
@@ -46686,7 +47603,10 @@ def command_test_tier_plan(args: argparse.Namespace) -> int:
 def command_test_impact_plan(args: argparse.Namespace) -> int:
     json_result, md_result, plan = write_test_impact_plan(args.repo_root, args.from_ref)
     print("AIDE Lite test impact-plan")
-    print("result: PASS")
+    print("result: WARN" if plan["changed_path_observation"] == "incomplete" else "result: PASS")
+    print(f"changed_path_observation: {plan['changed_path_observation']}")
+    print(f"mapping_coverage: {plan['mapping_coverage']}")
+    print(f"next_action: {plan['next_action']}")
     print(f"from_ref: {args.from_ref}")
     print(f"recommended_tier: {plan['recommended_tier']}")
     print(f"changed_paths: {len(plan.get('changed_paths', [])) if isinstance(plan.get('changed_paths'), list) else 0}")
@@ -46753,7 +47673,11 @@ def build_parser(default_repo_root: Path) -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     subparsers.add_parser("doctor").set_defaults(handler=command_doctor)
-    subparsers.add_parser("validate").set_defaults(handler=command_validate)
+    validate_parser = subparsers.add_parser("validate")
+    validate_output = validate_parser.add_mutually_exclusive_group()
+    validate_output.add_argument("--full", action="store_true", help="Print every check in the legacy text format.")
+    validate_output.add_argument("--json", action="store_true", help="Print one JSON object containing every check.")
+    validate_parser.set_defaults(handler=command_validate)
 
     estimate_parser = subparsers.add_parser("estimate")
     estimate_parser.add_argument("--file", required=True)
@@ -46911,6 +47835,11 @@ def build_parser(default_repo_root: Path) -> argparse.ArgumentParser:
     quality_explain_parser.add_argument("path")
     quality_explain_parser.add_argument("--json", action="store_true", help="emit the read-only evidence projection as JSON")
     quality_explain_parser.set_defaults(handler=command_quality_explain_file)
+    quality_symbol = quality_subparsers.add_parser("inspect-symbol", help="inspect syntax in explicit files without executing project code")
+    quality_symbol.add_argument("name")
+    quality_symbol.add_argument("--path", action="append", required=True, help="explicit relative Python file (one to eight)")
+    quality_symbol.add_argument("--json", action="store_true")
+    quality_symbol.set_defaults(handler=command_quality_inspect_symbol)
     quality_subparsers.add_parser("docs").set_defaults(handler=command_quality_docs)
     quality_subparsers.add_parser("tests").set_defaults(handler=command_quality_tests)
     quality_subparsers.add_parser("modules").set_defaults(handler=command_quality_modules)
@@ -47093,6 +48022,45 @@ def build_parser(default_repo_root: Path) -> argparse.ArgumentParser:
     task_current_parser.add_argument("--task-id", help="Queue task id. Defaults to current/latest task.")
     task_current_parser.add_argument("--json", action="store_true", help="Emit a bounded read-only task observation as JSON.")
     task_current_parser.set_defaults(handler=command_task_current)
+
+    task_brief_parser = task_subparsers.add_parser("brief")
+    task_brief_parser.add_argument("--task-id", required=True, help="Exact existing task identity.")
+    task_brief_parser.add_argument("--path", required=True, help="One canonical repository-relative file path.")
+    task_brief_parser.add_argument("--symbol", help="Inspect one Python identifier in the selected source.")
+    task_brief_parser.add_argument("--related-path", action="append",
+                                   help="Explicit related source for --symbol (at most seven).")
+    task_brief_output = task_brief_parser.add_mutually_exclusive_group()
+    task_brief_output.add_argument("--json", action="store_true", help="Show component observations and limitations.")
+    task_brief_output.add_argument("--html", action="store_true", help="Print an inactive offline HTML observation to stdout.")
+    task_brief_parser.set_defaults(handler=command_task_brief)
+
+    handoff_parser = task_subparsers.add_parser("handoff")
+    handoff_commands = handoff_parser.add_subparsers(dest="handoff_command", required=True)
+    handoff_export = handoff_commands.add_parser("export")
+    handoff_export.add_argument("--task-id", required=True)
+    handoff_export.add_argument("--input", action="append", help="Explicit UTF-8 input; repeat up to eight times for a v2 request")
+    handoff_export.set_defaults(handler=command_task_handoff_export)
+    handoff_inspect = handoff_commands.add_parser("inspect")
+    handoff_inspect.add_argument("--bundle", required=True, help="Repository-relative ordinary JSON file")
+    handoff_inspect.add_argument("--sha256", required=True, help="Expected exact bundle SHA-256")
+    handoff_inspect.add_argument("--json", action="store_true")
+    handoff_inspect.set_defaults(handler=command_task_handoff_inspect)
+    result_export = handoff_commands.add_parser("result-export")
+    result_export.add_argument("--request", required=True)
+    result_export.add_argument("--request-sha256", required=True)
+    result_export.add_argument("--attempt-id", required=True)
+    result_export.add_argument("--outcome", required=True, choices=("submitted", "failed", "interrupted"))
+    result_export.add_argument("--report", required=True, help="Bounded UTF-8 report; untrusted observation")
+    result_export.add_argument("--patch", help="Optional UTF-8 candidate patch; never applied")
+    result_export.add_argument("--checks", help="Optional UTF-8 check record; contents are not verified here")
+    result_export.set_defaults(handler=command_task_handoff_result_export)
+    result_inspect = handoff_commands.add_parser("result-inspect")
+    result_inspect.add_argument("--request", required=True)
+    result_inspect.add_argument("--request-sha256", required=True)
+    result_inspect.add_argument("--result", required=True)
+    result_inspect.add_argument("--result-sha256", required=True)
+    result_inspect.add_argument("--json", action="store_true")
+    result_inspect.set_defaults(handler=command_task_handoff_result_inspect)
 
     blocker_parser = subparsers.add_parser("blocker")
     blocker_subparsers = blocker_parser.add_subparsers(dest="blocker_command", required=True)
@@ -47744,6 +48712,10 @@ def build_parser(default_repo_root: Path) -> argparse.ArgumentParser:
     outcome_add_parser.set_defaults(handler=command_outcome_add)
 
     outcome_subparsers.add_parser("report").set_defaults(handler=command_outcome_report)
+    outcome_lessons_parser = outcome_subparsers.add_parser("lessons", help="Read current source-linked advice for one exact project path.")
+    outcome_lessons_parser.add_argument("--path", required=True)
+    outcome_lessons_parser.add_argument("--json", action="store_true")
+    outcome_lessons_parser.set_defaults(handler=command_outcome_lessons)
 
     optimize_parser = subparsers.add_parser("optimize")
     optimize_subparsers = optimize_parser.add_subparsers(dest="optimize_command", required=True)

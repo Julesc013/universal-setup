@@ -246,6 +246,114 @@ class CurrentTaskView(unittest.TestCase):
         self.command('--json')
         self.assertEqual(snapshot(), before)
 
+    def test_large_evidence_preserves_completed_continuation_without_authority(self):
+        payload = 'retained diagnostic\n' * 15000
+        relative = self.base + '/evidence/large.json'
+        self.write(relative, payload)
+        self.status('status: passed\nresult: PARTIAL_SCOPE_PASS\n'
+                    'final_ref: evidence/large.json\nfinal_sha256: ' +
+                    hashlib.sha256(payload.encode()).hexdigest() +
+                    '\nremaining_obligations:\n  - downstream_adoption\n')
+        plan = aide.build_task_resume_plan(self.root, self.task)
+        item = plan['task']['evidence'][0]
+        self.assertEqual(item['path'], relative)
+        self.assertEqual(item['availability'], 'present')
+        self.assertTrue(item['digest_verified'])
+        self.assertEqual(item['applicability'], 'unverified')
+        self.assertEqual(plan['recommendation'], 'inspect_completed_evidence')
+        self.assertEqual(plan['task']['remaining_obligations'], ['downstream_adoption'])
+        self.assertFalse(plan['task']['acceptance_verified'])
+        self.assertFalse(plan['execution_admitted'])
+        self.assertIsNone(plan['safe_to_resume'])
+        self.assertNotIn('retained diagnostic', json.dumps(plan))
+
+    def test_large_evidence_mismatched_and_invalid_digests_remain_distinct(self):
+        self.write(self.base + '/evidence/large.json', 'x' * 200000)
+        for digest, availability in [('0' * 64, 'digest_mismatch'), ('invalid', 'invalid_digest')]:
+            with self.subTest(availability=availability):
+                self.status('status: passed\nfinal_ref: evidence/large.json\nfinal_sha256: ' + digest + '\n')
+                plan = aide.build_task_resume_plan(self.root, self.task)
+                self.assertEqual(plan['task']['evidence'][0]['availability'], availability)
+                self.assertEqual(plan['recommendation'], 'reconcile_records')
+                self.assertFalse(plan['execution_admitted'])
+
+    def test_evidence_limit_is_inclusive_and_reads_use_bounded_chunks(self):
+        relative = self.base + '/evidence/limit.json'
+        payload = b'x' * 1048576
+        target = self.write(relative, payload.decode())
+        original_open = Path.open
+        reads = []
+        class TrackedStream:
+            def __enter__(inner):
+                inner.stream = original_open(target, 'rb')
+                return inner
+            def __exit__(inner, *args):
+                inner.stream.close()
+            def read(inner, size):
+                self.assertGreater(size, 0)
+                self.assertLessEqual(size, 65536)
+                data = inner.stream.read(size)
+                reads.append(len(data))
+                return data
+        def open_file(path, *args, **kwargs):
+            return TrackedStream() if path == target else original_open(path, *args, **kwargs)
+        with patch.object(Path, 'open', open_file):
+            actual = aide.task_view_digest(self.root, relative)
+        self.assertEqual(actual, hashlib.sha256(payload).hexdigest())
+        self.assertEqual(sum(reads), len(payload))
+        self.assertGreater(len(reads), 1)
+
+    def test_oversized_evidence_keeps_safe_path_without_opening_body(self):
+        relative = self.base + '/evidence/oversized.json'
+        target = self.write(relative, 'x' * 1048577)
+        self.status('status: passed\nfinal_ref: evidence/oversized.json\n')
+        original_open = Path.open
+        def open_file(path, *args, **kwargs):
+            if path == target:
+                self.fail('metadata oversize must be rejected before opening')
+            return original_open(path, *args, **kwargs)
+        with patch.object(Path, 'open', open_file):
+            plan = aide.build_task_resume_plan(self.root, self.task)
+        self.assertEqual(plan['task']['evidence'][0]['availability'], 'record_too_large')
+        self.assertEqual(plan['task']['evidence'][0]['path'], relative)
+        self.assertEqual(plan['recommendation'], 'reconcile_records')
+        self.assertFalse(plan['execution_admitted'])
+
+    def test_growth_after_metadata_is_bounded_and_never_becomes_a_digest(self):
+        relative = self.base + '/evidence/growing.json'
+        target = self.write(relative, 'initial')
+        original_open = Path.open
+        reads = []
+        class GrowingStream(io.BytesIO):
+            def read(inner, size):
+                self.assertGreater(size, 0)
+                self.assertLessEqual(size, 65536)
+                data = super().read(size)
+                reads.append(len(data))
+                return data
+        def open_file(path, *args, **kwargs):
+            if path == target:
+                return GrowingStream(b'x' * 1100000)
+            return original_open(path, *args, **kwargs)
+        with patch.object(Path, 'open', open_file):
+            with self.assertRaisesRegex(ValueError, 'record_too_large'):
+                aide.task_view_digest(self.root, relative)
+        self.assertEqual(sum(reads), 1048577)
+
+    def test_record_budget_stays_small_and_reference_count_stays_bounded(self):
+        relative = self.base + '/evidence/large.json'
+        self.write(relative, 'x' * 200000)
+        with self.assertRaisesRegex(ValueError, 'record_too_large'):
+            aide.task_view_read(self.root, relative)
+        self.status('status: passed\n' + ''.join(
+            f'item{n:02d}_ref: evidence/large.json\n' for n in range(17)))
+        with patch.object(aide, 'task_view_digest', wraps=aide.task_view_digest) as reader:
+            data = self.view()
+        self.assertEqual(len(data['evidence']), 16)
+        self.assertEqual(reader.call_count, 16)
+        self.assertTrue(all(item['availability'] == 'present' for item in data['evidence']))
+        self.assertIn('reference_limit', [item['code'] for item in data['issues']])
+
 
 if __name__ == '__main__':
     unittest.main()

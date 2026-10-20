@@ -42,7 +42,10 @@ security_gates:
   - no raw prompts/responses
   - no provider keys
 manual_review_items:
-  - review release body
+  - reconcile README, relevant docs, TODO, PLANS, ROADMAP and CHANGELOG for the exact tag
+  - distinguish released, qualified-unpublished, development and remaining work
+  - review release body without duplicated title or manual prose wrapping
+  - review human download labels and stable filenames
   - review suggested tag
   - review asset list
   - review known risks
@@ -50,6 +53,9 @@ manual_review_items:
   - decide whether this is pre-release/draft/stable
   - decide whether to publish
 publication_blockers:
+  - unreconciled pre-tag documentation or contradictory current release claims
+  - missing populated human changelog or root TODO without an explicit project mapping
+  - untitled deliverables or mismatched filenames, checksums and qualification
   - any failed validation
   - dirty state not accepted
   - missing artifact

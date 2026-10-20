@@ -1,153 +1,64 @@
 # Universal Setup Project State
 
-Continue ACTIVE USK-SPEC-TO-RELEASE-01 in the sole existing W/build/lab under
-Universal .task-builds. Fixed20GiB stop superseded; preserve10GiB physicaldisk,
-2GiB RAM/commit and one-local-heavy-job. Shared Windows10 VM untouched.
-Daily reviewed dev and qualified weekly main remain distinct from release.
+Continue ACTIVE USK-SPEC-TO-RELEASE-01 in the sole worktree/build/lab under
+D:\Projects\Universal\.task-builds. Retain 10 GiB physical-disk and 2 GiB RAM/
+commit reserves; one local heavy job. Fixed 20 GiB stop was superseded.
+Shared Windows 10 VM untouched. Reviewed daily dev and qualified weekly main
+remain distinct. Historical checkpoints are preserved in [decisions.md](decisions.md).
 
-Accepted devcf923fdac79caed9f670f94cf12d22ac3b944c91/tree7109bd279ed566823f27d700165caf03ed9a6551
-normally integrates PR299 client/CABI ownership/preparation. Seven core
-39404539429/1, independent committed review and freshlivegate PASS.
-Accepted-dev push39406418243/1 all7corePASS,publisherSKIPPED;9196CLOSED0.
-FullPR299 publisher39404539429/1 TERMINALFAIL;34598CLOSED1. All three
-selected recoveries deadlineUNKNOWN/nativeabsent, independently projected.
-Legacy native reentryPASS then independentleaseclosureFAIL(28rows,zero coordination).
-Mainc048f7f1ae2e5922c15a08ee572bdafc29027c63 unchanged/unqualified.
+Accepted dev720ad5e01c5b9509846778bda0d6e13cf5b38e4d integrates PR300
+headc70d4d223b2563049d39caf36489bc4b647d89c9. Seven core checks in
+39416096331/1, exact independent committed review and fresh live gate PASS.
+Accepted-dev push39418232682/1 watcher51256 and full publisher39416096331/1
+watcher77656 remain pending. Never replay the merge.
+Mainc048f7f1ae2e5922c15a08ee572bdafc29027c63 remains unqualified.
 
-Current branch task/usk-wu-006-native-recovery-inspection from accepteddev.
-PR300 initialhead7f0a61e3c251a0052b0dc86c6809d3e0097fdd48/tree727c47f
-received independent exact committed source approval. CI39412648532/1 has
-5corePASS; both Windows suites fail only candidate_context_smoke. Publisher
-SKIPPED, added SDK cohort UNEXECUTED; controller16270CLOSED1/no merge.
-The recovery document classifier moved before existing readonly SCM admission.
-Exact linked x64/Win32 local reproduction confirms the original empty-object
-recover case fails; repair restores platform/SCM admission first, keeping all
-classification/selected-original gates before target guards/handles/effects.
-Original test cases unchanged, plus both private and all3public request families.
-Repair validation/review and new exact-head CI remain required.
-This native SDK increment connects actual readonly original maintenance
-inspection/plan to reviewed finalize. No fakelease or cached grant: exact
-protected original, native ended holders, immutable custody/current namespace,
-complete committed lease membership, pending-empty, state and prefix checks.
-Readonly installs seven readers and unconditionally denies all12writer entries;
-no effectfence/metadatawriter/publicationhooks. Full actual public requests
-retain original/reviewed digests/action through broker/engine/reply. Apply
-rebuilds exact plan before writer lease; existing native fences still apply.
-Native report/planv2 are explicit publisher-context graph contracts. Ordinary
-localv1/ABI layouts remain. Pure reply codec stays outside privilegedengine.
+Current task/usk-aide-main-8e5581c adopts upstream main
+8e5581cce7c7fd7037f6a199c92a6922260893ab via safe owned import.
+Development export1ac0b37c4833a9fc97e9785d6e2834974ea96057/dirtytrue is
+newer than frozen published Lite1.1.0, not those qualified release bytes.
+36 reviewed payload additions/updates;839managed records/838files. Receipt,
+provenance, development-only licensing and exact count assertion refreshed.
+All1654 pre-import tracked files compared: only reviewed owned inputs changed.
+AGENTS/profile/unrelated native source preserved; owner memory compacted here
+with exact6721B historical suffix appended to the existing decisions.md.
 
-R1 consolidated independent review HOLD found raw-open allocation leaks,
-missing trailing lifetimecheck and resealed reply/action/reviewed-plan joins.
-Connected addendum also identified early current-effects flag. All repaired
-together: actual stackowned handle transfer, pre/post sticky native lifetime,
-shared pure document projection with exact apply plan rejoin, current-effects
-flag just before firstpossibleleaseappend. Tests cover actual bad_alloc handle
-closure, native expiry/cancel/wrongthread, 12writer/7reader, fully resealed bad
-bindings/actions, public/local commandgraph versions and C ABI ownership.
-R1/R3/R4 strict targeted builds/tests PASS; R2 missing purecodec dependency
-retained and corrected. R5 strict x64/Win32 service/SDK/three targeted CTests PASS. R6 full Python462tests PASS(1skip). R2 confirms production repairs; launcher flag gap repaired with actual argv/profile controls and dual SDK route witnesses; R8 configured launcher CTest PASS. R3 SOURCE APPROVE, exact committed review3379b1a/comment6289486676;
-source approval does not waive the subsequent actual core failure.
+Full-export selftest PASS; actual safe installed predecessor AND successor
+selftests FAIL with the same inherited NameError local_skeleton in optional
+gateway fixture. Provider request USK-AIDE-LITE-SAFE-SELFTEST-20261019-01:
+https://github.com/Julesc013/aide/issues/6#issuecomment-6263362256.
+157 selected new helper tests PASS. Strict/pack-policy PASS. R1 independent
+applied review found only stale826->839positive assertion; refusal controls
+retained. Repair validation PASS:462 root tests/1skip,5policy controls,strict,
+targetvalidate25PASS/1inheritedWARN,diff. Delta review and normal core/dev
+integration remain required. Full tooling usability and actual existing desktop delivery
+remain unqualified; no new coordinator/queue/clone or provider activation.
 
-Existing hosted runner gains a distinct real C SDK genuine-interruption cohort:
-original worker/broker closure+source retired; inspect/plan exact unchanged
-independent rows; stale digest/unsupported rollback no lease/metadata change;
-finalize with reviewedidentity then independentjournal/effects/generation/
-payload/ordinaryverification and actual client/accountcleanup. 120s unchanged.
-Do not call added fixture executed until actual exact-head producer runs.
-Native install_local/precommit/completed-history/reconnect/rollback remain
-unsupported on this new route; full native SDK/product is unfinished.
+Integrated native SDK recovery uses concrete read-only InspectionCustody for
+exact original intent/custody, ended PID+birth holders, lease membership,
+installed revision and journal/effect/namespace checks; no writer lease.
+Seven readers/twelve unconditional writer denials; sticky explicit finalization.
+Complete authenticated request/digests/action survive broker/engine/reply.
+Apply rebuilds exact native v2plan before writer lease/effect fences. Pure codec
+stays outside service engine; ordinary localv1/ABI unchanged. c70 restores
+read-only platform/SCM observation before request-family selection, retaining
+all original refusal assertions and five added private/public cases.
+R11 strict x64/Win32 and four CTests per architecture PASS.
 
-PR298 full39399249591/1 TERMINALFAIL,99923CLOSED1; all7corePASS.
-Selected untraced28 independently COMPLETE: matchingclient/native, journal,
-26records/12effects, generation4->5, payload/verify/cleanup, unchangeddeadline;
-rawSHAd1c80247e93122d4a71e1088e3170159ce5d5b3b993031ccd8ab357545b6d501.
-CPUwrapped30 deadlineUNKNOWN/nativeabsent; clientcleanupfalse. Release-default92
-also independently COMPLETE with the same journal/effect/generation/payload/
-verification/cleanup joins; rawSHAae99688362249007a276a35947f377f82c539b1f4c48616b282553b2c03e8ecb.
-PR298 packaged native installPASS but unrelated attacker had0rename overlap;
-legacy64 refused an unsafe remounted device ACL before native recovery.
-Current failure map retained; later scenarios require own cascade classification. No numerical speedup, reliability or fullprofile qualification.
-PR297 legacy native reentryPASS then independentleaseclosure fails:28equalrows,
-zero coordination; no generic waiver/fakeowner or native check relaxation.
-EarlierPR294 three independentlyverified recoverypasses remain historical.
-Old8querypreview HOLD; no further speculative perfdelta stacked.
+New genuine-interruption C SDK cohort awaits actual hosted execution. It must
+establish source retirement, unchanged independent rows for inspection/refusals,
+reviewed finalize, journal/effects/generation/payload/verify and actual cleanup.
+No fake native completion. Install_local/precommit/completed-history/reconnect/
+rollback remain unsupported. Full SDK/product/publisher/main/release incomplete.
 
-AIDE frozenLite1.1 published/imported preserving customization. Latestmain8e5581c
-development export prepared outsideW, complete875Gitblob pins/4.8MB; safe
-dryrun0conflicts, preview36payloads independently source-approved, full-export
-selftestPASS. NOT APPLIED. Safe-installed selftest defect is inherited/unclosed;
-full-export pass does not qualify installed layout. SDK core repair has priority.
-Actualhost binding remains separate; no newclone/queue/coordinator.
-Necessary evidence retained. Do not replay rejected duplicate evidence deletion.
-
-## 2026-10-19 qualified development integration and AIDE consumer update
-
-Reviewed PRs270 and271 are integrated into dev6bddf2160e8ee1e98c6c4fcfef03477ac91b472d; all seven core/specification checks and accepted-dev push39223313941 passed. Main remains c048f7f1ae2e5922c15a08ee572bdafc29027c63. Publisher qualification remains separate.
-
-The exact PR270 baseline run39216132810 completed with only packaged maintenance failing. Its traced, untraced and release-default source-retired repair recoveries have request/native-byte, held-client, original-pair and independent104-row bindings consistent, generation4 to5 and successful verification. This is one passing set, not reliability or release qualification. PR271 run39221385593 still refuses packaged damaged-file repair: its current native response names the new extraction-phase expiry-or-cancellation guard. The original stored-ZIP clock refusal is retained. Do not assume which branch of the combined new refusal fired or shift the budget again without discriminating evidence.
-
-The owner-published frozen AIDE Lite1.1.0 archive (SHA256 80b8a875f63913153f7da890394d4d5c4bcce7c970ab9d48ba39366dd13a94fc; export447e393b3f87004641b7387c1f33828ac1ee3a85, release target9cead252a1e72c5fe3d3f224b098d98436f7a250) was acquired, reviewed and ownership-updated here:15 managed updates,4 additions,826 managed records/825 files. All other raw target bytes survived import, including project guidance/profile/memory/queue. The omitted old .aide.local.example/secrets/README.md remains present without receipt ownership. No broad core or provider activation was imported.
-
-Doctor,12 resume-plan tests, selected direct work-effort CLI controls and11 successor-policy fixtures pass. The advertised portable test remains red: a synthetic missing-Gateway fixture writes non-Python markers and then imports them, raising NameError local_skeleton. A real safe installation of the exact predecessor reproduced that specific failure; no blanket baseline equivalence is claimed. Two attempted export tests against packed payload lack maintainer import-policy source and never reach their behavior; those errors are retained rather than relabelled. Functional tooling adoption remains incomplete under provider request USK-AIDE-LITE-SAFE-SELFTEST-20261019-01, https://github.com/Julesc013/aide/issues/6#issuecomment-6263362256. Preserve frozen upstream bytes and assertions.
-
-This worker is the VS Code Codex extension26.1007.21434. No supported external delivery endpoint/current-turn binding is established; cooperative owner handoffs continue. No new coordinator, repository, worktree or VM was created. Setup product repair proceeds independently of the AIDE defect.
-
-## 2026-10-20 public SDK client development checkpoint
-
-Reviewed client groundwork and registered-start capture are integrated through
-PRs276/277 in devfe1c7edb2e94c124b7542f5c4eccf80da966afaf.
-Its accepted push39253758575 passed all seven core/specification jobs; publisher
-qualification is skipped on pushes and remains separately incomplete.
-Main stays c048f7f1ae2e5922c15a08ee572bdafc29027c63.
-
-The new optional C publisher-context factory preserves the original config
-prefixes, four exports, ABI1.0 getter and borrowed response lifetime.
-The ordinary SDK embeds client transport/validation rather than the service
-engine. Each call prepares bounded invocation-specific UNKNOWN before possible
-dispatch. Public five-field installed.verify binds the current transaction under
-the native install guard; the private explicit transaction selector remains.
-A public-header-only C consumer and an additional hosted source-retired SDK
-reentry/verify journey are prepared. Local compile/controlled tests are not native
-service qualification. Generic recovery.apply is still refused before dispatch;
-its full public request/digests/action must never be reduced to a private selector.
-Packaged maintenance and interrupted recovery remain unqualified. No main,
-release, consumer-pin adoption or requirement acceptance is granted by this work.
-
-## 2026-10-20 bounded lifecycle stream writes and selected SDK acceptance
-
-PR278 is accepted in dev ec5229d6f28eb0b1a581f59fa43714731fafa76a,
-with submitted c42752fe20f8096fac0b2b2736d2455baf0fd9fd and tree
-0e30303005a08b65f8b8ec584b989560937812be. Both submitted and accepted
-push core checks passed. Installed/relocated static/shared SDK consumers passed
-40 local checks on x64/Win32. Run39260395143 built synthetic f7097c073951a7137d4703467e405597e7e262c7
-with that tree and positively completed source-retired SDK apply reentry and
-five-field public verification using the held standard-account C consumer.
-Returned state, its defined lifecycle digest and both file hashes match independent
-SYSTEM readback; client/account cleanup and held launcher exit are confirmed.
-This is selected positive evidence, not fresh SDK installation or generic recovery.
-
-The next internal transaction increment accumulates explicitly bounded 1 MiB
-writes in the shared streaming install/maintenance helper while retaining 64 KiB
-source reads. Default callers retain their old allocation and read/write ordering;
-the existing 4 MiB buffer ceiling is unchanged. Each actual Windows write, including
-partial writes, still runs its original full native authority check immediately
-beforehand. Final native rehash/authority/flush, cleanup retention and all deadlines
-remain. Reported vector capacity is not total process/source memory.
-
-Independent R1 preview review caught a real sequential retained-output-alias gap:
-per-slice hashing could precede a later callback changing that slice before writing.
-Corrected R2 hashes the completed batch after all its reader callbacks. The ordinary
-counterfactual control actually exits216 with rejected R1 ordering; restored R2
-exits0. All six focused native tests passed on each of x64/Win32, including existing
-streaming install, cancellation, read/write faults, maintenance and adversarial
-controls. Strict policy, seven inventory checks and diff checks passed. Only40
-inventory source-hash leaves changed; classifications and acceptance remain unchanged.
-
-Actual protected 32 MiB packaged performance and complete interrupted recovery
-qualification remain open. The preceding SDK run still fails packaged repair and
-untraced interrupted recovery; no speedup or source-free recovery improvement is
-established by the local tests. Main remains c048f7f1ae2e5922c15a08ee572bdafc29027c63.
-Generic public recovery must preserve all reviewed digests and finalize/rollback;
-its native adapter remains refused. Continue reviewed daily dev checkpoints and
-qualify complete publisher behavior before main/release; consumer pins stay owned
-by their requesters.
+PR299 full39404539429/1 FAIL: all three private recovery requests timed out
+UNKNOWN/native absent; native legacy reentry PASS then independent lease-closure
+FAIL. PR298 untraced/release-default selected recoveries independently completed;
+wrapped timed out. Prior passes/failures retained. Error32 holder unknown.
+Retained PR299 late trace gives126.265634s recovery-run and260us terminal send;
+send13.612896s after observed client end. Missing starts/birth/request/payload
+joins limit interpretation; no success, reliability or speedup claim.
+Old eight-query preview HOLD/unapplied. Await actual SDK evidence before further
+performance changes. Keep protections and120s contract; no speculative patch.
+Never replay rejected duplicate-evidence deletion. Continue connected product
+implementation and normal integration using compact task continuation records.

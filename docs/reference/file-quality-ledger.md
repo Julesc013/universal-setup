@@ -132,3 +132,42 @@ candidates, reuse candidates, and mixed-purpose hints can be incomplete. Q39
 Refactor Control Plane v0 consumes these warnings as dry-run planning evidence,
 and Q40 Root Recycling Framework v0 specializes them into root-level risk and
 fate candidates. Neither phase applies refactors directly.
+
+### Fresh Python symbol inspection
+
+Use `quality inspect-symbol NAME --path FILE [--path FILE] [--json]` to
+inspect an existing helper before writing another implementation. Unlike the
+recorded-only `quality explain-file` view, this command reads explicitly selected
+source now. It does not rebuild the ledger or execute project code.
+
+- **Fresh evidence:** definitions with lexical names, kind, parameter names and
+  kinds, locations and exact file hashes; matching calls and import declarations.
+  Each parsed file names the Python parser/runtime used.
+- **Limits:** one normalized Python identifier and one to eight ordinary relative
+  files; 4 MiB per file, 8 MiB selected source, 16 MiB existing ledger, 64 KiB
+  output. Python `.py` and `.pyi` files require UTF-8. Up to 20 matches per
+  category per file and 32 parameters per definition are shown with omitted counts.
+- **Coverage:** calls match syntax, not a resolved runtime target. Aliases,
+  decorators, dynamic dispatch and complete evaluation scopes remain unresolved.
+  Parsed/not-found differs from missing, unsupported or unindexed syntax.
+  Unselected files are outside coverage; missing matches cannot justify narrower
+  validation alone. No function bodies, literal/default values or docstrings
+  are copied into the result.
+- **Recorded context:** existing owner, documentation and likely tests retain
+  their advisory, freshness-unverified status. A missing or malformed ledger
+  does not hide fresh syntax facts. Its digest identifies the inspected record.
+- **Read-only behavior:** no recursive scan, report/cache writes, imports from
+  the selected project, model calls or apply. Ordinary-file checks reject linked,
+  private, traversal and oversized inputs. Sequential byte rechecks detect observed
+  source/ledger changes; this is not an atomic snapshot or an OS access boundary.
+
+Exit 0 means all selected source was parsed; it does not establish code quality
+or runtime correctness. Exit 1 retains partial coverage; exit 2 refuses unsafe,
+changing, ambiguous or oversized observations. JSON is ASCII-safe. Human output
+leads with status and locations, with uncertainty and a concrete next step.
+
+For example, inspect `portable_cli_text` in `.aide/scripts/aide_lite.py`
+before comparing an exported CLI with source. Its existing projection rewrites
+the effort-helper binding intentionally; raw byte equality is the wrong oracle.
+`inspect-symbol` helps locate that implementation and references. Independent
+checks must still establish the projection's actual behavior.
