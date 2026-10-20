@@ -6,37 +6,46 @@ RAM/commit reserves, one local heavy job and the existing Windows 10 VM.
 The fixed 20GiB stop is superseded. Daily reviewed dev integration and qualified
 weekly main promotion are distinct. History remains in Git and decisions.md.
 
-Accepted dev8509a1af38120e804739efb9628bfea6fb1e8b0b integrates PR304 after
+Accepted deva1783ecefbaf9de4a31521c113bcd4ea5f9abe37 integrates PR305 after
 seven core checks, independent committed review and fresh live gate. Its push
-39440800698/1 passed all seven core checks; publisher skipped. PR300 native
+39450359652/1 is pending at the last observation. PR304 push39440800698/1
+passed all seven core checks; publisher skipped. PR300 native
 public SDK recovery, PR301 owned AIDE update, PR302 legacy-profile qualification
 correction and PR303 recovery observer/formatter are integrated. Never replay
 these merges. Main c048f7f1ae2e5922c15a08ee572bdafc29027c63 remains
 publisher-unqualified. PR304 publisher39438164898/1 is still running at the
 last retained observation; do not restart it or claim a terminal result.
 
-Current task/usk-wu-006-effect-child-census applies the exact three-file
-production-child-census-r1 preview. Source review45b466c324253a1d3cd3f29d561cbdc8cf5ead3188339ab8532f77e9073c6be7
-approves application/focused validation only. The existing Count>1 ambiguity
-refusal remains unchanged. Failure-only telemetry samples at most eight rows,
-retaining CIM metadata and temporary read-only native PID/birth/ancestry/liveness
-facts; command contents are redacted. Unknown query/open/close/capture outcomes
-remain uncertainty. Parent is reopened and birth-checked, not borrowed from the
-original held pair. Sequential non-atomic samples grant no selection, exclusion,
-retry, pair construction or termination authority. Limits describe added rows
-and telemetry, not whole CIM enumeration, allocation, OS call time or runtime.
-Native production code, security predicates and client120s remain unchanged.
-Two inert preview tests passed on PS5.1 and PS7; these do not execute SCM,
-protected volume/effect actors or native recovery. Applied and exact committed
-checks, review and fresh core/live development gates remain separate.
+Current task/usk-wu-006-fault-product-preparation applies the exact two-file
+registered-fault-product-preparation-r3 preview. Source review6329B SHA
+a1e3ff0d04c926d5fce1b9a93045cd7d77986eeffa8a73e6138aa3bc44bb10dd
+approves application/focused validation only. Registered fault fixtures use
+existing native product admission/start under the original command, then stop
+before any fixture client dispatch or gated command. Hold/check PID, birth,
+image and command; recheck live SCM binding before cooperative stop, require
+held-instance exit, stopped SCM PID0/same command and three operation paths
+absent. Failure and Dispose uncertainty remain sticky; no fallback/raw gate
+after failed preparation. The30s wait does not hard-bound SCM calls. No custom
+device policy is written: existing lab helper observes read-only afterward.
+client_dispatched=false describes fixture flow; path absence is not a complete
+filesystem snapshot. Native production code/security/client120s are unchanged.
+Two inert flow/routing methods passed PS5.1/7; no real SCM/VHD/ACL acceptance.
+Applied checks, exact committed review and fresh core/live gates remain separate.
 
-PR303 run39430852047/1 completed: all seven core checks passed, full publisher
-failed. Packaged lifecycle step9 passed, including both actors' native overlap;
-private source-retired recovery28/30/92 passed including diagnostics OFF.
-The actual public SDK lifecycle receipt has eight successful native requests:
-install, reentry, verify, repair, verify, move, verify, uninstall, with producer
-independent checks and client/account cleanup. These selected results do not
-qualify the complete publisher, reliability, main, release or downstream adoption.
+Integrated PR305 retains the original Count>1 ambiguity refusal and bounded
+failure-only census for at most8rows. Sequential native/CIM observations,
+including unknowns and freshly reopened/birth-checked parent, grant no selection,
+exclusion, retry or termination authority. Commands are redacted. Its468tests/
+1skip, source review,7core and live gate passed; publisher39447508537/1 remains
+live at last observation. Cause, successful SDK interruption and runtime cure
+remain unknown. IsolationR3 is HOLD/unapplied: fault receipt fixed-root grammar
+and legacy service Modify conflict with trusted actor-root checks. Do not weaken
+either, delete retained inputs or apply that unrelated preview.
+
+PR303 run39430852047/1 passed seven core checks; full publisher failed.
+Selected packaged lifecycle, private source-retired28/30/92 (diagnostics OFF
+included) and eight ordinary SDK lifecycle requests passed independent state/
+closure checks. This does not qualify reliability, main, release or adoption.
 
 PR303 SDK recovery94 failed BEFORE ANY SDK REQUEST: production rename observer
 refused an ambiguous effect-child population before retained native pair,
@@ -50,11 +59,9 @@ fixed C:\USK-Lab collision refusals, not additional executed native defects.
 Retain failure evidence; do not weaken device admission or delete old fixtures
 to hide a cascade. Input isolation and fault-fixture coherence remain separate.
 
-PR304 concurrent observer nominally permits120s UTC preparation then one
-observed start sets120s client plus10s reply observation; repeated markers cannot
-renew it. This is not a hard elapsed/runtime ceiling. finished_utc means finally
-entry, not confirmed cleanup. All original reply, denial, both actors' overlap,
-ring-eviction and protection checks remain. No performance improvement claimed.
+PR304 nominal UTC120s preparation then one start sets120s client+10s reply;
+not a hard elapsed bound. finished_utc is finally entry, not cleanup. All
+original denial/overlap/ring-eviction checks remain; no speedup claimed.
 
 PR303 admits exactly recovery.inspect/plan/apply and offers finalize for repair,
 committing/unconfirmed, pending=next=publish_target, compatible_after_effect,
