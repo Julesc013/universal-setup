@@ -7,6 +7,7 @@
 #include "usk_publisher_request_channel.h"
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <stdexcept>
 #include <vector>
 namespace usk::platform::windows::detail::registration_query {
@@ -21,6 +22,9 @@ public:
 private:
     SC_HANDLE value_;
 };
+
+// The source retains ownership if destination allocation fails.
+std::unique_ptr<ServiceHandle> transfer_service_handle(ServiceHandle& source);
 
 struct ServiceConfiguration {
     std::wstring binary_path;
@@ -55,6 +59,10 @@ ServiceConfiguration query_configuration(SC_HANDLE service);
 void require_profile(const ServiceConfiguration& config);
 void require_existing_command(const std::wstring& command, const std::wstring& service,
     const std::wstring& binary, const std::wstring& volume, const std::wstring& caller, const std::wstring& mode);
+// Original creation is reviewed legacy mode; current may select the existing
+// recovery/verify commands with the same binary, service, volume, caller/mode.
+void require_legacy_creation_commands(const std::wstring& original, const std::wstring& current,
+    const std::wstring& service, const std::wstring& binary, const std::wstring& volume);
 std::string utf8(const std::wstring& value);
 RegisteredClientRequest parse_registered_client_request(const std::wstring& name,
     const std::string& request, const PublisherRequestOptions& options);

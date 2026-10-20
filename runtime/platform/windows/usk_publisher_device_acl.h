@@ -45,13 +45,22 @@ std::optional<std::vector<BYTE>> publisher_try_read_only_device_admission_postim
 // policy derivation or authority. Original text is at most8192 bytes; return only
 // its first2048 bytes with full length/canonical-string digest and truncation.
 // Invalid input/allocation can throw; the owning refusal path must contain it.
+enum class PublisherDeviceTransitionSource {
+    legacy_locked_capture, unpublished_retained, registered_creation
+};
 json::Value publisher_device_transition_diagnostic(
-    const json::Value& transition, bool unpublished_retained);
+    const json::Value& transition, PublisherDeviceTransitionSource source);
 
 // Closed data-shape check only. V3 must carry a nonnull mounted transition;
 // false is reserved for legacy v2. Native identity, intended-policy derivation
 // and mutation authority remain mandatory checks in the owning controller.
 bool publisher_target_intent_has_device_transition(const json::Value& intent);
+// Closed creation-intent v1/v2 shape only. V2 retains the native device original;
+// v1 explicitly has none. These supplied data confer no custody or authority:
+// the controller must independently hold/match the protected creation/binding,
+// live SCM identity, volume, exact safe original and derived intended policy.
+bool publisher_registration_intent_has_device_transition(const json::Value& intent);
+
 
 } // namespace usk::platform::windows
 #endif

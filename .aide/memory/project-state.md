@@ -1,92 +1,102 @@
 # Universal Setup Project State
 
-Continue ACTIVE USK-SPEC-TO-RELEASE-01 in the sole existing worktree/build/lab
-under Universal .task-builds. Keep10GiB disk,2GiB RAM/commit, one local heavy
-job. Fixed20GiB stop and old VM retirement are superseded. Windows10 VM remains
-shared/untouched. Daily reviewed dev integration; qualified weekly main
-promotion, publication and consumer adoption remain separate obligations.
+Continue ACTIVE USK-SPEC-TO-RELEASE-01 in sole worktree/build/lab under
+Universal .task-builds. Fixed20GiB stop superseded; keep10GiB disk,2GiB
+RAM/commit,one local heavy job. Windows10 shared VM remains untouched.
+Daily reviewed dev integration; qualified weekly main promotion, publication
+and consumer adoption remain separate outcomes.
 
-Accepted dev cc2444e84a1e3bac485ee00e44d6d53f0ad60037/tree
-f1da20be44bcec36d8c236b0b2eedc5f2961c401 integrated PR295 after independent
-committed review,all7core39379530326/1 PASS and fresh live merge gate.
-Accepted-dev push39381149013/1 and full publisher39379530326/1 remain watched.
-Main c048f7f1ae2e5922c15a08ee572bdafc29027c63 remains unqualified.
+Accepted dev23a1acddbd3fe57f3dcc76e58d540d27693bb784/tree
+5bb3b9acec70ed65b27aa5ca91db5413ed6dafad integrated PR296 normally after
+independent committed review,7core39382502139/1 PASS and fresh live gate.
+Exact accepted-dev push39384207821/1 all7corePASS,publisherSKIPPED.
+Mainc048f7f1ae2e5922c15a08ee572bdafc29027c63 remains unqualified.
 
-PR294 full hosted run39372487235/1 is terminalFAIL solely in publisher job;
-all7corePASS. Fresh public CSDK install/maintenance21, untraced fresh23, traced
-fresh25, interrupted source-retired repair28(untraced) and30(CPU-only wrapper),
-release-default fresh90 and interrupted repair92(diagnosticsOFF) allPASS.
-All three recovery receipts independently pass the existing full projector:
-request-bound client/native terminal result, completed journal,26ordered
-effect records/12completed effects, lease generation4→5, restored damaged
-payload, ordinary verification and client/account cleanup. This establishes
-those three invocations under the unchanged120s fixture, not repeatability,
-numeric speedup, whole profile, generic public recovery.apply or release1.1.
+PR296 corrected bootstrap observer incomplete-CIM preselection only.19actual
+AST cases and PS5.1/PS7 fixture,CTest,inventory7,strict9 passed. Held native
+ancestry/birth/image/private argv/access/handle checks,120s and sticky
+post-begin failures remain. Hosted correction still needs its exact run.
+PR295 oldobserver bootstrap35 passed; that does not qualify PR296's delta.
 
-Submitted63f64fbe506961528d4c8ea6888371cdeaf4e73d and actual synthetic build
-24447fd40bccbede80ade191892baed7cac69f16 have the same submitted tree; package
-identities are retained separately. Evidence is under that run's artifacts:
-usk-wu007-standard-maintenance-recovery-untraced-probe, corresponding wrapped
-maintenance-recovery-probe, and release-default-maintenance-recovery-probe.
-Wrapped rawSHA6e0e3040b593081c579119578ec6eb4b712dc4f4eaf0f7015b016246d9c30142;
-OFF rawSHAcc685b92d5883d5e03017b8e803ce503e569fe4f3be912b059bd12ddedac77ca.
+Recovery is NOT reliable. PR294's selected28untraced/30CPUwrapped/92diagnosticsOFF
+invocations independently completed within120s with matching native/client
+result, completed journal/effects, generation4→5, restored payload, ordinary
+verification and cleanup. Preserve those passes. PR29539379530326/1 is now
+terminalFAIL publisher only,all7corePASS: all three same recovery cohorts
+exceeded120s, current-requestUNKNOWN/native completion absent. DiagnosticsOFF
+92 also has client_cleanup false; no success inferred from late observations.
+PR29628/30 also failed. Original120s protection/qualification contract remains.
 
-Other publisher failures remain distinct. Bootstrap-loss35 failed before its
-required interruption because the observer rejected an effect-child candidate's
-image/command/birth. The captured original client exited0, but the required
-kill/preservation journey was not exercised and is unqualified. Observer now
-retries incomplete CIM metadata only before native construction. Nonpositive/parent PID and known exact-image mismatch still refuse
-immediately.
-Complete metadata enters unchanged held parent/child,birth,native ancestry/
-image,private argv,access and handle checks. Existing120s loop/liveness,
-kill/window/closure and post-begin failure paths remain unchanged. A finite
-last-row presence projection records actual CIM fields without authority.
-Existing apply-control driver executes19 actual AST preselection cases,
-including all7 incomplete combinations,complete row,invalid PID,known image
-mismatch,zero/ambiguous candidates and no provisional observer/outcome.
-One-row cases require the diagnostic projection. Actual full fixture checks
-pass PS5.1/PS7; native apply-control CTest,inventory7 and strict9 PASS.
-Actual missing-field cause and hosted cure remain unestablished.
+PR295 synthetic build1f67b22205c1a8ca660cc9ece3ca98fa1ec4b0ec matches submitted
+treef1da20be44bcec36d8c236b0b2eedc5f2961c401; package bytes stay separately pinned.
+Raw evidence is retained in corresponding CI artifacts:
+usk-wu007-standard-maintenance-recovery-untraced-probe SHA
+c83d613a1ea34116101e11be2aabdee58356737b3dd754c24ba1ad3701b2245a;
+wrapped maintenance-recovery-probe SHA
+79a01d66241b3e33bb3484175dbf1a6f3e277a8613fa65f2e69022873f41b58c;
+release-default-maintenance-recovery-probe SHA
+7aa7212191c462affc458ff2b84739872fc4980d08f58ea663ad7daea88c9915.
+Incomplete nonatomic after-capture shows committed journal/pending root-remove23;
+that does not locate the worker. Error32 installed-state readback does not
+identify holder, cause or native result. Later legacy probes66..86 stopped on
+occupied C:\USK-Lab before their own scenarios; preserve failed material.
 
-Legacy registered-service64 completes
-first native installation/terminal stop, retires sources, then second product
-activation refuses exact-original remounted device ACL. First activation exit0;
-reentry exit3. The retained post-hardening snapshot does not reveal the
-original captured before that write. Do not assume recapture of an already
-intended prestate or authorize fresh safe-looking ACL. Later legacy probes
-stopped before their scenarios on occupied C:\USK-Lab; preserve failed material
-and distinguish the cascade from independent runtime defects.
+Legacy64 first installation/stop succeeds; source-retired second activation
+fails exact-original remount admission. PR295's failure-only diagnostic
+confirms selected122B original was ALREADY hardened/intended, while remounted
+native policy was48B read-only default. Raw registered-service-probe SHA
+12cdcf53d7c3fe9a0a21494b0626d2486ad77c5736393bfb5c240b7b2f856545.
+The old exact-original refusal was correct; a fresh safe-looking ACL cannot
+stand in for the registration's original.
 
-Integrated PR295 diagnostic increment exposes the already retained selected transition:
-provenance, <=2048-byte original prefix, full <=8192-byte length/canonical-string
-SHA/truncation and intended-policy SHA. Native call order and every admission
-predicate/effect remain unchanged. Original refusal is constructed before
-best-effort augmentation; formatter, map insertion, serialization and extended
-exception construction are contained together. Native smoke exercises actual
-formatting/default-vs-intended distinctions, immutable input and bounds; actual
-temporal reentry still requires hosted qualification. Prior review HOLDs and
-corrected validation are retained outside source.
+Current functional increment captures the eligible native original BEFORE first
+admission in the existing protected registration creation intentv2. Unchanged
+six-field binding, canonical creationUUID/display tag, actual SCM restricted
+stopped profile, serviceSID and volume bind its use. Held intent/binding
+records prevent writes/replacement. Original reviewed command stays bound;
+existing authorized reviewed/recover/verify reconfiguration retains the same
+binary/service/volume/caller/access mode and freezes this invocation's command.
+No root opens in the locked custody fence. Actual locked device must match
+retained original or its derived intended policy; native remount exact-original,
+strict policy, root identity/security and exclusive barriers remain mandatory.
+Missing/v1 keeps existing route. Malformed or stale v2/native failure never
+falls back; already-hardened registration is not invented historical evidence.
 
-The new70MiB CPU-only trace retains complete selected kernel actor lifetimes,
-thread starts/ends, module loads/unloads and exact matched product PE/PDB.
-Qualification-phase opening boundary is missing;7652rows/3811complete pairs,
-30unmatched endpoints. Failed2MiB-capped stack graph exports stay incomplete;
-one complete closed thresholded flat table was resolved offline with matching
-PDB. Inclusive original-record/authority and durable-record ancestry does not
-establish removable cost. No new runtime optimization, deadline or safety
-reduction follows from this measurement. Old eight-query preview remains HOLD.
+Independent initial review HOLD found SCM-open-before-allocation ownership.
+Corrected stack ownership/transfer releases only after successful destination
+construction. Existing query module now contains the new command/transfer
+boundaries, exercised by the existing ACL and request-channel fixtures:
+v1/v2/data immutability/provenance,15malformed records,all3legacy access modes
+with reviewed/recover/verify and21identity/mode refusals,allocation failures at
+both ownership depths. Expanded R5 strict x64 controller/native and Win32 native
+builds, all four actual CTests, inventory7 and strict9 PASS. R4 reserve-stopped
+build remains retained; bounded R5 admission recovered without lowering reserves.
+Independent R2 source review closes the ownership finding; exact committed
+review remains required. Native SCM/remount/reentry qualification is not
+claimed by pure/local tests.
 
-Public SDK decoder,broker full-request/v2 selectors and native history exist;
-ordinary native recovery.inspect/plan/apply still need connection. Inspection
-must use existing-only owner/history before any writer lease; preserve all
-reviewed bindings and selected finalize/rollback action through native dispatch,
-fresh validation and action-specific effects. No private4field downgrade,
-writer-context inspection or rollback→forward alias. Continue connected product
-milestones after the exact-original reentry defect; do not restart the campaign.
+Bounded PR295 retained trace/PE/PDB analysis measures client request120.010108s,
+child recovery execution130.807892s and terminalsend18.317373s after client
+scope exit; terminalsend itself279us. Main measured delay is inside recovery,
+not response formatting/send. Opening phase/actor starts/native birth join are
+missing; partial inclusive intervals overlap. One predeadline CPU second
+resolved221exact product RVAs, not whole-request or removable-cost evidence.
+Pending final root removal has no timed retry loop and may remain pending
+after actual deletion during custody/completion persistence. No new recovery
+optimization or numerical improvement follows. Old eight-query preview HOLD.
 
-AIDE frozen Lite1.1 is published/acquired/imported preserving customization.
-Newer coordination needs its own qualified package/actual host route; no new
-coordinator/queue/clone or arbitrary desktop-session takeover is prerequisite.
+Public recovery decoder,broker full-request/v2 selectors and native read-only
+history exist; ordinary native SDK inspect/plan/apply still need connection.
+Use existing-only inspection before writer/lease, full current history/pending
+and action eligibility, reviewed digests/selected action through dispatch,
+fresh validation and public response schemas. No four-field downgrade or
+rollback→forward alias; ordinary SDK must not link privileged engine.
+Continue connected application/lifecycle/consumer outcomes, not new architecture.
+
+AIDE frozen Lite1.1 acquired/imported preserving customization. Its safe-selftest
+provider defect remains recorded below. Newer coordination needs a separately
+qualified package and actual existing host route; no new queue/clone/coordinator
+or arbitrary desktop-session takeover is prerequisite.
 
 ## 2026-10-19 qualified development integration and AIDE consumer update
 

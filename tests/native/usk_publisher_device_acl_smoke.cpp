@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_device_acl.h"
+#include "usk_publisher_registration_query_internal.h"
 
 #if defined(_WIN32)
 #include <sddl.h>
@@ -188,9 +189,9 @@ int main() {
     const auto default_before = usk::json::canonical(captured_default);
     const auto intended_before = usk::json::canonical(captured_intended);
     const auto default_diagnostic = usk::platform::windows::publisher_device_transition_diagnostic(
-        captured_default, false);
+        captured_default, usk::platform::windows::PublisherDeviceTransitionSource::legacy_locked_capture);
     const auto intended_diagnostic = usk::platform::windows::publisher_device_transition_diagnostic(
-        captured_intended, true);
+        captured_intended, usk::platform::windows::PublisherDeviceTransitionSource::unpublished_retained);
     if (default_diagnostic.at("provenance").as_string() != "legacy_locked_capture" ||
         intended_diagnostic.at("provenance").as_string() != "unpublished_retained" ||
         default_diagnostic.at("original_owner_dacl_prefix").as_string() !=
@@ -211,7 +212,7 @@ int main() {
     auto bounded_transition = captured_default;
     bounded_transition.as_object()["original_owner_dacl"] = Value(std::string(8192u, 'x'));
     const auto bounded = usk::platform::windows::publisher_device_transition_diagnostic(
-        bounded_transition, false);
+        bounded_transition, usk::platform::windows::PublisherDeviceTransitionSource::legacy_locked_capture);
     if (bounded.at("original_owner_dacl_prefix").as_string().size() != 2048u ||
         !bounded.at("original_owner_dacl_prefix_truncated").as_boolean() ||
         bounded.at("original_owner_dacl_bytes").as_unsigned() != 8192u ||
@@ -221,7 +222,7 @@ int main() {
         bounded_transition.as_object()["original_owner_dacl"] = Value(std::string(length, 'x'));
         bool refused = false;
         try { (void)usk::platform::windows::publisher_device_transition_diagnostic(
-            bounded_transition, false); }
+            bounded_transition, usk::platform::windows::PublisherDeviceTransitionSource::legacy_locked_capture); }
         catch (const std::runtime_error&) { refused = true; }
         if (!refused) return 14;
     }
@@ -251,6 +252,92 @@ int main() {
         try { (void)usk::platform::windows::publisher_target_intent_has_device_transition(malformed); }
         catch (const std::runtime_error&) { refused = true; }
         if (!refused) return 6;
+    }
+
+    // Registration v2 retains the first native original, not the hardened
+    // postimage sampled on later starts. This parser validates closed data
+    // only; the controller still proves SCM, record and native-volume custody.
+    const Value registration(Value::Object{
+        {"schema", Value("usk.publisher_registration_intent.v2")},
+        {"creation_id", Value("{12345678-1234-1234-1234-123456789ABC}")},
+        {"binding", Value(Value::Object{
+            {"schema", Value("usk.publisher_registration_binding.v1")},
+            {"service_name", Value("USK_PUB_0123456789abcdef0123456789abcdef")},
+            {"service_sid", Value("S-1-5-80-100-200-300-400-500")},
+            {"command", Value("bound original command")},
+            {"binary_sha256", Value(std::string(64u, 'a'))},
+            {"volume_identity", Value(Value::Object{})}})},
+        {"mounted_device_transition", captured_default}});
+    const auto registration_before = usk::json::canonical(registration);
+    auto old_registration = registration;
+    old_registration.as_object().at("schema") = Value("usk.publisher_registration_intent.v1");
+    old_registration.as_object().erase("mounted_device_transition");
+    if (!usk::platform::windows::publisher_registration_intent_has_device_transition(registration) ||
+        usk::platform::windows::publisher_registration_intent_has_device_transition(old_registration) ||
+        usk::json::canonical(registration) != registration_before) return 15;
+    const auto registered_diagnostic = usk::platform::windows::publisher_device_transition_diagnostic(
+        registration.at("mounted_device_transition"),
+        usk::platform::windows::PublisherDeviceTransitionSource::registered_creation);
+    if (registered_diagnostic.at("provenance").as_string() != "registered_creation" ||
+        registered_diagnostic.at("original_owner_dacl_prefix").as_string() !=
+            captured_default.at("original_owner_dacl").as_string() ||
+        registered_diagnostic.at("original_owner_dacl_canonical_sha256").as_string() !=
+            default_diagnostic.at("original_owner_dacl_canonical_sha256").as_string() ||
+        usk::json::canonical(registration) != registration_before) return 16;
+    for (unsigned variant = 0; variant < 15u; ++variant) {
+        auto malformed = registration;
+        if (variant == 0) malformed.as_object().erase("mounted_device_transition");
+        if (variant == 1) malformed.as_object().at("mounted_device_transition") = Value();
+        if (variant == 2) malformed.as_object().emplace("extra", Value());
+        if (variant == 3) malformed.as_object().at("schema") = Value("usk.publisher_registration_intent.v9");
+        if (variant == 4) malformed.as_object().at("creation_id") = Value("{12345678-1234-1234-1234-123456789ABZ}");
+        if (variant == 5) malformed.as_object().at("creation_id") = Value("");
+        if (variant == 6) malformed.as_object().at("binding").as_object().erase("service_sid");
+        if (variant == 7) malformed.as_object().at("binding").as_object().at("schema") = Value("unknown");
+        if (variant == 8) malformed.as_object().at("binding").as_object().emplace("extra", Value());
+        if (variant == 9) malformed.as_object().at("mounted_device_transition").as_object().at("original_owner_dacl") =
+            Value(std::string(8193u, 'x'));
+        if (variant == 10) malformed.as_object().at("mounted_device_transition").as_object().at("intended_policy")
+            .as_object().at("dacl_protected") = Value(false);
+        if (variant == 11) malformed.as_object().at("mounted_device_transition").as_object().at("intended_policy")
+            .as_object().at("owner") = Value("S-1-5-32-545");
+        if (variant == 12) malformed.as_object().at("mounted_device_transition").as_object().at("intended_policy")
+            .as_object().at("aces") = Value(Value::Array{});
+        if (variant == 13) { malformed = old_registration; malformed.as_object().emplace("mounted_device_transition", captured_default); }
+        if (variant == 14) malformed.as_object().at("creation_id") = Value("{12345678_1234-1234-1234-123456789ABC}");
+        const auto before = usk::json::canonical(malformed);
+        bool refused = false;
+        try { (void)usk::platform::windows::publisher_registration_intent_has_device_transition(malformed); }
+        catch (const std::runtime_error&) { refused = true; }
+        if (!refused || usk::json::canonical(malformed) != before) return 17;
+    }
+
+    namespace query = usk::platform::windows::detail::registration_query;
+    const std::wstring service_name = L"USK_PUB_0123456789abcdef0123456789abcdef";
+    const std::wstring binary = L"C:\\Program Files\\Universal Setup\\Publisher\\owned.exe";
+    const std::wstring volume = L"\\\\?\\Volume{12345678-1234-1234-1234-123456789abc}\\";
+    const std::wstring caller = L"S-1-5-21-100-200-300-1001";
+    const std::wstring reviewed = L" --reviewed-plan-envelope \"C:\\reviewed envelope.json\" " + std::wstring(64u, L'a');
+    const auto prefix = query::command_prefix(service_name, binary, volume);
+    for (const std::wstring mode : {L"", L"--grant-client-read", L"--admit-client-observer"}) {
+        const auto original = prefix + reviewed + query::command_suffix(caller, mode);
+        for (const std::wstring selector : {reviewed, std::wstring(L" --recover-reviewed"), std::wstring(L" --verify-installed")})
+            query::require_legacy_creation_commands(original,
+                prefix + selector + query::command_suffix(caller, mode), service_name, binary, volume);
+        for (unsigned variant = 0; variant < 7u; ++variant) {
+            auto wrong_original = original, wrong_current = original;
+            if (variant == 0) wrong_current = prefix + reviewed + query::command_suffix(L"S-1-5-21-100-200-300-1002", mode);
+            if (variant == 1) wrong_current = prefix + reviewed + query::command_suffix(caller, mode.empty() ? L"--grant-client-read" : L"");
+            if (variant == 2) wrong_current = query::command_prefix(L"another-service", binary, volume) + reviewed + query::command_suffix(caller, mode);
+            if (variant == 3) wrong_current = query::command_prefix(service_name, binary + L".other", volume) + reviewed + query::command_suffix(caller, mode);
+            if (variant == 4) wrong_current = query::command_prefix(service_name, binary, volume + L"other") + reviewed + query::command_suffix(caller, mode);
+            if (variant == 5) wrong_original = prefix + L" --recover-reviewed" + query::command_suffix(caller, mode);
+            if (variant == 6) wrong_original = prefix + reviewed + query::command_suffix(caller, L"--service-admitted-client");
+            bool refused = false;
+            try { query::require_legacy_creation_commands(wrong_original, wrong_current, service_name, binary, volume); }
+            catch (const std::runtime_error&) { refused = true; }
+            if (!refused) return 18;
+        }
     }
     return 0;
 }

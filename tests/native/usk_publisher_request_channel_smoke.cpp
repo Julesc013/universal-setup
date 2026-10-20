@@ -3,6 +3,7 @@
 #include "usk_publisher_request_channel.h"
 #include "usk_publisher_authenticated_client_internal.h"
 #include "usk_publisher_registration.h"
+#include "usk_publisher_registration_query_internal.h"
 #include "usk_publisher_controller_request_internal.h"
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_tree_observation.h"
@@ -46,6 +47,45 @@ template<class Action> void refuses(Action action) {
     try { action(); } catch (const std::exception&) { refused=true; }
     require(refused,"required refusal absent");
 }
+void test_service_handle_transfer_allocation_failure() {
+    using usk::platform::windows::detail::registration_query::ServiceHandle;
+    using usk::platform::windows::detail::registration_query::transfer_service_handle;
+    // Read-only SCM handles exercise the same closer at both ownership depths;
+    // no service is created, changed or opened with mutation rights.
+    for (unsigned depth = 0; depth < 2u; ++depth) {
+        SC_HANDLE parent_raw = nullptr, child_raw = nullptr;
+        bool denied = false, source_retained = false;
+        {
+            ServiceHandle parent(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+            require(parent.get() != nullptr, "read-only SCM fixture unavailable");
+            parent_raw = parent.get();
+            std::unique_ptr<ServiceHandle> retained_parent;
+            if (depth) {
+                retained_parent = transfer_service_handle(parent);
+                require(!parent.get() && retained_parent->get() == parent_raw, "SCM ownership transfer failed");
+            }
+            ServiceHandle child(depth ? OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT) : nullptr);
+            require(!depth || child.get() != nullptr, "second read-only SCM fixture unavailable");
+            child_raw = child.get();
+            auto& source = depth ? child : parent;
+            const auto raw = source.get();
+            struct ResetDenial { ~ResetDenial() { deny_request_channel_allocations = false; } };
+            {
+                ResetDenial reset;
+                deny_request_channel_allocations = true;
+                try { (void)transfer_service_handle(source); }
+                catch (const std::bad_alloc&) { denied = true; source_retained = source.get() == raw; }
+            }
+        }
+        require(denied && source_retained && !deny_request_channel_allocations,
+            "failed service-handle transfer lost source ownership");
+        require(!CloseServiceHandle(parent_raw) && GetLastError() == ERROR_INVALID_HANDLE,
+            "failed transfer leaked parent SCM handle");
+        if (depth) require(!CloseServiceHandle(child_raw) && GetLastError() == ERROR_INVALID_HANDLE,
+            "failed transfer leaked child SCM handle");
+    }
+}
+
 void test_allocation_free_unknown_message() {
     using usk::platform::windows::PublisherRequestOutcomeUnknown;
     static_assert(std::is_nothrow_constructible<PublisherRequestOutcomeUnknown, const char*>::value &&
@@ -813,6 +853,7 @@ int main(int argc, char** argv) {
         if (argc == 2 && std::string(argv[1]) == "--token-buffer-benchmark") {
             benchmark_client_token_buffers(); return 0;
         }
+        test_service_handle_transfer_allocation_failure();
         test_allocation_free_unknown_message();
         test_controller_uncertainty_boundary();
         test_authenticated_client_fact_equality();
