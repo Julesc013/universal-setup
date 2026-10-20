@@ -894,6 +894,109 @@ foreach($case in @('success','native_failure','native_and_restore_failure')) {
         [Convert]::ToBase64String([IO.File]::ReadAllBytes($ownedRecord)) -cne
         [Convert]::ToBase64String($originalBytes)) {throw 'Exact admission restoration differs'}
 }
+
+$observerFile=Join-Path $Repository 'tests\windows_publisher_production_rename_observer.ps1'
+# Exercise only the real observer's preselection AST, before native construction.
+& {
+    $tokens=$null;$parseErrors=$null
+    $observerAst=[Management.Automation.Language.Parser]::ParseFile(
+        $observerFile,[ref]$tokens,[ref]$parseErrors)
+    if($parseErrors.Count){throw 'Observer fixture source does not parse'}
+    $selection=@($observerAst.FindAll({param($node)
+        $node -is [Management.Automation.Language.IfStatementAst] -and
+        $node.Extent.Text.StartsWith('if(-not $effectPair) {',[StringComparison]::Ordinal)
+    },$true))
+    if($selection.Count -ne 1){throw 'Observer candidate preselection is ambiguous'}
+    $statements=@($selection[0].Clauses[0].Item2.Statements)
+    $constructor=@(0..($statements.Count-1)|Where-Object {
+        $statements[$_] -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $statements[$_].Left.Extent.Text -ceq '$effectPair'})
+    if($constructor.Count -ne 1 -or $constructor[0] -lt 4 -or
+        -not $statements[$constructor[0]].Extent.Text.Contains('[UskOwnedEffectChildObserver]::new(')) {
+        throw 'Observer native construction boundary differs'
+    }
+    $prelude=[scriptblock]::Create(($statements[0..($constructor[0]-1)]|
+        ForEach-Object {$_.Extent.Text}) -join [Environment]::NewLine)
+    $expectedImage='C:\owned-fixture\publisher.exe'
+    function Get-CimInstance {
+        param([string]$ClassName,[string]$Filter,[string]$ErrorAction)
+        if($ClassName -cne 'Win32_Process' -or $Filter -cne 'ParentProcessId=700' -or
+            $ErrorAction -cne 'Stop'){throw 'Unexpected candidate native query'}
+        return $script:metadataRows
+    }
+    function Start-Sleep {
+        param([int]$Milliseconds)
+        if($Milliseconds -ne 1){throw 'Candidate retry changed its interval'}
+        throw 'METADATA_PENDING_BEFORE_NATIVE_CONSTRUCTION'
+    }
+    function New-CandidateRow {
+        return [pscustomobject]@{ProcessId=701;CreationDate=[DateTime]::UtcNow
+            ExecutablePath=$expectedImage;CommandLine='"C:\owned-fixture\publisher.exe" --usk-private-effect-worker-transport-v1 4 8 12'}
+    }
+    $cases=0
+    function Test-CandidatePrelude {
+        param([object[]]$Rows,[string]$Expected)
+        $script:metadataRows=$Rows
+        $held=[pscustomobject]@{Id=700}
+        $config=[pscustomobject]@{process_id=700;process_executable=$expectedImage}
+        $effectPair=$null;$result=[ordered]@{status='not_run';termination=$null}
+        $actual='eligible_for_native_checks';$caught=$null
+        try {& $prelude} catch {
+            $caught=$_.Exception.Message
+            $actual=if($caught -ceq 'METADATA_PENDING_BEFORE_NATIVE_CONSTRUCTION'){'pending'}else{'refused'}
+        }
+        if($actual -cne $Expected){throw ('Candidate outcome differs: expected='+$Expected+'; actual='+$actual+'; '+$caught)}
+        if($actual -ceq 'refused' -and $caught -cnotin @(
+            'Owned effect-child candidate image/command/birth differs',
+            'Owned SCM has an ambiguous native effect-child population')) {
+            throw ('Unexpected candidate refusal: '+$caught)
+        }
+        if($effectPair -or $result.status -cne 'not_run' -or $result.termination) {
+            throw 'Provisional candidate escaped into a native observer or outcome'
+        }
+        if($Rows.Count -eq 1) {
+            if(-not $result.Contains('effect_child_candidate')) {
+                throw 'Candidate metadata projection is missing'
+            }
+            $facts=$result.effect_child_candidate;$row=$Rows[0]
+            if($facts.process_id -ne $row.ProcessId -or
+                $facts.creation_present -ne [bool]$row.CreationDate -or
+                $facts.image_present -ne [bool]$row.ExecutablePath -or
+                $facts.command_present -ne [bool]$row.CommandLine -or
+                ($row.ExecutablePath -and $facts.image_matches -ne ($row.ExecutablePath -ceq $expectedImage)) -or
+                (-not $row.ExecutablePath -and $null -ne $facts.image_matches)) {
+                throw 'Candidate metadata projection differs from the observed row'
+            }
+        }
+    }
+    Test-CandidatePrelude @(New-CandidateRow) 'eligible_for_native_checks';$cases++
+    foreach($mask in 1..7) {
+        $row=New-CandidateRow
+        if($mask -band 1){$row.CreationDate=$null}
+        if($mask -band 2){$row.ExecutablePath=$null}
+        if($mask -band 4){$row.CommandLine=$null}
+        Test-CandidatePrelude @($row) 'pending';$cases++
+    }
+    foreach($invalidId in @(0,-1,700)) {
+        foreach($incomplete in @($false,$true)) {
+            $row=New-CandidateRow;$row.ProcessId=$invalidId
+            if($incomplete){$row.CreationDate=$null;$row.ExecutablePath=$null;$row.CommandLine=$null}
+            Test-CandidatePrelude @($row) 'refused';$cases++
+        }
+    }
+    foreach($incomplete in @($false,$true)) {
+        $row=New-CandidateRow;$row.ExecutablePath='C:\foreign\publisher.exe'
+        if($incomplete){$row.CreationDate=$null;$row.CommandLine=$null}
+        Test-CandidatePrelude @($row) 'refused';$cases++
+    }
+    $row=New-CandidateRow;$row.ExecutablePath='c:\owned-fixture\publisher.exe'
+    Test-CandidatePrelude @($row) 'refused';$cases++
+    Test-CandidatePrelude @() 'pending';$cases++
+    Test-CandidatePrelude @((New-CandidateRow),(New-CandidateRow)) 'refused';$cases++
+    if($cases -ne 19){throw 'Candidate metadata matrix is incomplete'}
+    Write-Output ('Observer candidate preselection cases PASS: '+$cases)
+}
+
 ''', encoding="utf-8")
     result = subprocess.run(
         [powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",

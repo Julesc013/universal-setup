@@ -142,9 +142,21 @@ try {
             if($children.Count -gt 1){throw 'Owned SCM has an ambiguous native effect-child population'}
             if(-not $children.Count){Start-Sleep -Milliseconds 1;continue}
             $child=$children[0]
-            if(-not $child.CreationDate -or $child.ExecutablePath -cne $config.process_executable -or
-                -not $child.CommandLine -or $child.ProcessId -le 0 -or $child.ProcessId -eq $held.Id) {
+            $result['effect_child_candidate']=[ordered]@{
+                process_id=$child.ProcessId;creation_present=[bool]$child.CreationDate
+                image_present=[bool]$child.ExecutablePath;command_present=[bool]$child.CommandLine
+                image_matches=$(if($child.ExecutablePath){$child.ExecutablePath -ceq $config.process_executable}else{$null})}
+            # CIM may return the child before every metadata field is available.
+            # A known mismatch still refuses. Incomplete data admits no native
+            # observer, result or termination; retry only this preselection step
+            # within the existing120-second loop and held-parent liveness check.
+            if($child.ProcessId -le 0 -or $child.ProcessId -eq $held.Id -or
+                ($child.ExecutablePath -and $child.ExecutablePath -cne $config.process_executable)) {
                 throw 'Owned effect-child candidate image/command/birth differs'
+            }
+            if(-not $child.CreationDate -or -not $child.ExecutablePath -or -not $child.CommandLine) {
+                Start-Sleep -Milliseconds 1
+                continue
             }
             $effectPair=[UskOwnedEffectChildObserver]::new($held,[uint32]$config.process_id,
                 $held.StartTime.ToUniversalTime().ToFileTimeUtc(),[uint32]$child.ProcessId,
