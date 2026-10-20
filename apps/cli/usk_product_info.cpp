@@ -19,6 +19,12 @@
 #include <string>
 #include <utility>
 #include <vector>
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace usk::command {
 namespace {
@@ -110,6 +116,32 @@ struct ComponentNode {
 
 using ComponentGraph = std::map<std::string, ComponentNode>;
 
+Value install_options(const std::string& text)
+{
+    usk::json::ParseLimits limits;
+    limits.max_bytes = 16384;
+    limits.max_string_bytes = 4096;
+    const Value options = usk::json::parse(text, limits);
+    exact_fields(options, {"schema", "request_id", "install_id", "created_at",
+        "target_root", "entrypoint"});
+    if (options.at("schema").as_string() != "usk.authored_install_options.v1")
+        throw std::runtime_error("unsupported authored install options");
+    require_id(options.at("request_id").as_string());
+    require_id(options.at("install_id").as_string());
+    const auto& created = options.at("created_at").as_string();
+    if (created.empty() || created.size() > 128)
+        throw std::runtime_error("invalid plan time");
+    (void)usk::base::require_normalized_absolute_local_path_utf8(
+        options.at("target_root").as_string(), "target_root");
+    const auto& entrypoint = options.at("entrypoint");
+    exact_fields(entrypoint, {"entrypoint_id", "kind", "relative_path"});
+    require_id(entrypoint.at("entrypoint_id").as_string());
+    const auto& kind = entrypoint.at("kind").as_string();
+    if (kind != "application" && kind != "tool" && kind != "server")
+        throw std::runtime_error("unsupported entrypoint kind");
+    return options;
+}
+
 Value::Array resolve_selection(const ComponentGraph& graph,
     const std::vector<std::string>& requested)
 {
@@ -178,7 +210,7 @@ Value::Array resolve_selection(const ComponentGraph& graph,
 } // namespace
 
 std::string inspect_product(const std::filesystem::path& supplied,
-    const std::vector<std::string>* requested)
+    const std::vector<std::string>* requested, const Value* install = nullptr)
 {
     if (supplied.filename() != "product.bundle.json") {
         throw std::runtime_error("product bundle sidecar name is invalid");
@@ -390,6 +422,64 @@ std::string inspect_product(const std::filesystem::path& supplied,
     }
     const Value::Array selected_ids = resolve_selection(graph,
         requested == nullptr ? std::vector<std::string>{} : *requested);
+    if (install != nullptr) {
+#ifdef _WIN32
+        SYSTEM_INFO native{};
+        GetNativeSystemInfo(&native);
+        if (native.wProcessorArchitecture != PROCESSOR_ARCHITECTURE_AMD64)
+            throw std::runtime_error("bundle differs from native host target");
+#else
+        throw std::runtime_error("authored installation requires a Windows x64 host");
+#endif
+        if (selected_ids.size() != components.size() || expected.size() > 4096 ||
+            std::none_of(scopes.begin(), scopes.end(),
+                [](const Value& scope) { return scope.as_string() == "portable"; }))
+            throw std::runtime_error("finalize portable component selection before planning");
+        std::size_t path_bytes = 0;
+        std::uint64_t depth = 1, largest = 1;
+        for (const auto& [path, identity] : expected) {
+            if (path.size() > 1024 || path_bytes > 1024u * 1024u - path.size())
+                throw std::runtime_error("native lifecycle path budget exceeded");
+            path_bytes += path.size();
+            depth = std::max(depth, static_cast<std::uint64_t>(
+                std::count(path.begin(), path.end(), '/')) + 1);
+            largest = std::max(largest, identity.first);
+        }
+        const Value& entrypoint = install->at("entrypoint");
+        if (expected.count(entrypoint.at("relative_path").as_string()) == 0)
+            throw std::runtime_error("entrypoint is absent from selected payload");
+        // IDs/kinds and admitted archive paths are ASCII. Thus this is exactly
+        // the existing Python ensure_ascii=True sorted compact JSON plus LF.
+        const auto recipe_bytes = usk::json::canonical(Value(Value::Object{
+            {"schema", Value("usk.bundle_recipe.v1")}, {"bundle_sha256", Value(bundle_sha256)},
+            {"entrypoints", Value(Value::Array{entrypoint})}})) + "\n";
+        usk::base::Sha256 recipe_hash;
+        recipe_hash.update(reinterpret_cast<const unsigned char*>(recipe_bytes.data()), recipe_bytes.size());
+        const Value native_budgets(Value::Object{
+            {"max_entries", Value(static_cast<std::uint64_t>(expected.size()))},
+            {"max_uncompressed_bytes", Value(std::max<std::uint64_t>(1, total))},
+            {"max_entry_bytes", Value(largest)}, {"max_depth", Value(depth)},
+            {"max_ratio", Value(std::uint64_t{100})},
+            {"max_elapsed_ms", Value(std::uint64_t{300000})}});
+        const Value plan(Value::Object{
+            {"schema", Value("usk.install_local_plan_request.v1")},
+            {"request_id", install->at("request_id")}, {"install_id", install->at("install_id")},
+            {"created_at", install->at("created_at")},
+            {"archive", Value(Value::Object{
+                {"path", Value(usk::base::path_to_utf8(archive_path))}, {"format", Value("zip")},
+                {"expected_sha256", Value(inspected.source_sha256)}, {"strip_prefix", Value("")},
+                {"budgets", native_budgets}})},
+            {"target", Value(Value::Object{{"root", install->at("target_root")},
+                {"class", Value("operator_acceptance")}})},
+            {"recipe", Value(Value::Object{
+                {"product_id", bundle.at("product_id")}, {"product_version", bundle.at("product_version")},
+                {"recipe_digest", Value(recipe_hash.finish())}, {"provider_revision", Value(bundle_sha256)},
+                {"components", Value(selected_ids)}, {"entrypoints", Value(Value::Array{entrypoint})}})},
+            {"required_commit_authority", Value("staged_child_bound_v1")}});
+        return usk::json::canonical(Value(Value::Object{
+            {"schema", Value("usk.oneshot_request.v1")}, {"request_id", install->at("request_id")},
+            {"command", Value("install_local.plan")}, {"dry_run", Value(true)}, {"payload", plan}}));
+    }
     if (requested != nullptr) {
         Value::Array requested_ids;
         for (const auto& name : *requested) requested_ids.emplace_back(name);
@@ -433,6 +523,13 @@ std::string inspect_product_selection(const std::filesystem::path& bundle_path,
     const std::vector<std::string>& requested)
 {
     return inspect_product(bundle_path, &requested);
+}
+
+std::string compose_product_install_plan(const std::filesystem::path& bundle_path,
+    const std::string& options_json)
+{
+    const Value options = install_options(options_json);
+    return inspect_product(bundle_path, nullptr, &options);
 }
 
 } // namespace usk::command
