@@ -1280,6 +1280,26 @@ try {
         $receipt['interrupted_copy_reclaimed']=$true
         $ServiceBinary=$installedServiceBinary
         $receipt['protected_service_binary_sha256']=$sourceServiceHash
+        # Bind the test's pre-dispatch profile to the actual original SCM
+        # command. Missing coordination can never select a compatibility route.
+        $configuredOriginal=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+        $registeredFamily=if($AdmittedTarget){'owned_effect_child_v1'}else{'legacy_scm_v1'}
+        if($configuredOriginal.PathName -cne $expectedRegisteredCommand) {
+            throw 'Original registered execution profile command differs'
+        }
+        $registeredArgumentFamily=Resolve-OwnedProductionObserverFamily $configuredOriginal.PathName $registeredFamily 'prepublish'
+        $receipt['registered_execution_profile']=[ordered]@{
+            schema='usk.publisher_registered_execution_profile.v1'
+            family=$registeredFamily
+            explicit_admitted_target=[bool]$AdmittedTarget
+            original_operation=$(if($recover){'source_free_recovery'}else{'initial_install'})
+            native_argument_family=$registeredArgumentFamily
+            service_name=$service
+            service_command=$configuredOriginal.PathName
+            service_binary_sha256=$sourceServiceHash
+            volume_root=$VolumeRoot
+            authorized_client_sid=$callerSid
+        }
         $receipt['service_control_binary_sha256']=(Get-FileHash -LiteralPath $ServiceControlBinary -Algorithm SHA256).Hash.ToLowerInvariant()
         if($ProductionConcurrentRights) {
             if(-not $env:ProgramW6432){throw 'Protected Program Files root is unavailable'}
@@ -2722,7 +2742,11 @@ try {
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
         $repeat=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
         $receipt.registered_source_free_reentry['independent_readback']=$repeat
-        $receipt.registered_source_free_reentry['lease_transition']=Assert-IndependentLeaseTransition -Result $receipt -Before $readback -After $repeat -InstalledState $installedResponse.payload -Mode append -PythonBinary $PythonBinary
+        if($AdmittedTarget) {
+            $receipt.registered_source_free_reentry['lease_transition']=Assert-IndependentLeaseTransition -Result $receipt -Before $readback -After $repeat -InstalledState $installedResponse.payload -Mode append -PythonBinary $PythonBinary
+        } else {
+            $receipt.registered_source_free_reentry['legacy_retained_state']=Assert-IndependentLegacyRegisteredRetention -Result $receipt -Before $readback -After $repeat -InstalledState $installedResponse.payload -PythonBinary $PythonBinary
+        }
         $receipt.registered_source_free_reentry['unchanged_independent_rows']=@($readback.independent.rows).Count
         $receipt.registered_source_free_reentry['appended_ownership_rows']=(@($repeat.independent.rows).Count - @($readback.independent.rows).Count)
         $staleRecovery=[ordered]@{
@@ -2760,7 +2784,11 @@ try {
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
         $afterStale=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
         $receipt.stale_minimal_recovery_refused['independent_readback']=$afterStale
-        $receipt.stale_minimal_recovery_refused['lease_transition']=Assert-IndependentLeaseTransition -Result $receipt -Before $repeat -After $afterStale -InstalledState $installedResponse.payload -Mode readonly -PythonBinary $PythonBinary
+        if($AdmittedTarget) {
+            $receipt.stale_minimal_recovery_refused['lease_transition']=Assert-IndependentLeaseTransition -Result $receipt -Before $repeat -After $afterStale -InstalledState $installedResponse.payload -Mode readonly -PythonBinary $PythonBinary
+        } else {
+            $receipt.stale_minimal_recovery_refused['legacy_retained_state']=Assert-IndependentLegacyRegisteredRetention -Result $receipt -Before $repeat -After $afterStale -InstalledState $installedResponse.payload -PythonBinary $PythonBinary
+        }
     }
     if($RegisteredService -and -not $InterruptAfterStage) {
         # The ordinary packaged client asks the restricted service to verify
@@ -2853,7 +2881,11 @@ try {
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
         $verifyRows=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
         $receipt.registered_installed_verify['independent_readback']=$verifyRows
-        $receipt.registered_installed_verify['lease_transition']=Assert-IndependentLeaseTransition -Result $receipt -Before $afterStale -After $verifyRows -InstalledState $installedResponse.payload -Mode readonly -PythonBinary $PythonBinary
+        if($AdmittedTarget) {
+            $receipt.registered_installed_verify['lease_transition']=Assert-IndependentLeaseTransition -Result $receipt -Before $afterStale -After $verifyRows -InstalledState $installedResponse.payload -Mode readonly -PythonBinary $PythonBinary
+        } else {
+            $receipt.registered_installed_verify['legacy_retained_state']=Assert-IndependentLegacyRegisteredRetention -Result $receipt -Before $afterStale -After $verifyRows -InstalledState $installedResponse.payload -PythonBinary $PythonBinary
+        }
         $receipt.registered_installed_verify['unchanged_independent_rows']=@($verifyRows.independent.rows).Count
         if(-not $HostileRights) {
             $damageEntries=@($plan.planned_entries|Where-Object {

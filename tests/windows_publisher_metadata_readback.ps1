@@ -78,6 +78,135 @@ function Assert-IndependentLeaseTransition {
     }
     return $proof
 }
+function Assert-IndependentLegacyRegisteredRetention {
+    param(
+        [Parameter(Mandatory=$true)]$Result,
+        [Parameter(Mandatory=$true)]$Before,
+        [Parameter(Mandatory=$true)]$After,
+        [Parameter(Mandatory=$true)]$InstalledState,
+        [Parameter(Mandatory=$true)][string]$PythonBinary
+    )
+    # A compatibility observation only. It cannot replace a failed broker
+    # lease proof, establish interval immutability or grant native authority.
+    $profile=$Result.registered_execution_profile
+    if($profile.schema -cne 'usk.publisher_registered_execution_profile.v1' -or
+        $profile.family -cne 'legacy_scm_v1' -or
+        $profile.explicit_admitted_target -isnot [bool] -or $profile.explicit_admitted_target -or
+        $profile.native_argument_family -ne 1 -or
+        $profile.service_name -cne $Result.service -or
+        $profile.service_binary_sha256 -cnotmatch '^[0-9a-f]{64}$' -or
+        $profile.service_binary_sha256 -cne $Result.protected_service_binary_sha256 -or
+        $profile.volume_root -cne $Result.volume_guid_root -or
+        $profile.authorized_client_sid -cne $Result.authenticated_client.caller_sid -or
+        $Result.source_mode -cne 'registered_reviewed_service' -or
+        $null -ne $Result.native.registered_admission -or
+        $Result.native.service_name -cne $Result.service -or
+        $Result.native.service_sid -cne $Result.service_sid -or
+        (Resolve-OwnedProductionObserverFamily $profile.service_command 'legacy_scm_v1' 'prepublish') -ne 1) {
+        throw 'Legacy retained-state observation lacks its original configured service family'
+    }
+    $drive=[string]$Result.volume_drive_root
+    $root=[string]$Result.independent.native_volume_root_file_id
+    if($drive -cnotmatch '^[A-Z]:\\$' -or $root -cnotmatch '^[0-9a-f]{16}:[0-9a-f]{32}$' -or
+        $InstalledState.schema -cne 'usk.installed_state.v1' -or
+        $InstalledState.install_id -cne $Result.request.install_id -or
+        $InstalledState.transaction_id -cne $Result.apply_request.transaction_id -or
+        $InstalledState.last_verification.status -cne 'pass') {
+        throw 'Legacy retained-state original installed or native boundary differs'
+    }
+    $initial=$profile.original_operation -ceq 'initial_install'
+    $recovery=$profile.original_operation -ceq 'source_free_recovery'
+    $native=$Result.native
+    if((-not $initial -and -not $recovery) -or
+        $native.volume_root -cne $Result.volume_guid_root -or
+        [uint64]$native.volume_file_id_serial -ne [Convert]::ToUInt64($root.Substring(0,16),16) -or
+        $native.install_operation_guard_held -isnot [bool] -or
+        -not (([pscustomobject]$native).PSObject.Properties.Name -ccontains 'install_operation_guard_abandoned') -or
+        ($native.install_operation_guard_held -and $native.install_operation_guard_abandoned -isnot [bool]) -or
+        (-not $native.install_operation_guard_held -and $null -ne $native.install_operation_guard_abandoned)) {
+        throw 'Legacy original native operation or volume/guard observation differs'
+    }
+    if($initial) {
+        if($null -ne $native.recovery_observation -or $null -ne $native.recovery_installed_response -or
+            $native.protected_anchors.boundary_file_id -cne $root -or
+            -not $native.install_operation_guard_held -or $native.install_operation_guard_abandoned) {
+            throw 'Legacy initial-install baseline has a different native response shape'
+        }
+        $originalReply=$native.apply_response
+    } else {
+        if($null -ne $native.protected_anchors -or $null -ne $native.apply_response -or
+            $native.recovery_observation.decision -cnotin @('snapshot_only_completed_forward',
+                'installed_state_completed_forward','already_visible_bound')) {
+            throw 'Legacy recovery baseline has an unrecognized native response shape'
+        }
+        $anchors=$native.recovery_observation.protected_anchors
+        if($native.recovery_observation.decision -ceq 'snapshot_only_completed_forward') {
+            if($anchors.boundary_file_id -cne $root) {
+                throw 'Legacy snapshot-only recovery native boundary differs'
+            }
+        } elseif($null -ne $anchors) {
+            throw 'Legacy completed recovery unexpectedly contains snapshot-only anchors'
+        }
+        $originalReply=$native.recovery_installed_response
+    }
+    if($originalReply.status -cne 'ok' -or
+        ($originalReply.payload|ConvertTo-Json -Depth 64 -Compress) -cne
+            ($InstalledState|ConvertTo-Json -Depth 64 -Compress)) {
+        throw 'Legacy original native installed reply differs'
+    }
+    $original=[pscustomobject]@{
+        independent=$Result.independent;observer_task_removed=$Result.observer_task_removed}
+    foreach($observation in @($original,$Before,$After)) {
+        $rows=@($observation.independent.rows)
+        if($observation.independent.identity -cne 'S-1-5-18' -or
+            $observation.observer_task_removed -ne $true -or
+            $observation.independent.native_volume_root_file_id -cne $root -or
+            $rows.Count -lt 1 -or $rows.Count -gt 10000) {
+            throw 'Legacy retained-state readback or observer completion differs'
+        }
+        $paths=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        foreach($row in $rows) {
+            $path=[string]$row.path
+            if(-not $path.StartsWith($drive,[StringComparison]::Ordinal) -or
+                $path.Contains('/') -or $path.Substring($drive.Length) -cmatch '(^|\\)\.\.?($|\\)' -or
+                -not $paths.Add($path)) {
+                throw 'Legacy retained-state path boundary or alias differs'
+            }
+            foreach($prefix in @(($drive+'installation-operations'),($drive+'setup-state\state\leases'))) {
+                if([string]::Equals($path,$prefix,[StringComparison]::OrdinalIgnoreCase) -or
+                    $path.StartsWith($prefix+'\',[StringComparison]::OrdinalIgnoreCase)) {
+                    throw 'Legacy retained-state observation contains installation coordination'
+                }
+            }
+        }
+    }
+    # Reuse the complete original installed/ownership/audit/native ACL closure.
+    # Endpoints must retain every one of those objects and all of their facts.
+    Assert-IndependentMetadataProbe ([pscustomobject]$Result) -PythonBinary $PythonBinary
+    $installedPath=$drive+'setup-state\state\installed\'+$InstalledState.install_id+'.'+$InstalledState.transaction_id+'.json'
+    $installedRows=@($Result.independent.rows|Where-Object path -ceq $installedPath)
+    if($installedRows.Count -ne 1 -or
+        (($installedRows[0].content_json|ConvertFrom-Json)|ConvertTo-Json -Depth 64 -Compress) -cne
+            ($InstalledState|ConvertTo-Json -Depth 64 -Compress)) {
+        throw 'Legacy retained-state installed reply differs from its original readback'
+    }
+    Assert-IndependentRetainedMaterial -Before $Result.independent -After $Before.independent -NoAdditionalRows
+    Assert-IndependentRetainedMaterial -Before $Result.independent -After $After.independent -NoAdditionalRows
+    [ordered]@{
+        schema='usk.publisher_legacy_retained_state_observation.v1'
+        status='unchanged_legacy_endpoints'
+        family='legacy_scm_v1'
+        observed_rows=@($After.independent.rows).Count
+        lease_coordination_observed=$false
+        original_operation=$profile.original_operation
+        original_install_guard_held=$native.install_operation_guard_held
+        original_install_guard_abandoned=$native.install_operation_guard_abandoned
+        fencing_qualified=$false
+        profile_qualified=$false
+        publication_authority_granted=$false
+    }
+}
+
 function Assert-IndependentRetainedMaterial {
     param($Before,$After,[string]$ChangedPayloadPath='',[string]$ChangedPayloadSha256='',
         [switch]$NoAdditionalRows)
