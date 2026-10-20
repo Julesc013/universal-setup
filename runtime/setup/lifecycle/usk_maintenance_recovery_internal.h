@@ -9,6 +9,7 @@
 #include "usk_state_repository.h"
 #include "usk_audit_repository.h"
 #include <functional>
+#include <memory>
 #include <string>
 
 namespace usk::lifecycle::detail {
@@ -74,6 +75,26 @@ void require_maintenance_completed_effect_prefix(
     const transaction::RecoveryInspection& current,
     const transaction::MaintenanceEffectInspection& completed);
 
+// Owned data from fixed adjacent native read-only groups. This carries no
+// native pointer, lease, callback, authority or permission to replay an effect.
+// Only the fixed transaction loop can consume it internally, after the reader's
+// successful full exit. Concrete effects still perform every fresh owner check.
+struct MaintenancePendingRecoveryReads {
+    transaction::RecoveryInspection transaction;
+    transaction::MaintenanceEffectInspection history;
+    MaintenanceEffectReconciliation reconciliation;
+    bool postimage_and_pin_completed = false;
+};
+
+// Exact old metadata predicates, shared by the ordinary executor and the fixed
+// native reconciliation/completion reader. Neither grants mutation authority.
+void require_maintenance_recovery_observation_binding(
+    const transaction::MaintenanceEffectInspection& history,
+    const MaintenanceEffectReconciliation& observation);
+void require_maintenance_recovery_postcondition(
+    const transaction::MaintenanceEffectInspection& history,
+    const std::string& outcome, const MaintenanceEffectReconciliation& observation);
+
 // Internal operation-local backend, supplied by the owner of the native
 // operation. require_authority must retain and revalidate the original intent,
 // current installed revision, generation/worker fence, record parents and all
@@ -110,6 +131,17 @@ bool complete_current_native_maintenance_recovery_effect(
     const MaintenanceRecoveryOperations& operations,
     const std::string& outcome, const std::string& result_digest);
 
+// Reconciliation immediately followed by completion preparation, only for the
+// same no-grant original backend. All actual reads and metadata predicates run
+// inside one recipe, which closes before the unchanged protected journal write.
+// A metadata-only decline leaves the output unchanged; failures never fall back.
+bool reconcile_and_complete_current_native_maintenance_recovery_effect(
+    const transaction::TransactionSpec& spec,
+    const transaction::RecoveryInspection& expected_transaction,
+    const transaction::MaintenanceEffectInspection& expected_history,
+    const MaintenanceRecoveryOperations& operations, const std::string& outcome,
+    MaintenanceEffectReconciliation& output);
+
 // Two fixed adjacent pure lifecycle groups. Outputs remain metadata and appear
 // only after the full original-record/global exit proof. No callback, effect,
 // grant or journal transition enters either body. Both original targets and
@@ -142,8 +174,9 @@ bool inspect_current_native_maintenance_recovery_step(
     MaintenanceContinuationInspection& output_selection,
     transaction::RecoveryInspection& output_transaction,
     transaction::MaintenanceEffectInspection& output_history,
-    bool prepare_cleanup_journal,
-    std::unique_ptr<transaction::MaintenanceEffectJournal>& output_journal);
+    bool prepare_next_effect,
+    std::unique_ptr<transaction::MaintenanceEffectJournal>& output_journal,
+    std::unique_ptr<MaintenancePendingRecoveryReads>& output_pending_reads);
 // Fixed absent-injector original repair cleanup only. Selection remains fresh;
 // the complete query scope ends before the original concrete effect begins.
 // A decline occurs before native entry and leaves outcome unchanged.

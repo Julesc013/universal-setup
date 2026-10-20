@@ -3796,9 +3796,29 @@ void require_maintenance_completed_effect_prefix(
         throw std::runtime_error("maintenance recovery completion differs from its exact original history");
 }
 
-MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transaction::TransactionSpec& spec,
+void require_maintenance_recovery_observation_binding(
+    const transaction::MaintenanceEffectInspection& history,
+    const MaintenanceEffectReconciliation& observation)
+{
+    if (observation.source_digest != history.source_digest || observation.history_digest != history.journal_digest ||
+        observation.pending_kind != history.pending_kind)
+        throw std::runtime_error("maintenance recovery postcondition changed its original binding");
+}
+
+void require_maintenance_recovery_postcondition(
+    const transaction::MaintenanceEffectInspection& history,
+    const std::string& outcome, const MaintenanceEffectReconciliation& observation)
+{
+    const bool retained = outcome == "retained" && history.pending_kind == "remove_directory" &&
+        observation.state == "compatible_before_effect";
+    if (!retained && (outcome != "applied" || observation.state != "compatible_after_effect"))
+        throw std::runtime_error("maintenance recovery effect has no bound postcondition");
+}
+
+static MaintenanceEffectReconciliation recover_pending_maintenance_effect_impl(const transaction::TransactionSpec& spec,
     const std::string& expected_transaction_snapshot_sha256, const std::string& expected_history_digest,
-    const MaintenanceRecoveryOperations& operations, transaction::FaultInjector injector)
+    const MaintenanceRecoveryOperations& operations, transaction::FaultInjector injector,
+    std::unique_ptr<MaintenancePendingRecoveryReads> prepared_reads)
 {
     if (!operations.require_authority || !operations.apply_effect || !sha256(expected_transaction_snapshot_sha256) ||
         !sha256(expected_history_digest)) throw std::runtime_error("maintenance recovery has no operation-owned backend or exact snapshot");
@@ -3806,8 +3826,24 @@ MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transac
     MaintenanceEffectReconciliation observation;
     bool native_initial = false;
     bool native_pre_effect_prepared = false;
+    if (prepared_reads) {
 #if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
-    native_initial = inspect_current_native_maintenance_pending_recovery(spec,
+        if (injector) throw std::runtime_error("prepared native recovery cannot span a supplied callback");
+        // Only this TU's fixed no-injector transaction loop supplies this data,
+        // directly from the completed original backend step reader. No prepared
+        // record grants an effect; actual owner callbacks/fences remain fresh.
+        initial_prefix.first = std::move(prepared_reads->transaction);
+        initial_prefix.second = std::move(prepared_reads->history);
+        observation = std::move(prepared_reads->reconciliation);
+        native_pre_effect_prepared = prepared_reads->postimage_and_pin_completed;
+        require_maintenance_recovery_observation_binding(initial_prefix.second, observation);
+        native_initial = true;
+#else
+        throw std::runtime_error("prepared native recovery is unavailable in this build");
+#endif
+    }
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+    else native_initial = inspect_current_native_maintenance_pending_recovery(spec,
         expected_transaction_snapshot_sha256, expected_history_digest, operations, !injector,
         initial_prefix.first, initial_prefix.second, observation, native_pre_effect_prepared);
 #endif
@@ -3839,6 +3875,7 @@ MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transac
     };
     if (!native_initial) observation = pin_and_reconcile();
     std::string outcome = "applied";
+    bool completion_persisted = false;
     if (observation.state == "compatible_before_effect") {
         // Old hash-only metadata intents remain inspectable, but cannot supply
         // a missing write. No reconstructed or newly chosen postimage is used.
@@ -3863,21 +3900,20 @@ MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transac
 #endif
         if (!native_cleanup_applied) outcome = operations.apply_effect(spec, history);
         if (injector) injector("pending_effect", "after_effect");
-        observation = pin_and_reconcile();
-        const bool retained = outcome == "retained" && history.pending_kind == "remove_directory" &&
-            observation.state == "compatible_before_effect";
-        if (!retained && (outcome != "applied" || observation.state != "compatible_after_effect"))
-            throw std::runtime_error("maintenance recovery effect has no bound postcondition");
+#if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
+        if (!injector)
+            completion_persisted = reconcile_and_complete_current_native_maintenance_recovery_effect(
+                spec, transaction, history, operations, outcome, observation);
+#endif
+        if (!completion_persisted) observation = pin_and_reconcile();
+        require_maintenance_recovery_postcondition(history, outcome, observation);
     } else if (observation.state != "compatible_after_effect") {
         throw std::runtime_error("maintenance recovery pending effect is indeterminate");
     }
-    if (observation.source_digest != history.source_digest || observation.history_digest != history.journal_digest ||
-        observation.pending_kind != history.pending_kind)
-        throw std::runtime_error("maintenance recovery postcondition changed its original binding");
+    require_maintenance_recovery_observation_binding(history, observation);
     if (injector) injector("pending_effect", "before_completion");
-    bool completion_persisted = false;
 #if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
-    if (!injector)
+    if (!injector && !completion_persisted)
         completion_persisted = complete_current_native_maintenance_recovery_effect(spec, transaction,
             history, operations, outcome, observation.result_digest);
 #endif
@@ -3900,6 +3936,14 @@ MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transac
     operations.require_authority(spec, current, completed);
     if (injector) injector("pending_effect", "after_completion");
     return reconcile_maintenance_effect(spec);
+}
+
+MaintenanceEffectReconciliation recover_pending_maintenance_effect(const transaction::TransactionSpec& spec,
+    const std::string& expected_transaction_snapshot_sha256, const std::string& expected_history_digest,
+    const MaintenanceRecoveryOperations& operations, transaction::FaultInjector injector)
+{
+    return recover_pending_maintenance_effect_impl(spec, expected_transaction_snapshot_sha256,
+        expected_history_digest, operations, std::move(injector), {});
 }
 
 transaction::RecoveryInspection recover_maintenance_transaction(const transaction::TransactionSpec& spec,
@@ -3947,9 +3991,11 @@ transaction::RecoveryInspection recover_maintenance_transaction(const transactio
         std::pair<transaction::RecoveryInspection, transaction::MaintenanceEffectInspection> current_prefix;
         bool native_step = false;
         std::unique_ptr<transaction::MaintenanceEffectJournal> prepared_cleanup_journal;
+        std::unique_ptr<MaintenancePendingRecoveryReads> prepared_pending_reads;
 #if defined(_WIN32) && defined(USK_INTERNAL_PUBLISHER_FINALIZATION)
         native_step = inspect_current_native_maintenance_recovery_step(spec, initial, initial_history, operations,
-            selected, current_prefix.first, current_prefix.second, !injector, prepared_cleanup_journal);
+            selected, current_prefix.first, current_prefix.second, !injector,
+            prepared_cleanup_journal, prepared_pending_reads);
 #endif
         if (!native_step) {
             selected = inspect_maintenance_continuation(spec);
@@ -3966,8 +4012,8 @@ transaction::RecoveryInspection recover_maintenance_transaction(const transactio
         if (selected.pending) {
             if (cleanup && !current.commit_confirmed)
                 throw std::runtime_error("maintenance cleanup intent predates confirmed transaction commit");
-            (void)recover_pending_maintenance_effect(spec, selected.transaction_snapshot_sha256,
-                selected.history_digest, operations, fenced_injector);
+            (void)recover_pending_maintenance_effect_impl(spec, selected.transaction_snapshot_sha256,
+                selected.history_digest, operations, fenced_injector, std::move(prepared_pending_reads));
             continue;
         }
         if ((cleanup || (selected.effects_complete && current.target_exists)) && !selected.sealed &&
