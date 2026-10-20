@@ -5068,7 +5068,7 @@
         },
         {
           "path": "tests/test_selected_candidate_package.py",
-          "sha256": "a4524cdcac6d193d6fd68171feebf772608d784dd5650d361b9a3d931dbfc903"
+          "sha256": "2bc043b4e8463c09efd242dd4266223fcea8c644187e7ba1ba6145103867f707"
         },
         {
           "path": "release/packaging/windows/usk-selected-candidate-package.md",
@@ -5563,7 +5563,7 @@
         },
         {
           "path": "tests/test_selected_candidate_package.py",
-          "sha256": "a4524cdcac6d193d6fd68171feebf772608d784dd5650d361b9a3d931dbfc903"
+          "sha256": "2bc043b4e8463c09efd242dd4266223fcea8c644187e7ba1ba6145103867f707"
         },
         {
           "path": "release/packaging/windows/usk-selected-candidate-package.md",

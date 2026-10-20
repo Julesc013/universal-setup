@@ -122,7 +122,8 @@ class SelectedCandidatePackageTests(unittest.TestCase):
             runtime.write_bytes(b"MZ\x00native-packaging-fixture")
             fixture = root / "fixture"
             fixture.mkdir()
-            with patch("tests.windows_publisher_metadata_inputs.host_target", return_value="windows-x64"):
+            with patch("tests.windows_publisher_metadata_inputs.host_target", return_value="windows-x64"), \
+                    patch("usk_bundle_plan.host_target", return_value="windows-x64"):
                 inputs = create_inputs(fixture, root / "target", "packaged.fixture", packaged_runtime=runtime)
             self.assertEqual(Path(inputs["packaged_host"]).read_bytes(), runtime.read_bytes())
             self.assertEqual(Path(inputs["archive_file"]), fixture / "packaged" / "payload.zip")
