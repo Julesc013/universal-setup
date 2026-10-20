@@ -90,8 +90,87 @@ $ranges=[ordered]@{
     touching=[UskInertRenameHistory]::Observe(@(100,250),@(200,300),200,250,$false);
     empty=[UskInertRenameHistory]::Observe(@(),@(),200,250,$false);
     evicted=[UskInertRenameHistory]::Observe(@(),@(),8,9,$true)}
-@{failures=$rows;ranges=$ranges}|ConvertTo-Json -Depth 12 -Compress
+$closing=@($probe.FindAll({param($n) $n -is [Management.Automation.Language.TryStatementAst] -and
+ $n.Finally -and $n.Finally.Extent.Text.Contains('[USKPublisherRenameRace]::Stop(0,0)')},$true))
+if($closing.Count -ne 1){throw 'Actual unmatched-collector cleanup is ambiguous'}
+$text=$closing[0].Finally.Extent.Text
+$closeFlow=[scriptblock]::Create($text.Substring(1,$text.Length-2))
+$closed=@()
+foreach($mode in @('unmatched','collector_failure')) {
+ if($mode -ceq 'unmatched') {
+  $null=[UskInertRenameHistory]::Observe(@(100,300),@(150,350),0,0,$false)
+ } else {
+  [USKPublisherRenameRace].GetField('worker',[Reflection.BindingFlags]'Static,NonPublic').SetValue($null,$null)
+ }
+ $Stage='ProductionConcurrent';$renameRaceStarted=$true;$renameRaceSummary=$null
+ $OutputPath=Join-Path $Scratch ('unmatched-'+$mode+'.json')
+ $receipt=[ordered]@{schema='usk.publisher.unprivileged_access_probe.v1';status='failed';
+  failure='original_terminal_target_missing';process_id=124;user_sid='S-1-5-21-1-2-3-1001';
+  concurrent=[ordered]@{observation_window=[ordered]@{scope='attacker_observation_only';finished_utc=$null}}}
+ . $closeFlow
+ $observation=[ordered]@{}
+ $message=Read-ConcurrentAttackerDiagnostic $OutputPath $unrelatedError $observation
+ $closed+=@{mode=$mode;primary=$message;receipt=(Get-Content -LiteralPath $OutputPath -Raw|ConvertFrom-Json);
+  diagnostic=$observation}
+}
+@{failures=$rows;ranges=$ranges;failed_cleanup=$closed}|ConvertTo-Json -Depth 14 -Compress
 '''
+
+
+WINDOW_SCRIPT = r"""
+param([string]$Root)
+$ErrorActionPreference='Stop';$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile(
+ (Join-Path $Root 'tests/windows_publisher_unprivileged_probe.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Actual attacker source is invalid'}
+$f=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+ $n.Name -ceq 'Get-PublisherAttackerObservationDeadline'},$true))
+$start=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.IfStatementAst] -and
+ $n.Clauses[0].Item1.Extent.Text.Contains('-not $receipt.concurrent.started_seen_utc')},$true))
+if($f.Count -ne 1 -or $start.Count -ne 1){throw 'Actual deadline/start branch is ambiguous'}
+. ([scriptblock]::Create($f[0].Extent.Text))
+$startFlow=[scriptblock]::Create($start[0].Extent.Text)
+$observerPreparedAt=[DateTime]::new(2026,10,21,0,0,0,[DateTimeKind]::Utc)
+$valid=0;$repeated=0
+foreach($offset in @(0,6.430087,119)) {
+ $Stage='ProductionConcurrent';$afterRelease=$false;$now=$observerPreparedAt.AddSeconds($offset)
+ $receipt=[ordered]@{concurrent=[ordered]@{started_seen_utc=$null;observation_window=[ordered]@{
+  started_utc=$null;observation_deadline_utc=$null}}}
+ $deadline=Get-PublisherAttackerObservationDeadline $observerPreparedAt
+ $original=$deadline
+ . $startFlow
+ if($deadline -ne $original -or $receipt.concurrent.started_seen_utc){throw 'Missing start extended observation'}
+ $afterRelease=$true
+ . $startFlow
+ $bound=$deadline;$first=$receipt.concurrent.started_seen_utc
+ # The client completes within its original 120s contract even when the
+ # earlier preparation-based deadline could expire before that completion.
+ $completion=$now.AddSeconds(119)
+ if($completion -ge $bound -or ($bound-$now).TotalSeconds -ne 130){throw 'Full valid client contract was not observed'}
+ if($offset -gt 1 -and $completion -le $original){throw 'Regression does not discriminate the old bound'}
+ if(($bound-$observerPreparedAt).TotalSeconds -gt 250){throw 'Observer became unbounded'}
+ $valid++
+ $now=$now.AddSeconds(100)
+ . $startFlow
+ if($deadline -ne $bound -or $receipt.concurrent.started_seen_utc -cne $first){throw 'Repeated start reset the bound'}
+ $repeated++
+}
+$bad=@(
+ @($observerPreparedAt,$observerPreparedAt.AddSeconds(-1)),
+ @($observerPreparedAt,$observerPreparedAt.AddSeconds(120)),
+ @($observerPreparedAt,$observerPreparedAt.AddSeconds(121)),
+ @([DateTime]::SpecifyKind($observerPreparedAt,[DateTimeKind]::Unspecified),$null),
+ @($observerPreparedAt,[DateTime]::SpecifyKind($observerPreparedAt,[DateTimeKind]::Unspecified)))
+$refused=0
+foreach($pair in $bad) {
+ $caught=$false
+ try {$null=Get-PublisherAttackerObservationDeadline $pair[0] $pair[1]}catch {$caught=$true}
+ if(-not $caught){throw 'Expired/backwards/ambiguous clock was accepted'}
+ $refused++
+}
+@{valid_requests=$valid;repeated_start_preserved=$repeated;invalid_clocks_refused=$refused;
+ client_contract_seconds=120;maximum_observer_span_seconds=250}|ConvertTo-Json -Compress
+"""
 
 
 @unittest.skipUnless(POWERSHELL, 'PowerShell unavailable on this platform')
@@ -125,6 +204,44 @@ class PublisherAttackerDiagnosticTests(unittest.TestCase):
                 else:
                     self.assertNotIn('receipt_summary', observation)
                     self.assertTrue(row['failure'].endswith('fallback diagnostic'))
+
+    def test_full_started_request_window_and_failure_observations(self):
+        for shell in (shutil.which('pwsh'), shutil.which('powershell')):
+            if not shell:
+                continue
+            with self.subTest(shell=shell), tempfile.TemporaryDirectory() as folder:
+                script = Path(folder) / 'observer-window.ps1'
+                script.write_text(WINDOW_SCRIPT, encoding='utf-8')
+                result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
+                    str(script), '-Root', str(ROOT)], capture_output=True, text=True, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(json.loads(result.stdout), {
+                    'valid_requests': 3, 'repeated_start_preserved': 3, 'invalid_clocks_refused': 5,
+                    'client_contract_seconds': 120, 'maximum_observer_span_seconds': 250})
+
+    def test_unmatched_stopped_attempts_remain_failed_and_have_no_target(self):
+        self.assertEqual(len(self.result['failed_cleanup']), 2)
+        for row in self.result['failed_cleanup']:
+            with self.subTest(mode=row['mode']):
+                self.assertEqual(row['primary'], 'original_terminal_target_missing')
+                self.assertEqual(row['receipt']['status'], 'failed')
+                self.assertEqual(row['receipt']['failure'], row['primary'])
+                concurrent = row['receipt']['concurrent']
+                self.assertNotIn('native_rename_overlap', concurrent)
+                self.assertIsNotNone(concurrent['observation_window']['finished_utc'])
+                if row['mode'] == 'unmatched':
+                    unmatched = concurrent['unmatched_native_rename_attempts']
+                    self.assertEqual(unmatched['attempt_count'], 2)
+                    self.assertEqual(unmatched['overlap_count'], 0)
+                    self.assertEqual(unmatched['target_start_tick'], 0)
+                    self.assertEqual(unmatched['target_end_tick'], 0)
+                    self.assertIsNone(unmatched['overlap_attempt'])
+                    self.assertEqual(row['diagnostic']['receipt_summary']['unmatched_rename_attempts'], unmatched)
+                else:
+                    self.assertNotIn('unmatched_native_rename_attempts', concurrent)
+                    self.assertTrue(concurrent['rename_worker_cleanup_failure'])
+                    self.assertEqual(row['diagnostic']['receipt_summary']['rename_worker_cleanup_failure'],
+                        concurrent['rename_worker_cleanup_failure'])
 
     def test_stopped_history_nearest_attempts_do_not_invent_overlap(self):
         ranges = self.result['ranges']
