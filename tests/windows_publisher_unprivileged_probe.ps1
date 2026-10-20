@@ -40,6 +40,22 @@ if($UnrelatedConcurrent -and $Stage -cne 'ProductionConcurrent') {
     throw 'Unrelated concurrent attacker requires the production stage'
 }
 
+# This is the attack observer's bounded lifetime, not the publisher/client
+# deadline. The controller waits up to 120s only after it starts the client;
+# preparation before that point must not consume the observation window.
+function Get-PublisherAttackerObservationDeadline([DateTime]$PreparedAt,[object]$StartedAt=$null) {
+    if($PreparedAt.Kind -ne [DateTimeKind]::Utc) {throw 'Attacker preparation clock is not UTC'}
+    $preparedDeadline=$PreparedAt.AddSeconds(120)
+    if($null -eq $StartedAt) {return $preparedDeadline}
+    if($StartedAt -isnot [DateTime] -or $StartedAt.Kind -ne [DateTimeKind]::Utc -or
+        $StartedAt -lt $PreparedAt -or $StartedAt -ge $preparedDeadline) {
+        throw 'Attacker request observation began outside its preparation window'
+    }
+    # Allow bounded reply validation/marker delivery after the unchanged
+    # 120s client wait. A failed/timed-out client never earns this marker.
+    return $StartedAt.AddSeconds(120).AddSeconds(10)
+}
+
 function Require-Denied {
     param([string]$Name, [scriptblock]$Action)
     try {
@@ -345,7 +361,16 @@ public static class USKPublisherRenameRace {
             clock = 'qpc'; clock_frequency = [Diagnostics.Stopwatch]::Frequency
             ready_utc = $null; release_seen_utc = $null; started_seen_utc = $null; completed_seen_utc = $null
         }
-        $deadline = [DateTime]::UtcNow.AddSeconds(120)
+        $observerPreparedAt = [DateTime]::UtcNow
+        $deadline = $observerPreparedAt.AddSeconds(120)
+        if($Stage -eq 'ProductionConcurrent') {
+            $deadline = Get-PublisherAttackerObservationDeadline $observerPreparedAt
+            $receipt.concurrent['observation_window']=[ordered]@{
+                scope='attacker_observation_only';prepared_utc=$observerPreparedAt.ToString('o');
+                preparation_deadline_utc=$deadline.ToString('o');started_utc=$null;
+                client_contract_seconds=120;reply_observation_grace_seconds=10;
+                observation_deadline_utc=$deadline.ToString('o');finished_utc=$null}
+        }
         $prior = [DateTime]::UtcNow
         $renameRaceStarted = $false
         $renameRaceSummary = $null
@@ -386,6 +411,9 @@ public static class USKPublisherRenameRace {
             }
             if ($afterRelease -and $Stage -eq 'ProductionConcurrent' -and
                 -not $receipt.concurrent.started_seen_utc) {
+                $deadline = Get-PublisherAttackerObservationDeadline $observerPreparedAt $now
+                $receipt.concurrent.observation_window.started_utc = $now.ToString('o')
+                $receipt.concurrent.observation_window.observation_deadline_utc = $deadline.ToString('o')
                 $receipt.concurrent.started_seen_utc = $now.ToString('o')
             }
             if ($afterRelease -and $Stage -eq 'Concurrent' -and
@@ -518,6 +546,9 @@ public static class USKPublisherRenameRace {
             Start-Sleep -Milliseconds 1
         }
         if ($Stage -eq 'ProductionConcurrent') {
+            if(-not $receipt.concurrent.completed_seen_utc) {
+                throw 'production native rename attacker did not observe the terminal target within its window'
+            }
             if (-not $renameRaceStarted -or -not $renameRaceSummary -or
                 $renameRaceSummary.failure -or $renameRaceSummary.attempt_count -lt 1) {
                 throw 'production native rename attacker did not retain denied attempts'
@@ -673,8 +704,18 @@ public static class USKPublisherVisibleMutation {
     $receipt.status = 'failed'
     $receipt.failure = $_.Exception.Message
 } finally {
+    if($Stage -eq 'ProductionConcurrent' -and $receipt.concurrent.observation_window) {
+        $receipt.concurrent.observation_window.finished_utc = [DateTime]::UtcNow.ToString('o')
+    }
     if ($renameRaceStarted -and -not $renameRaceSummary) {
-        try { [USKPublisherRenameRace]::Stop(0,0)|Out-Null } catch {}
+        try {
+            # Preserve stopped attempt telemetry after failure without inventing
+            # a target interval or publishing it as accepted overlap evidence.
+            $receipt.concurrent['unmatched_native_rename_attempts']=[USKPublisherRenameRace]::Stop(0,0)
+        } catch {
+            $message=[string]$_.Exception.Message
+            $receipt.concurrent['rename_worker_cleanup_failure']=$message.Substring(0,[Math]::Min(1024,$message.Length))
+        }
     }
     $receipt | ConvertTo-Json -Depth 6 -Compress | Set-Content -LiteralPath $OutputPath -Encoding utf8
 }

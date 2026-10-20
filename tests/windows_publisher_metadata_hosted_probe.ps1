@@ -171,6 +171,9 @@ function Read-ConcurrentAttackerDiagnostic([string]$ReceiptPath,[string]$ErrorPa
                         status=$attack.status;failure=$failure;
                         process_id=$attack.process_id;user_sid=$attack.user_sid;
                         rename_race=$attack.concurrent.native_rename_overlap;
+                        observation_window=$attack.concurrent.observation_window;
+                        unmatched_rename_attempts=$attack.concurrent.unmatched_native_rename_attempts;
+                        rename_worker_cleanup_failure=$attack.concurrent.rename_worker_cleanup_failure;
                         ready_utc=$attack.concurrent.ready_utc;
                         started_seen_utc=$attack.concurrent.started_seen_utc;
                         completed_seen_utc=$attack.concurrent.completed_seen_utc}
@@ -2384,6 +2387,9 @@ try {
                             status=$attackReceipt.status;
                             failure=$attackReceipt.failure;
                             rename_race=$attackReceipt.concurrent.native_rename_overlap;
+                        observation_window=$attackReceipt.concurrent.observation_window;
+                        unmatched_rename_attempts=$attackReceipt.concurrent.unmatched_native_rename_attempts;
+                        rename_worker_cleanup_failure=$attackReceipt.concurrent.rename_worker_cleanup_failure;
                             ready_utc=$attackReceipt.concurrent.ready_utc;
                             started_seen_utc=$attackReceipt.concurrent.started_seen_utc;
                             completed_seen_utc=$attackReceipt.concurrent.completed_seen_utc;
