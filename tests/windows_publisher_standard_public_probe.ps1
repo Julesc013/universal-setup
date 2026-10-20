@@ -120,7 +120,7 @@ $receipt=[ordered]@{schema='usk.publisher_standard_public_probe.v1';status='not_
     client_captures=[Collections.Generic.List[object]]::new();readbacks=[Collections.Generic.List[object]]::new();
     native_observations=[Collections.Generic.List[object]]::new()}
 if($SdkLifecycleQualification) {
-    $receipt['sdk_lifecycle']=[ordered]@{scope='fresh_public_c_sdk_install_verify_repair_move_uninstall';
+    $receipt['sdk_lifecycle']=[ordered]@{scope='fresh_public_c_sdk_plan_install_verify_repair_move_uninstall';
         status='running';native_recovery_qualified=$false;profile_qualified=$false}
 }
 function Write-Json([string]$Path,$Value) {[IO.File]::WriteAllText($Path,($Value|ConvertTo-Json -Depth 64 -Compress)+"`n",$utf8)}
@@ -1304,6 +1304,20 @@ try {
         $receipt.changed_state_revision.enrolled_at_file_time=[DateTime]::UtcNow.ToFileTimeUtc().ToString()
     }
     $receipt['service_policy']=Read-ServicePolicy
+    if($SdkLifecycleQualification) {
+        $rootPolicy=(Get-Acl -LiteralPath $drive).Sddl
+        $sdkPlan=Invoke-StandardSdkRequest 'install_local.plan' $apply.plan_request
+        if(($sdkPlan|ConvertTo-Json -Depth 64 -Compress) -cne ($planned.result|ConvertTo-Json -Depth 64 -Compress)) {
+            throw 'Public SDK plan differs from the complete independently reviewed native result'
+        }
+        if((Test-Path -LiteralPath ($drive+'setup-state')) -or (Test-Path -LiteralPath ($drive+'publication')) -or
+            (Get-Acl -LiteralPath $drive).Sddl -cne $rootPolicy) {
+            throw 'Read-only SDK plan changed setup/publication state or target policy'
+        }
+        $receipt.sdk_lifecycle['provider_plan']=$sdkPlan
+        $receipt.sdk_lifecycle['no_setup_or_publication_created']=$true
+        $receipt.sdk_lifecycle['target_policy_unchanged']=$true
+    }
     if($authoredProduct) {
         $rootPolicy=(Get-Acl -LiteralPath $drive).Sddl
         $queries=[Collections.Generic.List[object]]::new()
@@ -1472,7 +1486,7 @@ try {
     }
     if($MaintenanceQualification){$receipt['maintenance']=Invoke-StandardFreshMaintenance}
     if($SdkLifecycleQualification) {
-        $expectedSdkCommands=@('install_local.apply','install_local.apply','installed.verify',
+        $expectedSdkCommands=@('install_local.plan','install_local.apply','install_local.apply','installed.verify',
             'repair.apply','installed.verify','move.apply','installed.verify','uninstall.apply')
         $actualSdkCommands=@($receipt.sdk_requests|ForEach-Object {$_.command})
         if(($actualSdkCommands -join '|') -cne ($expectedSdkCommands -join '|') -or

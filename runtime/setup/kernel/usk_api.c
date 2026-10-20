@@ -472,7 +472,8 @@ static usk_static_response usk_handle_public_lifecycle(
         return result;
     }
     if (context->publisher_client != 0 &&
-        (strcmp(descriptor->command_name, "install_local.apply") == 0 ||
+        (strcmp(descriptor->command_name, "install_local.plan") == 0 ||
+         strcmp(descriptor->command_name, "install_local.apply") == 0 ||
          strcmp(descriptor->command_name, "installed.verify") == 0 ||
          strcmp(descriptor->command_name, "repair.apply") == 0 ||
          strcmp(descriptor->command_name, "move.apply") == 0 ||

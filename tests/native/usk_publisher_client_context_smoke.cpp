@@ -10,6 +10,20 @@
 #include <stdexcept>
 #include <string>
 
+// Test executable only: dispatch can deny every later allocation, including
+// reply decoding and output formatting. The owned fallback must still escape.
+namespace { thread_local bool deny_plan_reply_allocations = false; }
+void* operator new(std::size_t bytes) {
+    if (deny_plan_reply_allocations) throw std::bad_alloc();
+    if (void* memory = std::malloc(bytes ? bytes : 1)) return memory;
+    throw std::bad_alloc();
+}
+void* operator new[](std::size_t bytes) { return ::operator new(bytes); }
+void operator delete(void* memory) noexcept { std::free(memory); }
+void operator delete[](void* memory) noexcept { ::operator delete(memory); }
+void operator delete(void* memory, std::size_t) noexcept { ::operator delete(memory); }
+void operator delete[](void* memory, std::size_t) noexcept { ::operator delete(memory); }
+
 namespace {
 using usk::json::Value;
 using namespace usk::command::detail;
@@ -20,6 +34,46 @@ Value request(const char* id) {
 }
 Value prepare(const std::string&, const Value& input) {
     return input;
+}
+Value plan_request(const char* id) {
+    auto value = usk::json::parse(R"({
+        "schema":"usk.install_local_plan_request.v1","request_id":"plan.a",
+        "created_at":"2026-10-21T00:00:00Z","install_id":"example",
+        "required_commit_authority":"staged_child_bound_v1",
+        "archive":{"path":"C:/input.zip","format":"zip","expected_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "strip_prefix":"payload/","budgets":{"max_entries":100,"max_uncompressed_bytes":1048576,
+            "max_entry_bytes":1048576,"max_depth":16,"max_ratio":100,"max_elapsed_ms":1000}},
+        "target":{"root":"C:/product","class":"operator_acceptance_candidate"},
+        "recipe":{"product_id":"example","product_version":"1.0.0","recipe_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "provider_revision":"provider.1","components":["extra","core"],
+            "entrypoints":[{"entrypoint_id":"app","relative_path":"app.exe","kind":"executable"}]}})");
+    value.as_object().at("request_id") = Value(id);
+    return value;
+}
+std::string plan_completion(const std::string& bytes) {
+    const auto wire = usk::json::parse(bytes);
+    // Controlled transport only. The hosted public-C consumer separately
+    // establishes the full native plan and authenticated registered endpoint.
+    const Value plan(Value::Object{{"schema", Value("usk.install_plan.v1")},
+        {"operation", Value("install_local")}, {"status", Value("planned")},
+        {"plan_id", wire.at("request_id")}, {"created_at", wire.at("created_at")},
+        {"plan_digest", Value(std::string(64u, 'c'))},
+        {"required_commit_authority", wire.at("required_commit_authority")},
+        {"commit_authority_available", Value(false)},
+        {"source", Value(Value::Object{{"path", wire.at("archive").at("path")}, {"sha256", wire.at("archive").at("expected_sha256")}})},
+        {"target", wire.at("target")}, {"component_selection", wire.at("recipe").at("components")},
+        {"input_identity", Value(Value::Object{{"recipe_digest", wire.at("recipe").at("recipe_digest")},
+            {"provider_revision", wire.at("recipe").at("provider_revision")}, {"source_digest", wire.at("archive").at("expected_sha256")}})}});
+    const Value endpoint(Value::Object{{"schema", Value("usk.publisher_registered_admission_observation.v1")},
+        {"service_name", Value("test-provider")}, {"service_sid", Value("test-service-sid")},
+        {"process_id", Value(std::uint64_t{47})}});
+    return usk::json::canonical(Value(Value::Object{
+        {"schema", Value("usk.publisher_lab_service_observation.v1")}, {"status", Value("pass")},
+        {"service_name", endpoint.at("service_name")}, {"service_sid", endpoint.at("service_sid")},
+        {"process_id", endpoint.at("process_id")}, {"registered_admission", endpoint},
+        {"request_sha256", Value(usk::json::sha256_canonical(wire))},
+        {"plan_response", Value(Value::Object{{"schema", Value("usk.command_response.v1")},
+            {"status", Value("ok")}, {"payload", plan}, {"error", Value()}})}}));
 }
 std::string completion(const std::string& bytes) {
     const auto wire = usk::json::parse(bytes);
@@ -87,6 +141,70 @@ int main() {
         }, [](const std::string&, const Value&) -> Value { throw std::bad_alloc(); });
         REQUIRE(dispatched == 0 && usk::json::parse(early.json).at("error").at("code").as_string() ==
             "publisher_request_not_dispatched");
+
+        auto plan = plan_request("plan.a");
+        const auto execute_plan = [&](const Value& input, const PublisherClientTransport& transport,
+            const PublisherClientPrepare& preparer = prepare) {
+            const auto input_bytes = usk::json::canonical(input);
+            return first.execute("install_local.plan", input_bytes.data(), input_bytes.size(), transport, preparer);
+        };
+        bool plan_forwarded = false;
+        const auto plan_ok = execute_plan(plan, [&](const std::string& sent) {
+            plan_forwarded = sent == usk::json::canonical(plan);
+            return plan_completion(sent);
+        });
+        REQUIRE(plan_forwarded && plan_ok.status == USK_STATUS_OK &&
+            usk::json::equal_values(usk::json::parse(plan_ok.json),
+                usk::json::parse(plan_completion(usk::json::canonical(plan))).at("plan_response")));
+        plan.as_object().at("request_id") = Value("plan.b");
+        plan.as_object().at("install_id") = Value("other-install");
+        for (int fault = 0; fault < 3; ++fault) {
+            const auto result = execute_plan(plan, [fault](const std::string& sent) {
+                auto reply = usk::json::parse(plan_completion(sent));
+                if (fault == 0) reply.as_object().at("request_sha256") = Value(std::string(64u, 'd'));
+                else if (fault == 1) reply.as_object().at("plan_response").as_object().at("payload")
+                    .as_object().at("component_selection").as_array().clear();
+                else reply.as_object().at("registered_admission").as_object().at("process_id") = Value(std::uint64_t{48});
+                return usk::json::canonical(reply);
+            });
+            const auto unknown = usk::json::parse(result.json);
+            REQUIRE(result.status == USK_STATUS_ERROR && unknown.at("status").as_string() == "unknown" &&
+                unknown.at("payload").at("request_id").as_string() == "plan.b" &&
+                unknown.at("payload").at("install_id").as_string() == "other-install" &&
+                unknown.at("payload").at("request_sha256").as_string() == usk::json::sha256_canonical(plan) &&
+                !unknown.at("payload").contains("reviewed_plan_id"));
+        }
+        for (int fault = 0; fault < 3; ++fault) {
+            int callbacks = 0;
+            auto invalid_plan = plan;
+            if (fault == 0) invalid_plan.as_object().at("archive").as_object().at("budgets")
+                .as_object().at("max_entries") = Value(true);
+            else if (fault == 1) invalid_plan.as_object().at("recipe").as_object().at("entrypoints")
+                .as_array().front().as_object().emplace("unknown", Value(true));
+            else invalid_plan.as_object().erase("required_commit_authority");
+            const auto result = execute_plan(invalid_plan,
+                [&](const std::string&) { ++callbacks; return std::string("{}"); },
+                [&](const std::string&, const Value& input) { ++callbacks; return input; });
+            REQUIRE(callbacks == 0 && result.status == USK_STATUS_INVALID_ARGUMENT);
+        }
+        dispatched = 0;
+        const auto changed_plan = execute_plan(plan, [&](const std::string& sent) {
+            ++dispatched; return plan_completion(sent);
+        }, [](const std::string&, const Value& input) {
+            auto changed = input;
+            changed.as_object().at("recipe").as_object().at("components").as_array().clear();
+            return changed;
+        });
+        REQUIRE(dispatched == 0 && changed_plan.status == USK_STATUS_ERROR &&
+            usk::json::parse(changed_plan.json).at("error").at("code").as_string() == "publisher_request_not_dispatched");
+        const auto lost_plan = execute_plan(plan, [](const std::string&) -> std::string {
+            deny_plan_reply_allocations = true;
+            throw std::bad_alloc();
+        });
+        deny_plan_reply_allocations = false;
+        REQUIRE(lost_plan.status == USK_STATUS_ERROR &&
+            usk::json::parse(lost_plan.json).at("status").as_string() == "unknown" &&
+            usk::json::parse(lost_plan.json).at("payload").at("request_id").as_string() == "plan.b");
 
         auto recovery = usk::json::parse(
             "{\"schema\":\"usk.recovery_apply_request.v1\",\"plan_request\":{\"schema\":\"usk.recovery_plan_request.v1\","
@@ -341,6 +459,22 @@ int main() {
         REQUIRE(usk_context_create_v1(nullptr, &ordinary) == USK_STATUS_OK && ordinary);
         recovery_graph(ordinary, "v1");
         usk_context_destroy_v1(ordinary);
+        // Both existing dry_run forms for a nonmutating C command must use
+        // the configured endpoint, even with no local lifecycle roots.
+        for (const int dry_run : {0, 1}) {
+            const auto query = plan_request("sdk.plan");
+            const auto query_bytes = usk::json::canonical(query);
+            invalid.command_name = {"install_local.plan", 18};
+            invalid.json_payload = {query_bytes.data(), static_cast<usk_size>(query_bytes.size())};
+            invalid.dry_run = dry_run;
+            REQUIRE(usk_command_execute_v1(context, &invalid, &response) == USK_STATUS_ERROR);
+            const auto refused = usk::json::parse(std::string(response.json_payload.data,
+                static_cast<std::size_t>(response.json_payload.size)));
+            REQUIRE(refused.at("status").as_string() == "refused" &&
+                refused.at("payload").at("command").as_string() == "install_local.plan" &&
+                refused.at("payload").at("request_sha256").as_string() == usk::json::sha256_canonical(query));
+        }
+        invalid.dry_run = 0;
         // A publisher context owns recovery queries too: they may not fall
         // through into local filesystem inspection. The fixed fixture endpoint
         // has no registered backend; refusal must retain this public invocation.

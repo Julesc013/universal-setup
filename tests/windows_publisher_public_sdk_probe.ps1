@@ -5,7 +5,7 @@
 # independent readback. This does not install or register a separate service.
 function Invoke-StandardSdkRequest([string]$Command,$Payload,
     [ValidateSet('ok','refused')][string]$ExpectedStatus='ok') {
-    if($Command -cnotin @('install_local.apply','installed.verify','repair.apply','move.apply','uninstall.apply',
+    if($Command -cnotin @('install_local.plan','install_local.apply','installed.verify','repair.apply','move.apply','uninstall.apply',
         'recovery.inspect','recovery.plan','recovery.apply')) {throw 'SDK fixture command differs'}
     $binary=Join-Path (Split-Path -Parent $MachineBinary) 'usk_publisher_sdk_consumer.exe'
     if(-not (Test-Path -LiteralPath $binary -PathType Leaf)) {throw 'Public SDK consumer was not built'}

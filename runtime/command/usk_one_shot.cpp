@@ -485,6 +485,7 @@ static OneShotResult run_publisher_request(const std::string& request_json,
             input.at("payload").at("schema").as_string() != expected_schema)
             return failure(request_id, "invalid_request");
         submitted = input.at("payload");
+        if (command == "install_local.plan") detail::require_public_install_plan_request(submitted);
         // The SDK's complete closed decoder precedes all transport callbacks.
         // Preserve the full request, reviewed digests and selected action;
         // never reduce public recovery to the older private lookup selector.
