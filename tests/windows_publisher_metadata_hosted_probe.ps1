@@ -698,6 +698,92 @@ function Start-RegisteredPublisher {
         throw 'Product service control did not start the matching publisher'
     }
 }
+function Initialize-RegisteredFaultDeviceWithProduct {
+    # The registered production command waits for its authenticated request.
+    # Run the existing native admission, then stop before any client is created.
+    # No fixture-written device policy substitutes for retained original intent.
+    if(-not $registeredFaultService -or $AdmittedTarget -or $script:controllerPending) {
+        throw 'Fault device preparation requires the untouched registered legacy route'
+    }
+    $preparation=[ordered]@{schema='usk.publisher.registered_fault_device_preparation.v1';
+        status='running';client_dispatched=$false;service_process_id=$null;
+        service_creation_file_time=$null;stop_requested=$false;
+        process_exit_confirmed=$false;scm_stopped_confirmed=$false;
+        namespace_unchanged=$false;failure=$null;dispose_failure=$null}
+    $receipt['registered_fault_device_preparation']=$preparation
+    $held=$null
+    try {
+        Assert-OwnedVolume
+        $before=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+        if($before.State -cne 'Stopped' -or $before.ProcessId -ne 0 -or
+            $before.PathName -cne $expectedRegisteredCommand -or
+            (Test-Path -LiteralPath ($drive+'publication')) -or
+            (Test-Path -LiteralPath ($drive+'setup-state')) -or
+            (Test-Path -LiteralPath $nativePath)) {
+            throw 'Fault device preparation lacks an untouched stopped registration'
+        }
+        Start-RegisteredPublisher
+        $started=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+        if($started.State -cne 'Running' -or $started.ProcessId -le 0 -or
+            $started.PathName -cne $expectedRegisteredCommand) {
+            throw 'Product fault preparation did not retain its registered service'
+        }
+        $held=Get-Process -Id $started.ProcessId -ErrorAction Stop
+        $null=$held.Handle
+        $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+$started.ProcessId) -ErrorAction Stop
+        if($held.Id -ne $started.ProcessId -or $process.ProcessId -ne $held.Id -or
+            $held.HasExited -or -not $process.CreationDate -or
+            $process.CommandLine -cne $expectedRegisteredCommand -or
+            -not [string]::Equals($process.ExecutablePath,$ServiceBinary,[StringComparison]::OrdinalIgnoreCase) -or
+            -not [string]::Equals($held.MainModule.FileName,$ServiceBinary,[StringComparison]::OrdinalIgnoreCase) -or
+            [Math]::Abs(($process.CreationDate.ToUniversalTime()-
+                $held.StartTime.ToUniversalTime()).Ticks) -gt 10000) {
+            throw 'Product fault preparation process identity is absent or changed'
+        }
+        $preparation.service_process_id=$started.ProcessId
+        $preparation.service_creation_file_time=$held.StartTime.ToUniversalTime().ToFileTimeUtc().ToString()
+        $bound=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+        if($bound.State -cne 'Running' -or $bound.ProcessId -ne $held.Id -or
+            $bound.PathName -cne $expectedRegisteredCommand -or $held.HasExited) {
+            throw 'Product fault preparation SCM binding changed before stop'
+        }
+        Stop-Service -Name $service -ErrorAction Stop
+        $preparation.stop_requested=$true
+        if(-not $held.WaitForExit(30000)) {
+            throw 'Product fault preparation process did not stop'
+        }
+        $preparation.process_exit_confirmed=$true
+        $stopped=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+        if($stopped.State -cne 'Stopped' -or $stopped.ProcessId -ne 0 -or
+            $stopped.PathName -cne $expectedRegisteredCommand) {
+            throw 'Product fault preparation SCM stop or command differs'
+        }
+        $preparation.scm_stopped_confirmed=$true
+        Assert-OwnedVolume
+        if((Test-Path -LiteralPath ($drive+'publication')) -or
+            (Test-Path -LiteralPath ($drive+'setup-state')) -or
+            (Test-Path -LiteralPath $nativePath)) {
+            throw 'Product fault preparation produced unexpected operation state'
+        }
+        $preparation.namespace_unchanged=$true
+        $preparation.status='admitted_stopped_without_request'
+    } catch {
+        $preparation.status='failed'
+        $preparation.failure=$_.Exception.Message.Substring(0,[Math]::Min(1024,$_.Exception.Message.Length))
+        throw
+    } finally {
+        if($held){
+            try {$held.Dispose()} catch {
+                $preparation.status='failed'
+                $preparation.dispose_failure=$_.Exception.Message.Substring(0,[Math]::Min(1024,$_.Exception.Message.Length))
+                if(-not $preparation.failure){
+                    $preparation.failure=$preparation.dispose_failure
+                    throw
+                }
+            }
+        }
+    }
+}
 function Assert-AdmittedStartRefusal([string]$Phase,[string[]]$Arguments,[string]$Diagnostic) {
     $before=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
     if(-not $AdmittedTarget -or $before.State -cne 'Stopped' -or
@@ -1523,22 +1609,21 @@ try {
     }
     $receipt['root_acl_at_service_start']=Get-OwnedVolumeRootSddl 'service-start'
     Assert-OwnedVolume
-    # The product controller owns registered device admission. A lab-added
-    # service ACE here would become its captured original and disappear on
-    # remount, making exact-original completion refuse the real prestate.
-    # The fault service starts directly through SCM and still needs its lab
-    # grant. Share this exact predicate with the first-start branch below.
+    # Product admission retains the real original and derives its exact policy.
+    # Gated legacy tests prepare through the same native start, then stop without
+    # dispatch before changing the command. The lab helper only observes it.
     $registeredFaultService=$RegisteredService -and ($InterruptAfterStage -or $HostileRights -or $TerminateAtPostrename)
-    $deviceMode=if($AdmittedTarget){'--observe-owned-hosted-vm-vhd-volume'}
-        elseif($RegisteredService -and -not $registeredFaultService){'--observe-owned-hosted-vm-pre-admission-volume'}
+    if($registeredFaultService){Initialize-RegisteredFaultDeviceWithProduct}
+    $deviceMode=if($AdmittedTarget -or $registeredFaultService){'--observe-owned-hosted-vm-vhd-volume'}
+        elseif($RegisteredService){'--observe-owned-hosted-vm-pre-admission-volume'}
         else{'--owned-hosted-vm-vhd-volume'}
     $device=& $DeviceAclBinary $deviceMode $VolumeRoot $service ([int]$disk.Number) $vhd $vmId 2>&1
     if($LASTEXITCODE -ne 0){throw ('Owned VHD device ACL failed: '+($device -join '; '))}
     $deviceText=$device -join "`n"
     if($deviceText.Length -gt 16KB){throw 'Owned VHD device ACL receipt exceeds bound'}
     $deviceAdmission=$deviceText|ConvertFrom-Json
-    $expectedDeviceAdmission=if($AdmittedTarget){'hosted_vm_read_only'}
-        elseif($RegisteredService -and -not $registeredFaultService){'hosted_vm_pre_admission_read_only'}else{'hosted_vm'}
+    $expectedDeviceAdmission=if($AdmittedTarget -or $registeredFaultService){'hosted_vm_read_only'}
+        elseif($RegisteredService){'hosted_vm_pre_admission_read_only'}else{'hosted_vm'}
     if($deviceAdmission.admission -cne $expectedDeviceAdmission -or
         ($deviceMode -cne '--owned-hosted-vm-vhd-volume' -and
             $deviceAdmission.before_dacl -cne $deviceAdmission.after_dacl) -or

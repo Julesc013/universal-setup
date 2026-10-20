@@ -571,14 +571,17 @@ $deviceProfiles=@(
     @{name='registered';registered=$true;admitted=$false;faults=@();mode='--observe-owned-hosted-vm-pre-admission-volume';admission='hosted_vm_pre_admission_read_only'},
     @{name='admitted';registered=$true;admitted=$true;faults=@();mode='--observe-owned-hosted-vm-vhd-volume';admission='hosted_vm_read_only'},
     @{name='unregistered';registered=$false;admitted=$false;faults=@();mode='--owned-hosted-vm-vhd-volume';admission='hosted_vm'},
-    @{name='registered.poststage';registered=$true;admitted=$false;faults=@('InterruptAfterStage');mode='--owned-hosted-vm-vhd-volume';admission='hosted_vm'},
-    @{name='registered.hostile';registered=$true;admitted=$false;faults=@('HostileRights');mode='--owned-hosted-vm-vhd-volume';admission='hosted_vm'},
-    @{name='registered.hostile_postrename';registered=$true;admitted=$false;faults=@('HostileRights','HostilePostrename');mode='--owned-hosted-vm-vhd-volume';admission='hosted_vm'},
-    @{name='registered.terminate_postrename';registered=$true;admitted=$false;faults=@('TerminateAtPostrename');mode='--owned-hosted-vm-vhd-volume';admission='hosted_vm'},
-    @{name='registered.mixed_faults';registered=$true;admitted=$false;faults=@('InterruptAfterStage','HostileRights','HostilePostrename','TerminateAtPostrename');mode='--owned-hosted-vm-vhd-volume';admission='hosted_vm'}
+    @{name='registered.poststage';registered=$true;admitted=$false;faults=@('InterruptAfterStage');mode='--observe-owned-hosted-vm-vhd-volume';admission='hosted_vm_read_only'},
+    @{name='registered.hostile';registered=$true;admitted=$false;faults=@('HostileRights');mode='--observe-owned-hosted-vm-vhd-volume';admission='hosted_vm_read_only'},
+    @{name='registered.hostile_postrename';registered=$true;admitted=$false;faults=@('HostileRights','HostilePostrename');mode='--observe-owned-hosted-vm-vhd-volume';admission='hosted_vm_read_only'},
+    @{name='registered.terminate_postrename';registered=$true;admitted=$false;faults=@('TerminateAtPostrename');mode='--observe-owned-hosted-vm-vhd-volume';admission='hosted_vm_read_only'},
+    @{name='registered.mixed_faults';registered=$true;admitted=$false;faults=@('InterruptAfterStage','HostileRights','HostilePostrename','TerminateAtPostrename');mode='--observe-owned-hosted-vm-vhd-volume';admission='hosted_vm_read_only'}
 )
+$deviceCases=0
 foreach($profile in $deviceProfiles) {
-    foreach($variant in @('valid','native_failure','wrong_admission','wrong_sid','empty_before','empty_after','changed')) {
+    $variants=@('valid','native_failure','wrong_admission','wrong_sid','empty_before','empty_after','changed')
+    if($profile.registered -and $profile.faults.Count){$variants+='preparation_failure'}
+    foreach($variant in $variants) {
         & {
             param($Block,$Profile,$Variant)
             $AdmittedTarget=$Profile.admitted
@@ -591,7 +594,13 @@ foreach($profile in $deviceProfiles) {
             $VolumeRoot='\\?\Volume{00000000-0000-0000-0000-000000000000}\'
             $service='USK_PUB_'+('1'*32);$sid='S-1-5-80-1-2-3-4-5'
             $disk=[pscustomobject]@{Number=7};$vhd='owned.vhdx';$vmId='owned-guest';$receipt=@{}
-            $script:deviceInvocations=0
+            $script:deviceInvocations=0;$script:preparationInvocations=0
+            # This matrix checks routing and observer admission. The preparation
+            # helper's real closure flow has separate inert controls.
+            function Initialize-RegisteredFaultDeviceWithProduct {
+                $script:preparationInvocations++
+                if($Variant -ceq 'preparation_failure'){throw 'inert preparation refusal'}
+            }
             $DeviceAclBinary={
                 param($Mode,$Volume,$ServiceName,$DiskNumber,$VhdPath,$Guest)
                 $script:deviceInvocations++
@@ -613,6 +622,15 @@ foreach($profile in $deviceProfiles) {
             }
             $caught=$null
             try {& $Block} catch {$caught=$_}
+            $expectedPreparation=[int]($Profile.registered -and $Profile.faults.Count -gt 0)
+            if($script:preparationInvocations -ne $expectedPreparation){throw 'Device preparation membership differs'}
+            if($Variant -ceq 'preparation_failure') {
+                if(-not $caught -or $caught.Exception.Message -cne 'inert preparation refusal' -or
+                    $script:deviceInvocations -ne 0 -or $receipt.ContainsKey('device_acl_admission')) {
+                    throw 'Failed preparation reached device observation or acceptance'
+                }
+                return
+            }
             $expectedPass=$Variant -ceq 'valid' -or ($expectedAdmission -ceq 'hosted_vm' -and $Variant -ceq 'changed')
             if($script:deviceInvocations -ne 1 -or ([bool]$caught -eq $expectedPass) -or
                 ($expectedPass -and -not $receipt.ContainsKey('device_acl_admission')) -or
@@ -620,9 +638,11 @@ foreach($profile in $deviceProfiles) {
                 throw ('Device fixture acceptance differs: '+$Profile.name+'/'+$Variant+' '+$caught)
             }
         } $deviceBlock $profile $variant
+        $deviceCases++
     }
 }
-Write-Output 'Actual device observation profiles/refusals checked: 56'
+if($deviceCases -ne 61){throw 'Device observation matrix membership differs'}
+Write-Output ('Actual device observation profiles/refusals checked: '+$deviceCases)
 $aclHelpers=@($ast.EndBlock.Statements|Where-Object {
     $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and
     $_.Name -in @('Set-OwnedMetadataServiceInputAccess','Grant-OwnedMetadataActorParentRead','Grant-OwnedMetadataActorScriptRead')})
