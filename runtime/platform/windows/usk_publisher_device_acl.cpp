@@ -212,16 +212,22 @@ std::optional<std::vector<BYTE>> publisher_try_read_only_device_admission_postim
 }
 
 json::Value publisher_device_transition_diagnostic(
-    const json::Value& transition, bool unpublished_retained) {
+    const json::Value& transition, PublisherDeviceTransitionSource source) {
     const auto& original = transition.at("original_owner_dacl").as_string();
     if (original.empty() || original.size() > 8192u)
         throw std::runtime_error("diagnostic captured original exceeds its bound");
+    const char* provenance = nullptr;
+    switch (source) {
+    case PublisherDeviceTransitionSource::legacy_locked_capture: provenance = "legacy_locked_capture"; break;
+    case PublisherDeviceTransitionSource::unpublished_retained: provenance = "unpublished_retained"; break;
+    case PublisherDeviceTransitionSource::registered_creation: provenance = "registered_creation"; break;
+    default: throw std::runtime_error("diagnostic transition source differs");
+    }
     using json::Value;
     constexpr std::size_t prefix_limit = 2048u;
     return Value(Value::Object{
         {"schema", Value("usk.publisher_device_transition_diagnostic.v1")},
-        {"provenance", Value(unpublished_retained ?
-            "unpublished_retained" : "legacy_locked_capture")},
+        {"provenance", Value(provenance)},
         {"original_owner_dacl_bytes", Value(static_cast<std::uint64_t>(original.size()))},
         {"original_owner_dacl_prefix", Value(original.substr(0, prefix_limit))},
         {"original_owner_dacl_prefix_truncated", Value(original.size() > prefix_limit)},
@@ -229,40 +235,71 @@ json::Value publisher_device_transition_diagnostic(
         {"intended_policy_sha256", Value(json::sha256_canonical(transition.at("intended_policy")))}});
 }
 
-bool publisher_target_intent_has_device_transition(const json::Value& intent) {
-    const auto keys = [](const json::Value& value, const std::set<std::string>& expected) {
-        std::set<std::string> actual;
-        for (const auto& item : value.as_object()) actual.insert(item.first);
-        if (actual != expected) throw std::runtime_error("target admission intent fields are invalid");
-    };
-    const auto& schema = intent.at("schema").as_string();
-    std::set<std::string> expected{"schema", "identity", "original_metadata", "original_owner_dacl"};
-    if (schema == "usk.publisher_target_intent.v2") {
-        keys(intent, expected);
-        return false;
-    }
-    if (schema != "usk.publisher_target_intent.v3")
-        throw std::runtime_error("target admission intent version is unsupported");
-    expected.insert("mounted_device_transition");
-    keys(intent, expected);
-    const auto& transition = intent.at("mounted_device_transition");
-    keys(transition, {"original_owner_dacl", "intended_policy"});
+namespace {
+void device_intent_keys(const json::Value& value, const std::set<std::string>& expected) {
+    std::set<std::string> actual;
+    for (const auto& item : value.as_object()) actual.insert(item.first);
+    if (actual != expected) throw std::runtime_error("target admission intent fields are invalid");
+}
+void require_device_transition_shape(const json::Value& transition) {
+    device_intent_keys(transition, {"original_owner_dacl", "intended_policy"});
     const auto& original = transition.at("original_owner_dacl").as_string();
     if (original.empty() || original.size() > 8192u)
         throw std::runtime_error("target admission mounted prestate is unavailable or exceeds its bound");
     const auto& policy = transition.at("intended_policy");
-    keys(policy, {"owner", "dacl_protected", "aces"});
+    device_intent_keys(policy, {"owner", "dacl_protected", "aces"});
     if ((policy.at("owner").as_string() != "S-1-5-18" && policy.at("owner").as_string() != "S-1-5-32-544") ||
         !policy.at("dacl_protected").as_boolean() || policy.at("aces").as_array().empty() ||
         policy.at("aces").as_array().size() > 65u)
         throw std::runtime_error("target admission intended mounted policy is invalid");
     for (const auto& ace : policy.at("aces").as_array()) {
-        keys(ace, {"type", "flags", "mask", "sid"});
+        device_intent_keys(ace, {"type", "flags", "mask", "sid"});
         if (ace.at("type").as_unsigned() != ACCESS_ALLOWED_ACE_TYPE || ace.at("flags").as_unsigned() > 255u ||
             ace.at("mask").as_unsigned() > 0xffffffffu || ace.at("sid").as_string().empty() || ace.at("sid").as_string().size() > 256u)
             throw std::runtime_error("target admission intended mounted ACE is invalid");
     }
+}
+} // namespace
+
+bool publisher_target_intent_has_device_transition(const json::Value& intent) {
+    const auto& schema = intent.at("schema").as_string();
+    std::set<std::string> expected{"schema", "identity", "original_metadata", "original_owner_dacl"};
+    if (schema == "usk.publisher_target_intent.v2") {
+        device_intent_keys(intent, expected);
+        return false;
+    }
+    if (schema != "usk.publisher_target_intent.v3")
+        throw std::runtime_error("target admission intent version is unsupported");
+    expected.insert("mounted_device_transition");
+    device_intent_keys(intent, expected);
+    require_device_transition_shape(intent.at("mounted_device_transition"));
     return true;
+}
+
+bool publisher_registration_intent_has_device_transition(const json::Value& intent) {
+    const auto& schema = intent.at("schema").as_string();
+    const bool retained = schema == "usk.publisher_registration_intent.v2";
+    if (!retained && schema != "usk.publisher_registration_intent.v1")
+        throw std::runtime_error("registration creation intent version is unsupported");
+    std::set<std::string> fields{"schema", "creation_id", "binding"};
+    if (retained) fields.insert("mounted_device_transition");
+    device_intent_keys(intent, fields);
+    const auto& creation = intent.at("creation_id").as_string();
+    if (creation.size() != 38u || creation.front() != '{' || creation.back() != '}')
+        throw std::runtime_error("registration creation identity is malformed");
+    for (std::size_t index = 1; index < creation.size() - 1u; ++index) {
+        const char ch = creation[index];
+        const bool separator = index == 9u || index == 14u || index == 19u || index == 24u;
+        if (separator ? ch != '-' : !((ch >= '0' && ch <= '9') ||
+                (ch >= 'a' && ch <= 'f') || (ch >= 'A' && ch <= 'F')))
+            throw std::runtime_error("registration creation identity is malformed");
+    }
+    device_intent_keys(intent.at("binding"), {"schema", "service_name", "service_sid",
+        "command", "binary_sha256", "volume_identity"});
+    if (intent.at("binding").at("schema").as_string() != "usk.publisher_registration_binding.v1")
+        throw std::runtime_error("registration binding version is unsupported");
+    if (retained) require_device_transition_shape(intent.at("mounted_device_transition"));
+    return retained;
 }
 
 } // namespace usk::platform::windows

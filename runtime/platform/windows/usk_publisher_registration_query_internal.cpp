@@ -104,6 +104,13 @@ usk::json::Value parse_publisher_maintenance_recovery_request(const std::string&
 
 
 namespace detail::registration_query {
+std::unique_ptr<ServiceHandle> transfer_service_handle(ServiceHandle& source) {
+    if (!source.get()) throw std::runtime_error("owned service handle is unavailable");
+    auto result = std::make_unique<ServiceHandle>(source.get());
+    (void)source.release();
+    return result;
+}
+
 std::uint64_t observe_supported_discovery_windows_build() {
 #if !defined(_M_X64) && !defined(__x86_64__)
     throw std::runtime_error("publisher discovery requires the x64 implementation");
@@ -297,6 +304,18 @@ void require_existing_command(const std::wstring& command,
         (grant && args[index + 2] != mode)) {
         throw std::runtime_error("existing authorized caller differs");
     }
+}
+
+void require_legacy_creation_commands(const std::wstring& original, const std::wstring& current,
+    const std::wstring& service, const std::wstring& binary, const std::wstring& volume) {
+    const auto args = command_arguments(original);
+    if (args.size() < 10u || args[0] != binary || args[5] != L"--reviewed-plan-envelope")
+        throw std::runtime_error("registered device creation is outside its original legacy profile");
+    const std::wstring mode = args.back() == L"--grant-client-read" ? L"--grant-client-read" :
+        args[8] == L"--admit-client-observer" ? L"--admit-client-observer" : L"";
+    const auto& caller = args[args.size() - (mode == L"--grant-client-read" ? 2u : 1u)];
+    require_existing_command(original, service, binary, volume, caller, mode);
+    require_existing_command(current, service, binary, volume, caller, mode);
 }
 
 std::string utf8(const std::wstring& value) {

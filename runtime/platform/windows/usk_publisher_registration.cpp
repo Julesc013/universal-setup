@@ -582,6 +582,17 @@ usk::json::Value registration_volume_identity(const std::wstring& volume, bool c
 usk::json::Value dedicated_target_disk_identity(const std::wstring& volume);
 usk::json::Value target_empty_namespace(HANDLE root, bool require_metadata_protected);
 
+struct RegisteredDeviceTransitionObservation {
+    std::wstring name, volume, command, binding_command, display_name;
+    std::filesystem::path intent_path;
+    usk::json::Value intent, binding, transition;
+    std::unique_ptr<FileHandle> intent_file, binding_file;
+    std::unique_ptr<ServiceHandle> manager, service;
+    void require_current() const;
+};
+std::unique_ptr<RegisteredDeviceTransitionObservation> observe_registered_device_transition(
+    const std::wstring& name, const std::wstring& volume);
+
 // Bounded read-only diagnostics, never an admission verdict. When collected
 // after refusal they describe a fresh observation, not the earlier failing
 // descriptor. Keep the original strict failure as the primary reason.
@@ -810,6 +821,11 @@ void require_exclusive_volume_admission(const std::wstring& name,
         throw std::runtime_error("cannot open dedicated publisher volume for exclusive admission; Win32 " +
             std::to_string(GetLastError()));
     }
+    // A legacy v2 creation intent retains its actual pre-admission original.
+    // Hold the protected records and stopped SCM identity through completion.
+    // Missing/v1 alone decline before lock; a selected v2 never falls back.
+    auto registered_original = !retained_mounted_device ?
+        observe_registered_device_transition(name, root) : nullptr;
     DWORD returned = 0;
     if (!DeviceIoControl(locking_volume, FSCTL_LOCK_VOLUME, nullptr, 0,
             nullptr, 0, &returned, nullptr)) {
@@ -826,15 +842,29 @@ void require_exclusive_volume_admission(const std::wstring& name,
     std::optional<usk::json::Value> legacy_volume_identity;
     if (!retained_mounted_device) {
         const auto original = read_publisher_owner_dacl_from_handle(locking_volume);
-        legacy_safe_transition = legacy_safe_device_transition(original, sid);
+        if (registered_original) {
+            registered_original->require_current();
+            legacy_safe_transition = registered_original->transition;
+            if (owner_dacl_sddl(original) != legacy_safe_transition->at("original_owner_dacl").as_string() &&
+                !usk::json::equal_values(device_owner_dacl_policy(original),
+                    legacy_safe_transition->at("intended_policy")))
+                throw std::runtime_error("legacy locked device differs from its retained creation transition");
+        } else {
+            legacy_safe_transition = legacy_safe_device_transition(original, sid);
+        }
         if (legacy_safe_transition) {
             const auto& original_text = legacy_safe_transition->at("original_owner_dacl").as_string();
             legacy_volume_identity.emplace(usk::json::Value::Object{
                 {"volume_root", usk::json::Value(utf8(root))},
                 {"root_file_id", usk::json::Value(root_file_id)},
                 {"volume_serial", usk::json::Value(std::to_string(root_volume_serial))}});
-            if (owner_dacl_sddl(read_publisher_owner_dacl_from_handle(locking_volume)) != original_text)
+            if (registered_original) {
+                if (!usk::json::equal_values(*legacy_volume_identity,
+                        registered_original->binding.at("volume_identity")))
+                    throw std::runtime_error("legacy creation transition belongs to another volume");
+            } else if (owner_dacl_sddl(read_publisher_owner_dacl_from_handle(locking_volume)) != original_text) {
                 throw std::runtime_error("legacy locked device changed before admission");
+            }
         }
     }
     // The locked volume is accessible only through this locking file object.
@@ -927,6 +957,7 @@ void require_exclusive_volume_admission(const std::wstring& name,
                                 usk::json::canonical(*legacy_volume_identity))
                             throw std::runtime_error("legacy mounted volume identity differs");
                     }
+                    if (registered_original) registered_original->require_current();
                     observe_root();
                 };
                 require_original(locking_volume);
@@ -988,7 +1019,10 @@ void require_exclusive_volume_admission(const std::wstring& name,
                 // the post-hardening snapshot used by the old diagnostic.
                 diagnostic.as_object().emplace("selected_transition",
                     publisher_device_transition_diagnostic(
-                        *transition, unpublished_device_transition != nullptr));
+                        *transition, unpublished_device_transition ?
+                            PublisherDeviceTransitionSource::unpublished_retained :
+                            registered_original ? PublisherDeviceTransitionSource::registered_creation :
+                                PublisherDeviceTransitionSource::legacy_locked_capture));
                 refusal = std::runtime_error(
                     std::string("remounted publisher volume device ACL admission: ") + error.what() +
                     "; diagnostic " + usk::json::canonical(diagnostic));
@@ -1001,6 +1035,7 @@ void require_exclusive_volume_admission(const std::wstring& name,
     // Keep a read-only mounted root while releasing the actual raw writer.
     // No controller WRITE_DAC/direct-write handle survives successful admission.
     if (remounted_acl_writer) remounted_acl_writer->close_confirmed();
+    if (registered_original) registered_original->require_current();
     if (retained_mounted_device) retained_mounted_device->close_confirmed();
     else volume.close_confirmed();
     FileHandle released_device(CreateFileW(device.c_str(), READ_CONTROL,
@@ -1165,6 +1200,101 @@ usk::json::Value read_registration_binding(const std::wstring& name,
     if (value.at("service_sid").as_string() != observed_sid)
         throw std::runtime_error("publisher retained service SID differs");
     return value;
+}
+
+
+std::wstring registration_command_wide(const std::string& text) {
+    if (text.empty() || text.size() > 8192u)
+        throw std::runtime_error("registered creation command exceeds its bound");
+    const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+        static_cast<int>(text.size()), nullptr, 0);
+    if (count <= 0) throw std::runtime_error("registered creation command is invalid UTF-8");
+    std::wstring result(static_cast<std::size_t>(count), L'\0');
+    if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+            static_cast<int>(text.size()), result.data(), count) != count)
+        throw std::runtime_error("registered creation command conversion failed");
+    return result;
+}
+
+void RegisteredDeviceTransitionObservation::require_current() const {
+    // This fence also runs while FSCTL_LOCK_VOLUME excludes new root opens.
+    // The binding's native volume/SID were checked before lock; held records
+    // cannot be written/replaced. The enclosing admission independently checks
+    // the exact root identity before lock and after remount.
+    const auto current = query_configuration(service->get());
+    require_profile(current);
+    require_stopped(service->get());
+    if (current.binary_path != command || current.display_name != display_name ||
+        !usk::json::equal_values(read_protected_document(registration_binding_path(name)), binding) ||
+        !usk::json::equal_values(read_protected_document(intent_path), intent))
+        throw std::runtime_error("registered device creation custody or stopped service changed");
+}
+
+std::unique_ptr<RegisteredDeviceTransitionObservation> observe_registered_device_transition(
+    const std::wstring& name, const std::wstring& volume) {
+    const auto path = registration_binding_path(name).parent_path() / (name + L".registration-intent.json");
+    const DWORD attributes = GetFileAttributesW(path.c_str());
+    if (attributes == INVALID_FILE_ATTRIBUTES) {
+        const DWORD error = GetLastError();
+        if (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND) return {};
+        throw std::runtime_error("registered device creation presence is uncertain");
+    }
+    auto result = std::make_unique<RegisteredDeviceTransitionObservation>();
+    result->name = name; result->volume = volume; result->intent_path = path;
+    const auto hold_record = [](const std::filesystem::path& record) {
+        auto file = std::make_unique<FileHandle>(record.c_str(),
+            GENERIC_READ | READ_CONTROL | FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_FLAG_OPEN_REPARSE_POINT);
+        if (file->get() == INVALID_HANDLE_VALUE)
+            throw std::runtime_error("registered device creation record custody unavailable");
+        require_control_lock_shape(file->get(), false);
+        require_publisher_stream_shape(file->get());
+        if (observe_publisher_file_handle(file->get()).link_count != 1)
+            throw std::runtime_error("registered device creation record has another link");
+        return file;
+    };
+    result->intent_file = hold_record(path);
+    result->intent = read_protected_document(path);
+    if (!publisher_registration_intent_has_device_transition(result->intent)) return {};
+    result->binding_file = hold_record(registration_binding_path(name));
+    // Native opens acquire stack ownership before any destination allocation.
+    // A failed allocation must close the already-open SCM/service handle.
+    ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+    if (!manager.get()) throw std::runtime_error("registered device creation SCM is unavailable");
+    result->manager = detail::registration_query::transfer_service_handle(manager);
+    ServiceHandle service(OpenServiceW(result->manager->get(), name.c_str(),
+        SERVICE_QUERY_CONFIG | SERVICE_QUERY_STATUS));
+    if (!service.get()) throw std::runtime_error("registered device creation service is unavailable");
+    result->service = detail::registration_query::transfer_service_handle(service);
+    const auto configuration = query_configuration(result->service->get());
+    require_profile(configuration);
+    require_stopped(result->service->get());
+    result->binding_command = registration_command_wide(result->intent.at("binding").at("command").as_string());
+    // Keep the stable original binding while permitting existing controller
+    // reviewed/recover/verify commands. Freeze this invocation's command below.
+    detail::registration_query::require_legacy_creation_commands(
+        result->binding_command, configuration.binary_path, name,
+        publisher_binary_path(name).wstring(), volume);
+    result->command = configuration.binary_path;
+    result->binding = read_registration_binding(name, result->binding_command, volume);
+    if (!usk::json::equal_values(result->intent.at("binding"), result->binding))
+        throw std::runtime_error("registered device creation differs from completed registration");
+    const auto& creation = result->intent.at("creation_id").as_string();
+    const std::wstring wide_creation(creation.begin(), creation.end());
+    GUID parsed{};
+    wchar_t canonical[40]{};
+    if (FAILED(CLSIDFromString(wide_creation.c_str(), &parsed)) ||
+        !StringFromGUID2(parsed, canonical, static_cast<int>(std::size(canonical))) ||
+        wide_creation != canonical)
+        throw std::runtime_error("registered device creation identity is noncanonical");
+    result->display_name = L"Universal Setup publisher " + wide_creation;
+    result->transition = result->intent.at("mounted_device_transition");
+    const auto original = device_security_from_sddl(result->transition.at("original_owner_dacl").as_string());
+    const auto sid = publisher_service_sid(name);
+    if (!usk::json::equal_values(device_owner_dacl_policy(intended_device_security(original, sid, true)),
+            result->transition.at("intended_policy")))
+        throw std::runtime_error("registered device creation policy differs from exact safe original");
+    result->require_current();
+    return result;
 }
 
 std::string guid_text(const GUID& value) {
@@ -1927,8 +2057,8 @@ void register_service(const std::wstring& name, const std::wstring& binary,
     usk::json::Value intent;
     if (resuming) {
         intent = read_protected_document(intent_path);
-        if (intent.as_object().size() != 3 ||
-            intent.at("schema").as_string() != "usk.publisher_registration_intent.v1" ||
+        const bool retained_device = publisher_registration_intent_has_device_transition(intent);
+        if ((retained_device && mode != L"" && mode != L"--grant-client-read" && mode != L"--admit-client-observer") ||
             usk::json::canonical(intent.at("binding")) != usk::json::canonical(expected))
             throw std::runtime_error("retained registration intent differs from requested identity");
     } else {
@@ -1944,6 +2074,26 @@ void register_service(const std::wstring& name, const std::wstring& binary,
             {"creation_id", usk::json::Value(guid_text(nonce))},
             {"binding", expected}
         });
+        if (mode.empty() || mode == L"--grant-client-read" || mode == L"--admit-client-observer") {
+            FileHandle device(CreateFileW(volume.substr(0, volume.size() - 1u).c_str(), READ_CONTROL,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, 0, nullptr));
+            if (device.get() == INVALID_HANDLE_VALUE)
+                throw std::runtime_error("registration native device original is unavailable");
+            const auto original = read_publisher_owner_dacl_from_handle(device.get());
+            const auto sid_bytes = derive_ascii_publisher_service_sid(name);
+            const auto transition = legacy_safe_device_transition(original, sid_bytes);
+            // Already intended is not evidence of an earlier original. Preserve
+            // the v1 route when this new registration cannot capture a baseline.
+            if (transition && !usk::json::equal_values(device_owner_dacl_policy(original),
+                    transition->at("intended_policy"))) {
+                intent.as_object().at("schema") = usk::json::Value("usk.publisher_registration_intent.v2");
+                intent.as_object().emplace("mounted_device_transition", *transition);
+            }
+            if (!usk::json::equal_values(registration_volume_identity(volume), volume_identity))
+                throw std::runtime_error("registration volume changed across native original capture");
+        }
+        if (usk::json::canonical(intent).size() + 1u > 16384u)
+            throw std::runtime_error("registration creation intent exceeds protected record bound");
         LocalDescriptor directory_descriptor(L"O:BAG:BAD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)");
         SECURITY_ATTRIBUTES attributes{sizeof(SECURITY_ATTRIBUTES), directory_descriptor.get(), FALSE};
         create_protected_directory(target.parent_path().wstring(), attributes);
@@ -1952,6 +2102,14 @@ void register_service(const std::wstring& name, const std::wstring& binary,
         // the same operation as the owned name and command, so interruption
         // never requires adopting an unmarked preexisting service.
         write_protected_document(intent_path, intent);
+    }
+    if (publisher_registration_intent_has_device_transition(intent)) {
+        const auto& transition = intent.at("mounted_device_transition");
+        const auto original = device_security_from_sddl(transition.at("original_owner_dacl").as_string());
+        const auto sid_bytes = derive_ascii_publisher_service_sid(name);
+        if (!usk::json::equal_values(device_owner_dacl_policy(intended_device_security(original, sid_bytes, true)),
+                transition.at("intended_policy")))
+            throw std::runtime_error("retained registration device policy differs from exact safe original");
     }
     const auto creation_id = intent.at("creation_id").as_string();
     const std::wstring wide_id(creation_id.begin(), creation_id.end());
