@@ -6,6 +6,7 @@
 #if defined(_WIN32)
 #include <sddl.h>
 #include <cstring>
+#include <memory>
 #include <stdexcept>
 #include <string>
 
@@ -79,6 +80,24 @@ bool inspect(const std::wstring& sddl, bool restrict_default = false, bool make_
     }
 }
 
+bool selects_read_only(const std::wstring& sddl) {
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    PSID service = nullptr;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(),
+        SDDL_REVISION_1, &descriptor, nullptr))
+        throw std::runtime_error("optional device fixture cannot be parsed");
+    std::unique_ptr<void, decltype(&LocalFree)> owned_descriptor(descriptor, &LocalFree);
+    if (!ConvertStringSidToSidW(service_sid, &service))
+        throw std::runtime_error("optional device fixture service cannot be parsed");
+    std::unique_ptr<void, decltype(&LocalFree)> owned_service(service, &LocalFree);
+    PSID owner = nullptr; PACL dacl = nullptr; BOOL defaulted = FALSE, present = FALSE;
+    if (!GetSecurityDescriptorOwner(descriptor, &owner, &defaulted) ||
+        !GetSecurityDescriptorDacl(descriptor, &present, &dacl, &defaulted) || !present)
+        throw std::runtime_error("optional device fixture cannot be inspected");
+    return usk::platform::windows::publisher_try_read_only_device_admission_postimage(
+        owner, dacl, service).has_value();
+}
+
 bool refuses(const std::wstring& sddl, bool restrict_default = false, bool make_postimage = false, bool read_only_original = false) {
     try { (void)inspect(sddl, restrict_default, make_postimage, read_only_original); }
     catch (const std::runtime_error&) { return true; }
@@ -127,6 +146,35 @@ int main() {
         !refuses(baseline + L"(A;;0x2;;;BU)", false, true, true) ||
         !refuses(baseline + service + service, false, true, true) ||
         !refuses(L"O:BUD:(A;;FA;;;SY)(A;;FA;;;BA)", false, true, true)) return 7;
+    // Exact old startup observation: BA owner, no service ACE, only trusted
+    // admin/system mutation and built-in users read/execute. This is eligible
+    // for the existing pure safe-original postimage; AU/BU mutation is not.
+    const std::wstring retained_default =
+        L"O:BAD:(A;;FA;;;BA)(A;;FA;;;SY)(A;;0x1200a9;;;BU)";
+    if (!inspect(retained_default, false, true, true) ||
+        !refuses(retained_default + default_modify, false, true, true) ||
+        !refuses(retained_default + L"(A;;0x2;;;BU)", false, true, true) ||
+        !refuses(retained_default + L"(A;;FA;;;WD)", false, true, true)) return 8;
+    if (!selects_read_only(retained_default) || !selects_read_only(baseline + service) ||
+        selects_read_only(baseline + default_modify) ||
+        selects_read_only(baseline + L"(A;;0x2;;;BU)") ||
+        selects_read_only(baseline + L"(A;;FA;;;WD)") ||
+        selects_read_only(baseline + service + service)) return 9;
+    // Added completion has its own finite admission budget. Old strict shape
+    // still accepts these additional read-only ACEs; decline does not lower the
+    // independent legacy route's existing profile or widen the composer limit.
+    std::wstring at_capacity = baseline;
+    for (unsigned index = 0; index < 61u; ++index) at_capacity += L"(A;;FR;;;BU)";
+    const auto beyond_capacity = at_capacity + L"(A;;FR;;;BU)";
+    if (!selects_read_only(at_capacity) || selects_read_only(beyond_capacity) ||
+        selects_read_only(beyond_capacity + L"(A;;FR;;;BU)") ||
+        !inspect(beyond_capacity + service)) return 11;
+    // Unavailable native inputs are hard failures, never policy-decline results.
+    bool unavailable_refused = false;
+    try { (void)usk::platform::windows::publisher_try_read_only_device_admission_postimage(
+        nullptr, nullptr, nullptr); }
+    catch (const std::runtime_error&) { unavailable_refused = true; }
+    if (!unavailable_refused) return 10;
     using usk::json::Value;
     const Value policy(Value::Object{{"owner", Value("S-1-5-18")}, {"dacl_protected", Value(true)},
         {"aces", Value(Value::Array{Value(Value::Object{{"type", Value(std::uint64_t{0})},

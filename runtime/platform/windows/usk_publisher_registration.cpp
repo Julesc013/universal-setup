@@ -576,6 +576,8 @@ usk::json::Value device_owner_dacl_policy(const std::vector<BYTE>& bytes);
 std::vector<BYTE> device_security_from_sddl(const std::string& text);
 std::vector<BYTE> intended_device_security(const std::vector<BYTE>& original,
     const std::vector<BYTE>& service_sid, bool read_only_original = false);
+std::optional<usk::json::Value> legacy_safe_device_transition(const std::vector<BYTE>& original,
+    const std::vector<BYTE>& service_sid);
 usk::json::Value registration_volume_identity(const std::wstring& volume, bool controller_backup);
 usk::json::Value dedicated_target_disk_identity(const std::wstring& volume);
 usk::json::Value target_empty_namespace(HANDLE root, bool require_metadata_protected);
@@ -814,6 +816,27 @@ void require_exclusive_volume_admission(const std::wstring& name,
         throw std::runtime_error("publisher volume has a pre-opened file or cannot be locked; Win32 " +
             std::to_string(GetLastError()));
     }
+    // Legacy stopped-service admission has no unpublished target intent.
+    // Prepare only an additional, exact safe-original completion: raw bytes
+    // come from this actual locking object, never a diagnostic or caller JSON.
+    // Pure policy ineligibility leaves the existing locked/default route in
+    // place; native read/allocation failures propagate. Once selected, every
+    // later mismatch refuses; there is no post-write fallback or reduction.
+    std::optional<usk::json::Value> legacy_safe_transition;
+    std::optional<usk::json::Value> legacy_volume_identity;
+    if (!retained_mounted_device) {
+        const auto original = read_publisher_owner_dacl_from_handle(locking_volume);
+        legacy_safe_transition = legacy_safe_device_transition(original, sid);
+        if (legacy_safe_transition) {
+            const auto& original_text = legacy_safe_transition->at("original_owner_dacl").as_string();
+            legacy_volume_identity.emplace(usk::json::Value::Object{
+                {"volume_root", usk::json::Value(utf8(root))},
+                {"root_file_id", usk::json::Value(root_file_id)},
+                {"volume_serial", usk::json::Value(std::to_string(root_volume_serial))}});
+            if (owner_dacl_sddl(read_publisher_owner_dacl_from_handle(locking_volume)) != original_text)
+                throw std::runtime_error("legacy locked device changed before admission");
+        }
+    }
     // The locked volume is accessible only through this locking file object.
     // Inspect and repair its device ACL before any other process can acquire a
     // newly granted raw-volume handle after unlock.
@@ -840,6 +863,9 @@ void require_exclusive_volume_admission(const std::wstring& name,
     if (remounted.get() == INVALID_HANDLE_VALUE)
         throw std::runtime_error("remounted publisher device cannot be observed; Win32 " +
             std::to_string(GetLastError()));
+    const auto* expected_mounted_policy = retained_intended_policy ?
+        retained_intended_policy : legacy_safe_transition ?
+            &legacy_safe_transition->at("intended_policy") : nullptr;
     const auto require_strict_device = [&](HANDLE handle) {
         // This strict predicate never repairs a failed policy. Unpublished
         // safe-original completion below has separate, narrower effect gates.
@@ -854,18 +880,20 @@ void require_exclusive_volume_admission(const std::wstring& name,
             (control & SE_DACL_PROTECTED) == 0 ||
             !require_publisher_device_acl_shape(owner, dacl, const_cast<BYTE*>(sid.data())))
             throw std::runtime_error("remounted publisher device lacks its protected service policy");
-        if (retained_intended_policy &&
+        if (expected_mounted_policy &&
             usk::json::canonical(device_owner_dacl_policy(bytes)) !=
-                usk::json::canonical(*retained_intended_policy))
+                usk::json::canonical(*expected_mounted_policy))
             throw std::runtime_error("mounted device differs from retained intended policy");
     };
     std::unique_ptr<FileHandle> remounted_acl_writer;
     try {
-        if (unpublished_device_transition) {
-            const auto expected = usk::json::canonical(*retained_intended_policy);
+        const auto* transition = unpublished_device_transition ? unpublished_device_transition :
+            legacy_safe_transition ? &*legacy_safe_transition : nullptr;
+        if (transition) {
+            const auto expected = usk::json::canonical(*expected_mounted_policy);
             if (usk::json::canonical(device_owner_dacl_policy(
                     read_publisher_owner_dacl_from_handle(remounted.get()))) != expected) {
-                const auto& original_text = unpublished_device_transition->at("original_owner_dacl").as_string();
+                const auto& original_text = transition->at("original_owner_dacl").as_string();
                 const auto original = device_security_from_sddl(original_text);
                 // This pure derivation refuses outside mutation BEFORE any
                 // known-default reduction can run. E4's AU modify still refuses.
@@ -880,13 +908,25 @@ void require_exclusive_volume_admission(const std::wstring& name,
                 };
                 const auto require_bootstrap_identity = [&] {
                     ScopedControllerPrivilege backup_observation;
-                    if (usk::json::canonical(registration_volume_identity(root, true)) !=
-                            usk::json::canonical(unpublished_admission_identity->at("volume_identity")) ||
-                        usk::json::canonical(dedicated_target_disk_identity(root)) !=
-                            usk::json::canonical(unpublished_admission_identity->at("disk_identity")) ||
-                        usk::json::canonical(target_empty_namespace(remounted_root->get(), true)) !=
-                            usk::json::canonical(unpublished_admission_identity->at("metadata")))
-                        throw std::runtime_error("safe mounted bootstrap identity or namespace differs");
+                    if (unpublished_admission_identity) {
+                        // Preserve all original v3 predicates, including the
+                        // exact disk identity and unpublished empty namespace.
+                        if (usk::json::canonical(registration_volume_identity(root, true)) !=
+                                usk::json::canonical(unpublished_admission_identity->at("volume_identity")) ||
+                            usk::json::canonical(dedicated_target_disk_identity(root)) !=
+                                usk::json::canonical(unpublished_admission_identity->at("disk_identity")) ||
+                            usk::json::canonical(target_empty_namespace(remounted_root->get(), true)) !=
+                                usk::json::canonical(unpublished_admission_identity->at("metadata")))
+                            throw std::runtime_error("safe mounted bootstrap identity or namespace differs");
+                    } else {
+                        // Existing legacy callers already own the stopped SCM
+                        // configuration and exact protected dedicated root.
+                        // Do not pretend a populated legacy root is unpublished.
+                        if (!legacy_volume_identity ||
+                            usk::json::canonical(registration_volume_identity(root, true)) !=
+                                usk::json::canonical(*legacy_volume_identity))
+                            throw std::runtime_error("legacy mounted volume identity differs");
+                    }
                     observe_root();
                 };
                 require_original(locking_volume);
@@ -1210,9 +1250,8 @@ usk::json::Value device_owner_dacl_policy(const std::vector<BYTE>& bytes) {
         LPWSTR rendered = nullptr;
         if (!sid || !IsValidSid(sid) || !ConvertSidToStringSidW(sid, &rendered) || !rendered)
             throw std::runtime_error("mounted device principal is unavailable");
-        const auto text = utf8(rendered);
-        LocalFree(rendered);
-        return text;
+        std::unique_ptr<void, decltype(&LocalFree)> owned(rendered, &LocalFree);
+        return utf8(rendered);
     };
     Value::Array aces;
     for (DWORD index = 0; index < dacl->AceCount; ++index) {
@@ -1263,6 +1302,32 @@ std::vector<BYTE> intended_device_security(const std::vector<BYTE>& original,
             const_cast<BYTE*>(service_sid.data()));
     return usk::platform::windows::publisher_device_admission_postimage(owner, dacl,
         const_cast<BYTE*>(service_sid.data()));
+}
+
+// Read-only preparation, before the legacy controller's first ACL effect.
+// Only an explicit supported-policy decline can return no transition. Native
+// reads, formatting, allocation and postimage composition are hard failures.
+std::optional<usk::json::Value> legacy_safe_device_transition(const std::vector<BYTE>& original,
+    const std::vector<BYTE>& service_sid) {
+    if (original.empty() || original.size() > 65536u ||
+        !IsValidSecurityDescriptor(const_cast<BYTE*>(original.data())))
+        throw std::runtime_error("legacy mounted prestate is unavailable");
+    auto* descriptor = const_cast<BYTE*>(original.data());
+    PSID owner = nullptr; PACL dacl = nullptr; BOOL defaulted = FALSE, present = FALSE;
+    if (!GetSecurityDescriptorOwner(descriptor, &owner, &defaulted) ||
+        !GetSecurityDescriptorDacl(descriptor, &present, &dacl, &defaulted) || !present)
+        throw std::runtime_error("legacy mounted prestate cannot be decoded");
+    // Extra-completion budgets do not narrow the independent old locked route.
+    // Native failure still throws; only successfully observed bounds decline.
+    if (original.size() > 16384u) return std::nullopt;
+    const auto intended = publisher_try_read_only_device_admission_postimage(owner, dacl,
+        const_cast<BYTE*>(service_sid.data()));
+    if (!intended) return std::nullopt;
+    const auto original_text = owner_dacl_sddl(original);
+    if (original_text.size() > 8192u) return std::nullopt;
+    return usk::json::Value(usk::json::Value::Object{
+        {"original_owner_dacl", usk::json::Value(original_text)},
+        {"intended_policy", device_owner_dacl_policy(*intended)}});
 }
 
 usk::json::Value capture_mounted_device_transition(const std::wstring& volume,
