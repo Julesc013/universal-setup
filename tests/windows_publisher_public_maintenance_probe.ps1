@@ -67,8 +67,10 @@ function Invoke-StandardFreshMaintenance {
     New-Item -ItemType Directory -Path $sourceRoot|Out-Null
     # The initial install's source-free checks have already completed. Produce
     # a newly authored replacement archive now, from the same finite product.
-    $generated=& $PythonBinary -B (Join-Path $PSScriptRoot 'windows_publisher_metadata_inputs.py') `
-        --output $sourceRoot --target ($drive+'publication\destination\visible') --request-id ('maintenance.source.'+$id)
+    $replacementArguments=@('--output',$sourceRoot,'--target',($drive+'publication\destination\visible'),
+        '--request-id',('maintenance.source.'+$id))
+    if($authoredProduct){$replacementArguments+=@('--packaged-runtime',$MachineBinary)}
+    $generated=& $PythonBinary -B (Join-Path $PSScriptRoot 'windows_publisher_metadata_inputs.py') @replacementArguments
     if($LASTEXITCODE -ne 0){throw 'Maintenance replacement authoring failed'}
     $replacement=($generated -join "`n")|ConvertFrom-Json
     $result['replacement_archive']=$replacement
@@ -119,7 +121,7 @@ function Invoke-StandardFreshMaintenance {
             plan_id=('plan.'+$operation+'.'+$id);install_id=[string]$installed.install_id;created_at=$stamp}
         if($operation -ceq 'repair') {
             $planRequest.archive=@{format='zip';path=[string]$replacement.archive_file;
-                expected_sha256=[string]$replacement.archive_sha256;strip_prefix='pkg'}
+                expected_sha256=[string]$replacement.archive_sha256;strip_prefix=[string]$replacement.archive_strip_prefix}
         } elseif($operation -ceq 'move') {$planRequest.new_target=@{class='operator_acceptance';root=$movedRoot}}
         $requestPath=Join-Path $lab ('maintenance-plan-'+$operation+'.json')
         Write-Json $requestPath @{schema='usk.oneshot_request.v1';request_id=$planRequest.request_id;

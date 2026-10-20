@@ -106,6 +106,7 @@ def create_inputs(root: Path, target: Path, request_id: str, application_binary:
             "entrypoint": payload["recipe"]["entrypoints"][0]}) + "\n", encoding="utf-8")
     return {"request_file": str(destination), "archive_file": str(archive),
             "archive_sha256": request["payload"]["archive"]["expected_sha256"],
+            "archive_strip_prefix": request["payload"]["archive"]["strip_prefix"],
             "bundle_file": str(bundle), "options_file": str(options) if packaged_runtime is not None else None,
             "packaged_host": str(packaged / "usk_machine.exe") if packaged_runtime is not None else None,
             "source_files": [str(path) for path in (
