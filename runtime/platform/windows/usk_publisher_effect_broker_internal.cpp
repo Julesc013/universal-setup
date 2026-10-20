@@ -5,6 +5,7 @@
 #if defined(_WIN32)
 #include "usk_publisher_registration.h"
 #include "usk_publisher_effect_execution_internal.h"
+#include "usk_publisher_recovery_request_internal.h"
 #include "usk_publisher_request_channel.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_execution_observation.h"
@@ -765,75 +766,9 @@ Value parse_original_installation_minimum(const std::string& text) {
 bool is_installation_minimum(const Value& value) {
     return value.at("schema").as_string() == "usk.publisher_recovery_request.v1";
 }
-// A public request remains the authenticated transport identity. This closed
-// parsing extracts only a lookup relation; it never substitutes that smaller
-// relation for the request, reviewed recovery digest or selected action.
-const Value* public_recovery_inspection(const Value& request) {
-    const auto closed = [](const Value& value, const std::set<std::string>& fields) {
-        require(value.as_object().size() == fields.size(), "public recovery request is not closed");
-        for (const auto& item : value.as_object())
-            require(fields.count(item.first) != 0, "public recovery request field is unknown");
-    };
-    const auto text = [](const Value& value, const char* field, std::size_t limit) -> const std::string& {
-        const auto& result = value.at(field).as_string();
-        require(!result.empty() && result.size() <= limit && result.find('\0') == std::string::npos,
-            "public recovery request string exceeds its bound");
-        return result;
-    };
-    const auto identifier = [&](const Value& value, const char* field) {
-        require(usk::record_io::valid_identifier(text(value, field, 128u)),
-            "public recovery request identifier is invalid");
-    };
-    const auto& schema = request.at("schema").as_string();
-    const Value* inspection = nullptr;
-    const Value* plan = nullptr;
-    if (schema == "usk.recovery_inspect_request.v1") inspection = &request;
-    else if (schema == "usk.recovery_plan_request.v1") plan = &request;
-    else if (schema == "usk.recovery_apply_request.v1") {
-        closed(request, {"schema", "plan_request", "reviewed_plan_id", "reviewed_plan_digest",
-            "selected_action", "applied_at", "confirmation"});
-        identifier(request, "reviewed_plan_id");
-        require(hex(text(request, "reviewed_plan_digest", 64u), 64u), "public recovery reviewed digest differs");
-        const auto& action = text(request, "selected_action", 16u);
-        require((action == "finalize" || action == "rollback") &&
-            text(request, "confirmation", 5u) == "APPLY", "public recovery action or confirmation differs");
-        (void)text(request, "applied_at", 64u);
-        plan = &request.at("plan_request");
-    } else return nullptr; // Decline only an unrelated request family.
-    if (plan) {
-        closed(*plan, {"schema", "inspection", "recovery_plan_id", "created_at"});
-        require(plan->at("schema").as_string() == "usk.recovery_plan_request.v1",
-            "public recovery nested plan family differs");
-        identifier(*plan, "recovery_plan_id");
-        (void)text(*plan, "created_at", 64u);
-        if (schema == "usk.recovery_apply_request.v1")
-            require(request.at("reviewed_plan_id").as_string() == plan->at("recovery_plan_id").as_string(),
-                "public recovery reviewed plan ID differs from its complete plan request");
-        inspection = &plan->at("inspection");
-    }
-    require(inspection && inspection->at("schema").as_string() == "usk.recovery_inspect_request.v1",
-        "public recovery inspection family differs");
-    const auto& operation = text(*inspection, "operation", 16u);
-    require(operation == "install_local" || operation == "repair" || operation == "move" || operation == "uninstall",
-        "public recovery operation differs");
-    std::set<std::string> fields{"schema", "request_id", "install_id", "transaction_id",
-        "plan_id", "plan_digest", "operation", "target_root"};
-    if (inspection->contains("install_plan_request")) {
-        require(operation == "install_local", "public maintenance recovery supplied an install plan");
-        (void)inspection->at("install_plan_request").as_object();
-        fields.insert("install_plan_request");
-    }
-    closed(*inspection, fields);
-    for (const auto* field : {"request_id", "install_id", "transaction_id", "plan_id"}) identifier(*inspection, field);
-    require(hex(text(*inspection, "plan_digest", 64u), 64u), "public recovery original plan digest differs");
-    const auto target = std::filesystem::u8path(text(*inspection, "target_root", 32767u));
-    require(target.is_absolute() && target.lexically_normal() == target,
-        "public recovery target must be absolute and normalized");
-    return inspection;
-}
 
 void require_public_recovery_original_binding(const Value& actual, const Value& original_apply) {
-    const auto* inspection = public_recovery_inspection(actual);
+    const auto* inspection = usk::command::detail::publisher_public_recovery_inspection(actual);
     if (!inspection) return;
     require(original_apply.at("reviewed_plan_id").as_string() == inspection->at("plan_id").as_string() &&
         original_apply.at("reviewed_plan_digest").as_string() == inspection->at("plan_digest").as_string(),
@@ -854,7 +789,7 @@ std::string original_selection_schema(bool install, bool public_request) {
 
 Value parse_original_minimum(const std::string& text) {
     const auto actual = usk::json::parse(text);
-    if (const auto* inspection = public_recovery_inspection(actual)) {
+    if (const auto* inspection = usk::command::detail::publisher_public_recovery_inspection(actual)) {
         const bool install = inspection->at("operation").as_string() == "install_local";
         Value lookup(Value::Object{{"schema", Value(install ? "usk.publisher_recovery_request.v1" :
             "usk.publisher_maintenance_recovery_request.v1")},
@@ -1076,7 +1011,7 @@ struct PublisherOriginalRecoveryIntentQuery::State {
         }
         const auto actual = usk::json::parse(request);
         require_public_recovery_original_binding(actual, record.at("reviewed_snapshot").at("apply_request"));
-        if (const auto* inspection = public_recovery_inspection(actual)) {
+        if (const auto* inspection = usk::command::detail::publisher_public_recovery_inspection(actual)) {
             const auto& snapshot = record.at("reviewed_snapshot");
             const auto installed = install ? std::filesystem::path{} :
                 std::filesystem::u8path(snapshot.at("installed_state").at("target_root").as_string());
@@ -1236,7 +1171,7 @@ void require_protected_stored_object(const Value& value, const std::string& sid)
 namespace {
 void require_original_selection(const Value& selected, const Value& actual_request, const Value& broker, bool install) {
     const auto minimum = parse_original_minimum(usk::json::canonical(actual_request));
-    const bool public_request = public_recovery_inspection(actual_request) != nullptr;
+    const bool public_request = usk::command::detail::publisher_public_recovery_inspection(actual_request) != nullptr;
     require(install == is_installation_minimum(minimum), "broker original recovery family differs from its request");
     require_publisher_effect_broker_readback_record(broker);
     const bool present = selected.at("present").as_boolean();
@@ -1319,7 +1254,7 @@ struct PublisherEffectBrokerReadback::State {
         PublisherEffectWorkerCustody& owner) : admission(a), channel(c), volume(v), custody(owner),
         request(c.authenticated_canonical_request()) {
         const auto actual = usk::json::parse(request);
-        if (public_recovery_inspection(actual)) {
+        if (usk::command::detail::publisher_public_recovery_inspection(actual)) {
             installation_recovery = is_installation_minimum(parse_original_minimum(request));
             maintenance_recovery = !installation_recovery;
         } else {
@@ -1612,7 +1547,7 @@ struct PublisherEffectBrokerReadback::State {
                 std::wstring path; std::string sha;
                 (void)admission.select_reviewed_operation(original_request, channel, path, sha);
             }
-            const bool public_request = public_recovery_inspection(usk::json::parse(request)) != nullptr;
+            const bool public_request = usk::command::detail::publisher_public_recovery_inspection(usk::json::parse(request)) != nullptr;
             result = Value(Value::Object{{"schema", Value(original_selection_schema(installation_recovery, public_request))},
                 {"scope", Value(original_selection_scope(public_request))},
                 {"present", Value(admission.has_selected_reviewed_operation())}});
