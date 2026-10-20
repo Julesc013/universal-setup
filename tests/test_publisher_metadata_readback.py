@@ -15,6 +15,209 @@ import unittest
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_registered_legacy_profile_keeps_complete_state_without_lease_fallback(self):
+        # Exercise the actual enclosing profile branches and retained-state
+        # verifier with inert inputs; this does not qualify an SCM execution.
+        root = Path(__file__).resolve().parents[1]
+        code = r'''$ErrorActionPreference='Stop'
+. (Join-Path $env:USK_TEST_SOURCE 'windows_publisher_metadata_readback.ps1')
+. (Join-Path $env:USK_TEST_SOURCE 'windows_publisher_production_boundary.ps1')
+$tokens=$null;$errors=$null
+$source=Join-Path $env:USK_TEST_SOURCE 'windows_publisher_metadata_hosted_probe.ps1'
+$ast=[Management.Automation.Language.Parser]::ParseFile($source,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Registered profile source parse failed'}
+$sites=@($ast.FindAll({param($n)
+ $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+ $n.Right.Extent.Text.StartsWith('Assert-IndependentLeaseTransition ',[StringComparison]::Ordinal)
+},$true)|Sort-Object {$_.Extent.StartOffset})
+if($sites.Count -ne 3){throw 'Three mandatory admitted lease sites required'}
+$branches=@()
+foreach($site in $sites) {
+ $branch=$site.Parent.Parent
+ if($branch -isnot [Management.Automation.Language.IfStatementAst] -or
+    $branch.Clauses.Count -ne 1 -or $branch.Clauses[0].Item1.Extent.Text -cne '$AdmittedTarget' -or
+    -not $branch.ElseClause){throw 'Lease site lacks its explicit preselected profile branch'}
+ $branches+=@($branch)
+}
+$start=@($ast.FindAll({param($n)
+ $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+ $n.Left.Extent.Text -ceq '$configuredOriginal'},$true))
+$finish=@($ast.FindAll({param($n)
+ $n -is [Management.Automation.Language.AssignmentStatementAst] -and
+ $n.Left.Extent.Text -ceq '$receipt[''registered_execution_profile'']'},$true))
+if($start.Count -ne 1 -or $finish.Count -ne 1){throw 'Original profile capture is ambiguous'}
+$sourceText=[IO.File]::ReadAllText($source)
+$capture=[scriptblock]::Create($sourceText.Substring(
+ $start[0].Extent.StartOffset,$finish[0].Extent.EndOffset-$start[0].Extent.StartOffset))
+# Reuse the existing full synthetic installed/ownership/audit fixture.
+$seed=[IO.File]::ReadAllText((Join-Path $env:USK_TEST_SOURCE 'windows_publisher_metadata_readback_smoke.ps1'))
+$marker='Assert-IndependentMetadataProbe ($serialized|ConvertFrom-Json)'
+$end=$seed.IndexOf($marker,[StringComparison]::Ordinal)
+if($end -le 0){throw 'Existing inert complete-metadata fixture is absent'}
+. ([scriptblock]::Create($seed.Substring(0,$end))) -SourceRoot (Split-Path $env:USK_TEST_SOURCE -Parent)
+$base=$serialized
+$PythonBinary=$env:USK_TEST_PYTHON
+$rows=@()
+foreach($case in @('legacy','admitted_missing_ledger','command_mismatch','wrong_family',
+ 'broker_marker','before_coordination','after_coordination','empty','duplicate',
+ 'missing','additional','changed','wrong_root','wrong_observer','cleanup_unknown',
+ 'original_drift','wrong_installed','stale_effect','verify_effect','initial_no_anchors',
+ 'recover_snapshot','recover_completed','recover_reentry','recover_unknown','recover_wrong_volume',
+ 'recover_mixed','recover_wrong_installed','recover_impossible_guard','recover_absent_payload','recover_unheld_false','recover_held_null','recover_missing_guard_field')) {
+ $receipt=$base|ConvertFrom-Json
+ $receipt|Add-Member service ('USK_PUB_'+('1'*32))
+ $receipt|Add-Member source_mode 'registered_reviewed_service'
+ $receipt|Add-Member volume_guid_root '\\?\Volume{11111111-1111-1111-1111-111111111111}\'
+ $receipt|Add-Member protected_service_binary_sha256 ('a'*64)
+ $receipt|Add-Member authenticated_client ([pscustomobject]@{caller_sid='S-1-5-21-1-2-3-1001'})
+ $nativeRoot=('1'*16)+':'+('2'*32)
+ $receipt.independent|Add-Member native_volume_root_file_id $nativeRoot
+ $receipt.native|Add-Member protected_anchors ([pscustomobject]@{boundary_file_id=$nativeRoot})
+ $receipt.native|Add-Member service_name $receipt.service
+ $receipt.native|Add-Member service_sid $receipt.service_sid
+ $receipt.native|Add-Member install_operation_guard_held $true
+ $receipt.native|Add-Member install_operation_guard_abandoned $false
+ $receipt|Add-Member apply_request ([pscustomobject]@{transaction_id='tx.synthetic';applied_at='2026-09-26T00:00:00Z'})
+ foreach($key in @('registered_source_free_reentry','stale_minimal_recovery_refused','registered_installed_verify')) {
+  $receipt|Add-Member $key @{}
+ }
+ $snapshotRow=@($receipt.independent.rows|Where-Object path -ceq 'E:\publication\journal\lab-reviewed-plan.json')[0]
+ $snapshotDocument=$snapshotRow.content_json|ConvertFrom-Json
+ $snapshotDocument|Add-Member schema 'usk.publisher.lab_reviewed_plan_snapshot.v3'
+ $snapshotRow.content_json=$snapshotDocument|ConvertTo-Json -Depth 32 -Compress
+ $receipt.apply_request.applied_at=$snapshotDocument.applied_at
+ $readback=[pscustomobject]@{observer_task_removed=$true;independent=$receipt.independent}
+ $readback=$readback|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json
+ $repeat=$readback|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json
+ $afterStale=$readback|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json
+ $verifyRows=$readback|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json
+ $installed=(@($receipt.independent.rows|Where-Object { $_.path -ceq
+  'E:\setup-state\state\installed\org.example.synthetic.tx.synthetic.json' })[0].content_json)|ConvertFrom-Json
+ $installedResponse=@{payload=$installed}
+ $receipt.native|Add-Member volume_root $receipt.volume_guid_root
+ $receipt.native|Add-Member volume_file_id_serial ([Convert]::ToUInt64($nativeRoot.Substring(0,16),16))
+ $receipt.native|Add-Member apply_response ([pscustomobject]@{
+  status='ok';payload=($installed|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json)})
+ $recover=$case -cin @('recover_snapshot','recover_completed','recover_reentry','recover_unknown',
+  'recover_wrong_volume','recover_mixed','recover_wrong_installed','recover_impossible_guard',
+  'recover_absent_payload','recover_unheld_false','recover_held_null','recover_missing_guard_field')
+ if($recover) {
+  $receipt.native.PSObject.Properties.Remove('protected_anchors')
+  $receipt.native.apply_response=$null
+  $decision=switch($case) {
+   recover_snapshot {'snapshot_only_completed_forward'}
+   recover_completed {'installed_state_completed_forward'}
+   recover_unknown {'unexpected_recovery'}
+   default {'already_visible_bound'}
+  }
+  $nativeRecovery=[pscustomobject]@{decision=$decision}
+  if($case -ceq 'recover_snapshot') {
+   $nativeRecovery|Add-Member protected_anchors ([pscustomobject]@{boundary_file_id=$nativeRoot})
+  }
+  $receipt.native|Add-Member recovery_observation $nativeRecovery
+  $receipt.native|Add-Member recovery_installed_response ([pscustomobject]@{
+   status='ok';payload=($installed|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json)})
+  $receipt.native.install_operation_guard_held=$case -cne 'recover_completed'
+  $receipt.native.install_operation_guard_abandoned=$(if($case -ceq 'recover_completed'){$null}else{$true})
+ }
+ $AdmittedTarget=$case -ceq 'admitted_missing_ledger'
+ $service=$receipt.service;$sourceServiceHash='a'*64
+ $VolumeRoot=$receipt.volume_guid_root;$callerSid=$receipt.authenticated_client.caller_sid
+ $expectedRegisteredCommand='"C:\Program Files\Universal Setup\Publisher\owned.exe" --service '+$service+
+  ' --no-receipt '+$VolumeRoot+' --reviewed-plan-envelope "C:\owned\envelope.json" '+('b'*64)+
+  $(if($AdmittedTarget){' --service-admitted-client'}else{''})+' --authorized-client-sid '+$callerSid
+ function Get-CimInstance {param($ClassName,$Filter,$ErrorAction)
+  [pscustomobject]@{PathName=$script:observedCommand}}
+ $script:observedCommand=$expectedRegisteredCommand
+ if($case -ceq 'command_mismatch'){$script:observedCommand+=' --unexpected'}
+ $receiptMap=@{}
+ foreach($property in $receipt.PSObject.Properties){$receiptMap[$property.Name]=$property.Value}
+ $receipt=$receiptMap
+ $completed=0;$failure=$null
+ try {
+  . $capture
+  switch($case) {
+   initial_no_anchors {$receipt.native.PSObject.Properties.Remove('protected_anchors')}
+   recover_wrong_volume {$receipt.native.volume_file_id_serial=[uint64]1}
+   recover_mixed {$receipt.native|Add-Member protected_anchors @{boundary_file_id=$nativeRoot}}
+   recover_wrong_installed {$receipt.native.recovery_installed_response.payload.transaction_id='changed'}
+   recover_impossible_guard {$receipt.native.install_operation_guard_held=$false}
+   recover_absent_payload {$receipt.native.recovery_installed_response=$null}
+   recover_unheld_false {$receipt.native.install_operation_guard_held=$false;$receipt.native.install_operation_guard_abandoned=$false}
+   recover_held_null {$receipt.native.install_operation_guard_abandoned=$null}
+   recover_missing_guard_field {
+    $receipt.native.install_operation_guard_held=$false
+    $receipt.native.PSObject.Properties.Remove('install_operation_guard_abandoned')}
+   wrong_family {$receipt.registered_execution_profile.family='owned_effect_child_v1'}
+   broker_marker {$receipt.native|Add-Member registered_admission @{schema='unexpected'}}
+   before_coordination {
+    $extra=$readback.independent.rows[0]|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json
+    $extra.path='E:\installation-operations';$extra.directory=$true
+    $readback.independent.rows=@($readback.independent.rows)+@($extra)}
+   after_coordination {
+    $extra=$repeat.independent.rows[0]|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json
+    $extra.path='E:\setup-state\state\leases';$extra.directory=$true
+    $repeat.independent.rows=@($repeat.independent.rows)+@($extra)}
+   empty {$repeat.independent.rows=@()}
+   duplicate {$repeat.independent.rows=@($repeat.independent.rows)+@($repeat.independent.rows[0])}
+   missing {$repeat.independent.rows=@($repeat.independent.rows|Select-Object -Skip 1)}
+   additional {
+    $extra=$repeat.independent.rows[0]|ConvertTo-Json -Depth 64 -Compress|ConvertFrom-Json
+    $extra.path='E:\unexpected';$repeat.independent.rows=@($repeat.independent.rows)+@($extra)}
+   changed {$repeat.independent.rows[0].sha256='f'*64}
+   wrong_root {$repeat.independent.native_volume_root_file_id=('f'*16)+':'+('e'*32)}
+   wrong_observer {$repeat.independent.identity='S-1-5-19'}
+   cleanup_unknown {$repeat.observer_task_removed=$false}
+   original_drift {$receipt.independent.rows[0].content_json='{}'}
+   wrong_installed {$installedResponse.payload.transaction_id='wrong'}
+   stale_effect {$afterStale.independent.rows[0].sha256='f'*64}
+   verify_effect {$verifyRows.independent.rows[0].sha256='f'*64}
+  }
+  foreach($branch in $branches){. ([scriptblock]::Create($branch.Extent.Text));$completed++}
+ } catch {$failure=$_.Exception.Message}
+ $rows+=@{case=$case;completed=$completed;failure=$failure;
+  legacy=@($receipt.registered_source_free_reentry.legacy_retained_state,
+   $receipt.stale_minimal_recovery_refused.legacy_retained_state,
+   $receipt.registered_installed_verify.legacy_retained_state);
+  broker_proof_present=($null -ne $receipt.registered_source_free_reentry.lease_transition)}
+}
+$rows|ConvertTo-Json -Depth 12 -Compress
+'''
+        environment = dict(os.environ, USK_TEST_SOURCE=str(root / 'tests'),
+                           USK_TEST_PYTHON=os.sys.executable)
+        for shell in [shutil.which('pwsh'), shutil.which('powershell.exe')]:
+            self.assertIsNotNone(shell)
+            result = subprocess.run([shell, '-NoProfile', '-NonInteractive',
+                                     '-ExecutionPolicy', 'Bypass', '-Command', code],
+                                    env=environment, capture_output=True, text=True, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr[-4096:])
+            rows = json.loads(result.stdout)
+            self.assertEqual(len(rows), 32)
+            for row in rows:
+                expected = {'legacy': 3, 'recover_snapshot': 3, 'recover_completed': 3,
+                            'recover_reentry': 3, 'stale_effect': 1, 'verify_effect': 2}.get(row['case'], 0)
+                self.assertEqual(row['completed'], expected, row)
+                self.assertIs(row['broker_proof_present'], False, row)
+                if row['case'] in ('legacy', 'recover_snapshot', 'recover_completed', 'recover_reentry'):
+                    self.assertIsNone(row['failure'])
+                    for proof in row['legacy']:
+                        self.assertEqual(proof['status'], 'unchanged_legacy_endpoints')
+                        self.assertIs(proof['lease_coordination_observed'], False)
+                        self.assertIs(proof['fencing_qualified'], False)
+                        self.assertIs(proof['profile_qualified'], False)
+                        self.assertIs(proof['publication_authority_granted'], False)
+                        self.assertEqual(proof['original_operation'],
+                                         'initial_install' if row['case'] == 'legacy' else 'source_free_recovery')
+                        self.assertEqual(proof['original_install_guard_held'], row['case'] != 'recover_completed')
+                        self.assertIs(proof['original_install_guard_abandoned'],
+                                      None if row['case'] == 'recover_completed' else
+                                      row['case'] in ('recover_snapshot', 'recover_reentry'))
+                else:
+                    self.assertIsNotNone(row['failure'], row)
+                    if row['case'] == 'admitted_missing_ledger':
+                        self.assertIn('current producer is missing all installation coordination',
+                                      row['failure'] + result.stderr)
+
     def test_controller_uses_complete_lease_postimage_and_verified_repair(self):
         # Execute the actual controller statement range and real pair checker;
         # synthetic rows grant no native observer, actor or retirement verdict.
