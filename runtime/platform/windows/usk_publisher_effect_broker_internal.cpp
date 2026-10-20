@@ -2355,46 +2355,60 @@ Value publisher_expand_record_access(Value compact, const Value& client, const V
 Value publisher_expand_record_access(Value compact, const PublisherAuthenticatedClientValidation& client, const Value& object) {
     return expand_record_access(std::move(compact), client.client(), object, &client);
 }
+void require_publisher_compact_maintenance_read_only_access(const Value& compact,
+    const PublisherAuthenticatedClientValidation& client, const Value& object) {
+    require_compact_record_shape(compact);
+    // The old expansion supplied these two binding trees itself. Validate the
+    // same original raw8 projection against their exact owned values directly;
+    // supplied hashes, descriptor bytes, every ACE and all nine denials remain.
+    require_publisher_authenticated_raw_object_access(compact, client, object);
+    constexpr DWORD mutation = FILE_WRITE_DATA | FILE_APPEND_DATA | FILE_WRITE_EA | FILE_DELETE_CHILD |
+        FILE_WRITE_ATTRIBUTES | DELETE | WRITE_DAC | WRITE_OWNER;
+    for (const auto& [name, check] : compact.at("checks").as_object())
+        if (name == "maximum_allowed" ? (check.at("granted").as_unsigned() & mutation) != 0 :
+                check.at("allowed").as_boolean() || check.at("granted").as_unsigned() != 0)
+            throw std::runtime_error("native maintenance caller retains object mutation rights");
+}
+void require_publisher_record_result_access(const Value& view, std::size_t index,
+    const PublisherAuthenticatedClientValidation& client, const Value& object) {
+    require(view.as_object().size() == 3u && view.contains("client") &&
+        view.contains("native_objects") && view.contains("results"), "record result view is not closed");
+    const auto& objects = view.at("native_objects").as_array();
+    const auto& results = view.at("results").as_array();
+    require(!objects.empty() && objects.size() <= publisher_record_byte_occurrence_limit &&
+        results.size() == 2u * objects.size() && index < results.size(),
+        "record result view count or ordered occurrence differs");
+    require(same(view.at("client"), client.client()) && same(objects[index % objects.size()], object),
+        "record result view literal client or object binding differs");
+    require_publisher_compact_maintenance_read_only_access(results[index], client, object);
+}
 std::size_t publisher_preflight_expanded_record_results(const Value& packet,
     const Value& client, const Value& objects, std::size_t remaining_proof_bytes) {
     const auto& encoded = packet.at("results").as_array();
     const auto& expected = objects.as_array();
     require(!encoded.empty() && encoded.size() <= publisher_object_access_batch_limit && encoded.size() == expected.size(),
         "record expansion count differs from its ordered ledger chunk");
-    usk::json::ParseLimits limits;
-    limits.max_string_bytes = limits.max_bytes;
-    const Value sequence(std::numeric_limits<std::uint64_t>::max()), binding(std::string(64u, 'a')), empty_body;
-    const auto wrapper_bytes = usk::json::canonical_object({
-        {"sequence", std::cref(sequence)}, {"binding_sha256", std::cref(binding)},
-        {"body", std::cref(empty_body)}}).size() - 4u; // null body excluded
-    require(wrapper_bytes <= limits.max_bytes, "record expansion wrapper exceeds its byte budget");
-    limits.max_bytes -= wrapper_bytes;
-    // The actual wire wrapper places this body at depth1 and each result at
-    // depth3. Final expanded packet validation still checks ALL aggregate
-    // value/depth/string limits, not merely this resource preflight.
-    --limits.max_depth;
-    const auto packet_bytes = usk::json::require_canonical_object_encoded_size(borrowed_object_fields(packet), limits);
-    limits.max_depth -= 2u;
-    std::size_t compact_rows = 0, expanded_rows = 0;
+    std::vector<usk::json::CanonicalObjectView> expanded;
+    expanded.reserve(encoded.size());
     for (std::size_t index = 0; index < encoded.size(); ++index) {
         require_compact_record_shape(encoded[index]);
         auto fields = borrowed_object_fields(encoded[index]);
-        const auto compact_bytes = usk::json::require_canonical_object_encoded_size(fields, limits);
-        require(compact_rows <= packet_bytes && compact_bytes <= packet_bytes - compact_rows,
-            "record expansion compact size accounting differs");
-        compact_rows += compact_bytes;
         fields.erase("client_sha256"); fields.erase("native_object_sha256");
         fields.emplace("client", std::cref(client)); fields.emplace("native_object", std::cref(expected[index]));
-        const auto expanded_bytes = usk::json::require_canonical_object_encoded_size(fields, limits);
-        require(expanded_rows <= limits.max_bytes && expanded_bytes <= limits.max_bytes - expanded_rows,
-            "record expanded rows exceed the original packet bound");
-        expanded_rows += expanded_bytes;
+        expanded.push_back(std::move(fields));
     }
-    const auto envelope_bytes = packet_bytes - compact_rows;
-    require(envelope_bytes <= limits.max_bytes && expanded_rows <= limits.max_bytes - envelope_bytes &&
-        envelope_bytes <= remaining_proof_bytes && expanded_rows <= remaining_proof_bytes - envelope_bytes,
-        "record expansion exceeds the original packet or cumulative proof bound");
-    return envelope_bytes + expanded_rows;
+    usk::json::ParseLimits limits;
+    limits.max_string_bytes = limits.max_bytes;
+    const Value sequence(std::numeric_limits<std::uint64_t>::max()), binding(std::string(64u, 'a'));
+    // Validate the complete ORIGINAL raw8 packet inside its actual worst-case
+    // transport wrapper in one walk. Depth, values, strings and encoded bytes
+    // accumulate across all rows and wrapper fields, exactly as record_charge.
+    // No expanded binding subtree or second decoded packet is constructed.
+    const auto bytes = usk::json::require_canonical_object_array_view_member_parse_limits({
+        {"sequence", std::cref(sequence)}, {"binding_sha256", std::cref(binding)},
+        {"body", std::cref(packet)}}, limits, "body", packet.at("results"), expanded);
+    require(bytes <= remaining_proof_bytes, "record expansion exceeds the original cumulative proof bound");
+    return bytes;
 }
 struct PublisherEffectRecordByteRound::State {
     PublisherEffectWorkerPeer& peer;
@@ -2622,8 +2636,8 @@ PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
             std::set<std::string>{"profile_before", "profile", "selection_before", "selection"} :
             std::set<std::string>{"profile_before", "profile"});
         record_charge(s.proof_bytes, final);
-        Value::Array raw_results;
-        raw_results.reserve(2u * count);
+        Value::Array compact_results;
+        compact_results.reserve(2u * count);
         const auto chunk_count = scope.at("chunk_count").as_unsigned();
         require(chunk_count > 0u && chunk_count <= publisher_record_byte_chunk_limit,
             "child record final stream chunk count exceeds its bound");
@@ -2638,16 +2652,17 @@ PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
                     packet.at("native_objects_sha256").as_string() == usk::json::sha256_canonical(expected) &&
                     packet.at("results").as_array().size() == expected.as_array().size(),
                     "child record byte final raw result order/count/digest differs");
-                (void)publisher_preflight_expanded_record_results(packet, state_->baseline.at("authenticated_client"),
-                    expected, publisher_record_byte_proof_bytes_limit - s.proof_bytes);
+                const auto logical_bytes = publisher_preflight_expanded_record_results(packet,
+                    state_->baseline.at("authenticated_client"), expected,
+                    publisher_record_byte_proof_bytes_limit - s.proof_bytes);
                 auto& decoded_results = packet.as_object().at("results").as_array();
                 for (std::size_t offset = 0; offset < expected.as_array().size(); ++offset)
-                    decoded_results[offset] = publisher_expand_record_access(std::move(decoded_results[offset]),
+                    require_publisher_compact_maintenance_read_only_access(decoded_results[offset],
                         client_validation, expected.as_array()[offset]);
-                // Full parser limits and cumulative charging apply to the
-                // restored ORIGINAL raw8 frame before any row is retained.
-                record_charge(s.proof_bytes, packet);
-                for (auto& access : decoded_results) raw_results.push_back(std::move(access));
+                // Charge the exact ORIGINAL raw8 logical frame, not compact
+                // storage. Complete aggregate/wrapper limits were checked above.
+                s.proof_bytes += logical_bytes;
+                for (auto& access : decoded_results) compact_results.push_back(std::move(access));
                 (void)s.remaining();
             }
         s.require_binding(); // Actual post-final wire peer/image/token joins.
@@ -2670,7 +2685,9 @@ PublisherEffectWorkerReadback::maintenance_record_bytes_bracket(
         }
         (void)s.remaining();
         return {{std::move(final.as_object().at("profile_before")),
-            std::move(final.as_object().at("profile")), Value(std::move(raw_results))}, std::move(selection)};
+            std::move(final.as_object().at("profile")), Value(Value::Object{
+                {"client", state_->baseline.at("authenticated_client")}, {"native_objects", ledger},
+                {"results", Value(std::move(compact_results))}})}, std::move(selection)};
     } catch (...) { state_->failed = true; throw; }
 }
 

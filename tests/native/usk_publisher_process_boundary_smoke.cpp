@@ -1435,6 +1435,43 @@ void effect_execution_record_controls() {
             !encoded_access.contains("native_object"), "record transport retained repeated binding trees");
         check(usk::json::equal_values(publisher_expand_record_access(encoded_access, client, object(2)), denied_access),
             "record compact round trip changed the full original raw result");
+        const PublisherAuthenticatedClientValidation compact_validation(client);
+        require_publisher_compact_maintenance_read_only_access(encoded_access, compact_validation, object(2));
+        const auto encoded_other = publisher_compact_record_access(access_row(object(3)), client, object(3));
+        const Value shared_view(Value::Object{{"client", client},
+            {"native_objects", Value(Value::Array{object(2), object(3)})},
+            {"results", Value(Value::Array{encoded_access, encoded_other, encoded_access, encoded_other})}});
+        const auto shared_before = usk::json::canonical(shared_view);
+        for (std::size_t index = 0; index < 4u; ++index)
+            require_publisher_record_result_access(shared_view, index, compact_validation, object(2u + index % 2u));
+        check(usk::json::canonical(shared_view) == shared_before, "record result view changed its owned input");
+        sequence_refused([&] { require_publisher_record_result_access(shared_view, 4u, compact_validation, object(2)); });
+        for (unsigned variant = 0; variant < 6u; ++variant) {
+            auto changed = shared_view;
+            if (variant == 0) changed.as_object().at("client").as_object().at("captured_process_id") = Value(std::uint64_t{99});
+            if (variant == 1) std::swap(changed.as_object().at("native_objects").as_array()[0],
+                changed.as_object().at("native_objects").as_array()[1]);
+            if (variant == 2) std::swap(changed.as_object().at("results").as_array()[0],
+                changed.as_object().at("results").as_array()[1]);
+            if (variant == 3) changed.as_object().at("results").as_array().pop_back();
+            if (variant == 4) changed.as_object().emplace("unexpected", Value());
+            if (variant == 5) changed.as_object().at("native_objects") = Value(Value::Array{});
+            sequence_refused([&] { require_publisher_record_result_access(changed, 0u, compact_validation, object(2)); });
+        }
+        const Value repeated_view(Value::Object{{"client", client},
+            {"native_objects", Value(Value::Array{object(2), object(2)})},
+            {"results", Value(Value::Array{encoded_access, encoded_access, encoded_access, encoded_access})}});
+        for (std::size_t index = 0; index < 4u; ++index)
+            require_publisher_record_result_access(repeated_view, index, compact_validation, object(2));
+        // Every malformed compact control below must have the same outcome
+        // through old expansion and direct retained-row validation.
+        const auto compact_refused = [&](const Value& candidate, const Value& selected_client, const Value& selected_object) {
+            const auto before = usk::json::canonical(candidate);
+            sequence_refused([&] { (void)publisher_expand_record_access(candidate, selected_client, selected_object); });
+            const PublisherAuthenticatedClientValidation validation(selected_client);
+            sequence_refused([&] { require_publisher_compact_maintenance_read_only_access(candidate, validation, selected_object); });
+            check(usk::json::canonical(candidate) == before, "compact refusal changed input data");
+        };
         auto restored_access = publisher_expand_record_access(encoded_access, client, object(2));
         restored_access.as_object().at("client").as_object().at("captured_process_id") = Value(std::uint64_t{99});
         check(!usk::json::equal_values(restored_access.at("client"), client),
@@ -1447,26 +1484,26 @@ void effect_execution_record_controls() {
         }
         for (const auto& field : encoded_access.as_object()) {
             auto missing = encoded_access; missing.as_object().erase(field.first);
-            sequence_refused([&] { (void)publisher_expand_record_access(missing, client, object(2)); });
+            compact_refused(missing, client, object(2));
             auto mistyped = encoded_access; mistyped.as_object().at(field.first) = Value();
-            sequence_refused([&] { (void)publisher_expand_record_access(mistyped, client, object(2)); });
+            compact_refused(mistyped, client, object(2));
         }
         for (const auto* key : {"client_sha256","native_object_sha256"}) {
             auto changed = encoded_access; changed.as_object().at(key) = Value(std::string(64u,'f'));
-            sequence_refused([&] { (void)publisher_expand_record_access(changed, client, object(2)); });
+            compact_refused(changed, client, object(2));
         }
         for (const auto* key : {"client","native_object","unexpected"}) {
             auto changed = encoded_access; changed.as_object().emplace(key, Value());
-            sequence_refused([&] { (void)publisher_expand_record_access(changed, client, object(2)); });
+            compact_refused(changed, client, object(2));
         }
         auto changed_descriptor = encoded_access;
         changed_descriptor.as_object().at("descriptor_hex") = Value("00");
-        sequence_refused([&] { (void)publisher_expand_record_access(changed_descriptor, client, object(2)); });
+        compact_refused(changed_descriptor, client, object(2));
         auto changed_right = encoded_access;
         changed_right.as_object().at("checks").as_object().at("write_dac").as_object().at("allowed") = Value(true);
-        sequence_refused([&] { (void)publisher_expand_record_access(changed_right, client, object(2)); });
-        sequence_refused([&] { (void)publisher_expand_record_access(encoded_access, large_client, object(2)); });
-        sequence_refused([&] { (void)publisher_expand_record_access(encoded_access, client, object(3)); });
+        compact_refused(changed_right, client, object(2));
+        compact_refused(encoded_access, large_client, object(2));
+        compact_refused(encoded_access, client, object(3));
         {
             auto compact_fixture = stream_frames(8u);
             auto expanded_fixture = compact_fixture;

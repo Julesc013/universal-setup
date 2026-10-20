@@ -454,6 +454,13 @@ void append_canonical(Output& output, const Value& value)
 class CanonicalBudget {
 public:
     explicit CanonicalBudget(const ParseLimits& limits) : limits_(limits) {}
+    CanonicalBudget(const ParseLimits& limits, const Value& array,
+        const std::vector<CanonicalObjectView>& entries)
+        : limits_(limits), replaced_array_(&array), replacement_entries_(&entries)
+    {
+        if (array.as_array().size() != entries.size())
+            throw std::runtime_error("JSON array view count differs from its original array");
+    }
     std::size_t object(const CanonicalObjectView& fields) { (void)object_member(fields, nullptr); return bytes_; }
     std::size_t object_member(const CanonicalObjectView& fields, const std::string* selected)
     {
@@ -462,10 +469,14 @@ public:
         bool first = true, found = false;
         std::size_t selected_bytes = 0;
         for (const auto& field : fields) {
+            in_selected_ = selected && field.first == *selected;
             const auto encoded = member(field.first, field.second.get(), 0, first);
-            if (selected && field.first == *selected) { found = true; selected_bytes = encoded; }
+            if (in_selected_) { found = true; selected_bytes = encoded; }
+            in_selected_ = false;
         }
         if (selected && !found) throw std::runtime_error("JSON selected object member is absent");
+        if (replaced_array_ && !replacement_seen_)
+            throw std::runtime_error("JSON array view is outside its selected member");
         return selected_bytes;
     }
 private:
@@ -524,6 +535,22 @@ private:
         case Value::Type::array: {
             bytes(2);
             bool first = true;
+            if (&item == replaced_array_) {
+                if (!in_selected_ || replacement_seen_)
+                    throw std::runtime_error("JSON array view has another occurrence or owner");
+                replacement_seen_ = true;
+                for (const auto& fields : *replacement_entries_) {
+                    if (!first) bytes(1);
+                    first = false;
+                    if (depth >= limits_.max_depth) throw std::runtime_error("JSON exceeds depth budget");
+                    count_value(depth + 1);
+                    bytes(2);
+                    bool first_field = true;
+                    for (const auto& field : fields)
+                        member(field.first, field.second.get(), depth + 1, first_field);
+                }
+                return;
+            }
             for (const auto& entry : item.as_array()) {
                 if (!first) bytes(1);
                 first = false;
@@ -541,6 +568,9 @@ private:
     }
     const ParseLimits& limits_;
     std::size_t bytes_ = 0, values_ = 0;
+    const Value* replaced_array_ = nullptr;
+    const std::vector<CanonicalObjectView>* replacement_entries_ = nullptr;
+    bool replacement_seen_ = false, in_selected_ = false;
 };
 
 } // namespace
@@ -586,6 +616,13 @@ void require_canonical_object_parse_limits(const CanonicalObjectView& fields, co
 std::size_t require_canonical_object_encoded_size(const CanonicalObjectView& fields, const ParseLimits& limits)
 {
     return CanonicalBudget(limits).object(fields);
+}
+
+std::size_t require_canonical_object_array_view_member_parse_limits(
+    const CanonicalObjectView& fields, const ParseLimits& limits, const std::string& selected,
+    const Value& array, const std::vector<CanonicalObjectView>& entries)
+{
+    return CanonicalBudget(limits, array, entries).object_member(fields, &selected);
 }
 
 bool equal_values(const Value& left, const Value& right)

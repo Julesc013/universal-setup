@@ -4600,18 +4600,19 @@ void NativeMaintenanceContext::Impl::AuthorityRecordRead::read_original_bytes() 
     s.require_frozen();
     s.bytes_checked = true;
 }
-void NativeMaintenanceContext::Impl::AuthorityRecordRead::finalize(const Value& raw_results) {
+void NativeMaintenanceContext::Impl::AuthorityRecordRead::finalize(const Value& record_view) {
     auto& s = *state_;
     s.require_frozen();
+    const auto& results = record_view.at("results").as_array();
     if (s.active_round || s.completed_rounds != 2u || !s.bytes_checked || !s.selection_before_checked ||
-        !s.selection_after_checked || s.finalized || raw_results.as_array().size() != 2u * s.ordered.size() ||
+        !s.selection_after_checked || s.finalized || (results.empty() || results.size() != 2u * s.ordered.size()) ||
         (s.byte_entry != nullptr) != s.file_result.has_value() ||
         s.installed_maximum.has_value() != s.installed_result.has_value())
         throw std::runtime_error("native maintenance authority record final proof is incomplete");
-    if (!raw_results.as_array().empty()) {
+    if (!results.empty()) {
         const PublisherAuthenticatedClientValidation validation(s.owner.client);
-        for (std::size_t index = 0; index < raw_results.as_array().size(); ++index)
-            require_publisher_maintenance_read_only_access(raw_results.as_array()[index], validation,
+        for (std::size_t index = 0; index < results.size(); ++index)
+            require_publisher_record_result_access(record_view, index, validation,
                 publisher_handle_observation_json(s.ordered[index % s.ordered.size()]));
     }
     // Entire native group is joined AFTER all global/wire/owner results. Every
@@ -4992,22 +4993,23 @@ void NativeMaintenanceContext::Impl::RecipeQueryRead::read_original_bytes() {
     s.require_frozen();
     s.bytes_checked = true;
 }
-void NativeMaintenanceContext::Impl::RecipeQueryRead::finalize(const Value& raw_results) {
+void NativeMaintenanceContext::Impl::RecipeQueryRead::finalize(const Value& record_view) {
     auto& s = *state_;
     s.require_frozen();
+    const auto& results = record_view.at("results").as_array();
     const bool selection_complete = s.recipe_selection_deferred ?
         (!s.selection_before_checked && !s.selection_after_checked) :
         (s.selection_before_checked && s.selection_after_checked);
     if (s.active_round || s.completed_rounds != 2u || !s.bytes_checked || !selection_complete ||
-        s.finalized || raw_results.as_array().size() != 2u * s.ordered.size() ||
+        s.finalized || (results.empty() || results.size() != 2u * s.ordered.size()) ||
         (s.byte_entry != nullptr) != s.file_result.has_value() ||
         (s.paired_byte_entry != nullptr) != s.paired_file_result.has_value() ||
         s.installed_maximum.has_value() != s.installed_result.has_value())
         throw std::runtime_error("native maintenance recipe query record final proof is incomplete");
-    if (!raw_results.as_array().empty()) {
+    if (!results.empty()) {
         const PublisherAuthenticatedClientValidation validation(s.owner.client);
-        for (std::size_t index = 0; index < raw_results.as_array().size(); ++index)
-            require_publisher_maintenance_read_only_access(raw_results.as_array()[index], validation,
+        for (std::size_t index = 0; index < results.size(); ++index)
+            require_publisher_record_result_access(record_view, index, validation,
                 publisher_handle_observation_json(s.ordered[index % s.ordered.size()]));
     }
     // Entire native group is joined AFTER all global/wire/owner results. Every
@@ -5144,16 +5146,17 @@ void NativeMaintenanceContext::RecordByteRead::read_original_bytes() {
     s.require_frozen();
     s.bytes_checked = true;
 }
-void NativeMaintenanceContext::RecordByteRead::finalize(const Value& raw_results) {
+void NativeMaintenanceContext::RecordByteRead::finalize(const Value& record_view) {
     auto& s = *state_;
     s.require_frozen();
+    const auto& results = record_view.at("results").as_array();
     if (s.active_round || s.completed_rounds != 2u || !s.bytes_checked || s.finalized ||
-        raw_results.as_array().size() != 2u * s.ordered.size())
+        (results.empty() || results.size() != 2u * s.ordered.size()))
         throw std::runtime_error("native maintenance record byte final proof is incomplete");
-    if (!raw_results.as_array().empty()) {
+    if (!results.empty()) {
         const PublisherAuthenticatedClientValidation validation(s.owner.client);
-        for (std::size_t index = 0; index < raw_results.as_array().size(); ++index)
-            require_publisher_maintenance_read_only_access(raw_results.as_array()[index], validation,
+        for (std::size_t index = 0; index < results.size(); ++index)
+            require_publisher_record_result_access(record_view, index, validation,
                 publisher_handle_observation_json(s.ordered[index % s.ordered.size()].facts));
     }
     // Fresh native held facts, actual listings and new positively closed

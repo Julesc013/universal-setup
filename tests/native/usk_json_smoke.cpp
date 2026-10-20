@@ -309,6 +309,94 @@ int main()
         budget.max_depth = 0;
         if (!agrees({}, budget)) return 12;
     }
+    // Compare virtual array-object rows against the independent fully owned
+    // canonical encoding/parser, including aggregate values and wrapper depth.
+    for (const auto& body : {Value(), Value(controls), Value(std::string("\xc0\xaf")),
+            Value(Value::Array(15u, Value(true))), usk::json::parse("{\"a\":[[false],{\"z\":\"x\"}]}")}) {
+        const Value compact(Value::Array{Value(Value::Object{}), Value(Value::Object{})});
+        const Value packet(Value::Object{{"results", compact}, {"tag", Value("shared")}});
+        const std::vector<usk::json::CanonicalObjectView> rows{
+            {{"left", std::cref(body)}, {"right", std::cref(body)}},
+            {{"left", std::cref(body)}, {"right", std::cref(body)}}};
+        const Value expanded_row(Value::Object{{"left", body}, {"right", body}});
+        const Value expanded(Value::Object{{"results", Value(Value::Array{expanded_row, expanded_row})},
+            {"tag", Value("shared")}});
+        const usk::json::CanonicalObjectView wrapper{{"sequence", std::cref(sequence)},
+            {"binding_sha256", std::cref(binding)}, {"body", std::cref(packet)}};
+        const usk::json::CanonicalObjectView oracle{{"sequence", std::cref(sequence)},
+            {"binding_sha256", std::cref(binding)}, {"body", std::cref(expanded)}};
+        const auto encoded = usk::json::canonical_object(oracle);
+        const auto expected_bytes = usk::json::canonical(expanded).size();
+        const auto before = usk::json::canonical(packet);
+        const auto agrees_array = [&](const usk::json::ParseLimits& limits) {
+            bool expected_ok = true, actual_ok = true;
+            std::size_t actual_bytes = 0;
+            try { (void)usk::json::parse(encoded, limits); } catch (const std::runtime_error&) { expected_ok = false; }
+            try { actual_bytes = usk::json::require_canonical_object_array_view_member_parse_limits(
+                wrapper, limits, "body", packet.at("results"), rows); }
+            catch (const std::runtime_error&) { actual_ok = false; }
+            return expected_ok == actual_ok && (!actual_ok || actual_bytes == expected_bytes);
+        };
+        for (std::size_t bound = 0; bound <= encoded.size() + 1u; ++bound) {
+            usk::json::ParseLimits limits; limits.max_bytes = bound;
+            if (!agrees_array(limits)) return 31;
+        }
+        for (std::size_t bound = 0; bound <= 160u; ++bound) {
+            usk::json::ParseLimits limits; limits.max_values = bound;
+            if (!agrees_array(limits)) return 31;
+            limits = {}; limits.max_string_bytes = bound;
+            if (!agrees_array(limits)) return 31;
+        }
+        for (std::size_t bound = 0; bound <= 12u; ++bound) {
+            usk::json::ParseLimits limits; limits.max_depth = bound;
+            if (!agrees_array(limits)) return 31;
+        }
+        if (usk::json::canonical(packet) != before) return 32;
+    }
+    {
+        const Value item(true), compact(Value::Array{Value(Value::Object{})});
+        const Value packet(Value::Object{{"results", compact}});
+        const std::vector<usk::json::CanonicalObjectView> rows{{{"value", std::cref(item)}}};
+        const usk::json::CanonicalObjectView wrapper{{"body", std::cref(packet)}};
+        allocations_remaining = 0; fail_allocations = true;
+        bool no_allocation = false;
+        try { no_allocation = usk::json::require_canonical_object_array_view_member_parse_limits(
+            wrapper, {}, "body", packet.at("results"), rows) ==
+                sizeof("{\"results\":[{\"value\":true}]}") - 1u; }
+        catch (...) {}
+        fail_allocations = false;
+        if (!no_allocation) return 33;
+        if (!refuses([&] { (void)usk::json::require_canonical_object_array_view_member_parse_limits(
+                wrapper, {}, "body", compact, rows); }) ||
+            !refuses([&] { (void)usk::json::require_canonical_object_array_view_member_parse_limits(
+                wrapper, {}, "absent", packet.at("results"), rows); }) ||
+            !refuses([&] { (void)usk::json::require_canonical_object_array_view_member_parse_limits(
+                wrapper, {}, "body", packet.at("results"), {}); })) return 34;
+        const usk::json::CanonicalObjectView aliased{{"body", std::cref(packet)}, {"other", std::cref(packet)}};
+        if (!refuses([&] { (void)usk::json::require_canonical_object_array_view_member_parse_limits(
+                aliased, {}, "body", packet.at("results"), rows); })) return 34;
+        const std::vector<usk::json::CanonicalObjectView> recursive{{{"value", std::cref(packet.at("results"))}}};
+        if (!refuses([&] { (void)usk::json::require_canonical_object_array_view_member_parse_limits(
+                wrapper, {}, "body", packet.at("results"), recursive); })) return 34;
+    }
+    {
+        const Value empty(Value::Array{}), packet(Value::Object{{"results", Value(Value::Array{})}});
+        const usk::json::CanonicalObjectView wrapper{{"body", std::cref(packet)}};
+        const auto encoded = usk::json::canonical_object(wrapper);
+        for (std::size_t bound = 0; bound < 7u; ++bound) {
+            for (const bool values : {false, true}) {
+                usk::json::ParseLimits limits;
+                if (values) limits.max_values = bound; else limits.max_depth = bound;
+                bool expected_ok = true, actual_ok = true;
+                try { (void)usk::json::parse(encoded, limits); } catch (const std::runtime_error&) { expected_ok = false; }
+                try { (void)usk::json::require_canonical_object_array_view_member_parse_limits(
+                    wrapper, limits, "body", packet.at("results"), {}); }
+                catch (const std::runtime_error&) { actual_ok = false; }
+                if (expected_ok != actual_ok) return 35;
+            }
+        }
+        (void)empty;
+    }
     usk::json::ParseLimits packet_budget;
     packet_budget.max_string_bytes = packet_budget.max_bytes;
     const Value empty_body("");
