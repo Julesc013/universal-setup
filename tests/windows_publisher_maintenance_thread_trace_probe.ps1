@@ -66,6 +66,11 @@ $receipt=[ordered]@{
         requested=$cpuCapture;provider_guid='7e4a4d0e-4d53-4c2d-93a3-6ba61cf46711';
         configured_user_buffer_bytes=$(if($cpuCapture){8388608}else{0});
         maximum_submission_attempts_per_process=16384;actual_events_verified=$false;
+        etw_level=$(if($RecoveryCpuDiagnostic){4}elseif($FreshQualification){5}else{0});
+        phase_selection=$(if($RecoveryCpuDiagnostic){'major_request_operation_authority_and_record_boundaries'}elseif($FreshQualification){'all_phase_detail'}else{'not_requested'});
+        submission_limit_meaning='The legacy maximum bounds claimed event slots, not all sink attempts';
+        not_submitted_counter_meaning='Includes phases filtered by the selected ETW level; not solely lost or capped events';
+        selected_phase_coverage_verified=$false;
         activation='Opt-in frontend build; capture listening before process startup';
         counters='Process totals; concurrent scopes overlap; successful bytes exclude incomplete reads/packets';
         phase_elapsed='Inclusive duration including diagnostic emission overhead; scope exit is not operation acceptance';
