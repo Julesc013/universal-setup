@@ -902,6 +902,91 @@ int maintenance_reviewed_plan_boundary_proof()
     return 0;
 }
 
+#if defined(_WIN32)
+void ordinary_native_recovery_reader_declines(
+    const usk::transaction::TransactionSpec& spec,
+    const usk::transaction::RecoveryInspection& transaction,
+    const usk::transaction::MaintenanceEffectInspection& history,
+    const usk::lifecycle::detail::MaintenanceRecoveryOperations& operations,
+    const std::size_t& gates, const std::size_t& applied_effects)
+{
+    // Supplied ordinary callbacks cannot activate the private native
+    // prefix reader, even when copied, replaced or wrapped. A decline
+    // performs no callback/effect and leaves the actual recovery below
+    // to invoke its unchanged separately fenced ordinary backend.
+    auto replaced_authority = operations;
+    replaced_authority.require_authority = [](const auto&, const auto&, const auto&) {
+        throw std::runtime_error("ordinary replacement authority unexpectedly called");
+    };
+    auto replaced_effect = operations;
+    replaced_effect.apply_effect = [](const auto&, const auto&) -> std::string {
+        throw std::runtime_error("ordinary replacement effect unexpectedly called");
+    };
+    auto wrapped = operations;
+    wrapped.require_authority = [callback = operations.require_authority](const auto& a, const auto& b, const auto& c) {
+        callback(a, b, c);
+    };
+    wrapped.apply_effect = [callback = operations.apply_effect](const auto& a, const auto& b) { return callback(a, b); };
+    const usk::lifecycle::detail::MaintenanceRecoveryOperations* supplied_backends[] = {
+        &operations, &replaced_authority, &replaced_effect, &wrapped};
+    for (const auto* supplied : supplied_backends) {
+        usk::lifecycle::detail::MaintenanceEffectReconciliation observed;
+        observed.state = "unchanged ordinary output";
+        usk::lifecycle::detail::MaintenanceContinuationInspection selected;
+        selected.next_kind = "unchanged ordinary selection";
+        auto unchanged_transaction = transaction;
+        auto unchanged_history = history;
+        std::unique_ptr<usk::transaction::MaintenanceEffectJournal> unchanged_journal;
+        auto unchanged_pending = std::make_unique<usk::lifecycle::detail::MaintenancePendingRecoveryReads>();
+        unchanged_pending->reconciliation.state = "unchanged pending reads";
+        unchanged_pending->postimage_and_pin_completed = true;
+        const auto* const pending_identity = unchanged_pending.get();
+        std::string unchanged_outcome = "unchanged ordinary outcome";
+        for (const bool prepare_before_effect : {false, true}) {
+            bool unchanged_preparation = true;
+            if (usk::lifecycle::detail::inspect_current_native_maintenance_pending_recovery(
+                    spec, transaction.snapshot_sha256, history.journal_digest, *supplied, prepare_before_effect,
+                    unchanged_transaction, unchanged_history, observed, unchanged_preparation) ||
+                !unchanged_preparation || observed.state != "unchanged ordinary output" ||
+                unchanged_transaction.snapshot_sha256 != transaction.snapshot_sha256 ||
+                unchanged_history.journal_digest != history.journal_digest || gates != 0u || applied_effects != 0u)
+                throw std::runtime_error("ordinary backend changed private pending preparation outputs or called a callback");
+            if (usk::lifecycle::detail::inspect_current_native_maintenance_recovery_step(
+                    spec, transaction, history, *supplied, selected, unchanged_transaction, unchanged_history,
+                    prepare_before_effect, unchanged_journal, unchanged_pending) ||
+                unchanged_journal || unchanged_pending.get() != pending_identity ||
+                unchanged_pending->reconciliation.state != "unchanged pending reads" ||
+                !unchanged_pending->postimage_and_pin_completed ||
+                selected.next_kind != "unchanged ordinary selection" ||
+                unchanged_transaction.snapshot_sha256 != transaction.snapshot_sha256 ||
+                unchanged_history.journal_digest != history.journal_digest || gates != 0u || applied_effects != 0u)
+                throw std::runtime_error("ordinary backend changed private journal preparation outputs or called a callback");
+        }
+        if (usk::lifecycle::detail::reconcile_and_complete_current_native_maintenance_recovery_effect(
+                spec, transaction, history, *supplied, unchanged_outcome, observed) ||
+            usk::lifecycle::detail::validate_current_native_maintenance_appended_intent_with_owner(
+                spec, transaction, history, history.source_digest, selected, history, *supplied) ||
+            usk::lifecycle::detail::reconcile_current_native_maintenance_completed_effect(
+                spec, transaction, history, *supplied, observed) ||
+            usk::lifecycle::detail::reconcile_current_native_maintenance_recovery_prefix(
+                spec, transaction, history, *supplied, observed) ||
+            usk::lifecycle::detail::apply_current_native_maintenance_recovery_cleanup(
+                spec, history, *supplied, unchanged_outcome) ||
+            unchanged_outcome != "unchanged ordinary outcome" || unchanged_journal || gates != 0u || applied_effects != 0u ||
+            observed.state != "unchanged ordinary output" || selected.next_kind != "unchanged ordinary selection" ||
+            unchanged_transaction.snapshot_sha256 != transaction.snapshot_sha256 ||
+            unchanged_history.journal_digest != history.journal_digest)
+            throw std::runtime_error("ordinary maintenance backend activated a private recovery read group");
+        for (const auto mode : {usk::lifecycle::detail::NativeMaintenanceRecoveryPrefixPin::exact_snapshot,
+                usk::lifecycle::detail::NativeMaintenanceRecoveryPrefixPin::original_context}) {
+            if (usk::lifecycle::detail::require_current_native_maintenance_recovery_prefix(
+                    spec, transaction, history, *supplied, mode) || gates != 0u || applied_effects != 0u)
+                throw std::runtime_error("ordinary callback activated the private native recovery reader");
+        }
+    }
+}
+#endif
+
 int maintenance_effect_interruption_proof()
 {
     struct Boundary { const char* operation; const char* kind; const char* side; };
@@ -1155,69 +1240,8 @@ int maintenance_effect_interruption_proof()
                 return std::string("applied");
             };
 #if defined(_WIN32)
-            // Supplied ordinary callbacks cannot activate the private native
-            // prefix reader, even when copied, replaced or wrapped. A decline
-            // performs no callback/effect and leaves the actual recovery below
-            // to invoke its unchanged separately fenced ordinary backend.
-            auto replaced_authority = operations;
-            replaced_authority.require_authority = [](const auto&, const auto&, const auto&) {
-                throw std::runtime_error("ordinary replacement authority unexpectedly called");
-            };
-            auto replaced_effect = operations;
-            replaced_effect.apply_effect = [](const auto&, const auto&) -> std::string {
-                throw std::runtime_error("ordinary replacement effect unexpectedly called");
-            };
-            auto wrapped = operations;
-            wrapped.require_authority = [callback = operations.require_authority](const auto& a, const auto& b, const auto& c) {
-                callback(a, b, c);
-            };
-            wrapped.apply_effect = [callback = operations.apply_effect](const auto& a, const auto& b) { return callback(a, b); };
-            for (const auto* supplied : {&operations, &replaced_authority, &replaced_effect, &wrapped}) {
-                usk::lifecycle::detail::MaintenanceEffectReconciliation observed;
-                observed.state = "unchanged ordinary output";
-                usk::lifecycle::detail::MaintenanceContinuationInspection selected;
-                selected.next_kind = "unchanged ordinary selection";
-                auto unchanged_transaction = transaction;
-                auto unchanged_history = history;
-                std::unique_ptr<usk::transaction::MaintenanceEffectJournal> unchanged_journal;
-                std::string unchanged_outcome = "unchanged ordinary outcome";
-                for (const bool prepare_before_effect : {false, true}) {
-                    bool unchanged_preparation = true;
-                    if (usk::lifecycle::detail::inspect_current_native_maintenance_pending_recovery(
-                            spec, transaction.snapshot_sha256, history.journal_digest, *supplied, prepare_before_effect,
-                            unchanged_transaction, unchanged_history, observed, unchanged_preparation) ||
-                        !unchanged_preparation || observed.state != "unchanged ordinary output" ||
-                        unchanged_transaction.snapshot_sha256 != transaction.snapshot_sha256 ||
-                        unchanged_history.journal_digest != history.journal_digest || gates != 0u || applied_effects != 0u)
-                        throw std::runtime_error("ordinary backend changed private pending preparation outputs or called a callback");
-                    if (usk::lifecycle::detail::inspect_current_native_maintenance_recovery_step(
-                            spec, transaction, history, *supplied, selected, unchanged_transaction, unchanged_history,
-                            prepare_before_effect, unchanged_journal) ||
-                        unchanged_journal || selected.next_kind != "unchanged ordinary selection" ||
-                        unchanged_transaction.snapshot_sha256 != transaction.snapshot_sha256 ||
-                        unchanged_history.journal_digest != history.journal_digest || gates != 0u || applied_effects != 0u)
-                        throw std::runtime_error("ordinary backend changed private journal preparation outputs or called a callback");
-                }
-                if (usk::lifecycle::detail::validate_current_native_maintenance_appended_intent_with_owner(
-                        spec, transaction, history, history.source_digest, selected, history, *supplied) ||
-                    usk::lifecycle::detail::reconcile_current_native_maintenance_completed_effect(
-                        spec, transaction, history, *supplied, observed) ||
-                    usk::lifecycle::detail::reconcile_current_native_maintenance_recovery_prefix(
-                        spec, transaction, history, *supplied, observed) ||
-                    usk::lifecycle::detail::apply_current_native_maintenance_recovery_cleanup(
-                        spec, history, *supplied, unchanged_outcome) ||
-                    unchanged_outcome != "unchanged ordinary outcome" || unchanged_journal || gates != 0u || applied_effects != 0u ||
-                    observed.state != "unchanged ordinary output" || selected.next_kind != "unchanged ordinary selection" ||
-                    unchanged_transaction.snapshot_sha256 != transaction.snapshot_sha256 ||
-                    unchanged_history.journal_digest != history.journal_digest)
-                    throw std::runtime_error("ordinary maintenance backend activated a private recovery read group");
-                for (const auto mode : {usk::lifecycle::detail::NativeMaintenanceRecoveryPrefixPin::exact_snapshot,
-                        usk::lifecycle::detail::NativeMaintenanceRecoveryPrefixPin::original_context}) {
-                    if (usk::lifecycle::detail::require_current_native_maintenance_recovery_prefix(
-                            spec, transaction, history, *supplied, mode) || gates != 0u || applied_effects != 0u)
-                        throw std::runtime_error("ordinary callback activated the private native recovery reader");
-                }
-            }
+            ordinary_native_recovery_reader_declines(
+                spec, transaction, history, operations, gates, applied_effects);
 #endif
             const auto recover = [&](const auto& backend, const std::string& transaction_hash, const std::string& history_hash,
                     usk::transaction::FaultInjector inject = {}) {
@@ -2306,6 +2330,44 @@ void pending_recovery_snapshot_predicates()
     }
 }
 
+void pending_recovery_observation_predicates()
+{
+    using usk::lifecycle::detail::require_maintenance_recovery_observation_binding;
+    using usk::lifecycle::detail::require_maintenance_recovery_postcondition;
+    usk::transaction::MaintenanceEffectInspection history;
+    history.source_digest = std::string(64, 'a');
+    history.journal_digest = std::string(64, 'b');
+    history.pending_kind = "remove_directory";
+    usk::lifecycle::detail::MaintenanceEffectReconciliation observed;
+    observed.source_digest = history.source_digest;
+    observed.history_digest = history.journal_digest;
+    observed.pending_kind = history.pending_kind;
+    observed.state = "compatible_before_effect";
+    require_maintenance_recovery_observation_binding(history, observed);
+    require_maintenance_recovery_postcondition(history, "retained", observed);
+    const auto denied = [](const auto& operation) {
+        if (!refuses(operation)) throw std::runtime_error("mixed pending recovery metadata was accepted");
+    };
+    auto other = observed; other.source_digest = std::string(64, 'c');
+    denied([&] { require_maintenance_recovery_observation_binding(history, other); });
+    other = observed; other.history_digest = std::string(64, 'c');
+    denied([&] { require_maintenance_recovery_observation_binding(history, other); });
+    other = observed; other.pending_kind = "remove_file";
+    denied([&] { require_maintenance_recovery_observation_binding(history, other); });
+    denied([&] { require_maintenance_recovery_postcondition(history, "applied", observed); });
+    auto file = history; file.pending_kind = "remove_file";
+    denied([&] { require_maintenance_recovery_postcondition(file, "retained", observed); });
+    for (const auto* state : {"indeterminate", "missing", "unknown", ""}) {
+        other = observed; other.state = state;
+        denied([&] { require_maintenance_recovery_postcondition(history, "retained", other); });
+        denied([&] { require_maintenance_recovery_postcondition(history, "applied", other); });
+    }
+    observed.state = "compatible_after_effect";
+    require_maintenance_recovery_postcondition(history, "applied", observed);
+    denied([&] { require_maintenance_recovery_postcondition(history, "retained", observed); });
+    denied([&] { require_maintenance_recovery_postcondition(history, "unknown", observed); });
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -2355,8 +2417,34 @@ int main(int argc, char** argv)
         if (argc == 2 && std::string(argv[1]) == "--missing-parent-repair-smoke") {
             return missing_owned_parent_repair_proof();
         }
+        if (argc == 2 && std::string(argv[1]) == "--recovery-read-group-controls") {
+            pending_recovery_snapshot_predicates();
+            pending_recovery_observation_predicates();
+#if defined(_WIN32)
+            // Exercise metadata-only declines without constructing a fixture or
+            // pretending these ordinary callbacks are the private native owner.
+            usk::transaction::TransactionSpec spec;
+            spec.operation = "repair";
+            usk::transaction::RecoveryInspection transaction;
+            transaction.snapshot_sha256 = std::string(64, 'a');
+            usk::transaction::MaintenanceEffectInspection history;
+            history.journal_digest = std::string(64, 'b');
+            history.source_digest = std::string(64, 'c');
+            history.pending_kind = "remove_directory";
+            std::size_t gates = 0, applied_effects = 0;
+            usk::lifecycle::detail::MaintenanceRecoveryOperations operations;
+            operations.require_authority = [&](const auto&, const auto&, const auto&) { ++gates; };
+            operations.apply_effect = [&](const auto&, const auto&) {
+                ++applied_effects; return std::string("applied");
+            };
+            ordinary_native_recovery_reader_declines(spec, transaction, history, operations, gates, applied_effects);
+#endif
+            std::cout << "Recovery metadata and no-native-owner controls passed\n";
+            return 0;
+        }
         if (argc != 1) throw std::runtime_error("unknown lifecycle smoke arguments");
         pending_recovery_snapshot_predicates();
+        pending_recovery_observation_predicates();
         if (const int protected_visible = protected_visible_finalization_proof()) {
             return protected_visible;
         }

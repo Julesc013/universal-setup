@@ -14,6 +14,7 @@ namespace usk::lifecycle::detail {
 struct MaintenanceRecoveryOperations;
 struct MaintenanceContinuationInspection;
 struct MaintenanceEffectReconciliation;
+struct MaintenancePendingRecoveryReads;
 enum class NativeMaintenanceRecoveryPrefixPin;
 // Native staging custody for the private service engine. Construction is
 // inaccessible to the public lifecycle, JSON and supplied callback backends.
@@ -40,6 +41,12 @@ private:
         const usk::transaction::RecoveryInspection&,
         const usk::transaction::MaintenanceEffectInspection&,
         const MaintenanceRecoveryOperations&, const std::string&, const std::string&);
+    friend bool reconcile_and_complete_current_native_maintenance_recovery_effect(
+        const usk::transaction::TransactionSpec&,
+        const usk::transaction::RecoveryInspection&,
+        const usk::transaction::MaintenanceEffectInspection&,
+        const MaintenanceRecoveryOperations&, const std::string&,
+        MaintenanceEffectReconciliation&);
     friend bool reconcile_current_native_maintenance_recovery_prefix(
         const usk::transaction::TransactionSpec&,
         const usk::transaction::RecoveryInspection&,
@@ -56,7 +63,8 @@ private:
         const usk::transaction::MaintenanceEffectInspection&,
         const MaintenanceRecoveryOperations&, MaintenanceContinuationInspection&,
         usk::transaction::RecoveryInspection&, usk::transaction::MaintenanceEffectInspection&,
-        bool, std::unique_ptr<usk::transaction::MaintenanceEffectJournal>&);
+        bool, std::unique_ptr<usk::transaction::MaintenanceEffectJournal>&,
+        std::unique_ptr<MaintenancePendingRecoveryReads>&);
     friend bool apply_current_native_maintenance_recovery_cleanup(
         const usk::transaction::TransactionSpec&,
         const usk::transaction::MaintenanceEffectInspection&,

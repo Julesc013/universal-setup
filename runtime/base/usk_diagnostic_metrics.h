@@ -52,7 +52,10 @@ enum class Phase : std::uint32_t {
     effect_broker_worker_closure,
     effect_broker_volume_closure,
     publisher_response_projection,
-    effect_worker_failure_reporting
+    effect_worker_failure_reporting,
+    // Fixed pure group entry labels only; no result, identity or authority.
+    maintenance_step_pending_reads,
+    maintenance_reconcile_completion_reads
 };
 struct Snapshot {
     std::array<std::uint64_t, static_cast<std::size_t>(Counter::count)> totals{};
