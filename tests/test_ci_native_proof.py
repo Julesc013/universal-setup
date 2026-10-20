@@ -76,14 +76,34 @@ class NativeCiProofTests(unittest.TestCase):
             "recovery_untraced",
             "recover_a_genuinely_interrupted_repair_without_its_source_archive",
         )
-        for identity in cohort_ids:
+        # These legacy journeys own separate disposable fixtures. A red
+        # recovery cohort must not skip their actual startup/refusal tests.
+        legacy = qualification.split(
+            "      - name: Observe disposable Windows NTFS volume and restricted service\n", 1
+        )[1].split("      - name: Select release-default publisher frontends\n", 1)[0]
+        legacy_ids = tuple(
+            next(line.strip()[4:] for line in block.splitlines() if line.strip().startswith("id: "))
+            for block in legacy.split("      - name: ") if "        run: " in block
+        )
+        self.assertTrue(legacy_ids)
+        self.assertIn("observe_disposable_windows_ntfs_volume_and_restricted_service", legacy_ids)
+        self.assertIn("exercise_non_admin_consumer_access_and_partial_grant_recovery", legacy_ids)
+        authored_ids = {
+            "complete_a_reviewed_install_through_the_registered_service_entry",
+            "recover_an_interrupted_registered_install_without_its_source",
+        }
+        self.assertTrue(authored_ids.issubset(legacy_ids))
+        for identity in (*cohort_ids, *legacy_ids):
+            legacy_context = identity in legacy_ids
             block = qualification.split("        id: " + identity + "\n", 1)[1].split("      - ", 1)[0]
             condition = next(line.strip()[4:] for line in block.splitlines() if line.strip().startswith("if: "))
             expression = condition.removeprefix("$" + "{{").removesuffix("}}").strip()
             self.assertIn("cancelled()", expression)  # Explicit status check prevents implicit success().
-            for cancelled, outcome, windows, pull, same_repo, earlier_failed in itertools.product(
+            for cancelled, outcome, windows, pull, same_repo, earlier_failed, promotion, task_family in itertools.product(
                 (False, True), ("success", "failure", "skipped", "cancelled"),
-                (False, True), (False, True), (False, True), (False, True)
+                (False, True), (False, True), (False, True), (False, True),
+                (False, True) if legacy_context else (False,),
+                ("other", "wu006", "wu014") if legacy_context else ("other",),
             ):
                 replacements = {
                     "cancelled()": cancelled, "success()": not earlier_failed,
@@ -93,13 +113,18 @@ class NativeCiProofTests(unittest.TestCase):
                     "github.event_name": "pull_request" if pull else "push",
                     "github.event.pull_request.head.repo.full_name": "owner/setup" if same_repo else "fork/setup",
                     "github.repository": "owner/setup",
+                    "github.base_ref": "main" if promotion else "dev",
+                    "startsWith(github.head_ref, 'task/usk-wu-006-')": task_family == "wu006",
+                    "startsWith(github.head_ref, 'task/usk-wu-014-')": task_family == "wu014",
                 }
                 actual = expression
                 for token, replacement in replacements.items():
                     actual = actual.replace(token, repr(replacement))
                 actual = actual.replace("&&", " and ").replace("||", " or ").replace("!", "not ").strip()
                 admitted = value(ast.parse(actual, mode="eval").body)
-                expected = not cancelled and outcome == "success" and windows and pull and same_repo
+                expected = (not cancelled and outcome == "success" and windows and pull and same_repo and
+                            (not legacy_context or promotion or task_family == "wu006" or
+                             (identity in authored_ids and task_family == "wu014")))
                 with self.subTest(cohort=identity, context=replacements):
                     self.assertEqual(admitted, expected)
 
