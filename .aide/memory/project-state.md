@@ -1,67 +1,67 @@
 # Universal Setup Project State
 
-Continue ACTIVE USK-SPEC-TO-RELEASE-01 using the sole worktree/build/lab under
-D:\Projects\Universal\.task-builds. Keep10GiB physical-disk/2GiB RAM+commit
-reserves and one local heavy job. Fixed20GiB stop superseded. Windows10VM
-untouched. Daily reviewed dev and qualified weekly main are distinct.
-Historical checkpoints remain in [decisions.md](decisions.md).
+Continue ACTIVE USK-SPEC-TO-RELEASE-01 in the sole existing worktree/build/lab
+under D:\Projects\Universal\.task-builds. Keep 10GiB physical-disk and 2GiB
+RAM/commit reserves, one local heavy job and the existing Windows 10 VM.
+The fixed 20GiB stop is superseded. Daily reviewed dev integration and qualified
+weekly main promotion are distinct. History remains in Git and decisions.md.
 
-Accepted devde8f916c558932f64ac2a5c2fc9d64a49ca08c34 integrates PR301
-AIDEb624abe9598c7d4a143a30e39cfb2da73d74d174; its PR and accepted push
-39423053982/1 passed7core checks, independent committed review and livegate.
-PR300 nativeSDKc70d4d223b2563049d39caf36489bc4b647d89c9 already integrated
-in dev720ad5e; both core runs PASS. Do not replay either merge.
-Mainc048f7f1ae2e5922c15a08ee572bdafc29027c63 unchanged/unqualified.
+Accepted dev b1954300da9cddb9c60641ad2f58e971bc279966 integrates PR302's
+legacy-profile qualification correction after seven core checks, independent
+committed review and live gate. PR300 native public SDK recovery and PR301
+owned AIDE update are already integrated. Never replay those merges.
+Main c048f7f1ae2e5922c15a08ee572bdafc29027c63 remains publisher-unqualified.
 
-Current task/usk-wu-006-legacy-profile-qualification applies reviewed R7
-qualification-fixture correction. Registered legacy SCM mode does not create
-broker admission/lease history; unconditional broker assertions caused an
-actual legacy replay with unchanged28rows to fail independent lease closure.
-Actual original SCM command/family is now bound before dispatch. Explicit
-AdmittedTarget keeps all3 original broker append/readonly checks. Legacy
-instead requires original verified installed/native volume and complete
-original-before-after protected rows, rejecting coordination/mixed profiles.
-It returns legacy observations with no lease/fencing/profile/authority claim.
+Current task/usk-wu-006-sdk-published-recovery closes two observed SDK gaps.
+PR300 run39416096331/1 step94 performed one actual public C SDK recovery.inspect
+and returned inspection_only/client0; the independent observer then rejected
+its command name. Step95 retained evidence; no plan or apply was dispatched.
+The native binding was committing, commit_started=true, commit_confirmed=false,
+pending_kind=next_kind=publish_target, compatible_after_effect, incomplete and
+unsealed. Original source was retired. No finalize or cleanup qualification.
 
-R5 source HOLD caught fresh-only anchors excluding valid recovery baselines;
-R6 HOLD caught real no-held guard abandoned:null versus synthetic false.
-R7 explicitly selects original initial/recovery mode, recognizes supported
-reply shapes, nested snapshot anchors and exact typed guard tri-state.
-SOURCE-ONLY APPROVE0e4408914eaba1d52aa8daf622548cf07d5deeda025554643a708550119b08e6.
-32new profile cases plus unchanged10case broker matrix pass onPS5.1/7.
-Applied root463tests/1skip PASS, inventory7/strict/diff PASS. Only13inventory
-source SHA leaves refreshed; classifications/acceptance unchanged.
-Actual retained high native uint64 serial decodes exactly on both shells.
-Applied metadata/committed composition and fresh7core/livegate remain required.
-No actual corrected hosted legacy or SDK recovery qualification yet.
+The reviewed change admits exactly recovery.inspect/plan/apply to the existing
+public.GUID observer predicate. It additionally offers finalize only for that
+precisely reconciled repair publication state, preserving the established
+commit-confirmed route. This publication is the operation directory, not proof
+that installed payload replacement has finished. Existing native custody proves
+confirmed publication, original directory identity, absent staging/present target,
+original journal/effects/lease lineage and current object/security/byte/state
+closure. Each apply rebuilds the exact reviewed plan before writer/lease effects;
+remaining repair effects keep their native fences. No protection observation,
+sharing rule, deadline or failure behavior is removed.
 
-NativeSDK uses concrete read-only InspectionCustody, exact original
-intent/custody/endedPID+birth/lease membership/currentrevision/journal-effects/
-namespace checks, seven readers/twelve unconditional writer denials and sticky
-explicit finalization. Full request/digests/action survives broker/child/reply.
-Apply rebuilds exactv2plan before writer lease/effect fences; pure codec outside
-engine. Ordinarylocalv1/ABI unchanged. Install_local/precommit/completed-history/
-reconnect/rollback remain unsupported. Complete product/release remains open.
+Source review94f78ff8d98a8827a2da96881e15c8632d09cf1b97cecfa61ee3b44ff9f16149
+approves the exact four-file preview only. Local MSVC strict builds and four
+focused native CTests pass on x64 and Win32. The actual observer predicate has
+14 positive/42 negative cases on PS5.1/7; native response controls cover old and
+new states across inspect/plan/apply with resealed refusal/plan-binding checks.
+Only 11 existing inventory source SHA leaves change; classifications and
+acceptance stay unchanged. Final committed review, fresh core/live gates and
+actual hosted SDK finalize/independent completion remain separate obligations.
 
-C70publisher39416096331/1 retains private source-retired recovery28/30deadline
-UNKNOWN/nativeabsent on synthetic ead6f9f93f949775f2366916bca1707c7aee4878/
-tree4a8ddea6ef39fb662938242452d5c72a374652b8. New actual publicCSDK cohort95
-still pending at last observation. AIDEPR301full39420839345/1 is separate.
-Packaged failure is unrelated attacker0overlap across103.3us native rename;
-otherconsumer11overlaps cannot substitute. Cleanup unconfirmed. Main/release
-qualification withheld. PriorPR298 selected untraced/release-default completions
-do not establish reliability. Error32holderunknown. PR299 late trace126.265634s
-recovery-run versus260us terminal-send limits send-only/heap-only hypotheses;
-missingbirth/request/payload joins, no success/savings claim. Oldeight-query
-preview HOLD/unapplied; no speculative performance patch.
+Native SDK InspectionCustody retains exact original intent/custody, ended
+PID/birth, complete lease membership, revision, journal/effects and namespace.
+Seven readers/twelve unconditional writer denials and sticky explicit
+finalization remain. Full invocation/digests/action survive broker/child/reply;
+local v1/ABI are preserved. Install_local, pre-publication finalization,
+completed-history, reconnect and rollback remain unsupported. The complete
+maintenance/application/authoring/frontend/consumer/release product is unfinished.
 
-AIDE upstream main8e5581cce7c7fd7037f6a199c92a6922260893ab safely imported:
-36payload changes,839managedrecords/838files; owner AGENTS/profile/native/
-unrelated source preserved. This is developmentexport1ac0b37c.../dirtytrue,
-not frozen publishedLite1.1 bytes. Full-export selftest PASS, but actual safe
-predecessor/successor selftests FAIL inherited NameError local_skeleton:
-https://github.com/Julesc013/aide/issues/6#issuecomment-6263362256.
-Functional adoption/desktop delivery remain incomplete. Pinned upstream EOF
-blankline retains its staged-diff warning; no upstream assertions weakened.
-No new coordinator/queue/clone/provider activation. Continue connected product
-implementation and normal integration; never replay rejected evidence deletion.
+PR300's full publisher run failed; private recovery28/30/92 exceeded 120s with
+UNKNOWN and no native completion, including release-default diagnostics OFF.
+Do not project these as SDK outcomes or infer improvement. Packaged unrelated
+attacker0overlap during the actual native rename remains a coverage gap; another
+consumer's overlap does not substitute. Prior selected completions do not prove
+reliability. Error32 holder/cause remains unknown. Partial trace/CPU observations
+establish no whole-request attribution, success or numeric saving. Old eight-query
+preview remains HOLD/unapplied; no speculative performance patch.
+
+AIDE main8e5581cce7c7fd7037f6a199c92a6922260893ab was safely imported through
+owned update, preserving project guidance/profile/native code. This development
+export is distinct from frozen published Lite1.1. Full-export selftest passed;
+actual safe-installed predecessor/successor selftests retain inherited NameError
+local_skeleton: https://github.com/Julesc013/aide/issues/6#issuecomment-6263362256.
+Functional adoption/desktop delivery remain incomplete; pinned upstream EOF
+formatting failure is retained. No new coordinator, queue, clone or provider
+activation. Continue connected implementation; never replay rejected deletion.

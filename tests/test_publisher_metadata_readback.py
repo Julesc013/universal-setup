@@ -15,6 +15,60 @@ import unittest
 
 @unittest.skipUnless(os.name == "nt", "Windows PowerShell readback oracle")
 class PublisherMetadataReadbackTests(unittest.TestCase):
+    def test_held_capture_request_context_admits_exact_sdk_recovery_commands(self):
+        # Execute only the actual embedded observer's command predicate. Native
+        # token custody, file digests and SYSTEM readback remain separate gates.
+        root = Path(__file__).resolve().parents[1]
+        source = (root / 'tests/windows_publisher_metadata_readback.ps1').read_text(encoding='utf-8')
+        observer = source.split("    $observer=@'\n", 1)[1].split("\n'@", 1)[0]
+        code = r"""$ErrorActionPreference='Stop'
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile($env:USK_CAPTURE_OBSERVER_FILE,[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Actual observer source is invalid'}
+$functions=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and
+ $n.Name -ceq 'Test-PublisherHeldCaptureRequestContext'},$true))
+if($functions.Count -ne 1){throw 'Actual capture request predicate is ambiguous'}
+. ([scriptblock]::Create($functions[0].Extent.Text))
+$public='public.'+('a'*32);$contention='contention.'+('b'*32);$accepted=0;$refused=0
+foreach($command in @('install_local.apply','install_local.recover','installed.verify','publisher.observe',
+ 'repair.apply','repair.recover','move.apply','move.recover','uninstall.apply','uninstall.recover',
+ 'recovery.inspect','recovery.plan','recovery.apply')) {
+ if(-not (Test-PublisherHeldCaptureRequestContext $public $command)){throw ('Valid captured command refused: '+$command)}
+ $accepted++
+}
+if(-not (Test-PublisherHeldCaptureRequestContext $contention 'registered_contention')){throw 'Contention capture refused'}
+$accepted++
+foreach($command in @('recovery.inspect','recovery.plan','recovery.apply')) {
+ foreach($id in @('',('public.'+('a'*31)),('public.'+('a'*33)),('Public.'+('a'*32)),
+  ('public.'+('A'*32)),($public+'x'),('foreign.'+('a'*32)),$contention)) {
+  if(Test-PublisherHeldCaptureRequestContext $id $command){throw 'Foreign or malformed SDK request accepted'}
+  $refused++
+ }
+ foreach($changed in @($command.ToUpperInvariant(),($command+' '),(' '+$command),($command+'x'))) {
+  if(Test-PublisherHeldCaptureRequestContext $public $changed){throw 'Nonexact SDK command accepted'}
+  $refused++
+ }
+}
+foreach($command in @('recovery.rollback','recovery','registered_contention','arbitrary.effect','')) {
+ if(Test-PublisherHeldCaptureRequestContext $public $command){throw 'Unsupported public command accepted'}
+ $refused++
+}
+if(Test-PublisherHeldCaptureRequestContext $contention 'recovery.apply'){throw 'Cross-family SDK capture accepted'}
+$refused++
+@{accepted=$accepted;refused=$refused}|ConvertTo-Json -Compress
+"""
+        with tempfile.TemporaryDirectory(prefix='usk-capture-context-') as temporary:
+            observer_path = Path(temporary) / 'observer.ps1'
+            observer_path.write_text(observer, encoding='utf-8')
+            for shell in (shutil.which('pwsh'), shutil.which('powershell.exe')):
+                self.assertIsNotNone(shell)
+                with self.subTest(shell=shell):
+                    result = subprocess.run([shell, '-NoProfile', '-NonInteractive', '-Command', code],
+                        env=dict(os.environ, USK_CAPTURE_OBSERVER_FILE=str(observer_path)),
+                        capture_output=True, text=True, timeout=30)
+                    self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertEqual(json.loads(result.stdout), {'accepted': 14, 'refused': 42})
+
     def test_registered_legacy_profile_keeps_complete_state_without_lease_fallback(self):
         # Exercise the actual enclosing profile branches and retained-state
         # verifier with inert inputs; this does not qualify an SCM execution.
