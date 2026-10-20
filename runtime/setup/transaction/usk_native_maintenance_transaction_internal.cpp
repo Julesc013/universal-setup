@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: MIT
 #include "usk_native_maintenance_transaction_internal.h"
 #if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #include "usk_maintenance_effect_journal.h"
 #include "usk_maintenance_inspection_internal.h"
 #include "usk_json.h"
@@ -16,6 +20,55 @@ namespace usk::transaction::detail {
 namespace {
 thread_local const NativeMaintenanceTransactionOperations* active_operations = nullptr;
 thread_local std::weak_ptr<const void> active_binding;
+}
+NativeMaintenanceTransactionOperations native_maintenance_inspection_operations(
+    const NativeMaintenanceTransactionOperations& readers) {
+    if (!readers.observe_file || !readers.file_pair_queries_available || !readers.observe_file_pair ||
+        !readers.inspect_prefix || !readers.inspect_effect_history ||
+        !readers.inspect_continuation || !readers.reconcile_effect)
+        throw std::runtime_error("native maintenance inspection reader is incomplete");
+    NativeMaintenanceTransactionOperations result;
+    result.observe_file = readers.observe_file;
+    result.file_pair_queries_available = readers.file_pair_queries_available;
+    result.observe_file_pair = readers.observe_file_pair;
+    result.inspect_prefix = readers.inspect_prefix;
+    result.inspect_effect_history = readers.inspect_effect_history;
+    result.inspect_continuation = readers.inspect_continuation;
+    result.reconcile_effect = readers.reconcile_effect;
+    const auto denied = [](const auto&...) {
+        throw std::runtime_error("native maintenance inspection cannot authorize or perform effects");
+    };
+    result.require_authority = denied;
+    result.persist_journal = denied;
+    result.create_staging_root = denied;
+    result.ensure_stream_parent = denied;
+    result.open_stream = [](const auto&...) -> std::intptr_t {
+        throw std::runtime_error("native maintenance inspection cannot open a writer");
+    };
+    result.require_stream = denied;
+    result.finish_stream = denied;
+    result.observe_commit_closure = [](const auto&...) -> CommitClosureObservation {
+        throw std::runtime_error("native maintenance inspection cannot create a commit closure");
+    };
+    result.resume_effect_history = [](const auto&...) -> MaintenanceEffectInspection {
+        throw std::runtime_error("native maintenance inspection cannot resume an effect journal");
+    };
+    result.commit = denied;
+    result.apply_effect = [](const auto&...) -> NativeMaintenanceTransactionOperations::EffectResult {
+        throw std::runtime_error("native maintenance inspection cannot apply an effect");
+    };
+    result.confirm_effect_completion = denied;
+    return result;
+}
+void require_native_maintenance_inspection_lifetime(std::uint32_t process, std::uint32_t thread,
+    std::intptr_t cancellation_observer, std::uint64_t deadline_tick, bool& failed) {
+    const auto cancellation = reinterpret_cast<HANDLE>(cancellation_observer);
+    if (failed || GetCurrentProcessId() != process || GetCurrentThreadId() != thread ||
+        GetTickCount64() >= deadline_tick || !cancellation || cancellation == INVALID_HANDLE_VALUE ||
+        WaitForSingleObject(cancellation, 0) != WAIT_TIMEOUT) {
+        failed = true;
+        throw std::runtime_error("native maintenance inspection is expired, cancelled or owned elsewhere");
+    }
 }
 void require_native_maintenance_origin_binding(bool native_origin,
     const std::weak_ptr<const void>& original, const std::weak_ptr<const void>& current) {

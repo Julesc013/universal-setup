@@ -309,16 +309,23 @@ static int usk_json_append_descriptor(
     usk_json_buffer* buffer,
     const usk_command_descriptor* descriptor,
     int prepend_comma,
-    int version_two)
+    int version_two,
+    int publisher_client)
 {
     const char* operation = version_two ? usk_canonical_operation(descriptor->command_name) : 0;
+    const char* response_schema = descriptor->response_schema;
+    if (publisher_client) {
+        if (strcmp(descriptor->command_name, "recovery.plan") == 0) response_schema = "usk.recovery_plan.v2";
+        else if (strcmp(descriptor->command_name, "recovery.inspect") == 0 ||
+            strcmp(descriptor->command_name, "recovery.apply") == 0) response_schema = "usk.recovery_report.v2";
+    }
     return (!prepend_comma || usk_json_append_char(buffer, ',')) &&
         usk_json_append_char(buffer, '{') &&
         usk_json_append_field(buffer, "command", descriptor->command_name) &&
         usk_json_append_char(buffer, ',') &&
         usk_json_append_field(buffer, "request_schema", descriptor->request_schema) &&
         usk_json_append_char(buffer, ',') &&
-        usk_json_append_field(buffer, "response_schema", descriptor->response_schema) &&
+        usk_json_append_field(buffer, "response_schema", response_schema) &&
         usk_json_append_raw(buffer, descriptor->dry_run ? ",\"dry_run\":true," : ",\"dry_run\":false,") &&
         usk_json_append_field(buffer, "dry_run_behavior", descriptor->dry_run_behavior) &&
         usk_json_append_char(buffer, ',') &&
@@ -335,7 +342,7 @@ static int usk_json_append_descriptor(
         usk_json_append_char(buffer, '}');
 }
 
-static int usk_project_command_graph(usk_json_buffer* buffer, int version_two)
+static int usk_project_command_graph(usk_json_buffer* buffer, int version_two, int publisher_client)
 {
     usk_size index;
     if (!usk_json_append_raw(buffer,
@@ -346,7 +353,7 @@ static int usk_project_command_graph(usk_json_buffer* buffer, int version_two)
         return 0;
     }
     for (index = 0; index < USK_COMMAND_COUNT; ++index) {
-        if (!usk_json_append_descriptor(buffer, &USK_COMMANDS[index], index != 0, version_two)) {
+        if (!usk_json_append_descriptor(buffer, &USK_COMMANDS[index], index != 0, version_two, publisher_client)) {
             return 0;
         }
     }
@@ -381,7 +388,7 @@ static usk_static_response usk_handle_command_graph(
     result.status = USK_STATUS_ERROR;
     result.payload = USK_GRAPH_ERROR_PAYLOAD;
     result.error_message = "authoritative command graph projection failed";
-    if (!usk_project_command_graph(&measure, version_two) ||
+    if (!usk_project_command_graph(&measure, version_two, context->publisher_client != 0) ||
         measure.length >= (usk_size)USK_COMMAND_GRAPH_BUDGET_BYTES) {
         return result;
     }
@@ -393,7 +400,7 @@ static usk_static_response usk_handle_command_graph(
     output.data = graph;
     output.capacity = measure.length + 1;
     graph[0] = '\0';
-    if (!usk_project_command_graph(&output, version_two) || output.length != measure.length) {
+    if (!usk_project_command_graph(&output, version_two, context->publisher_client != 0) || output.length != measure.length) {
         context->allocator.free(context->allocator.user, graph);
         return result;
     }

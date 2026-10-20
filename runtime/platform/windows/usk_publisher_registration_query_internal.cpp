@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_registration_query_internal.h"
+#include "usk_publisher_recovery_request_internal.h"
 #if defined(_WIN32)
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_service_access.h"
@@ -357,7 +358,8 @@ RegisteredClientRequest parse_registered_client_request(const std::wstring& name
                     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") != std::string::npos)
                 throw std::runtime_error("publisher inspection request differs");
             windows_build = observe_supported_discovery_windows_build();
-        } else if (schema != "usk.install_local_apply_request.v1" &&
+        } else if (!usk::command::detail::publisher_public_recovery_inspection(submitted) &&
+            schema != "usk.install_local_apply_request.v1" &&
             schema != "usk.repair_apply_request.v1" && schema != "usk.move_apply_request.v1" &&
             schema != "usk.uninstall_apply_request.v1" &&
             schema != "usk.publisher_recovery_request.v1" &&

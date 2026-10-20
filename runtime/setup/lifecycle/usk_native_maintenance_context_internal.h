@@ -134,7 +134,24 @@ private:
         const usk::platform::windows::PublisherRequestChannel& channel,
         const usk::transaction::TransactionSpec& spec, HANDLE cancel_event,
         bool& effects_may_exist, RecoveryAdmission);
+    // Engine-only existing-operation observation. It acquires read/list
+    // handles, no lease, metadata session or effect fence. All old holders
+    // must be ended, committed membership unchanged and pending lease names
+    // empty. Unsupported/ambiguous states refuse rather than become grants.
+    enum class InspectionAdmission { ended_original_holder };
+    NativeMaintenanceContext(HANDLE volume, const std::wstring& volume_root,
+        const std::wstring& service_name,
+        const usk::platform::windows::PublisherInstallOperationGuard& guard,
+        const usk::platform::windows::PublisherMaintenanceStateSnapshot& original_state,
+        const usk::platform::windows::PublisherInstallOperationContext& original_context,
+        usk::platform::windows::PublisherEffectExecutionOwner& original_child,
+        const usk::transaction::TransactionSpec& spec, HANDLE cancel_event,
+        std::uint64_t deadline_tick, InspectionAdmission);
+    // Owned observations after explicit successful finalization; no callbacks,
+    // handles or effect authority escape. A failure remains sticky.
+    usk::json::Value inspect_recovery() const;
     void bind_owner_backend();
+    void bind_reader_backend();
     // Only the engine can obtain this live-owner adapter. It retains no owner
     // lifetime; copied callbacks refuse before dereference after scope exit.
     MaintenanceRecoveryOperations recovery_operations() const;

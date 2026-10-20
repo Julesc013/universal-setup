@@ -3,6 +3,8 @@
 
 #include "usk_publisher_request_channel.h"
 #include "usk_publisher_channel_io_internal.h"
+#include "usk_publisher_recovery_request_internal.h"
+#include "usk_publisher_response_internal.h"
 #if defined(_WIN32)
 #include "usk_effect_dispatch.h"
 #include <algorithm>
@@ -214,6 +216,19 @@ void require_publisher_response_binding(const std::wstring& service_name,
         throw std::runtime_error("publisher response service identity is absent");
     }
 
+    if (usk::command::detail::publisher_public_recovery_inspection(submitted)) {
+        usk::command::detail::require_public_native_recovery_response(submitted, observed);
+        if (observed.at("service_name").as_string() != expected_service ||
+            (expected_process_id && observed.at("process_id").as_unsigned() != expected_process_id))
+            throw std::runtime_error("native recovery response belongs to another live endpoint");
+        const auto& admission = observed.at("registered_admission");
+        if (admission.at("schema").as_string() != "usk.publisher_registered_admission_observation.v1" ||
+            admission.at("service_name").as_string() != expected_service ||
+            admission.at("service_sid").as_string() != observed.at("service_sid").as_string() ||
+            admission.at("process_id").as_unsigned() != observed.at("process_id").as_unsigned())
+            throw std::runtime_error("native recovery registered endpoint binding differs");
+        return;
+    }
     if (schema == "usk.repair_apply_request.v1" || schema == "usk.move_apply_request.v1" ||
         schema == "usk.uninstall_apply_request.v1" || schema == "usk.publisher_maintenance_recovery_request.v1") {
         const bool recovery = schema == "usk.publisher_maintenance_recovery_request.v1";

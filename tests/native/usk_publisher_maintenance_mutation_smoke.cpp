@@ -8,12 +8,16 @@
 #include "usk_publisher_installation_lease.h"
 #include "usk_publisher_rename_information.h"
 #include "usk_native_maintenance_transaction_internal.h"
+#include "usk_maintenance_effect_journal.h"
+#include "usk_maintenance_inspection_internal.h"
 #include "usk_sha256.h"
 #if defined(_WIN32)
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <cstdlib>
+#include <new>
 #include <iostream>
 #include <stdexcept>
 #include <vector>
@@ -21,6 +25,14 @@
 #include <sddl.h>
 #include <winternl.h>
 
+namespace { bool deny_next_handle_allocation = false; }
+void* operator new(std::size_t bytes) {
+    if (deny_next_handle_allocation) { deny_next_handle_allocation = false; throw std::bad_alloc(); }
+    if (void* memory = std::malloc(bytes ? bytes : 1u)) return memory;
+    throw std::bad_alloc();
+}
+void operator delete(void* memory) noexcept { std::free(memory); }
+void operator delete(void* memory, std::size_t) noexcept { std::free(memory); }
 namespace fs = std::filesystem;
 using namespace usk::platform::windows;
 namespace {
@@ -542,7 +554,117 @@ void transaction_origin_lifetimes() {
     check(refuses([&] { require_native_maintenance_origin_binding(false, absent, other); }),
         "ordinary-origin transaction adopted an active native owner");
 }
+void inspection_native_ownership_and_lifetime() {
+    const auto closed = [](HANDLE native) {
+        DWORD flags = 0; SetLastError(ERROR_SUCCESS);
+        return !GetHandleInformation(native, &flags) && GetLastError() == ERROR_INVALID_HANDLE;
+    };
+    HANDLE opened = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    check(opened && opened != INVALID_HANDLE_VALUE, "allocation control event open failed");
+    deny_next_handle_allocation = true;
+    bool allocation_failed = false;
+    try { (void)usk::platform::windows::detail::retain_publisher_lease_handle(opened); }
+    catch (const std::bad_alloc&) { allocation_failed = true; }
+    deny_next_handle_allocation = false;
+    check(allocation_failed && closed(opened), "native open leaked after actual handle transfer allocation failure");
+    opened = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    {
+        auto retained = usk::platform::windows::detail::retain_publisher_lease_handle(opened);
+        check(retained->get() == opened && !closed(opened), "native transfer lost live handle");
+    }
+    check(closed(opened), "native transferred handle was not closed");
+
+    Held cancellation(CreateEventW(nullptr, TRUE, FALSE, nullptr));
+    using usk::transaction::detail::require_native_maintenance_inspection_lifetime;
+    bool failed = false;
+    const auto check_lifetime = [&](std::uint64_t deadline) {
+        require_native_maintenance_inspection_lifetime(GetCurrentProcessId(), GetCurrentThreadId(),
+            reinterpret_cast<std::intptr_t>(cancellation.get()), deadline, failed);
+    };
+    const auto deadline = GetTickCount64() + 1000u;
+    check_lifetime(deadline); // Actual pre-pass check.
+    Sleep(1100); // The read interval can complete, but expiry cannot become success.
+    check(refuses([&] { check_lifetime(deadline); }) && failed, "expired native inspection escaped post-pass check");
+    check(refuses([&] { check_lifetime(GetTickCount64() + 1000u); }), "expired inspection reset its deadline");
+    failed = false;
+    check_lifetime(GetTickCount64() + 1000u);
+    check(SetEvent(cancellation.get()) != FALSE, "cancellation control event failed");
+    check(refuses([&] { check_lifetime(GetTickCount64() + 1000u); }) && failed, "cancelled native inspection escaped");
+    check(ResetEvent(cancellation.get()) != FALSE, "cancellation reset control failed");
+    check(refuses([&] { check_lifetime(GetTickCount64() + 1000u); }), "cancelled inspection became reusable");
+    failed = false;
+    check(refuses([&] { require_native_maintenance_inspection_lifetime(GetCurrentProcessId(),
+        GetCurrentThreadId() + 1u, reinterpret_cast<std::intptr_t>(cancellation.get()),
+        GetTickCount64() + 1000u, failed); }) && failed, "inspection accepted wrong thread owner");
+}
+void inspection_operation_surface() {
+    using namespace usk::transaction;
+    using namespace usk::transaction::detail;
+    NativeMaintenanceTransactionOperations supplied;
+    unsigned reads = 0, writes = 0;
+    supplied.require_authority = [&](const auto&) { ++writes; };
+    supplied.persist_journal = [&](const auto&...) { ++writes; };
+    supplied.create_staging_root = supplied.ensure_stream_parent = [&](const auto&...) { ++writes; };
+    supplied.open_stream = [&](const auto&...) -> std::intptr_t { ++writes; return 0; };
+    supplied.require_stream = [&](const auto&...) { ++writes; };
+    supplied.finish_stream = [&](const auto&...) { ++writes; };
+    supplied.observe_commit_closure = [&](const auto&...) { ++writes; return CommitClosureObservation{}; };
+    supplied.resume_effect_history = [&](const auto&...) { ++writes; return MaintenanceEffectInspection{}; };
+    supplied.commit = [&](const auto&...) { ++writes; };
+    supplied.apply_effect = [&](const auto&...) { ++writes; return NativeMaintenanceTransactionOperations::EffectResult{}; };
+    supplied.confirm_effect_completion = [&](const auto&...) { ++writes; };
+    supplied.observe_file = [&](const auto&) { ++reads; return NativeMaintenanceFileObservation{"identity", "hash", 17}; };
+    supplied.file_pair_queries_available = [&] { ++reads; return true; };
+    supplied.observe_file_pair = [&](const auto&) {
+        ++reads; return std::optional<std::array<NativeMaintenanceFileObservation, 2>>{};
+    };
+    supplied.inspect_prefix = [&](const auto&, auto& current, auto& history) {
+        ++reads; current.snapshot_sha256 = "snapshot"; history.journal_digest = "effects";
+    };
+    supplied.inspect_effect_history = [&](const auto&...) { ++reads; return MaintenanceEffectInspection{}; };
+    supplied.inspect_continuation = [&](const auto&, auto& next) { ++reads; next.next_kind = "next"; };
+    supplied.reconcile_effect = [&](const auto&, auto& result) { ++reads; result.state = "before"; };
+    auto inspected = native_maintenance_inspection_operations(supplied);
+    // Merely building a surface cannot install native TLS or provide a fallback
+    // authority. Every mutation entry is denied even if the input supplied it.
+    TransactionSpec spec{};
+    RecoveryInspection current{};
+    MaintenanceEffectInspection history{};
+    const NativeMaintenanceEffectSelection selection{NativeMaintenanceEffectSelectionRole::apply, "", "", "", 0, 0};
+    check(refuses([&] { inspected.require_authority(spec); }), "inspection acquired writer authority");
+    check(refuses([&] { inspected.persist_journal(spec, {}, "", "", false); }), "inspection persisted journal");
+    check(refuses([&] { inspected.create_staging_root(spec, {}); }), "inspection created staging");
+    check(refuses([&] { inspected.ensure_stream_parent(spec, {}); }), "inspection created parent");
+    check(refuses([&] { inspected.open_stream(spec, {}, 0, ""); }), "inspection opened writer");
+    check(refuses([&] { inspected.require_stream(spec, 0); }), "inspection admitted stream");
+    check(refuses([&] { inspected.finish_stream(spec, 0, "", 0, ""); }), "inspection finished stream");
+    check(refuses([&] { inspected.observe_commit_closure(spec, {}, {}); }), "inspection made commit closure");
+    check(refuses([&] { inspected.resume_effect_history(spec, "", ""); }), "inspection resumed journal");
+    check(refuses([&] { inspected.commit(spec, {}, "", {}); }), "inspection committed");
+    check(refuses([&] { inspected.apply_effect(spec, history); }), "inspection applied effect");
+    check(refuses([&] { inspected.confirm_effect_completion(spec, selection, "", ""); }), "inspection confirmed effect");
+    check(writes == 0, "inspection invoked supplied mutation callback");
+    check(inspected.observe_file({}).size_bytes == 17, "inspection changed file observation");
+    check(inspected.file_pair_queries_available(), "inspection changed pair availability");
+    check(!inspected.observe_file_pair({}), "inspection changed pair decline");
+    inspected.inspect_prefix(spec, current, history);
+    check(current.snapshot_sha256 == "snapshot" && history.journal_digest == "effects", "inspection changed prefix");
+    (void)inspected.inspect_effect_history(spec, selection);
+    usk::lifecycle::detail::MaintenanceContinuationInspection next{};
+    inspected.inspect_continuation(spec, next);
+    usk::lifecycle::detail::MaintenanceEffectReconciliation result{};
+    inspected.reconcile_effect(spec, result);
+    check(reads == 7 && next.next_kind == "next" && result.state == "before", "inspection reader forwarding differs");
+    supplied.inspect_prefix = {};
+    check(refuses([&] { (void)native_maintenance_inspection_operations(supplied); }), "incomplete inspection admitted");
+    supplied.inspect_prefix = [](const auto&...) { throw std::runtime_error("reader failed"); };
+    inspected = native_maintenance_inspection_operations(supplied);
+    check(refuses([&] { inspected.inspect_prefix(spec, current, history); }), "inspection swallowed reader failure");
+    check(!observe_current_native_maintenance_file({}), "inert inspection surface activated native scope");
+}
 int proof() {
+    inspection_native_ownership_and_lifetime();
+    inspection_operation_surface();
     transaction_origin_lifetimes();
     snapshot_bindings();
     const fs::path root = fs::temp_directory_path() /

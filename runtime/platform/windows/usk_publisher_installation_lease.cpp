@@ -28,24 +28,29 @@
 #include <utility>
 
 namespace usk::platform::windows {
+namespace detail {
+PublisherLeaseHandle::PublisherLeaseHandle(HANDLE value) : value_(value) {
+    if (!value || value == INVALID_HANDLE_VALUE) throw std::runtime_error("lease handle unavailable");
+}
+PublisherLeaseHandle::~PublisherLeaseHandle() {
+    if (value_ && value_ != INVALID_HANDLE_VALUE) CloseHandle(value_);
+}
+HANDLE PublisherLeaseHandle::get() const { return value_; }
+PublisherLeaseHandle::PublisherLeaseHandle(PublisherLeaseHandle&& other) noexcept
+    : value_(std::exchange(other.value_, INVALID_HANDLE_VALUE)) {}
+std::unique_ptr<PublisherLeaseHandle> retain_publisher_lease_handle(HANDLE opened) {
+    PublisherLeaseHandle acquired(opened);
+    return std::make_unique<PublisherLeaseHandle>(std::move(acquired));
+}
+}
 namespace {
 using usk::json::Value;
 using namespace usk::transaction;
 constexpr std::size_t record_limit = 16384;
 constexpr std::size_t history_limit = 4096;
-class Handle final {
-public:
-    explicit Handle(HANDLE value) : value_(value) {
-        if (!value || value == INVALID_HANDLE_VALUE) throw std::runtime_error("lease handle unavailable");
-    }
-    ~Handle() { if (value_ && value_ != INVALID_HANDLE_VALUE) CloseHandle(value_); }
-    HANDLE get() const { return value_; }
-    Handle(const Handle&) = delete;
-    Handle& operator=(const Handle&) = delete;
-    Handle(Handle&& other) noexcept : value_(std::exchange(other.value_, INVALID_HANDLE_VALUE)) {}
-private:
-    HANDLE value_;
-};
+using Handle = detail::PublisherLeaseHandle;
+using detail::retain_publisher_lease_handle;
+
 std::string creation_time(HANDLE process) {
     FILETIME creation{}, exit{}, kernel{}, user{};
     if (!GetProcessTimes(process, &creation, &exit, &kernel, &user))
@@ -234,7 +239,7 @@ static std::optional<Value> observe_existing_installation_lease_history(HANDLE s
         guard.require_owned(volume_root, install_id);
         const auto entry = child(parent, name);
         if (!entry) throw InstallLeaseStale();
-        auto result = std::make_unique<Handle>(open_publisher_listed_child(parent, *entry));
+        auto result = retain_publisher_lease_handle(open_publisher_listed_child(parent, *entry));
         (void)root_identity(result->get(), service.service_sid);
         return result;
     };
@@ -279,6 +284,20 @@ static std::optional<Value> observe_existing_installation_lease_history(HANDLE s
         fence();
         return result;
     };
+    const auto pending_names = [&] {
+        fence();
+        const auto entries = observe_publisher_directory_entries(pending->get());
+        if (entries.size() > history_limit) throw std::runtime_error("lease pending history budget exhausted");
+        std::vector<std::string> names;
+        names.reserve(entries.size());
+        for (const auto& entry : entries) names.push_back(std::filesystem::path(entry.name).u8string());
+        std::sort(names.begin(), names.end());
+        Value::Array result;
+        for (const auto& name : names) result.emplace_back(name);
+        fence();
+        return result;
+    };
+    const auto pending_before = observation ? pending_names() : Value::Array{};
     const auto history = read_history();
     const auto completed = select_completed_install_lease_history(history, original_active);
     if (!equal(Value(history), Value(read_history()))) throw InstallLeaseStale();
@@ -287,9 +306,15 @@ static std::optional<Value> observe_existing_installation_lease_history(HANDLE s
         // Selection validated the complete sequence and exact original member.
         // Assemble data only after recheck; no writer/recovery grant is made.
         if (history.empty()) throw InstallLeaseStale();
-        PublisherInstallLeaseHistoryObservation result{
-            usk::json::sha256_canonical(Value(history)), history.back(), completed,
-            static_cast<std::uint64_t>(history.size())};
+        if (!equal(Value(pending_before), Value(pending_names()))) throw InstallLeaseStale();
+        PublisherInstallLeaseHistoryObservation result;
+        result.committed_records_sha256 = usk::json::sha256_canonical(Value(history));
+        result.latest_committed_record = history.back();
+        result.original_completion = completed;
+        result.committed_record_count = static_cast<std::uint64_t>(history.size());
+        result.committed_records = history;
+        result.pending_entry_count = static_cast<std::uint64_t>(pending_before.size());
+        result.pending_names_sha256 = usk::json::sha256_canonical(Value(pending_before));
         *observation = std::move(result);
     }
     return completed;
@@ -1328,13 +1353,13 @@ struct PublisherInstallOperationContext::Impl {
         if (!entry && !create) return {};
         if (!entry && observe_publisher_directory_entries(parent).size() >= history_limit)
             throw std::runtime_error("operation context directory budget exhausted");
-        auto result = std::make_unique<Handle>(entry ? open_publisher_listed_child(parent, *entry, !read_only, false, !read_only) :
+        auto result = retain_publisher_lease_handle(entry ? open_publisher_listed_child(parent, *entry, !read_only, false, !read_only) :
             create_record_directory_relative_with_descriptor(parent, name, descriptor));
         (void)root_identity(result->get(), service_sid);
         return result;
     }
     void bind_file(const PublisherDirectoryEntry& entry) {
-        file = std::make_unique<Handle>(open_publisher_listed_child(records->get(), entry));
+        file = retain_publisher_lease_handle(open_publisher_listed_child(records->get(), entry));
         const auto facts = observe_publisher_file_handle(file->get());
         require_publisher_object_security_shape(facts, service_sid);
         require_publisher_stream_shape(file->get());
@@ -1398,7 +1423,7 @@ struct PublisherInstallOperationContext::Impl {
     void load_roots() {
         const auto entry = child(records->get(), roots_name);
         if (!entry) return;
-        roots_file = std::make_unique<Handle>(open_publisher_listed_child(records->get(), *entry));
+        roots_file = retain_publisher_lease_handle(open_publisher_listed_child(records->get(), *entry));
         roots_facts = publisher_handle_observation_json(observe_publisher_file_handle(roots_file->get()));
         if (!GetFileSizeEx(roots_file->get(), &roots_size) || !GetFileInformationByHandleEx(
                 roots_file->get(), FileBasicInfo, &roots_basic, sizeof(roots_basic))) throw InstallLeaseStale();
@@ -1480,7 +1505,7 @@ struct PublisherInstallOperationContext::Impl {
         const auto open = [&](HANDLE parent, const std::wstring& name) {
             const auto entry = child(parent, name);
             if (!entry) throw InstallLeaseStale();
-            return std::make_unique<Handle>(open_publisher_listed_child(parent, *entry));
+            return retain_publisher_lease_handle(open_publisher_listed_child(parent, *entry));
         };
         auto setup = open(volume, setup_name);
         auto state = open(setup->get(), L"state");
@@ -1899,7 +1924,7 @@ struct PublisherInstallationLease::Impl {
         guard.require_owned(volume_root, request.install_id);
         (void)root_identity(parent, service_sid);
         const auto entry = child(parent, name);
-        auto result = std::make_unique<Handle>(entry ? open_publisher_listed_child(parent, *entry, true, false, true) :
+        auto result = retain_publisher_lease_handle(entry ? open_publisher_listed_child(parent, *entry, true, false, true) :
             create_record_directory_relative_with_descriptor(parent, name, descriptor));
         (void)root_identity(result->get(), service_sid);
         return result;

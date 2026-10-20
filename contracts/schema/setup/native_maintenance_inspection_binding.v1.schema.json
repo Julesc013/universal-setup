@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://julesc013.github.io/universal-setup/contracts/schema/setup/native_maintenance_inspection_binding.v1.schema.json",
+  "title": "Native maintenance inspection observations, not effect authority",
+  "type": "object",
+  "required": [
+    "schema",
+    "original_intent_sha256",
+    "original_custody_sha256",
+    "original_plan_digest",
+    "current_installed_revision",
+    "lease_committed_records_sha256",
+    "lease_pending_names_sha256",
+    "namespace_sha256",
+    "absent_original_files_sha256",
+    "absent_original_directories_sha256",
+    "journal_snapshot_sha256",
+    "effect_history_sha256",
+    "journal_digest",
+    "source_digest",
+    "lease_committed_record_count",
+    "object_count",
+    "recorded_at",
+    "observed_state",
+    "pending_kind",
+    "reconciliation",
+    "next_kind",
+    "commit_started",
+    "commit_confirmed",
+    "effects_complete",
+    "sealed"
+  ],
+  "properties": {
+    "schema": {
+      "const": "usk.native_maintenance_inspection_binding.v1"
+    },
+    "original_intent_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "original_custody_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "original_plan_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "current_installed_revision": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "lease_committed_records_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "lease_pending_names_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "namespace_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "absent_original_files_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "absent_original_directories_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "journal_snapshot_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "effect_history_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "journal_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "source_digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "lease_committed_record_count": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4096
+    },
+    "object_count": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "recorded_at": {
+      "type": "string"
+    },
+    "observed_state": {
+      "type": "string"
+    },
+    "pending_kind": {
+      "type": "string"
+    },
+    "reconciliation": {
+      "type": "string"
+    },
+    "next_kind": {
+      "type": "string"
+    },
+    "commit_started": {
+      "type": "boolean"
+    },
+    "commit_confirmed": {
+      "type": "boolean"
+    },
+    "effects_complete": {
+      "type": "boolean"
+    },
+    "sealed": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false
+}

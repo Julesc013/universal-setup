@@ -48,6 +48,11 @@ bool inspect_current_native_maintenance_continuation(const TransactionSpec& spec
     lifecycle::detail::MaintenanceContinuationInspection& result);
 bool reconcile_current_native_maintenance_effect(const TransactionSpec& spec,
     lifecycle::detail::MaintenanceEffectReconciliation& result);
+// Native process/thread/cancellation/deadline observation only. Failure is
+// sticky in the owner-retained flag. Check before AND after bounded native
+// read passes; blocked Windows calls need not be preempted. No scope/grant.
+void require_native_maintenance_inspection_lifetime(std::uint32_t process, std::uint32_t thread,
+    std::intptr_t cancellation_observer, std::uint64_t deadline_tick, bool& failed);
 // Read-only lifetime policy. Supplied identities confer no native scope or
 // authority; the session separately uses the engine's private current binding.
 void require_native_maintenance_origin_binding(bool native_origin,
@@ -108,6 +113,12 @@ struct NativeMaintenanceTransactionOperations {
     std::function<void(const TransactionSpec&, const NativeMaintenanceEffectSelection&,
         const std::string&, const std::string&)> confirm_effect_completion;
 };
+// Build a read-only surface from an owner's fixed readers. All writer entries,
+// including lease/effect authority and journal resumption, unconditionally
+// refuse without calling the supplied adapter. This does not activate a scope;
+// only the concrete private native context can install the resulting surface.
+NativeMaintenanceTransactionOperations native_maintenance_inspection_operations(
+    const NativeMaintenanceTransactionOperations& readers);
 class ScopedNativeMaintenanceTransaction final {
 public:
     ~ScopedNativeMaintenanceTransaction();
