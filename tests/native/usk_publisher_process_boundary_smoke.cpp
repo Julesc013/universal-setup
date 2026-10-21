@@ -446,6 +446,16 @@ void effect_execution_record_controls() {
             {"attributes", Value(std::uint64_t{FILE_ATTRIBUTE_DIRECTORY})}, {"reparse_tag", Value(std::uint64_t{0})},
             {"link_count", Value(std::uint64_t{1})}, {"case_sensitive", Value(false)}});
     };
+    const auto typed_record_object = [&](std::size_t index) {
+        const auto name = index ? "\\publication\\role" + std::to_string(index) : "\\";
+        PublisherHandleObservation facts{object_id(index), std::wstring(name.begin(), name.end()),
+            FILE_ATTRIBUTE_DIRECTORY, 0u, 1u, false, "S-1-5-18", true,
+            {{ACCESS_ALLOWED_ACE_TYPE, 0u, FILE_ALL_ACCESS, "S-1-5-18"},
+             {ACCESS_ALLOWED_ACE_TYPE, 0u, FILE_ALL_ACCESS, service_sid}}};
+        check(usk::json::equal_values(publisher_handle_observation_json(facts), object(index)),
+            "typed record fixture differs from independent closed projection");
+        return facts;
+    };
     const Value image(Value::Object{{"volume_id", Value("volume")}, {"file_id", Value("image")},
         {"size_bytes", Value(std::uint64_t{1})}, {"sha256", Value(std::string(64, 'a'))}});
     auto admitted_image = image;
@@ -1442,10 +1452,14 @@ void effect_execution_record_controls() {
             {"native_objects", Value(Value::Array{object(2), object(3)})},
             {"results", Value(Value::Array{encoded_access, encoded_other, encoded_access, encoded_other})}});
         const auto shared_before = usk::json::canonical(shared_view);
-        for (std::size_t index = 0; index < 4u; ++index)
+        for (std::size_t index = 0; index < 4u; ++index) {
             require_publisher_record_result_access(shared_view, index, compact_validation, object(2u + index % 2u));
+            require_publisher_record_result_access(shared_view, index, compact_validation, typed_record_object(2u + index % 2u));
+        }
         check(usk::json::canonical(shared_view) == shared_before, "record result view changed its owned input");
         sequence_refused([&] { require_publisher_record_result_access(shared_view, 4u, compact_validation, object(2)); });
+        sequence_refused([&] { require_publisher_record_result_access(shared_view, 4u, compact_validation, typed_record_object(2)); });
+        sequence_refused([&] { require_publisher_record_result_access(shared_view, 0u, compact_validation, typed_record_object(3)); });
         for (unsigned variant = 0; variant < 6u; ++variant) {
             auto changed = shared_view;
             if (variant == 0) changed.as_object().at("client").as_object().at("captured_process_id") = Value(std::uint64_t{99});
@@ -1457,12 +1471,37 @@ void effect_execution_record_controls() {
             if (variant == 4) changed.as_object().emplace("unexpected", Value());
             if (variant == 5) changed.as_object().at("native_objects") = Value(Value::Array{});
             sequence_refused([&] { require_publisher_record_result_access(changed, 0u, compact_validation, object(2)); });
+            sequence_refused([&] { require_publisher_record_result_access(changed, 0u, compact_validation, typed_record_object(2)); });
         }
         const Value repeated_view(Value::Object{{"client", client},
             {"native_objects", Value(Value::Array{object(2), object(2)})},
             {"results", Value(Value::Array{encoded_access, encoded_access, encoded_access, encoded_access})}});
-        for (std::size_t index = 0; index < 4u; ++index)
+        for (std::size_t index = 0; index < 4u; ++index) {
             require_publisher_record_result_access(repeated_view, index, compact_validation, object(2));
+            require_publisher_record_result_access(repeated_view, index, compact_validation, typed_record_object(2));
+        }
+        // A typed literal join must still execute the entire compact validator.
+        const auto typed_result_refused = [&](const Value& result) {
+            auto changed = shared_view;
+            changed.as_object().at("results").as_array()[0] = result;
+            sequence_refused([&] { require_publisher_record_result_access(changed, 0u, compact_validation, object(2)); });
+            sequence_refused([&] { require_publisher_record_result_access(changed, 0u, compact_validation, typed_record_object(2)); });
+        };
+        for (const auto& field : encoded_access.as_object()) {
+            auto missing = encoded_access; missing.as_object().erase(field.first); typed_result_refused(missing);
+            auto malformed = encoded_access; malformed.as_object().at(field.first) = Value(); typed_result_refused(malformed);
+        }
+        auto mutable_access = encoded_access;
+        mutable_access.as_object().at("checks").as_object().at("write_dac").as_object().at("allowed") = Value(true);
+        typed_result_refused(mutable_access);
+        auto invalid_typed = typed_record_object(2);
+        invalid_typed.native_name.push_back(static_cast<wchar_t>(0x80));
+        bool ascii_first = false;
+        try { require_publisher_record_result_access(Value(), 0u, compact_validation, invalid_typed); }
+        catch (const std::runtime_error& error) {
+            ascii_first = std::string(error.what()) == "publisher retained native name is outside the ASCII profile";
+        }
+        check(ascii_first, "malformed result view preceded the eager typed projection refusal");
         // Every malformed compact control below must have the same outcome
         // through old expansion and direct retained-row validation.
         const auto compact_refused = [&](const Value& candidate, const Value& selected_client, const Value& selected_object) {

@@ -261,6 +261,10 @@ void require_publisher_compact_maintenance_read_only_access(const usk::json::Val
     const PublisherAuthenticatedClientValidation&, const usk::json::Value& object);
 void require_publisher_record_result_access(const usk::json::Value& view, std::size_t index,
     const PublisherAuthenticatedClientValidation&, const usk::json::Value& object);
+// Same full validator, joining typed owned facts to the exact literal ledger
+// entry before validating its commitments, descriptor and all raw denials.
+void require_publisher_record_result_access(const usk::json::Value& view, std::size_t index,
+    const PublisherAuthenticatedClientValidation&, const PublisherHandleObservation& object);
 usk::json::Value publisher_expand_record_access(usk::json::Value compact,
     const usk::json::Value& client, const usk::json::Value& object);
 // Local-context overloads preserve literal joins, denials and private v4 data.

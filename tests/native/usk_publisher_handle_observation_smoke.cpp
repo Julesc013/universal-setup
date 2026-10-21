@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
+#include <cstdlib>
+#include <new>
 #include <vector>
 #include <filesystem>
 #include <iostream>
@@ -19,6 +21,20 @@
 namespace fs = std::filesystem;
 using usk::platform::windows::observe_publisher_directory_handle;
 using usk::platform::windows::observe_publisher_file_handle;
+
+// This executable only: inputs and the independent projection are prepared
+// before denial. Production allocators and native observations are unchanged.
+namespace { thread_local bool deny_projection_allocations = false; }
+void* operator new(std::size_t bytes) {
+    if (deny_projection_allocations) throw std::bad_alloc();
+    if (void* memory = std::malloc(bytes ? bytes : 1)) return memory;
+    throw std::bad_alloc();
+}
+void* operator new[](std::size_t bytes) { return ::operator new(bytes); }
+void operator delete(void* memory) noexcept { std::free(memory); }
+void operator delete[](void* memory) noexcept { ::operator delete(memory); }
+void operator delete(void* memory, std::size_t) noexcept { ::operator delete(memory); }
+void operator delete[](void* memory, std::size_t) noexcept { ::operator delete(memory); }
 
 namespace {
 class Handle {
@@ -159,10 +175,13 @@ void check_projection_equivalence() {
         1u, false, "S-1-5-18", true,
         {{0u, 0u, 0x80000001u, "S-1-5-18"}, {1u, 2u, 0x40000002u, "S-1-5-32-544"}}};
     const auto compare = [&](const PublisherHandleObservation& changed, bool expected) {
-        const bool projected = usk::json::equal_values(publisher_handle_observation_json(original),
-            publisher_handle_observation_json(changed));
+        const auto first = publisher_handle_observation_json(original);
+        const auto second = publisher_handle_observation_json(changed);
+        const bool projected = usk::json::equal_values(first, second);
         check(projected == expected && detail::equal_publisher_handle_observations(original, changed) == projected &&
-            detail::equal_publisher_handle_observations(changed, original) == projected,
+            detail::equal_publisher_handle_observations(changed, original) == projected &&
+            detail::equal_publisher_handle_observation_json(original, second) == projected &&
+            detail::equal_publisher_handle_observation_json(changed, first) == projected,
             "typed native facts differ from the closed JSON projection");
     };
     compare(original, true);
@@ -195,6 +214,70 @@ void check_projection_equivalence() {
         catch (const std::runtime_error&) { projection_refused = true; }
         check(typed_refused && projection_refused, "field mismatch bypassed either native-name ASCII refusal");
     }
+    // The old projection/equality remains the independent oracle for unknown
+    // fields, exact types and malformed ordered ACE records.
+    using usk::json::Value;
+    const auto projection = publisher_handle_observation_json(original);
+    const auto compare_expected = [&](const Value& candidate) {
+        check(detail::equal_publisher_handle_observation_json(original, candidate) ==
+            usk::json::equal_values(projection, candidate), "native/JSON equality differs from projection oracle");
+    };
+    const Value variants[]{Value(), Value(false), Value(std::uint64_t{0}), Value(""),
+        Value(Value::Array{}), Value(Value::Object{})};
+    for (const auto& variant : variants) compare_expected(variant);
+    for (const auto& field : projection.as_object()) {
+        auto missing = projection; missing.as_object().erase(field.first); compare_expected(missing);
+        for (const auto& variant : variants) {
+            auto changed = projection; changed.as_object().at(field.first) = variant; compare_expected(changed);
+        }
+        auto renamed = projection;
+        renamed.as_object().emplace("unknown", renamed.at(field.first));
+        renamed.as_object().erase(field.first); compare_expected(renamed);
+    }
+    auto extra = projection; extra.as_object().emplace("unknown", Value()); compare_expected(extra);
+    for (std::size_t index = 0; index < original.dacl_aces.size(); ++index) {
+        for (const auto& variant : variants) {
+            auto changed = projection; changed.as_object().at("dacl_aces").as_array()[index] = variant;
+            compare_expected(changed);
+        }
+        const auto& ace = projection.at("dacl_aces").as_array()[index];
+        for (const auto& field : ace.as_object()) {
+            auto missing = projection;
+            missing.as_object().at("dacl_aces").as_array()[index].as_object().erase(field.first);
+            compare_expected(missing);
+            for (const auto& variant : variants) {
+                auto changed = projection;
+                changed.as_object().at("dacl_aces").as_array()[index].as_object().at(field.first) = variant;
+                compare_expected(changed);
+            }
+        }
+        auto changed = projection;
+        changed.as_object().at("dacl_aces").as_array()[index].as_object().emplace("unknown", Value());
+        compare_expected(changed);
+    }
+    auto oversized = projection;
+    oversized.as_object().at("attributes") = Value(std::uint64_t{1} << 32u); compare_expected(oversized);
+    for (const auto& expected : {projection, Value()}) {
+        bool rejected = false;
+        try { (void)detail::equal_publisher_handle_observation_json(invalid, expected); }
+        catch (const std::runtime_error&) { rejected = true; }
+        check(rejected, "malformed expectation bypassed eager native-name refusal");
+    }
+    auto unusual = original;
+    unusual.native_name = std::wstring{L'a', L'\0', L'b'};
+    unusual.dacl_aces.clear();
+    check(detail::equal_publisher_handle_observation_json(unusual, publisher_handle_observation_json(unusual)),
+        "projection equality normalized embedded zeros or empty ACEs");
+    // Prove this particular removed work without claiming a recovery speedup.
+    bool old_allocation_refused = false, compared = false;
+    deny_projection_allocations = true;
+    try {
+        compared = detail::equal_publisher_handle_observation_json(original, projection);
+        try { (void)publisher_handle_observation_json(original); }
+        catch (const std::bad_alloc&) { old_allocation_refused = true; }
+    } catch (...) { deny_projection_allocations = false; throw; }
+    deny_projection_allocations = false;
+    check(compared && old_allocation_refused, "native/JSON comparison allocated or allocation control did not discriminate");
 }
 
 int main() {

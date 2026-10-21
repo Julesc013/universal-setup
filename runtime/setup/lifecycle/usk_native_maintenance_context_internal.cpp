@@ -4710,7 +4710,7 @@ void NativeMaintenanceContext::Impl::AuthorityRecordRead::finalize(const Value& 
         const PublisherAuthenticatedClientValidation validation(s.owner.client);
         for (std::size_t index = 0; index < results.size(); ++index)
             require_publisher_record_result_access(record_view, index, validation,
-                publisher_handle_observation_json(s.ordered[index % s.ordered.size()]));
+                s.ordered[index % s.ordered.size()]);
     }
     // Entire native group is joined AFTER all global/wire/owner results. Every
     // entry gets actual fresh listing/reopens with positively checked closure.
@@ -5107,7 +5107,7 @@ void NativeMaintenanceContext::Impl::RecipeQueryRead::finalize(const Value& reco
         const PublisherAuthenticatedClientValidation validation(s.owner.client);
         for (std::size_t index = 0; index < results.size(); ++index)
             require_publisher_record_result_access(record_view, index, validation,
-                publisher_handle_observation_json(s.ordered[index % s.ordered.size()]));
+                s.ordered[index % s.ordered.size()]);
     }
     // Entire native group is joined AFTER all global/wire/owner results. Every
     // entry gets actual fresh listing/reopens with positively checked closure.
@@ -5254,7 +5254,7 @@ void NativeMaintenanceContext::RecordByteRead::finalize(const Value& record_view
         const PublisherAuthenticatedClientValidation validation(s.owner.client);
         for (std::size_t index = 0; index < results.size(); ++index)
             require_publisher_record_result_access(record_view, index, validation,
-                publisher_handle_observation_json(s.ordered[index % s.ordered.size()].facts));
+                s.ordered[index % s.ordered.size()].facts);
     }
     // Fresh native held facts, actual listings and new positively closed
     // independent reopens AFTER every final global/wire/owner join.
