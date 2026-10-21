@@ -3556,6 +3556,7 @@ try {
                     throw 'Production rename observer task remains registered; retain its inputs'
                 }
                 foreach($leaf in @('production-rename-observer.ps1','owned-process.ps1',
+                    'owned-effect-child.ps1','initial-maintenance-boundary.ps1',
                     'production-rename-config.json','production-rename-ready.txt',
                     'production-rename-observation.json','production-rename-observation.json.tmp')) {
                     $path=Join-Path $observerRoot $leaf
