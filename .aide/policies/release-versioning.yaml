@@ -29,10 +29,10 @@ compatibility_statement:
   public_compatibility_contract: aide-lite-local-windows-v1
   stable_semver: established_for_aide_lite_portable_package
   preview_only: false
-  activation_state: conditional_release_candidate_pending_exact_ACCEPT_and_publication
+  activation_state: historical_windows_v1_baseline_preserved_current_successor_has_separate_evidence
   preview_boundary: Q47/Q48 bundles and draft outputs remain preview_only and no_publish
 stable_lite_contract_candidate:
-  status: active_for_exact_release_effect_review_not_yet_published
+  status: historical_v1_baseline_not_current_release_status
   release_axis: aide_lite_portable_package
   version_syntax: MAJOR.MINOR.PATCH
   tag_pattern: aide-lite-v<MAJOR.MINOR.PATCH>
@@ -159,3 +159,29 @@ stable_lite_contract_candidate:
     hashed, and fresh and brownfield acquisition/update work from those exact
     downloaded bytes. Record any failed or uncertain effect before retry;
     do not retag or replace published bytes.
+
+successor_profile_contract:
+  status: prepared_source_requires_exact_review_and_qualification
+  documentation: docs/reference/lite-release-profiles.md
+  candidate_schema: aide.stable-successor-candidate.v2
+  identity_schema: aide.stable-release-identity.v2
+  shared_package_profile: aide-lite-local-cli
+  historical_scope: The stable_lite_contract_candidate section above preserves the first Windows v1 baseline; it is not current publication status or a prohibition on separately qualified successor profiles.
+  source_of_truth: The bounded source-maintainer successor declaration extends the existing release owner; installed project customizations and runtime authority remain independently owned.
+  preservation:
+    - preserve every declared historical asset and its original identity without current-policy reinterpretation
+    - preserve the original Windows companion profile and all predecessor forms on that profile
+    - preserve each multi-profile predecessor identity, exact environment, supported forms, explicit refusals and capabilities
+  profile_fields:
+    - profile_id
+    - environment
+    - support_candidate
+    - capabilities
+    - supported_cli_forms
+    - refused_cli_forms
+    - unqualified_cli_forms
+    - limitations
+  command_dispositions: Supported, refused and unqualified lists must uniquely partition the complete public contract; unqualified is neither an observed refusal nor a pass.
+  version_rule: Adopting v2 from v1 or adding profile or command-disposition behavior requires a minor release, even with unchanged global forms; incompatible removal, including a declared refusal, requires explicit major-version migration or refusal work outside the same-major helper.
+  activation_boundary: Candidate profiles and archive markers grant no execution, integration, support or publication authority. Exact per-profile source/archive/consumer evidence and independent release/effect acceptance remain required.
+  staged_scope: Native legacy ports, other managed execution backends and independently shipped host products retain their existing separate capability and release gates.
