@@ -106,7 +106,8 @@ bool write_event(const usk::diagnostics::Event& event) noexcept {
         TraceLoggingUInt64(c[20], "AuthenticatedAccessCalls"), TraceLoggingUInt64(c[21], "AuthenticatedAccessElapsedUs"), \
         TraceLoggingUInt64(c[22], "ClientTokenFactsCalls"), TraceLoggingUInt64(c[23], "ClientTokenFactsElapsedUs"), \
         TraceLoggingUInt64(c[24], "HandleObservationCalls"), TraceLoggingUInt64(c[25], "HandleObservationElapsedUs"), \
-        TraceLoggingUInt64(c[26], "HandleNameCalls"), TraceLoggingUInt64(c[27], "HandleNameElapsedUs"));
+        TraceLoggingUInt64(c[26], "HandleNameCalls"), TraceLoggingUInt64(c[27], "HandleNameElapsedUs"), \
+        TraceLoggingUInt64(c[28], "BrokerBorrowedQueryInstances"));
     if (detailed) { USK_WRITE_QUALIFICATION_PHASE(WINEVENT_LEVEL_VERBOSE); }
     else { USK_WRITE_QUALIFICATION_PHASE(WINEVENT_LEVEL_INFO); }
 #undef USK_WRITE_QUALIFICATION_PHASE

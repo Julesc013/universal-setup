@@ -25,6 +25,8 @@ inline constexpr std::size_t publisher_object_access_batch_limit = 8u;
 inline constexpr std::size_t publisher_record_query_worker_count = 4u;
 using PublisherRecordQueryPlan = std::array<std::vector<std::size_t>, publisher_record_query_worker_count>;
 PublisherRecordQueryPlan publisher_record_query_plan(const usk::json::Value&);
+// Borrow only for pure scheduling; the returned index plan owns all its data.
+PublisherRecordQueryPlan publisher_record_query_plan(const usk::json::Value::Array&);
 // Closed selectors for read-only original selection. They do not select an
 // operation, admit a worker, or grant recovery/effect authority.
 enum class PublisherEffectSelectionKind {
@@ -149,6 +151,8 @@ private:
     // Only the original broker's fixed record round can admit these slots.
     // Prepare owned query handles only; the sole caller immediately requires
     // authenticated_access()'s complete fresh object proof before retention.
+    // Comparison inputs belong to the synchronous chunk; all workers drain
+    // before it can unwind or mutate them. No borrowed result can escape.
     PublisherBrokerObjectQuery(HANDLE, const usk::json::Value&, const usk::json::Value&,
         const PublisherRecordQueryRoundOwner&);
     void initialize(HANDLE, const usk::json::Value&, const usk::json::Value*,

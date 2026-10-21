@@ -50,7 +50,8 @@ int diagnostic_file_work_proof(const fs::path& root)
     static_assert(static_cast<std::size_t>(Counter::held_file_instances) == 0 &&
         static_cast<std::size_t>(Counter::wire_peer_elapsed_us) == 19 &&
         static_cast<std::size_t>(Counter::authenticated_access_calls) == 20 &&
-        static_cast<std::size_t>(Counter::count) == 28, "diagnostic ordinals are append-only");
+        static_cast<std::size_t>(Counter::broker_borrowed_query_instances) == 28 &&
+        static_cast<std::size_t>(Counter::count) == 29, "diagnostic ordinals are append-only");
     const auto value = [](const Snapshot& s, Counter c) { return s.totals[static_cast<std::size_t>(c)]; };
     const auto inactive = snapshot();
     note(Counter::hash_calls);

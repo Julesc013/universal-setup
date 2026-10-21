@@ -19,7 +19,9 @@ enum class Counter : std::size_t {
     authenticated_access_calls, authenticated_access_elapsed_us,
     client_token_facts_calls, client_token_facts_elapsed_us,
     handle_observation_calls, handle_observation_elapsed_us,
-    handle_name_calls, handle_name_elapsed_us, count
+    handle_name_calls, handle_name_elapsed_us,
+    // Successfully prepared sealed-round slots; not proof completion.
+    broker_borrowed_query_instances, count
 };
 enum class Phase : std::uint32_t {
     machine_request = 1, engine_request, response_write, authority_fence,
