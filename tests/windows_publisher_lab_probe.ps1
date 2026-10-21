@@ -521,7 +521,10 @@ try {
         throw 'file-backed VHD was not created'
     }
 
-    if($PublicInstallation -or $AdmittedTarget){$receipt['backing_image_provisioning']=Protect-NewOwnedVhdImage $vhd $receipt}
+    # Registered legacy profiles also need a safe NEW backing image before
+    # attachment. Native registration/remount admission still proves its own
+    # actual device policy; this file preparation grants no volume authority.
+    if($PublicInstallation -or $AdmittedTarget -or $RegisteredService){$receipt['backing_image_provisioning']=Protect-NewOwnedVhdImage $vhd $receipt}
     Mount-DiskImage -ImagePath $vhd -NoDriveLetter -ErrorAction Stop | Out-Null
     $mounted = $true
     $image = Get-DiskImage -ImagePath $vhd -ErrorAction Stop

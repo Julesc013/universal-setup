@@ -163,7 +163,7 @@ $created=$flow.IndexOf("throw 'file-backed VHD was not created'")
 $protected=$flow.IndexOf("`$receipt['backing_image_provisioning']=Protect-NewOwnedVhdImage `$vhd `$receipt")
 $attached=$flow.IndexOf('Mount-DiskImage -ImagePath $vhd -NoDriveLetter')
 if($created -lt 0 -or $protected -le $created -or $attached -le $protected){throw 'New image policy does not precede first attachment'}
-# Execute the actual preparation selector for each public/controller mode.
+# Execute the actual preparation selector for public, admitted and legacy registration modes.
 # Replace the two filesystem effects with observations only for this routing test.
 $preparation=@($try[0].Body.Statements|Where-Object {
     $_.Extent.Text.Contains('Protect-NewOwnedVhdImage $vhd $receipt') -or
@@ -182,10 +182,12 @@ function Mount-DiskImage([string]$ImagePath,[switch]$NoDriveLetter,[string]$Erro
 $preparationRows=@()
 foreach($PublicInstallation in @($false,$true)) {
   foreach($AdmittedTarget in @($false,$true)) {
-    $script:preparationCalls=[Collections.Generic.List[string]]::new()
-    $receipt=@{};$vhd='synthetic-new-image.vhdx'
-    foreach($statement in $preparation){. ([scriptblock]::Create($statement.Extent.Text))}
-    $preparationRows+=@{public=$PublicInstallation;admitted=$AdmittedTarget;calls=@($script:preparationCalls)}
+    foreach($RegisteredService in @($false,$true)) {
+      $script:preparationCalls=[Collections.Generic.List[string]]::new()
+      $receipt=@{};$vhd='synthetic-new-image.vhdx'
+      foreach($statement in $preparation){. ([scriptblock]::Create($statement.Extent.Text))}
+      $preparationRows+=@{public=$PublicInstallation;admitted=$AdmittedTarget;registered=$RegisteredService;calls=@($script:preparationCalls)}
+    }
   }
 }
 # Exercise the ACTUAL one-attempt C# method with inert private-constructor
@@ -298,9 +300,9 @@ class PublisherVhdImageSecurityTests(unittest.TestCase):
         self.assertTrue(self.observation['before_attachment'])
         self.assertFalse(self.observation['profile_ba_setter_executed'])
         rows = self.observation['preparation_controls']
-        self.assertEqual(len(rows), 4)
+        self.assertEqual(len(rows), 8)
         for row in rows:
-            expected = ['protect', 'attach'] if row['public'] or row['admitted'] else ['attach']
+            expected = ['protect', 'attach'] if row['public'] or row['admitted'] or row['registered'] else ['attach']
             self.assertEqual(row['calls'], expected, row)
 
     def test_raw_native_policy_preserves_actual_order(self):
