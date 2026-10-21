@@ -4,12 +4,16 @@ Continue ACTIVE USK-SPEC-TO-RELEASE-01 in the sole existing worktree/build/lab
 under D:\Projects\Universal\.task-builds. Keep 10GiB physical-disk and 2GiB
 RAM/commit reserves, one local heavy job and the existing Windows 10 VM.
 The fixed20GiB stop is superseded. Daily reviewed dev integration and qualified
-weekly main promotion are separate. History remains in Git and decisions.md.
+weekly main promotion are separate.
 
-Accepted dev0f9dbeb3b3d4891dc8072a69e934fa0d62f59cac integrates PR307 after
-all seven exact-head core checks39465380021/1, actual committed independent
-review and fresh live gate. Full publisher39465380021/1 and accepted-dev
-push39467912329/1 await their terminal records; never replay the merge.
+Accepted devc42d19865d60d4bf3d8549209ee36d0cbcd11fb1 integrates PR314 after
+all seven exact-head core checks39512957651/1, committed independent review
+and fresh live gate. Accepted-dev push39515077100/1 passes all seven core
+checks; publisher is skipped there. Full publisher39512957651/1 remains open.
+Its diagnostic SDK recovery still exceeds120s with no response/cleanupfalse;
+raw receipt and closed CPU capture are retained. No main/release qualification.
+Native main remains c048f7f1ae2e5922c15a08ee572bdafc29027c63. Never replay merges.
+The following earlier diagnostic details remain historical evidence boundaries.
 PR306 preparation checks service identity/stop/path absence before read-only
 lab observation; inert controls do not qualify SCM/VHD/ACL effects. PR305 census
 preserves Count>1 refusal without selection/retry/termination authority.
@@ -50,7 +54,6 @@ and compact memory passed. Initial Win32 runner requested an x64-only target;
 corrected target selection passed, original failure retained. Exact committed
 review and hosted gates remain. No numeric timing saving/deadline cure is established.
 
-Main c048f7f1ae2e5922c15a08ee572bdafc29027c63 remains publisher-unqualified.
 PR304 publisher39438164898/1 failed after seven core passes: private source-retired
 28/30/92 all exceeded120s, including diagnostics OFF. SDK94 actually reached
 inspect/plan and two stale-plan refusals after genuine source-retired interruption;
@@ -61,14 +64,11 @@ Its eight ordinary SDK lifecycle calls and selected private recoveries passed
 independent state/closure; those selected passes do not establish reliability.
 Keep these executions separate and retain the120s contract.
 
-Pinned PR304 CPU/phase evidence covers a partial window; End/argv lacks full
-birth/interval identity,7310 events were not submitted, inclusive scopes overlap,
-and no scheduler/wait/terminal payload/state is captured. Exact PE/PDB is bound.
-Product stacks show JSON and authority work; native hash/provider counts exclude
-canonical JSON hashes. No numerical removable cost or deadline cure follows.
-Use existing bounded diagnostic records; do not redo traces or stack speculative
-hash/provider optimizations. Error32 holder/cause unknown; preserve sharing.
-Current step-read-groupsR4 is integrated; old R102/eight-query preview remains HOLD.
+Historical PR304 CPU/phase evidence is partial, with7310 unsubmitted events,
+overlapping inclusive spans and incomplete birth/interval/wait/state joins.
+Exact PE/PDB permits symbols, not exclusive cost or a deadline cure. Error32
+holder/cause is unknown; preserve sharing. Do not stack speculative optimizations.
+Step-read-groupsR4 is integrated; old R102/eight-query preview remains HOLD.
 
 Integrated native SDK recovery preserves current invocation/digests/action,
 original custody, absent stage/present target, journal/effects, complete lease,
@@ -80,11 +80,13 @@ payload. Install_local, pre-publication finalization, completed history, reconne
 and rollback remain unsupported. Complete lifecycle, authoring/envelopes, owned
 application service, CLI/both TUIs/native OEM+, consumers and release remain open.
 
-AIDE main8e5581cce7c7fd7037f6a199c92a6922260893ab was imported through owned
-update preserving customization, separately from frozen published Lite1.1.
-Full-export selftest passed; safe-installed predecessor/successor retain inherited
-local_skeleton NameError, reported at
+AIDE main025e1cbc4f4c0893555a75a20d9ebaf03a06da3c portable export158a5cdc
+is imported through the owned safe update, preserving customization. Its exact
+main export differs from published Lite1.2 packaging metadata and retains one
+known example template; shared payload hashes match. No published bytes changed.
+Upstream reference prose still describing Lite1.2 as pending is stale.
+The updated safe-installed selftest retains the inherited local_skeleton NameError;
+the full-export pass cannot qualify that layout. Reported at
 https://github.com/Julesc013/aide/issues/6#issuecomment-6263362256.
-New ed4a90046eba12a717a9962f21523285667a669b has no returned qualified fix.
 Do not repeatedly reimport or create another coordinator/queue/clone. Functional
 adoption and actual desktop wake-up remain unqualified.

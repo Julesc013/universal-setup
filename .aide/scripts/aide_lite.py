@@ -13,6 +13,7 @@ import argparse
 import builtins
 from contextlib import ExitStack, contextmanager
 import fnmatch
+from functools import lru_cache
 import gzip
 import hashlib
 import importlib
@@ -878,6 +879,9 @@ Q36_REQUIRED_FILES = [
 ]
 
 Q36_PORTABLE_SOURCE_FILES = [
+    ".aide/scripts/posix_filesystem.py",
+    "docs/reference/portable-lifecycle-filesystems.md",
+    "docs/reference/lite-release-profiles.md",
     ".aide/scripts/task_handoff.py",
     ".aide/scripts/quality_symbols.py",
     ".aide/scripts/task_brief_view.py",
@@ -19475,6 +19479,8 @@ def command_release_bundle(args: argparse.Namespace) -> int:
 
 STABLE_RELEASE_DIR = ".aide/release/stable"
 STABLE_RELEASE_PROFILE = "aide-lite-local-windows"
+MULTIPROFILE_RELEASE_PROFILE = "aide-lite-local-cli"
+MULTIPROFILE_LIFECYCLE_SCOPE = "Exact declared environment and command profiles; no blanket OS support"
 STABLE_SUCCESSOR_PATH = ".aide/release/successor-candidate.json"
 STABLE_ASSET_MAX_BYTES = 8 * 1024 * 1024
 
@@ -19535,6 +19541,80 @@ def stable_release_record(repo_root: Path, relative: str) -> tuple[dict[str, obj
     return value, hashlib.sha256(data).hexdigest()
 
 
+def stable_release_profiles(value: object, forms: list[str]) -> list[dict[str, object]]:
+    """Validate declarations, not qualification, host activation or execution grants."""
+    def text(item: object, maximum: int = 512) -> bool:
+        return (isinstance(item, str) and 0 < len(item) <= maximum
+                and item == item.strip() and not any(ord(char) < 32 or ord(char) == 127 for char in item))
+
+    def strings(items: object, maximum: int, *, empty: bool = False) -> bool:
+        return (isinstance(items, list) and (empty or bool(items)) and len(items) <= maximum
+                and all(text(item) for item in items) and len(items) == len(set(items)))
+
+    if not isinstance(value, list) or not 1 <= len(value) <= 16:
+        raise ValueError("release profiles require 1 to 16 explicit declarations")
+    seen: set[str] = set()
+    all_forms = set(forms)
+    for profile in value:
+        if (not isinstance(profile, dict) or set(profile) != {
+                "profile_id", "environment", "support_candidate", "capabilities",
+                "supported_cli_forms", "refused_cli_forms", "unqualified_cli_forms", "limitations"}):
+            raise ValueError("unknown or missing release profile fields")
+        name = profile["profile_id"]
+        if (not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{0,95}", name)
+                or name in seen):
+            raise ValueError("invalid or duplicate release profile identity")
+        seen.add(name)
+        environment = profile["environment"]
+        if (not isinstance(environment, dict)
+                or set(environment) != {"system", "release", "version", "machine", "runtime"}
+                or any(not text(environment[key]) for key in ("system", "release", "version", "machine"))):
+            raise ValueError("release profile requires an exact environment")
+        runtime = environment["runtime"]
+        if (not isinstance(runtime, dict) or set(runtime) != {"implementation", "version"}
+                or not all(text(item, 128) for item in runtime.values())):
+            raise ValueError("release profile requires an exact runtime identity")
+        support = profile["support_candidate"]
+        if (not isinstance(support, dict) or set(support) != {"tier", "state", "mode", "capability_level"}
+                or not all(isinstance(item, str) for item in support.values())
+                or support["tier"] not in {f"T{number}" for number in range(6)}
+                or support["state"] not in {"planned", "researched", "booting", "loads", "usable", "shipping", "frozen"}
+                or support["mode"] not in {"native", "legacy-native", "companion", "archival"}
+                or support["capability_level"] not in {f"L{number}" for number in range(5)}):
+            raise ValueError("invalid candidate support posture")
+        capabilities = profile["capabilities"]
+        if (not strings(capabilities, 32)
+                or any(not re.fullmatch(r"[a-z][a-z0-9_-]{0,95}", item) for item in capabilities)
+                or not strings(profile["limitations"], 16)):
+            raise ValueError("invalid profile capabilities or limitations")
+        supported, refused, unqualified = (profile[key] for key in (
+            "supported_cli_forms", "refused_cli_forms", "unqualified_cli_forms"))
+        if (not strings(supported, 128) or not strings(refused, 128, empty=True)
+                or not strings(unqualified, 128, empty=True)
+                or set(supported) & set(refused) or set(supported) & set(unqualified) or set(refused) & set(unqualified)
+                or set(supported) | set(refused) | set(unqualified) != all_forms):
+            raise ValueError("profile command availability must partition the public contract")
+    return value
+
+
+def stable_release_historical_profiles(identity: dict[str, object]) -> list[dict[str, object]]:
+    """Read each frozen identity under its own schema, never today's candidate."""
+    schema = identity.get("schema_version")
+    if (schema == "aide.stable-release-identity.v1" and identity.get("profile_id") == STABLE_RELEASE_PROFILE
+            and "profiles" not in identity):
+        return []
+    if schema == "aide.stable-release-identity.v2" and identity.get("profile_id") == MULTIPROFILE_RELEASE_PROFILE:
+        if ("support_tier_candidate" in identity or "support_mode" in identity
+                or identity.get("lifecycle_apply_platform") != MULTIPROFILE_LIFECYCLE_SCOPE):
+            raise ValueError("historical multi-profile identity contains conflicting global claims")
+        forms = identity.get("public_cli_forms")
+        if (not isinstance(forms, list) or not forms or len(forms) > 128
+                or any(not isinstance(form, str) for form in forms) or len(forms) != len(set(forms))):
+            raise ValueError("invalid historical profile command contract")
+        return stable_release_profiles(identity.get("profiles"), forms)
+    raise ValueError("unknown historical release profile identity")
+
+
 def stable_release_contract(repo_root: Path, version: str) -> dict[str, object]:
     """Resolve a candidate declaration; historical pins are not current-pack checks."""
     stable_release_paths(version)
@@ -19546,10 +19626,13 @@ def stable_release_contract(repo_root: Path, version: str) -> dict[str, object]:
     if refs != [f"successor_candidate_ref: {STABLE_SUCCESSOR_PATH}"]:
         raise ValueError("stable successor requires the exact policy candidate reference")
     record, digest = stable_release_record(repo_root, STABLE_SUCCESSOR_PATH)
-    if (set(record) != {"schema_version", "version", "profile_id", "predecessor",
-                       "additional_cli_forms", "preserved_assets"}
-            or record["schema_version"] != "aide.stable-successor-candidate.v1"
-            or record["version"] != version or record["profile_id"] != STABLE_RELEASE_PROFILE):
+    fields = {"schema_version", "version", "profile_id", "predecessor", "additional_cli_forms", "preserved_assets"}
+    multi = record.get("schema_version") == "aide.stable-successor-candidate.v2"
+    if (set(record) != fields | ({"profiles"} if multi else set())
+            or not isinstance(record["schema_version"], str)
+            or record["schema_version"] not in {"aide.stable-successor-candidate.v1", "aide.stable-successor-candidate.v2"}
+            or record["version"] != version
+            or record["profile_id"] != (MULTIPROFILE_RELEASE_PROFILE if multi else STABLE_RELEASE_PROFILE)):
         raise ValueError("unsupported stable successor identity or fields")
     predecessor = record["predecessor"]
     if (not isinstance(predecessor, dict) or set(predecessor) != {"version", "tag_commit"}
@@ -19569,6 +19652,7 @@ def stable_release_contract(repo_root: Path, version: str) -> dict[str, object]:
             or len(additions) != len(set(additions)) or set(additions) & set(baseline)):
         raise ValueError("invalid or duplicate successor CLI forms")
     forms = baseline + additions
+    profiles = stable_release_profiles(record["profiles"], forms) if multi else []
     assets = record["preserved_assets"]
     if not isinstance(assets, list) or not 4 <= len(assets) <= 32:
         raise ValueError("preserved asset list must contain 4 to 32 members")
@@ -19608,12 +19692,11 @@ def stable_release_contract(repo_root: Path, version: str) -> dict[str, object]:
         identity = manifest.get("identity")
         if (manifest.get("schema_version") != "aide.stable-release-candidate.v1"
                 or manifest.get("status") != "frozen_release_assets" or not isinstance(identity, dict)
-                or identity.get("schema_version") != "aide.stable-release-identity.v1"
                 or identity.get("version") != old_version or identity.get("tag") != f"aide-lite-v{old_version}"
-                or identity.get("profile_id") != STABLE_RELEASE_PROFILE
                 or identity.get("artifact_state") != "immutable_release_payload"
                 or identity.get("intended_channel") != "stable"):
             raise ValueError("preserved historical manifest identity mismatch")
+        stable_release_historical_profiles(identity)
         for field in ("source_commit", "source_tree"):
             if not isinstance(identity.get(field), str) or not re.fullmatch(r"[0-9a-f]{40}", identity[field]):
                 raise ValueError("invalid historical source identity")
@@ -19632,6 +19715,37 @@ def stable_release_contract(repo_root: Path, version: str) -> dict[str, object]:
         raise ValueError("successor removes or reinterprets a predecessor CLI form")
     if current_numbers[1] == previous_numbers[1] and set(forms) != set(old_forms):
         raise ValueError("additional public forms require a minor version increase")
+    previous_profiles = stable_release_historical_profiles(historical[previous])
+    if multi and not previous_profiles and current_numbers[1] == previous_numbers[1]:
+        raise ValueError("adopting the profile contract requires a minor version increase")
+    if previous_profiles and current_numbers[1] == previous_numbers[1]:
+        current_by_id = {profile["profile_id"]: profile for profile in profiles}
+        if ({profile["profile_id"] for profile in previous_profiles} != set(current_by_id)
+                or any(any(set(profile[group]) != set(current_by_id[profile["profile_id"]][group])
+                           for group in ("supported_cli_forms", "refused_cli_forms", "unqualified_cli_forms"))
+                       or set(profile["capabilities"]) != set(current_by_id[profile["profile_id"]]["capabilities"])
+                       for profile in previous_profiles)):
+            raise ValueError("additional profile behavior requires a minor version increase")
+    if previous_profiles and not multi:
+        raise ValueError("successor cannot discard the predecessor profile contract")
+    if multi:
+        by_id = {profile["profile_id"]: profile for profile in profiles}
+        if not previous_profiles:
+            previous_profiles = [{"profile_id": STABLE_RELEASE_PROFILE, "supported_cli_forms": old_forms,
+                                  "legacy_system": "Windows", "legacy_mode": "companion"}]
+        for prior in previous_profiles:
+            current = by_id.get(prior["profile_id"])
+            if current is None or not set(prior["supported_cli_forms"]) <= set(current["supported_cli_forms"]):
+                raise ValueError("successor removes predecessor behavior from its profile")
+            if not set(prior.get("refused_cli_forms", [])) <= set(current["refused_cli_forms"]):
+                raise ValueError("successor removes a predecessor profile refusal")
+            if ("legacy_system" in prior and (current["environment"]["system"] != prior["legacy_system"]
+                    or current["support_candidate"]["mode"] != prior["legacy_mode"])):
+                raise ValueError("successor reinterprets the historical Windows companion profile")
+            if "environment" in prior and current["environment"] != prior["environment"]:
+                raise ValueError("a different environment requires a distinct profile identity")
+            if "capabilities" in prior and not set(prior["capabilities"]) <= set(current["capabilities"]):
+                raise ValueError("successor removes predecessor profile capabilities")
     tag = f"aide-lite-v{previous}"
     observed = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "--verify", f"refs/tags/{tag}^{{commit}}"],
                               check=False, capture_output=True, text=True, encoding="utf-8")
@@ -19643,9 +19757,12 @@ def stable_release_contract(repo_root: Path, version: str) -> dict[str, object]:
     matrix = [{"version": previous, "tag": tag, "tag_commit": predecessor["tag_commit"],
                "manifest_sha256": pins[stable_release_paths(previous)["manifest"]]["sha256"],
                "source_commit": historical[previous]["source_commit"],
-               "source_tree": historical[previous]["source_tree"], "profile_id": STABLE_RELEASE_PROFILE,
+               "source_tree": historical[previous]["source_tree"], "profile_id": historical[previous]["profile_id"],
                "assets": [pins[rel] for rel in stable_release_paths(previous).values()]}]
-    return {"forms": forms, "predecessors": matrix, "preserved": set(pins), "digest": digest}
+    contract = {"forms": forms, "predecessors": matrix, "preserved": set(pins), "digest": digest}
+    if multi:
+        contract.update(profile_id=MULTIPROFILE_RELEASE_PROFILE, profiles=profiles)
+    return contract
 
 
 def stable_release_output_preflight(repo_root: Path, allowed: set[str]) -> None:
@@ -19711,6 +19828,11 @@ def build_stable_release_candidate(repo_root: Path, version: str) -> dict[str, o
     }
     if contract["digest"] is not None:
         marker["successor_contract_sha256"] = contract["digest"]
+    if contract.get("profiles"):
+        marker.update(schema_version="aide.stable-release-identity.v2", profile_id=contract["profile_id"],
+                      profiles=contract["profiles"],
+                      lifecycle_apply_platform=MULTIPROFILE_LIFECYCLE_SCOPE)
+        del marker["support_tier_candidate"], marker["support_mode"]
     output_root.mkdir(parents=True, exist_ok=True)
     with public_archive_fixture("aide-stable-pack-") as temp_name:
         projected = Path(temp_name) / RELEASE_ARCHIVE_ROOT
@@ -19762,12 +19884,20 @@ def validate_stable_release_candidate(repo_root: Path, version: str) -> dict[str
     if (manifest.get("schema_version") != "aide.stable-release-candidate.v1"
             or manifest.get("status") != "frozen_release_assets" or identity.get("version") != version):
         problems.append("stable candidate identity or status mismatch")
-    if (identity.get("schema_version") != "aide.stable-release-identity.v1"
+    expected_schema = "aide.stable-release-identity.v2" if contract.get("profiles") else "aide.stable-release-identity.v1"
+    if (identity.get("schema_version") != expected_schema
             or identity.get("tag") != f"aide-lite-v{version}"
             or identity.get("release_axis") != "aide_lite_portable_package"):
         problems.append("stable identity schema, tag or release axis mismatch")
-    if identity.get("profile_id") != STABLE_RELEASE_PROFILE or identity.get("artifact_state") != "immutable_release_payload" or identity.get("intended_channel") != "stable":
+    if identity.get("profile_id") != contract.get("profile_id", STABLE_RELEASE_PROFILE) or identity.get("artifact_state") != "immutable_release_payload" or identity.get("intended_channel") != "stable":
         problems.append("stable profile identity mismatch")
+    if contract.get("profiles"):
+        if (identity.get("profiles") != contract["profiles"] or "support_tier_candidate" in identity
+                or "support_mode" in identity
+                or identity.get("lifecycle_apply_platform") != MULTIPROFILE_LIFECYCLE_SCOPE):
+            problems.append("stable per-profile declarations differ from the candidate contract")
+    elif "profiles" in identity:
+        problems.append("historical single-profile identity cannot acquire new profile declarations")
     if identity.get("public_cli_forms") != contract["forms"]:
         problems.append("stable public CLI forms differ from version policy")
     if (identity.get("predecessor_matrix") != contract["predecessors"]
@@ -19828,7 +19958,7 @@ def command_release_stable_build(args: argparse.Namespace) -> int:
     if not (args.repo_root / "core/execution/managed_workspace.py").is_file():
         print("result: REFUSED\nsource-only managed release runner required")
         return 1
-    if not source_maintainer_job_guard(args.repo_root, canonical_paths=(".aide/release",)):
+    if not source_maintainer_job_guard(args.repo_root, canonical_paths=(STABLE_RELEASE_DIR,)):
         return 1
     try:
         manifest = build_stable_release_candidate(args.repo_root, args.version)
@@ -19846,7 +19976,7 @@ def command_release_stable_validate(args: argparse.Namespace) -> int:
     if not (args.repo_root / "core/execution/managed_workspace.py").is_file():
         print("result: REFUSED\nsource-only managed release runner required")
         return 1
-    if not source_maintainer_job_guard(args.repo_root, canonical_paths=(".aide/release",)):
+    if not source_maintainer_job_guard(args.repo_root, canonical_paths=(STABLE_RELEASE_DIR,)):
         return 1
     result = validate_stable_release_candidate(args.repo_root, args.version)
     print(f"stable release candidate: {result['result']}")
@@ -41862,7 +41992,7 @@ def is_source_only_export_test(rel_path: str) -> bool:
     if not rel.startswith(".aide/scripts/tests/"):
         return False
     name = Path(rel).name
-    return name in {"test_managed_workspace.py", "test_scoped_host.py"} or name.startswith("test_continuous_worker") or (
+    return name in {"test_managed_workspace.py", "test_scoped_host.py", "test_posix_lifecycle.py"} or name.startswith("test_continuous_worker") or (
         name.startswith("test_aide_") and rel not in PORTABLE_AIDE_TEST_MODULES
     )
 
@@ -41938,10 +42068,77 @@ def atomic_write_bytes_if_changed(path: Path, data: bytes) -> WriteResult:
     return WriteResult(path, "written")
 
 
+@lru_cache(maxsize=1)
+def posix_filesystem_binding():
+    # Load from this distribution; keep the binding alive while removing itself.
+    path = Path(__file__).resolve().with_name("posix_filesystem.py")
+    _job_wait_root(str(path.parent))
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 65536:
+        raise ValueError("POSIX filesystem binding is not an ordinary bounded module")
+    spec = importlib.util.spec_from_file_location("aide_posix_filesystem", path)
+    module = importlib.util.module_from_spec(spec)
+    previous = sys.dont_write_bytecode
+    try:
+        sys.dont_write_bytecode = True
+        spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
+    return module
+
+
+@contextmanager
+def portable_pinned_directory(path: Path, *, for_write: bool = True):
+    """Use native directory ownership; POSIX protection is cooperative."""
+    if os.name == "nt":
+        with windows_pinned_directory(path, for_write=for_write) as guard:
+            yield guard
+    else:
+        with posix_filesystem_binding().Directory(path, for_write=for_write) as guard:
+            yield guard
+
+
+@contextmanager
+def portable_verified_file(path: Path, expected_digest: str | None, *, read_only: bool = True,
+                           identity_out: list[str] | None = None, max_bytes: int | None = None,
+                           capture_out: list[bytes] | None = None):
+    """Own native guard lifetime without exposing Windows handles to other bindings."""
+    if os.name == "nt":
+        with windows_pinned_directory(path.parent, for_write=False):
+            kernel, handle = portable_import_verified_leaf(path, expected_digest,
+                read_only=read_only, identity_out=identity_out, max_bytes=max_bytes, capture_out=capture_out)
+            try:
+                yield lambda: None  # Windows denies writes/deletes for this handle's lifetime.
+            finally:
+                kernel.CloseHandle(handle)
+    else:
+        with posix_filesystem_binding().verified_file(path, expected_digest, max_bytes=max_bytes) as leaf:
+            if identity_out is not None:
+                identity_out.append(leaf.identity)
+            if capture_out is not None:
+                capture_out.append(leaf.check(capture=True))
+            yield leaf.check
+
+
+def portable_unlink_exact_file(path: Path, expected_digest: str, before_disposition=None,
+                               *, expected_identity: str | None = None) -> None:
+    if os.name == "nt":
+        options = {}
+        if before_disposition is not None:
+            options["before_disposition"] = before_disposition
+        if expected_identity is not None:
+            options["expected_identity"] = expected_identity
+        windows_unlink_exact_portable_file(path, expected_digest, **options)
+    else:
+        posix_filesystem_binding().unlink_exact(path, expected_digest, before_disposition,
+            expected_identity=expected_identity)
+
+
 def atomic_create_bytes_no_clobber(path: Path, data: bytes) -> None:
     """Publish complete bytes while denying rival staging writers."""
     if os.name != "nt":
-        raise ValueError("owned repair requires Windows anchored directory handles")
+        posix_filesystem_binding().create_bytes(path, data)
+        return
     if not path.parent.is_dir():
         raise ValueError(f"repair parent directory is missing: {path.parent}")
     import ctypes
@@ -42094,7 +42291,11 @@ def windows_link_from_handle(descriptor: int, directory_handle: int, leaf_name: 
 def delete_portable_repair_intent_anchored(target_root: Path, intent: dict[str, object]) -> None:
     """Delete only the exact single-link intent opened beneath pinned parents."""
     if os.name != "nt":
-        raise ValueError("owned repair intent cleanup requires Windows anchored handles")
+        expected = stable_json_text(intent).encode("utf-8")
+        if len(expected) > 65536:
+            raise ValueError("repair intent exceeds cleanup size limit")
+        posix_filesystem_binding().unlink_exact(target_root / PORTABLE_REPAIR_INTENT_PATH, digest_bytes(expected))
+        return
     import ctypes
     from ctypes import wintypes
 
@@ -43464,7 +43665,7 @@ def read_portable_resolution_bytes(path: Path, pack_root: Path, target_root: Pat
             raise ValueError(f"resolution crosses a reparse path: {path}")
     if not path.is_file() or not stat.S_ISREG(path.stat().st_mode) or path.stat().st_size > 4 * 1024 * 1024:
         raise ValueError(f"resolution must be a bounded regular file: {path}")
-    if os.name == "nt" and path.stat().st_nlink != 1:
+    if path.stat().st_nlink != 1:
         raise ValueError("resolution must not be a hard-linked pack or target alias")
     resolved = path.resolve()
     if resolved in {pack_root, target_root} or pack_root in resolved.parents or target_root in resolved.parents:
@@ -43478,9 +43679,8 @@ def read_portable_resolution_bytes(path: Path, pack_root: Path, target_root: Pat
             finally:
                 kernel.CloseHandle(handle)
     else:
-        data = path.read_bytes()
-        if len(data) > 4 * 1024 * 1024:
-            raise ValueError("resolution file exceeds the size bound")
+        with posix_filesystem_binding().verified_file(path, max_bytes=4 * 1024 * 1024) as leaf:
+            data = leaf.check(capture=True)
     return data
 
 
@@ -43669,10 +43869,8 @@ def project_update_controls(target_root: Path, prior_receipt: dict[str, object] 
                 finally:
                     kernel.CloseHandle(handle)
         else:
-            with path.open("rb") as stream:
-                raw = stream.read(65537)
-            if len(raw) > 65536:
-                raise ValueError("invalid project customizations file")
+            with posix_filesystem_binding().verified_file(path, max_bytes=65536) as leaf:
+                raw = leaf.check(capture=True)
         observed = digest_bytes(raw)
         record = json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -44112,6 +44310,10 @@ def portable_removal_restore_agents_preimage(target_root: Path, item: dict[str, 
     if target_file_digest(agents) != "missing" or not os.path.lexists(backup):
         return False
     try:
+        if os.name != "nt":
+            posix_filesystem_binding().restore_backup(target_root, "AGENTS.md", str(item["backup_rel"]),
+                str(item["preimage_digest"]), str(item["preimage_file_identity"]))
+            return not os.path.lexists(backup)
         with windows_pinned_directory(agents.parent) as parent:
             identity: list[str] = []
             kernel, handle = portable_import_verified_leaf(
@@ -44143,8 +44345,6 @@ def _apply_portable_removal_pinned(
     """Remove exact owned files and the AGENTS block before receipt retirement."""
     if not expected_plan_digest or re.fullmatch(r"[0-9a-f]{64}", expected_plan_digest) is None:
         raise ValueError("portable removal apply requires an exact preview plan digest")
-    if os.name != "nt":
-        raise ValueError("portable removal apply requires Windows anchored file handles")
     with portable_lifecycle_lock(target_root):
         if load_portable_import_intent(target_root) is not None:
             raise ValueError("portable import recovery must complete before removal")
@@ -44158,7 +44358,7 @@ def _apply_portable_removal_pinned(
             observations = portable_removal_recovery_observations(target_root, intent)
             if not intent["retire_receipt"] or any(item["state"] != "removed" for item in observations):
                 return {"status": "RECOVERY_REQUIRED", "plan_digest": intent["plan_digest"], "removed": [], "preserved": intent["preserved"], "recovery": observations}
-            windows_unlink_exact_portable_file(
+            portable_unlink_exact_file(
                 portable_target_path(target_root, PORTABLE_REMOVAL_INTENT_PATH),
                 digest_bytes(stable_json_text(intent).encode("utf-8")),
             )
@@ -44195,11 +44395,9 @@ def _apply_portable_removal_pinned(
                             preserved.append(str(item["target"]))
                         else:
                             identity: list[str] = []
-                            with windows_pinned_directory(agents_path.parent):
-                                identity_kernel, identity_handle = portable_import_verified_leaf(
-                                    agents_path, str(item["target_file_digest"]), identity_out=identity
-                                )
-                                identity_kernel.CloseHandle(identity_handle)
+                            with portable_verified_file(agents_path, str(item["target_file_digest"]),
+                                                        read_only=False, identity_out=identity):
+                                pass
                             candidates.append({
                                 "target": "AGENTS.md",
                                 "kind": "managed_agents_section",
@@ -44297,7 +44495,7 @@ def _apply_portable_removal_pinned(
                         raise RuntimeError("stale portable AGENTS section preimage")
                     portable_import_write_exact(target_root, target_rel, postimage, str(item["preimage_digest"]), str(item["backup_rel"]))
                 else:
-                    windows_unlink_exact_portable_file(target, str(item["preimage_digest"]))
+                    portable_unlink_exact_file(target, str(item["preimage_digest"]))
             except (OSError, RuntimeError, ValueError):
                 return {"status": "RECOVERY_REQUIRED", "plan_digest": intent["plan_digest"], "removed": removed, "preserved": intent.get("preserved", []), "recovery": portable_removal_recovery_observations(target_root, intent)}
             removed.append(target_rel)
@@ -44306,23 +44504,22 @@ def _apply_portable_removal_pinned(
         # Observe before opening the no-write/no-delete AGENTS guard: ordinary
         # pathname reads cannot reopen that leaf while the guard is held.
         observations = portable_removal_recovery_observations(target_root, intent)
-        guard_kernel = guard_handle = None
-        try:
+        with ExitStack() as guards:
             section_operation = next((item for item in intent["operations"] if item["kind"] == "managed_agents_section"), None)
             if section_operation is not None:
                 try:
                     # Keep the postimage pinned through backup cleanup and
                     # receipt/intent retirement. The backup delete hashes and
                     # disposes the same anchored, single-link regular handle.
-                    guard_kernel, guard_handle = portable_import_verified_leaf(
-                        portable_target_path(target_root, "AGENTS.md"), str(section_operation["postimage_digest"])
-                    )
+                    check_agents = guards.enter_context(portable_verified_file(
+                        portable_target_path(target_root, "AGENTS.md"), str(section_operation["postimage_digest"]),
+                        read_only=False))
                     backup_path = portable_target_path(target_root, str(section_operation["backup_rel"]))
                     if os.path.lexists(backup_path):
                         identity = section_operation.get("preimage_file_identity")
                         if not isinstance(identity, str):
                             raise RuntimeError("portable AGENTS backup lacks original file identity")
-                        windows_unlink_exact_portable_file(
+                        portable_unlink_exact_file(
                             backup_path, str(section_operation["preimage_digest"]), expected_identity=identity
                         )
                         if os.path.lexists(backup_path):
@@ -44335,22 +44532,21 @@ def _apply_portable_removal_pinned(
                         observation["backup_state"] = "absent"
             if any(item["state"] != "removed" for item in observations):
                 return {"status": "RECOVERY_REQUIRED", "plan_digest": intent["plan_digest"], "removed": removed, "preserved": intent.get("preserved", []), "recovery": observations}
+            if section_operation is not None:
+                check_agents()
             current_receipt = load_portable_import_receipt(target_root)
             receipt_path = portable_target_path(target_root, PORTABLE_IMPORT_RECEIPT_PATH)
             if current_receipt is None or current_receipt["receipt_digest"] != intent["receipt_digest"] or target_file_digest(receipt_path) != intent["receipt_file_digest"]:
                 raise ValueError("portable removal receipt changed before intent reconciliation")
             if intent["retire_receipt"]:
                 try:
-                    windows_unlink_exact_portable_file(receipt_path, str(intent["receipt_file_digest"]))
+                    portable_unlink_exact_file(receipt_path, str(intent["receipt_file_digest"]))
                 except (OSError, RuntimeError, ValueError):
                     return {"status": "RECOVERY_REQUIRED", "plan_digest": intent["plan_digest"], "removed": removed, "preserved": [], "recovery": observations}
                 if fail_after_receipt:
                     return {"status": "INTERRUPTED", "plan_digest": intent["plan_digest"], "removed": removed, "preserved": [], "recovery": observations}
             intent_path = portable_target_path(target_root, PORTABLE_REMOVAL_INTENT_PATH)
-            windows_unlink_exact_portable_file(intent_path, digest_bytes(stable_json_text(intent).encode("utf-8")))
-        finally:
-            if guard_kernel is not None and guard_handle is not None:
-                guard_kernel.CloseHandle(guard_handle)
+            portable_unlink_exact_file(intent_path, digest_bytes(stable_json_text(intent).encode("utf-8")))
         return {"status": "DETACHED" if intent["retire_receipt"] else "PARTIAL_REMOVAL", "plan_digest": intent["plan_digest"], "removed": removed, "preserved": intent["preserved"], "receipt_retained": not intent["retire_receipt"]}
 
 
@@ -44361,10 +44557,8 @@ def apply_portable_removal(
     fail_after_receipt: bool = False,
 ) -> dict[str, object]:
     """Hold the target root itself against reparse traversal or replacement."""
-    if os.name != "nt":
-        raise ValueError("portable removal apply requires Windows anchored file handles")
     target_root = Path(os.path.abspath(target_root))
-    with windows_pinned_directory(target_root):
+    with portable_pinned_directory(target_root):
         return _apply_portable_removal_pinned(target_root, expected_plan_digest, fail_after_removals, fail_after_receipt)
 
 
@@ -44412,7 +44606,8 @@ def classify_portable_import_recovery(target_root: Path, intent: dict[str, objec
 def portable_import_ensure_parent(target_root: Path, target_rel: str) -> Path:
     """Create missing ancestors only beneath a pinned, non-reparse parent."""
     if os.name != "nt":
-        raise ValueError("anchored portable import writes require Windows")
+        portable_target_path(target_root, target_rel)
+        return posix_filesystem_binding().ensure_parent(target_root, target_rel)
     target = portable_target_path(target_root, target_rel)
     root = target_root.absolute()
     current = root
@@ -44491,7 +44686,15 @@ def portable_import_verified_leaf(path: Path, expected_digest: str | None, *, wr
 def portable_import_guard_missing_controls(target_root: Path):
     """Reserve an absent project controls name until the import intent retires."""
     if os.name != "nt":
-        raise ValueError("missing-controls reservation requires Windows")
+        path = portable_target_path(target_root, PROJECT_CUSTOMIZATIONS_PATH)
+        with portable_pinned_directory(path.parent, for_write=False):
+            def check_missing():
+                if os.path.lexists(path):
+                    raise RuntimeError("project controls appeared during publication")
+            check_missing()
+            yield check_missing
+            check_missing()
+        return
     import ctypes
     from ctypes import wintypes
 
@@ -44581,6 +44784,10 @@ def windows_guarded_staged_bytes(parent: Path, leaf_name: str, data: bytes):
 
 def portable_import_write_exact(target_root: Path, target_rel: str, data: bytes, expected_digest: str, backup_rel: str | None = None) -> WriteResult:
     """Stage under pinned ancestors; publish new bytes without replacing a rival leaf."""
+    if os.name != "nt":
+        target = portable_target_path(target_root, target_rel)
+        posix_filesystem_binding().write_exact(target_root, target_rel, data, expected_digest, backup_rel)
+        return WriteResult(target, "written")
     target = portable_import_ensure_parent(target_root, target_rel)
     with windows_pinned_directory(target.parent) as directory_handle:
         with windows_guarded_staged_bytes(target.parent, target.name, data) as stage_descriptor:
@@ -44615,6 +44822,9 @@ def portable_import_write_exact(target_root: Path, target_rel: str, data: bytes,
 
 def portable_import_delete_exact(target_root: Path, target_rel: str, expected: bytes) -> None:
     target = portable_target_path(target_root, target_rel)
+    if os.name != "nt":
+        posix_filesystem_binding().unlink_exact(target, digest_bytes(expected))
+        return
     with windows_pinned_directory(target.parent):
         kernel, handle = portable_import_verified_leaf(target, digest_bytes(expected))
         try:
@@ -44648,11 +44858,8 @@ def apply_import_operation(pack_root: Path, target_root: Path, operation: dict[s
         return False
     if digest_bytes(data) != operation["postimage_digest"]:
         raise RuntimeError(f"planned postimage mismatch: {operation['target']}")
-    result = (
-        portable_import_write_exact(target_root, operation["target"], data, operation["preimage_digest"], operation.get("backup_rel"))
-        if os.name == "nt"
-        else atomic_write_bytes_if_changed(target, data)
-    )
+    result = portable_import_write_exact(target_root, operation["target"], data,
+        operation["preimage_digest"], operation.get("backup_rel"))
     if target_file_digest(target) != operation["postimage_digest"]:
         raise RuntimeError(f"written postimage mismatch: {operation['target']}")
     return result.action == "written"
@@ -44668,7 +44875,7 @@ def recover_partial_import(
     expected_plan_digest: str,
     resolutions: dict[str, Path],
 ) -> dict[str, object]:
-    """Continue only an exact, snapshot-bound partial Windows import on request."""
+    """Continue only an exact, snapshot-bound partial import on request."""
     def refused() -> dict[str, object]:
         return {
             "status": "RECOVERY_REQUIRED", "dry_run": False, "mode": mode,
@@ -44683,14 +44890,12 @@ def recover_partial_import(
         target = portable_target_path(target_root, target_rel)
         observed = target_file_digest(target)
         if observed not in {"missing", "not-a-file"}:
-            with windows_pinned_directory(target.parent, for_write=False):
-                kernel, handle = portable_import_verified_leaf(target, observed, read_only=True)
-                kernel.CloseHandle(handle)
+            with portable_verified_file(target, observed):
+                pass
         return observed
 
     if (
-        os.name != "nt"
-        or pending.get("target") != normalize_rel(target_root)
+        pending.get("target") != normalize_rel(target_root)
         or pending.get("pack_id") != EXPORT_PACK_ID
         or re.fullmatch(r"[0-9a-f]{64}", expected_plan_digest) is None
         or expected_plan_digest != pending.get("plan_digest")
@@ -44955,28 +45160,27 @@ def recover_partial_import(
         valid, problems = validate_pack_checksums(pack_root)
         if not valid or problems or import_pack_identity(pack_root) != next_receipt["pack"]:
             return refused()
-        # Keep every existing postimage regular, single-linked, and immutable
-        # until the receipt and intent have been published/retired.
+        # Windows denies mutation while guarded. POSIX verifies descriptors
+        # under the single cooperative mutation-owner profile.
         with ExitStack() as guards:
+            checks = []
             for item in operations:
                 postimage = item["postimage_digest"]
                 if postimage == "missing":
                     continue
                 target = portable_target_path(target_root, item["target"])
-                guards.enter_context(windows_pinned_directory(target.parent, for_write=False))
-                kernel, handle = portable_import_verified_leaf(target, postimage, read_only=True)
-                guards.callback(kernel.CloseHandle, handle)
+                checks.append(guards.enter_context(portable_verified_file(target, postimage)))
             controls_path = portable_target_path(target_root, PROJECT_CUSTOMIZATIONS_PATH)
             if not os.path.lexists(controls_path):
                 if controls_digest != "missing" or disabled:
                     raise RuntimeError("project controls disappeared before publication")
-                guards.enter_context(portable_import_guard_missing_controls(target_root))
+                check_missing = guards.enter_context(portable_import_guard_missing_controls(target_root))
+                if check_missing is not None:
+                    checks.append(check_missing)
             else:
-                guards.enter_context(windows_pinned_directory(controls_path.parent, for_write=False))
                 captured_controls: list[bytes] = []
-                kernel, handle = portable_import_verified_leaf(controls_path, None,
-                    read_only=True, max_bytes=65536, capture_out=captured_controls)
-                guards.callback(kernel.CloseHandle, handle)
+                checks.append(guards.enter_context(portable_verified_file(controls_path, None,
+                    max_bytes=65536, capture_out=captured_controls)))
                 raw_controls = b"".join(captured_controls)
                 controls_record = json.loads(raw_controls.decode("utf-8"))
                 if isinstance(controls_record, dict) and controls_record.get("schema_version") == PROJECT_CUSTOMIZATIONS_SCHEMA_V2:
@@ -44992,13 +45196,15 @@ def recover_partial_import(
                     raise RuntimeError("project controls changed before publication")
             for target_rel, data in resolution_data.items():
                 resolution_path = Path(os.path.abspath(resolutions[target_rel]))
-                guards.enter_context(windows_pinned_directory(resolution_path.parent, for_write=False))
-                kernel, handle = portable_import_verified_leaf(resolution_path, digest_bytes(data),
-                    read_only=True, max_bytes=4 * 1024 * 1024)
-                guards.callback(kernel.CloseHandle, handle)
+                checks.append(guards.enter_context(portable_verified_file(resolution_path, digest_bytes(data),
+                    max_bytes=4 * 1024 * 1024)))
+            for check in checks:
+                check()
             receipt_bytes = stable_json_text(next_receipt).encode("utf-8")
             portable_import_write_exact(target_root, PORTABLE_IMPORT_RECEIPT_PATH, receipt_bytes,
                 pending["receipt_preimage_digest"], pending.get("receipt_backup_rel"))
+            for check in checks:
+                check()
             portable_import_delete_exact(target_root, PORTABLE_IMPORT_INTENT_PATH, stable_json_text(pending).encode("utf-8"))
         return {"status": "RECOVERED", "dry_run": False, "mode": mode, "target": normalize_rel(target_root),
             "operation_count": len(operations), "conflicts": [], "skipped": skipped, "operations": operations,
@@ -45036,8 +45242,8 @@ def _apply_import_pack_unlocked(
             raise ValueError("invalid predecessor pack checksums: " + "; ".join(predecessor_problems))
     if portable_target_path(target_root, PORTABLE_REPAIR_INTENT_PATH).exists():
         raise ValueError("pending portable repair intent requires repair recovery")
-    if recover_partial and (dry_run or expected_plan_digest is None or os.name != "nt"):
-        raise ValueError("partial import recovery requires Windows, apply mode and --expect-plan")
+    if recover_partial and (dry_run or expected_plan_digest is None):
+        raise ValueError("partial import recovery requires apply mode and --expect-plan")
     pending = load_portable_import_intent(target_root)
     if pending is not None:
         recovery = classify_portable_import_recovery(target_root, pending)
@@ -45052,30 +45258,21 @@ def _apply_import_pack_unlocked(
                 return {"status": "RECOVERY_REQUIRED", "dry_run": False, "mode": mode, "target": normalize_rel(target_root), "operation_count": len(pending.get("operations", [])), "conflicts": [], "skipped": [], "operations": [], "written": [], "recovery": recovery, "plan_digest": pending.get("plan_digest")}
             receipt_bytes = stable_json_text(pending["next_receipt"]).encode("utf-8")
             receipt_preimage = pending.get("receipt_preimage_digest")
-            if os.name == "nt":
-                if not isinstance(receipt_preimage, str):
-                    raise ValueError("import recovery lacks receipt preimage identity")
-                observed_receipt = target_file_digest(portable_target_path(target_root, PORTABLE_IMPORT_RECEIPT_PATH))
-                if observed_receipt != digest_bytes(receipt_bytes):
-                    portable_import_write_exact(target_root, PORTABLE_IMPORT_RECEIPT_PATH, receipt_bytes, receipt_preimage, pending.get("receipt_backup_rel"))
-                portable_import_delete_exact(target_root, PORTABLE_IMPORT_INTENT_PATH, stable_json_text(pending).encode("utf-8"))
-            else:
-                atomic_write_json(portable_target_path(target_root, PORTABLE_IMPORT_RECEIPT_PATH), pending["next_receipt"])
-                portable_target_path(target_root, PORTABLE_IMPORT_INTENT_PATH).unlink()
+            if not isinstance(receipt_preimage, str):
+                raise ValueError("import recovery lacks receipt preimage identity")
+            observed_receipt = target_file_digest(portable_target_path(target_root, PORTABLE_IMPORT_RECEIPT_PATH))
+            if observed_receipt != digest_bytes(receipt_bytes):
+                portable_import_write_exact(target_root, PORTABLE_IMPORT_RECEIPT_PATH, receipt_bytes, receipt_preimage, pending.get("receipt_backup_rel"))
+            portable_import_delete_exact(target_root, PORTABLE_IMPORT_INTENT_PATH, stable_json_text(pending).encode("utf-8"))
             return {"status": "RECOVERED", "dry_run": False, "mode": mode, "target": normalize_rel(target_root), "operation_count": 0, "conflicts": [], "skipped": [], "operations": [], "written": [], "recovery": recovery, "plan_digest": pending.get("plan_digest")}
         if recovery["classification"] == "no_effect":
-            if os.name == "nt":
-                portable_import_delete_exact(target_root, PORTABLE_IMPORT_INTENT_PATH, stable_json_text(pending).encode("utf-8"))
-            else:
-                portable_target_path(target_root, PORTABLE_IMPORT_INTENT_PATH).unlink()
+            portable_import_delete_exact(target_root, PORTABLE_IMPORT_INTENT_PATH, stable_json_text(pending).encode("utf-8"))
         else:
             return {"status": "RECOVERY_REQUIRED", "dry_run": False, "mode": mode, "target": normalize_rel(target_root), "operation_count": len(pending.get("operations", [])), "conflicts": [], "skipped": [], "operations": [], "written": [], "recovery": recovery, "plan_digest": pending.get("plan_digest")}
     if recover_partial:
         raise ValueError("partial import recovery requires a pending intent")
     prior_receipt = load_portable_import_receipt(target_root)
     disabled_features, controls_digest = project_update_controls(target_root, prior_receipt)
-    if os.name != "nt" and not dry_run and (resolutions or disabled_features or (prior_receipt and prior_receipt.get("disabled_features"))):
-        raise ValueError("three-way resolution and disabled-feature apply require Windows anchored effects")
     if resolutions and predecessor_pack is None:
         raise ValueError("three-way resolution requires the exact predecessor pack")
     if resolutions and prior_receipt is None:
@@ -45133,10 +45330,7 @@ def _apply_import_pack_unlocked(
         if target_file_digest(portable_target_path(target_root, operation["target"])) != operation["preimage_digest"]:
             return {"status": "STALE_PLAN", "dry_run": False, "mode": mode, "target": normalize_rel(target_root), "operation_count": len(operations), "conflicts": [], "skipped": skipped, "operations": operations, "written": [], "plan_digest": plan_digest}
     if payload_operations or receipt_changed:
-        if os.name == "nt":
-            portable_import_write_exact(target_root, PORTABLE_IMPORT_INTENT_PATH, stable_json_text(intent).encode("utf-8"), "missing")
-        else:
-            atomic_write_json(portable_target_path(target_root, PORTABLE_IMPORT_INTENT_PATH), intent)
+        portable_import_write_exact(target_root, PORTABLE_IMPORT_INTENT_PATH, stable_json_text(intent).encode("utf-8"), "missing")
     def external_inputs_still_match() -> bool:
         try:
             current_disabled, current_controls_digest = project_update_controls(target_root, prior_receipt)
@@ -45180,20 +45374,14 @@ def _apply_import_pack_unlocked(
     if not payload_operations and not receipt_changed and portable_receipt_state_matches(current_receipt, next_receipt):
         receipt_result = WriteResult(portable_target_path(target_root, PORTABLE_IMPORT_RECEIPT_PATH), "unchanged")
     else:
-        receipt_result = (
-            portable_import_write_exact(target_root, PORTABLE_IMPORT_RECEIPT_PATH, stable_json_text(next_receipt).encode("utf-8"), receipt_preimage_digest, intent.get("receipt_backup_rel"))
-            if os.name == "nt"
-            else atomic_write_json(portable_target_path(target_root, PORTABLE_IMPORT_RECEIPT_PATH), next_receipt)
-        )
+        receipt_result = portable_import_write_exact(target_root, PORTABLE_IMPORT_RECEIPT_PATH,
+            stable_json_text(next_receipt).encode("utf-8"), receipt_preimage_digest, intent.get("receipt_backup_rel"))
     if not external_inputs_still_match():
         recovery = classify_portable_import_recovery(target_root, intent)
         return {"status": "INTERRUPTED", "dry_run": False, "mode": mode, "target": normalize_rel(target_root), "operation_count": len(operations), "conflicts": [], "skipped": skipped, "operations": operations, "written": written, "recovery": recovery, "plan_digest": plan_digest}
     intent_path = portable_target_path(target_root, PORTABLE_IMPORT_INTENT_PATH)
     if intent_path.exists():
-        if os.name == "nt":
-            portable_import_delete_exact(target_root, PORTABLE_IMPORT_INTENT_PATH, stable_json_text(intent).encode("utf-8"))
-        else:
-            intent_path.unlink()
+        portable_import_delete_exact(target_root, PORTABLE_IMPORT_INTENT_PATH, stable_json_text(intent).encode("utf-8"))
     status = "APPLIED" if written or receipt_result.action == "written" else "NO_CHANGES"
     return {
         "status": status,
@@ -45389,8 +45577,6 @@ def apply_portable_rollback(
     recover_partial: bool = False,
 ) -> dict[str, object]:
     """Apply a previewed rollback or explicitly continue its exact partial intent."""
-    if os.name != "nt":
-        raise ValueError("portable rollback apply requires Windows anchored file handles")
     if re.fullmatch(r"[0-9a-f]{64}", expected_plan_digest or "") is None:
         raise ValueError("portable rollback apply requires an exact preview digest")
     with portable_lifecycle_lock(target_root.resolve()):
@@ -45562,7 +45748,7 @@ def inspect_portable_repair_health(pack_root: Path, target_root: Path) -> dict[s
         "pending_intents": [], "disabled_features": [], "observations": [], "read_only": True,
         "network_calls": False, "provider_or_model_calls": False,
     }
-    if os.name != "nt" or not target_root.is_dir() or target_root.is_symlink() or bool(getattr(target_root, "is_junction", lambda: False)()):
+    if not target_root.is_dir() or target_root.is_symlink() or bool(getattr(target_root, "is_junction", lambda: False)()):
         report["status"] = "UNSAFE_TARGET"
         return report
     if pack_root == target_root or pack_root in target_root.parents or target_root in pack_root.parents:
@@ -45578,7 +45764,7 @@ def inspect_portable_repair_health(pack_root: Path, target_root: Path) -> dict[s
         report["status"], report["reason"] = "INVALID_PACK", str(exc)
         return report
     try:
-        with windows_pinned_directory(target_root, for_write=False):
+        with portable_pinned_directory(target_root, for_write=False):
             for name, rel in (("import", PORTABLE_IMPORT_INTENT_PATH), ("repair", PORTABLE_REPAIR_INTENT_PATH), ("removal", PORTABLE_REMOVAL_INTENT_PATH)):
                 if os.path.lexists(portable_target_path(target_root, rel)):
                     report["pending_intents"].append(name)
@@ -45629,17 +45815,14 @@ def inspect_portable_repair_health(pack_root: Path, target_root: Path) -> dict[s
                 observation["reason"] = "receipt owned baseline differs from validated pack bytes"
                 continue
             target = portable_target_path(target_root, rel)
-            with windows_pinned_directory(target.parent, for_write=False):
+            with portable_pinned_directory(target.parent, for_write=False):
                 if not os.path.lexists(target):
                     observation["state"] = "MISSING_OWNED"
                     observation["observed_digest"] = "missing"
                 else:
                     captured: list[bytes] = []
-                    kernel, handle = portable_import_verified_leaf(target, None, read_only=True, capture_out=captured, max_bytes=64 * 1024 * 1024)
-                    try:
+                    with portable_verified_file(target, None, capture_out=captured, max_bytes=64 * 1024 * 1024):
                         data = b"".join(captured)
-                    finally:
-                        kernel.CloseHandle(handle)
                     if entry["kind"] == "portable_managed_section":
                         block = portable_managed_block(data.decode("utf-8"))
                         observation["observed_digest"] = digest_bytes(block.encode("utf-8")) if block is not None else None

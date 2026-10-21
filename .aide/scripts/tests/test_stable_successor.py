@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import unittest
+import zipfile
 from unittest import mock
 
 spec = importlib.util.spec_from_file_location(
@@ -18,6 +19,178 @@ lite = fixture.aide_lite
 
 
 class StableSuccessorTests(unittest.TestCase):
+    def profile(self, name, forms, *, system="Windows", outside=()):
+        return {"profile_id": name,
+                "environment": {"system": system, "release": "synthetic", "version": "fixture-only",
+                                "machine": "fixture", "runtime": {"implementation": "CPython", "version": "3.14.8"}},
+                "support_candidate": {"tier": "T3", "state": "usable", "mode": "companion", "capability_level": "L1"},
+                "capabilities": ["local-cli", "owned-lifecycle"],
+                "supported_cli_forms": [form for form in forms if form not in outside],
+                "refused_cli_forms": [], "unqualified_cli_forms": list(outside),
+                "limitations": ["Synthetic metadata fixture; no platform qualification or execution grant."]}
+
+    def make_multi_repo(self):
+        root, record = self.make_repo()
+        lite.build_stable_release_candidate(root, "1.1.0")
+        tag_commit = self.commit(root)
+        self.git(root, "tag", "aide-lite-v1.1.0")
+        historical = self.snapshot(root)
+        record.update(schema_version="aide.stable-successor-candidate.v2", version="1.2.0",
+                      profile_id=lite.MULTIPROFILE_RELEASE_PROFILE,
+                      predecessor={"version": "1.1.0", "tag_commit": tag_commit})
+        record["preserved_assets"] += self.pins(root, "1.1.0")
+        forms = lite.stable_release_cli_forms(root) + record["additional_cli_forms"]
+        outside = [form for form in forms if form.startswith("job run ")]
+        record["profiles"] = [self.profile(lite.STABLE_RELEASE_PROFILE, forms),
+                              self.profile("aide-lite-local-linux", forms, system="Linux", outside=outside)]
+        self.save(root, record)
+        self.commit(root)
+        self.refresh_pack(root)
+        return root, record, historical
+
+    def test_multi_profile_marker_preserves_history_and_command_dispositions(self):
+        root, record, original = self.make_multi_repo()
+        result = lite.build_stable_release_candidate(root, "1.2.0")
+        identity = result["identity"]
+        self.assertEqual(identity["schema_version"], "aide.stable-release-identity.v2")
+        self.assertEqual(identity["profile_id"], "aide-lite-local-cli")
+        self.assertEqual(identity["profiles"], record["profiles"])
+        self.assertNotIn("support_tier_candidate", identity)
+        self.assertNotIn("support_mode", identity)
+        self.assertEqual(identity["lifecycle_apply_platform"], lite.MULTIPROFILE_LIFECYCLE_SCOPE)
+        self.assertEqual(identity["predecessor_matrix"][0]["profile_id"], lite.STABLE_RELEASE_PROFILE)
+        self.assertEqual({name: self.snapshot(root)[name] for name in original}, original)
+        with zipfile.ZipFile(root / lite.stable_release_paths("1.2.0")["zip"]) as archive:
+            embedded = json.loads(archive.read(lite.RELEASE_ARCHIVE_ROOT + "/stable-release.json"))
+        self.assertEqual(embedded, identity)
+        self.assertEqual(lite.validate_stable_release_candidate(root, "1.2.0")["result"], "PASS")
+        linux = embedded["profiles"][1]
+        self.assertTrue(linux["unqualified_cli_forms"])
+        self.assertEqual(linux["refused_cli_forms"], [])
+        self.assertFalse(set(linux["unqualified_cli_forms"]) & set(linux["supported_cli_forms"]))
+        # Keep archive checksums and embedded/outer metadata coherent. Only the
+        # declared profile contract, rather than a corrupt ZIP, can reject it.
+        manifest = copy.deepcopy(result)
+        manifest["identity"]["profiles"][1]["environment"]["machine"] = "unapproved-architecture"
+        paths = lite.stable_release_paths("1.2.0")
+        with lite.public_archive_fixture("aide-stable-pack-") as temporary:
+            projected = Path(temporary) / lite.RELEASE_ARCHIVE_ROOT
+            lite.build_release_pack_projection(lite.export_pack_root(root), projected)
+            lite.write_text_if_changed(projected / "stable-release.json",
+                                       lite.stable_json_text(manifest["identity"]))
+            lite.write_text_if_changed(projected / "checksums.json",
+                                       lite.stable_json_text(lite.build_pack_checksums(projected)))
+            lite.write_release_zip(projected, root / paths["zip"])
+            lite.write_release_tar_gz(projected, root / paths["tar_gz"])
+        for key in ("zip", "tar_gz"):
+            asset = root / paths[key]
+            manifest["archives"][key].update(size_bytes=asset.stat().st_size,
+                                             sha256=hashlib.sha256(asset.read_bytes()).hexdigest())
+            self.assertEqual(lite.validate_release_archive(root, paths[key])["result"], "PASS")
+        lite.write_text_if_changed(root / paths["manifest"], lite.stable_json_text(manifest))
+        sums = "".join(f"{lite.sha256_file(root / paths[key])}  {Path(paths[key]).name}\n"
+                       for key in ("zip", "tar_gz", "manifest"))
+        lite.write_text_if_changed(root / paths["sha256sums"], sums)
+        validation = lite.validate_stable_release_candidate(root, "1.2.0")
+        self.assertEqual(validation["result"], "FAIL")
+        self.assertFalse(any("asset digest" in p or "embedded identity" in p or "SHA256SUMS" in p
+                             for p in validation["problems"]), validation)
+
+    def test_v1_to_v2_profile_expansion_requires_minor_even_with_same_global_forms(self):
+        root, record, _ = self.make_multi_repo()
+        record["version"] = "1.1.1"
+        self.save(root, record)
+        with self.assertRaisesRegex(ValueError, "profile contract requires a minor"):
+            lite.stable_release_contract(root, "1.1.1")
+        self.refused_before_write(root, "1.1.1")
+
+    def test_multi_profile_malformed_or_removed_behavior_refuses_before_write(self):
+        root, record, _ = self.make_multi_repo()
+        cases = []
+        def changed(edit):
+            bad = copy.deepcopy(record)
+            edit(bad)
+            cases.append(bad)
+        changed(lambda bad: bad.update(profiles=[]))
+        changed(lambda bad: bad["profiles"].append(copy.deepcopy(bad["profiles"][0])))
+        changed(lambda bad: bad["profiles"][1].update(extra=True))
+        changed(lambda bad: bad["profiles"][1]["environment"].update(runtime={"implementation": "CPython"}))
+        changed(lambda bad: bad["profiles"][1]["support_candidate"].update(tier={"bad": True}))
+        changed(lambda bad: bad["profiles"][1]["support_candidate"].update(capability_level="L9"))
+        changed(lambda bad: bad["profiles"][1]["refused_cli_forms"].append("doctor"))
+        changed(lambda bad: bad["profiles"][1]["unqualified_cli_forms"].append("unknown public form"))
+        changed(lambda bad: bad["profiles"][1]["supported_cli_forms"].remove("doctor"))
+        changed(lambda bad: bad["profiles"][0]["supported_cli_forms"].append("doctor"))
+        changed(lambda bad: bad["profiles"].pop(0))
+        changed(lambda bad: bad["profiles"][0]["environment"].update(system="Linux"))
+        changed(lambda bad: bad["profiles"][0]["support_candidate"].update(mode="native"))
+        def drop_windows_form(bad):
+            bad["profiles"][0]["supported_cli_forms"].remove("doctor")
+            bad["profiles"][0]["unqualified_cli_forms"].append("doctor")
+        changed(drop_windows_form)
+        changed(lambda bad: bad.update(schema_version={"bad": True}))
+        changed(lambda bad: bad.update(schema_version="aide.stable-successor-candidate.v3"))
+        for number, bad in enumerate(cases):
+            with self.subTest(case=number):
+                self.save(root, bad)
+                with self.assertRaises(ValueError):
+                    lite.stable_release_contract(root, "1.2.0")
+                self.refused_before_write(root, "1.2.0")
+
+    def test_multi_profile_successor_preserves_environment_and_profile_obligations(self):
+        root, record, _ = self.make_multi_repo()
+        refused = record["profiles"][1]["unqualified_cli_forms"].pop()
+        record["profiles"][1]["refused_cli_forms"].append(refused)
+        self.save(root, record)
+        self.commit(root)
+        self.refresh_pack(root)
+        lite.build_stable_release_candidate(root, "1.2.0")
+        tag_commit = self.commit(root)
+        self.git(root, "tag", "aide-lite-v1.2.0")
+        original = self.snapshot(root)
+        record.update(version="1.3.0", predecessor={"version": "1.2.0", "tag_commit": tag_commit})
+        record["preserved_assets"] += self.pins(root, "1.2.0")
+        cases = []
+        bad = copy.deepcopy(record)
+        bad["profiles"].pop()
+        cases.append(bad)
+        bad = copy.deepcopy(record)
+        bad["profiles"][1]["environment"]["machine"] = "different-architecture"
+        cases.append(bad)
+        bad = copy.deepcopy(record)
+        bad["profiles"][1]["capabilities"].remove("owned-lifecycle")
+        cases.append(bad)
+        bad = copy.deepcopy(record)
+        bad["profiles"][1]["refused_cli_forms"].remove(refused)
+        bad["profiles"][1]["unqualified_cli_forms"].append(refused)
+        cases.append(bad)
+        bad = copy.deepcopy(record)
+        bad["profiles"][1]["refused_cli_forms"].remove(refused)
+        bad["profiles"][1]["supported_cli_forms"].append(refused)
+        cases.append(bad)
+        bad = copy.deepcopy(record)
+        bad.update(schema_version="aide.stable-successor-candidate.v1", profile_id=lite.STABLE_RELEASE_PROFILE)
+        del bad["profiles"]
+        cases.append(bad)
+        bad = copy.deepcopy(record)
+        bad["version"] = "1.2.1"
+        form = bad["profiles"][1]["unqualified_cli_forms"].pop()
+        bad["profiles"][1]["supported_cli_forms"].append(form)
+        cases.append(bad)
+        for number, bad in enumerate(cases):
+            with self.subTest(case=number):
+                self.save(root, bad)
+                with self.assertRaises(ValueError):
+                    lite.stable_release_contract(root, bad["version"])
+                self.refused_before_write(root, bad["version"])
+        self.save(root, record)
+        self.commit(root)
+        self.refresh_pack(root)
+        identity = lite.build_stable_release_candidate(root, "1.3.0")["identity"]
+        self.assertEqual(identity["predecessor_matrix"][0]["profile_id"], lite.MULTIPROFILE_RELEASE_PROFILE)
+        self.assertEqual({name: self.snapshot(root)[name] for name in original}, original)
+        self.assertEqual(lite.validate_stable_release_candidate(root, "1.3.0")["result"], "PASS")
+
     def git(self, root, *args):
         return subprocess.check_output(["git", "-C", str(root), *args], text=True).strip()
 
