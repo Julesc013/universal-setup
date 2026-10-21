@@ -218,12 +218,20 @@ Value service(const PublisherServiceObservation& input) {
     fields.emplace("primary_token", token(input.token));
     return Value(std::move(fields));
 }
-Value object(HANDLE handle) {
+PublisherHandleObservation observe_object(HANDLE handle) {
     FILE_ATTRIBUTE_TAG_INFO attributes{};
     require(GetFileInformationByHandleEx(handle, FileAttributeTagInfo, &attributes, sizeof(attributes)) != FALSE,
         "broker object type is unavailable");
-    return publisher_handle_observation_json((attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) ?
-        observe_publisher_directory_handle(handle) : observe_publisher_file_handle(handle));
+    return (attributes.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) ?
+        observe_publisher_directory_handle(handle) : observe_publisher_file_handle(handle);
+}
+Value object(HANDLE handle) {
+    return publisher_handle_observation_json(observe_object(handle));
+}
+bool same_object(HANDLE handle, const Value& expected) {
+    // Keep the same type query and complete fresh native observation. Only
+    // its immediately discarded JSON representation is avoided.
+    return detail::equal_publisher_handle_observation_json(observe_object(handle), expected);
 }
 unsigned char nibble(char value) {
     if (value >= '0' && value <= '9') return static_cast<unsigned char>(value - '0');
@@ -621,7 +629,7 @@ struct PublisherBrokerObjectQuery::State {
     }
     void fence() const {
         require(claimed && (!round_owner || round_owner->matches()) && !attempted && handle != INVALID_HANDLE_VALUE &&
-            same(object(volume), volume_facts) && same(object(handle), expected) &&
+            same_object(volume, volume_facts) && same_object(handle, expected) &&
             observe_publisher_noninheritable_handle_flags(handle) == 0 &&
             observe_publisher_handle_granted_access(handle) == query_rights,
             "broker query lost its original native object/volume/query-only handle");
@@ -637,7 +645,7 @@ struct PublisherBrokerObjectQuery::State {
         // to expected before checked closure and result retention.
         require(round_owner != nullptr, "broker prepared access lacks its original record round");
         require_live();
-        require(same(object(volume), volume_facts) &&
+        require(same_object(volume, volume_facts) &&
             observe_publisher_noninheritable_handle_flags(handle) == 0 &&
             observe_publisher_handle_granted_access(handle) == query_rights,
             "broker query lost its original native object/volume/query-only handle");
@@ -647,7 +655,7 @@ struct PublisherBrokerObjectQuery::State {
         // caller-token endpoints. Consume that fresh object observation here;
         // never accept a caller-supplied value or retain it for another query.
         require(claimed && (!round_owner || round_owner->matches()) && !attempted && handle != INVALID_HANDLE_VALUE &&
-            same(object(volume), volume_facts) && same(observed, expected) &&
+            same_object(volume, volume_facts) && same(observed, expected) &&
             observe_publisher_noninheritable_handle_flags(handle) == 0 &&
             observe_publisher_handle_granted_access(handle) == query_rights,
             "broker query lost its original native object/volume/query-only handle");
@@ -878,7 +886,7 @@ struct PublisherOriginalRecoveryIntentQuery::State {
         require_publisher_stream_shape(handle);
         require(observe_publisher_noninheritable_handle_flags(handle) == 0 &&
             observe_publisher_handle_granted_access(handle) == read_rights &&
-            same(publisher_handle_observation_json(observed), facts[index]),
+            detail::equal_publisher_handle_observation_json(observed, facts[index]),
             "broker original intent read-only observer changed");
         require_caller(handle, facts[index]);
     }
@@ -903,7 +911,7 @@ struct PublisherOriginalRecoveryIntentQuery::State {
     void fence() const {
         require(claimed && !attempted && GetCurrentProcessId() == process_id && GetCurrentThreadId() == thread_id &&
             request == channel.authenticated_canonical_request() && same(admission.evidence(), registered) &&
-            same(object(volume), volume_facts) && observe_publisher_handle_granted_access(volume) == query_rights,
+            same_object(volume, volume_facts) && observe_publisher_handle_granted_access(volume) == query_rights,
             "broker original intent owner/request/registration/volume changed");
         for (std::size_t index = 0; index < handles.size(); ++index) {
             require_handle(index);
@@ -2382,6 +2390,27 @@ void require_publisher_record_result_access(const Value& view, std::size_t index
         "record result view literal client or object binding differs");
     require_publisher_compact_maintenance_read_only_access(results[index], client, object);
 }
+void require_publisher_record_result_access(const Value& view, std::size_t index,
+    const PublisherAuthenticatedClientValidation& client, const PublisherHandleObservation& object) {
+    // The old temporary projection was evaluated before the validator body.
+    // Preserve its ASCII refusal even when the view is itself malformed.
+    for (const auto ch : object.native_name)
+        if (ch > 0x7f) throw std::runtime_error("publisher retained native name is outside the ASCII profile");
+    require(view.as_object().size() == 3u && view.contains("client") &&
+        view.contains("native_objects") && view.contains("results"), "record result view is not closed");
+    const auto& objects = view.at("native_objects").as_array();
+    const auto& results = view.at("results").as_array();
+    require(!objects.empty() && objects.size() <= publisher_record_byte_occurrence_limit &&
+        results.size() == 2u * objects.size() && index < results.size(),
+        "record result view count or ordered occurrence differs");
+    const auto& literal = objects[index % objects.size()];
+    require(same(view.at("client"), client.client()) &&
+        detail::equal_publisher_handle_observation_json(object, literal),
+        "record result view literal client or object binding differs");
+    // Equality above establishes that these literal bytes are exactly the
+    // former temporary projection. Preserve every original compact check.
+    require_publisher_compact_maintenance_read_only_access(results[index], client, literal);
+}
 std::size_t publisher_preflight_expanded_record_results(const Value& packet,
     const Value& client, const Value& objects, std::size_t remaining_proof_bytes) {
     const auto& encoded = packet.at("results").as_array();
@@ -2508,7 +2537,7 @@ void PublisherEffectRecordByteRound::query_chunk(const std::vector<HANDLE>& hand
         // no byte read or usable raw result can precede this full barrier.
         for (const auto& chunk : s.pending_chunks) {
             for (std::size_t index = 0; index < chunk.handles.size(); ++index)
-                require(same(object(chunk.handles[index]), chunk.observed.as_array()[index]) &&
+                require(same_object(chunk.handles[index], chunk.observed.as_array()[index]) &&
                     observe_publisher_noninheritable_handle_flags(chunk.handles[index]) == 0,
                     "child record byte held object changed across provisional query");
             s.require_chunk_binding();
@@ -2809,7 +2838,7 @@ Value PublisherEffectWorkerReadback::authenticated_object_access(HANDLE held, DW
         require(observe_publisher_noninheritable_handle_flags(held) == 0, "effect access object is inheritable");
         const auto before = object(held);
         auto reply = state_->read("object_access", &before, timeout);
-        require(same(object(held), before) && observe_publisher_noninheritable_handle_flags(held) == 0,
+        require(same_object(held, before) && observe_publisher_noninheritable_handle_flags(held) == 0,
             "effect original held object changed across broker readback");
         require_raw_object_access(reply.at("result"), before);
         return std::move(reply.as_object().at("result"));
@@ -2821,7 +2850,7 @@ PublisherEffectWorkerReadback::authenticated_object_access_bracket(HANDLE held, 
         require(observe_publisher_noninheritable_handle_flags(held) == 0, "effect access object is inheritable");
         const auto before = object(held);
         auto reply = state_->read("object_access_bracket", &before, timeout);
-        require(same(object(held), before) && observe_publisher_noninheritable_handle_flags(held) == 0,
+        require(same_object(held, before) && observe_publisher_noninheritable_handle_flags(held) == 0,
             "effect original held object changed across broker readback");
         // Retain the actual post-wire token/restricted-SID/PID joins for BOTH
         // fresh parent profiles, beyond the transport token/custody checks.
@@ -2849,7 +2878,7 @@ PublisherEffectWorkerReadback::authenticated_object_access_batch_bracket(const s
             "effect full parallel object bracket exceeded its original deadline") : timeout, after_queries_closed);
         const PublisherAuthenticatedClientValidation client_validation(reply.at("profile_before").at("authenticated_client"));
         for (std::size_t index = 0; index < held.size(); ++index) {
-            require(same(object(held[index]), before.as_array()[index]) &&
+            require(same_object(held[index], before.as_array()[index]) &&
                 observe_publisher_noninheritable_handle_flags(held[index]) == 0,
                 "effect original held batch object changed across broker readback");
             require_publisher_authenticated_raw_object_access(reply.at("result").as_array()[index], client_validation, before.as_array()[index]);
@@ -2878,7 +2907,7 @@ PublisherEffectWorkerReadback::selected_object_access_batch_bracket(PublisherEff
         auto reply = state_->read(selected_access_bracket_kind(kind), &before, after_queries_closed ? readback_remaining(bracket_started, timeout,
             "effect full parallel object bracket exceeded its original deadline") : timeout, after_queries_closed);
         for (std::size_t index = 0; index < held.size(); ++index) {
-            require(same(object(held[index]), before.as_array()[index]) &&
+            require(same_object(held[index], before.as_array()[index]) &&
                 observe_publisher_noninheritable_handle_flags(held[index]) == 0,
                 "effect original selected batch object changed across broker readback");
         }

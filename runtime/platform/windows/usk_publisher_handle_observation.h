@@ -66,6 +66,11 @@ namespace detail {
 // This compares facts only; it performs no observation or authority check.
 bool equal_publisher_handle_observations(const PublisherHandleObservation& a,
     const PublisherHandleObservation& b);
+// Equality with the exact closed JSON projection, without constructing it.
+// The observed name is checked before any inequality, including malformed
+// expected values. No native observation or authorization is performed here.
+bool equal_publisher_handle_observation_json(const PublisherHandleObservation& observed,
+    const usk::json::Value& expected);
 }
 
 } // namespace usk::platform::windows

@@ -253,5 +253,52 @@ bool detail::equal_publisher_handle_observations(const PublisherHandleObservatio
     return true;
 }
 
+bool detail::equal_publisher_handle_observation_json(const PublisherHandleObservation& observed,
+    const usk::json::Value& expected) {
+    using usk::json::Value;
+    // Projection failure precedes every comparison, just as eagerly building
+    // publisher_handle_observation_json(observed) did at the call site.
+    for (const auto ch : observed.native_name)
+        if (ch > 0x7f) throw std::runtime_error("publisher retained native name is outside the ASCII profile");
+    if (expected.type() != Value::Type::object || expected.as_object().size() != 9u) return false;
+    const auto member = [](const Value::Object& fields, const char* key) -> const Value* {
+        const auto found = fields.find(key);
+        return found == fields.end() ? nullptr : &found->second;
+    };
+    const auto text = [&](const Value::Object& fields, const char* key, const std::string& value) {
+        const auto* field = member(fields, key);
+        return field && field->type() == Value::Type::string && field->as_string() == value;
+    };
+    const auto number = [&](const Value::Object& fields, const char* key, std::uint64_t value) {
+        const auto* field = member(fields, key);
+        return field && field->type() == Value::Type::unsigned_integer && field->as_unsigned() == value;
+    };
+    const auto boolean = [&](const Value::Object& fields, const char* key, bool value) {
+        const auto* field = member(fields, key);
+        return field && field->type() == Value::Type::boolean && field->as_boolean() == value;
+    };
+    const auto& fields = expected.as_object();
+    const auto* name = member(fields, "native_name");
+    if (!name || name->type() != Value::Type::string ||
+        name->as_string().size() != observed.native_name.size()) return false;
+    for (std::size_t index = 0; index < observed.native_name.size(); ++index)
+        if (name->as_string()[index] != static_cast<char>(observed.native_name[index])) return false;
+    if (!text(fields, "file_id", observed.file_id) || !text(fields, "owner_sid", observed.owner_sid) ||
+        !number(fields, "attributes", observed.attributes) || !number(fields, "reparse_tag", observed.reparse_tag) ||
+        !number(fields, "link_count", observed.link_count) || !boolean(fields, "case_sensitive", observed.case_sensitive) ||
+        !boolean(fields, "dacl_protected", observed.dacl_protected)) return false;
+    const auto* aces = member(fields, "dacl_aces");
+    if (!aces || aces->type() != Value::Type::array || aces->as_array().size() != observed.dacl_aces.size()) return false;
+    for (std::size_t index = 0; index < observed.dacl_aces.size(); ++index) {
+        const auto& value = aces->as_array()[index];
+        const auto& ace = observed.dacl_aces[index];
+        if (value.type() != Value::Type::object || value.as_object().size() != 4u) return false;
+        const auto& entry = value.as_object();
+        if (!number(entry, "type", ace.type) || !number(entry, "flags", ace.flags) ||
+            !number(entry, "access_mask", ace.access_mask) || !text(entry, "sid", ace.sid)) return false;
+    }
+    return true;
+}
+
 } // namespace usk::platform::windows
 #endif
