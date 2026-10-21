@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_publisher_metadata.h"
+#include "usk_publisher_metadata_parent_internal.h"
 
 #if defined(_WIN32)
 #include "usk_publisher_anchor_create.h"
@@ -15,12 +16,14 @@
 #include "usk_publisher_tree_observation.h"
 #include "usk_publisher_volume_stream_observation.h"
 #include "usk_record_io.h"
+#include "usk_diagnostic_metrics.h"
 #include "usk_sha256.h"
 #include "usk_utf8_path.h"
 
 #include <winternl.h>
 #include <algorithm>
 #include <atomic>
+#include <array>
 #include <cstddef>
 #include <cstring>
 #include <exception>
@@ -165,6 +168,16 @@ struct PublisherMetadataSession::Impl {
     record_io::RecordWriteOperations operations;
     std::unique_ptr<record_io::ScopedRecordWriteOperations> scope;
     std::unique_ptr<detail::MetadataRecordPublicationHooks> publication_hooks;
+    struct ParentCustody {
+        std::vector<OwnedHandle> handles;
+        std::unique_ptr<detail::MetadataParentRead> reader;
+    };
+    // Two exact operation-bound directories; no general cache or eviction.
+    std::array<fs::path, 2> admitted_parent_paths;
+    std::array<std::unique_ptr<ParentCustody>, 2> retained_parents;
+    const std::function<void()>* parent_fence = nullptr;
+    DWORD parent_process = 0, parent_thread = 0;
+    bool write_failed = false;
     bool initializing = false;
     bool journal_publication_unconfirmed = false;
 
@@ -249,14 +262,18 @@ struct PublisherMetadataSession::Impl {
         }
         require_active_publisher_effect_fence();
     }
-    std::vector<OwnedHandle> parents(const fs::path& parent) {
-        if (!root) throw std::runtime_error("protected metadata root has not been created");
-        require_alias_mapping();
+    fs::path relative_parent(const fs::path& parent) const {
         const fs::path normalized = parent.lexically_normal();
         fs::path relative = normalized.lexically_relative(root_path);
         if (!public_alias.empty() && (relative.empty() || *relative.begin() == fs::path(L"..")))
             relative = normalized.lexically_relative(public_alias);
         if (relative.empty()) throw std::runtime_error("metadata parent lies outside protected root");
+        return relative;
+    }
+    std::vector<OwnedHandle> parents(const fs::path& parent) {
+        if (!root) throw std::runtime_error("protected metadata root has not been created");
+        require_alias_mapping();
+        const auto relative = relative_parent(parent);
         std::vector<OwnedHandle> handles;
         HANDLE current = root->get();
         require_publisher_object_security_shape(observe_publisher_directory_handle(current), service_sid);
@@ -274,6 +291,7 @@ struct PublisherMetadataSession::Impl {
     }
 
     void create_directory(const fs::path& parent, const std::string& name) {
+        if (write_failed) throw std::runtime_error("metadata writer already failed");
         if (!base::valid_utf8(name)) throw std::runtime_error("invalid metadata component UTF-8");
         const std::wstring component = fs::u8path(name).wstring();
         if (parent.lexically_normal() == volume_path && component == root_name && !root) {
@@ -289,18 +307,73 @@ struct PublisherMetadataSession::Impl {
         require_alias_mapping();
     }
 
+    std::optional<std::size_t> parent_custody_slot(const fs::path& parent) const {
+        if (!publication_hooks || initializing || public_alias.empty() || admitted_parent_paths[0].empty()) return std::nullopt;
+        if (parent_process != GetCurrentProcessId() || parent_thread != GetCurrentThreadId() ||
+            !effect_fence || effect_fence != parent_fence)
+            throw std::runtime_error("metadata parent custody lost its original owner/fence");
+        const auto normalized = parent.lexically_normal();
+        for (std::size_t index = 0; index < admitted_parent_paths.size(); ++index)
+            if (normalized == admitted_parent_paths[index]) return index;
+        return std::nullopt;
+    }
+    std::unique_ptr<ParentCustody> prepare_parent_custody(const fs::path& parent,
+        std::vector<OwnedHandle>& held) const {
+        const auto relative = relative_parent(parent);
+        std::vector<detail::MetadataParentComponent> components;
+        std::size_t index = 0;
+        auto root_facts = observe_publisher_directory_handle(root->get());
+        require_publisher_object_security_shape(root_facts, service_sid);
+        for (const auto& part : relative) {
+            if (index >= held.size() || index >= detail::MetadataParentRead::maximum_components)
+                throw std::runtime_error("metadata parent custody exceeds its fixed chain");
+            const HANDLE handle = held[index++].get();
+            auto facts = observe_publisher_directory_handle(handle);
+            require_publisher_object_security_shape(facts, service_sid);
+            components.push_back({part.wstring(), handle, std::move(facts),
+                observe_publisher_handle_granted_access(handle)});
+        }
+        if (index != held.size())
+            throw std::runtime_error("metadata parent custody differs from its acquired chain");
+        auto result = std::make_unique<ParentCustody>();
+        result->reader = std::make_unique<detail::MetadataParentRead>(root->get(),
+            std::move(root_facts), observe_publisher_handle_granted_access(root->get()), std::move(components));
+        result->handles = std::move(held);
+        return result; // Still provisional: published only after the whole writer succeeds.
+    }
+
     void write_record(const fs::path& path, const std::string& content) {
         if (content.size() > 16u * 1024u * 1024u) throw std::runtime_error("protected metadata record exceeds its byte budget");
         const std::wstring name = path.filename().wstring();
         if (!is_publisher_canonical_component(name)) throw std::runtime_error("unsafe metadata record name");
+        if (write_failed) throw std::runtime_error("metadata writer already failed");
         std::function<void()> before_issue;
+        try {
         if (publication_hooks) {
             publication_hooks->prepare(path, content);
             before_issue = [this, &path, &content] { publication_hooks->before_issue(path, content); };
         }
-        try {
-            auto held = parents(path.parent_path());
-            HANDLE parent = held.empty() ? root->get() : held.back().get();
+            const auto slot = parent_custody_slot(path.parent_path()); // Metadata-only admission.
+            std::vector<OwnedHandle> held;
+            std::unique_ptr<ParentCustody> prepared_parent;
+            HANDLE parent = nullptr;
+            if (slot && retained_parents[*slot]) {
+                if (!pending) throw std::runtime_error("metadata parent custody lost its pending capability");
+                const usk::diagnostics::Scope reuse(usk::diagnostics::Phase::maintenance_metadata_parent_reuse);
+                try {
+                    observe_alias_mapping();
+                    parent = retained_parents[*slot]->reader->observe();
+                } catch (...) {
+                    const auto original = std::current_exception();
+                    // Preserve the earlier full fence's refusal precedence on
+                    // failed provisional reads; never fall back to a cold open.
+                    require_active_publisher_effect_fence();
+                    std::rethrow_exception(original);
+                }
+            } else {
+                held = parents(path.parent_path()); // Original pre-capability fence and opens.
+                parent = held.empty() ? root->get() : held.back().get();
+            }
             if (!pending) {
                 if (const auto existing = find_child(root->get(), L"pending")) {
                     pending = std::make_unique<OwnedHandle>(open_publisher_listed_child(root->get(), *existing, true, false, true));
@@ -309,6 +382,10 @@ struct PublisherMetadataSession::Impl {
                 }
                 require_publisher_tree_security_shape(observe_publisher_tree(pending->get()), service_sid);
             }
+            if (slot && !retained_parents[*slot])
+                prepared_parent = prepare_parent_custody(path.parent_path(), held);
+            // The pending-directory create (when needed), record-file create,
+            // every WriteFile and publication keep their original full fences.
             static std::atomic<unsigned long long> sequence{0};
             const std::wstring temporary = L"record-" + std::to_wstring(GetCurrentProcessId()) + L"-" +
                 std::to_wstring(GetTickCount64()) + L"-" + std::to_wstring(++sequence);
@@ -329,8 +406,11 @@ struct PublisherMetadataSession::Impl {
             publish_record_no_replace(output, parent, name, service_sid,
                 publication_hooks ? &before_issue : nullptr);
             if (publication_hooks) publication_hooks->confirm(path, content, output);
+            if (prepared_parent) (void)prepared_parent->reader->observe();
             require_alias_mapping();
+            if (prepared_parent) retained_parents[*slot] = std::move(prepared_parent);
         } catch (...) {
+            write_failed = true;
             if (publication_hooks) publication_hooks->failed(path);
             throw;
         }
@@ -339,7 +419,7 @@ struct PublisherMetadataSession::Impl {
     void persist_journal(const fs::path& path, const std::string& content,
         const std::string& predecessor, bool first) {
         require_active_publisher_effect_fence();
-        if (initializing || !publication_hooks || public_alias.empty() || journal_publication_unconfirmed ||
+        if (write_failed || initializing || !publication_hooks || public_alias.empty() || journal_publication_unconfirmed ||
             content.empty() || content.size() > 4u * 1024u * 1024u || first != predecessor.empty())
             throw std::runtime_error("protected original maintenance journal writer unavailable");
         const auto name = path.filename().wstring();
@@ -491,12 +571,31 @@ PublisherMetadataSession::PublisherMetadataSession(HANDLE volume, const std::wst
     const fs::path& root, const std::wstring& service, bool require_existing, const fs::path& public_alias)
     : impl_(std::make_unique<Impl>(volume, guid, root, service, require_existing, public_alias)) {}
 PublisherMetadataSession::~PublisherMetadataSession() = default;
-void PublisherMetadataSession::bind_native_maintenance_publication(detail::MetadataRecordPublicationHooks hooks) {
+void PublisherMetadataSession::bind_native_maintenance_publication(detail::MetadataRecordPublicationHooks hooks,
+    const std::array<fs::path, 2>& record_parents) {
     require_active_publisher_effect_fence();
     if (impl_->publication_hooks || impl_->initializing || impl_->public_alias.empty() ||
         !hooks.prepare || !hooks.created || !hooks.before_issue || !hooks.confirm || !hooks.failed)
         throw std::runtime_error("native maintenance metadata publication binding unavailable");
-    impl_->publication_hooks = std::make_unique<detail::MetadataRecordPublicationHooks>(std::move(hooks));
+    auto admitted = record_parents;
+    if (admitted[0].empty() != admitted[1].empty())
+        throw std::runtime_error("metadata parent custody has an incomplete fixed role pair");
+    if (!admitted[0].empty()) {
+        const auto transactions = (impl_->public_alias / "state" / "transactions").lexically_normal();
+        for (auto& parent : admitted) {
+            parent = parent.lexically_normal();
+            if (parent.parent_path() != transactions ||
+                !is_publisher_canonical_component(parent.filename().wstring()))
+                throw std::runtime_error("metadata parent custody is outside its fixed transaction roots");
+        }
+        if (admitted[0] == admitted[1])
+            throw std::runtime_error("metadata parent custody repeats its fixed role");
+    }
+    auto callbacks = std::make_unique<detail::MetadataRecordPublicationHooks>(std::move(hooks));
+    impl_->admitted_parent_paths = std::move(admitted);
+    impl_->parent_fence = effect_fence;
+    impl_->parent_process = GetCurrentProcessId(); impl_->parent_thread = GetCurrentThreadId();
+    impl_->publication_hooks = std::move(callbacks);
 }
 void PublisherMetadataSession::persist_maintenance_journal(const fs::path& path,
     const std::string& content, const std::string& predecessor, bool first) {

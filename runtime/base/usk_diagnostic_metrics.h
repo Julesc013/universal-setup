@@ -57,7 +57,9 @@ enum class Phase : std::uint32_t {
     maintenance_step_pending_reads,
     maintenance_reconcile_completion_reads,
     // Entry to the fixed pure supplied-prefix selector; not native authority.
-    maintenance_continuation_prefix_selection
+    maintenance_continuation_prefix_selection,
+    // Entered only on the fixed metadata writer's actual retained-parent route.
+    maintenance_metadata_parent_reuse
 };
 struct Snapshot {
     std::array<std::uint64_t, static_cast<std::size_t>(Counter::count)> totals{};

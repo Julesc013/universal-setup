@@ -10,6 +10,7 @@
 #endif
 #include <windows.h>
 #include <filesystem>
+#include <array>
 #include <functional>
 #include <memory>
 #include <string>
@@ -71,7 +72,8 @@ public:
     void publish_initialized_root();
 private:
     friend class usk::lifecycle::detail::NativeMaintenanceContext;
-    void bind_native_maintenance_publication(detail::MetadataRecordPublicationHooks hooks);
+    void bind_native_maintenance_publication(detail::MetadataRecordPublicationHooks hooks,
+        const std::array<std::filesystem::path, 2>& record_parents);
     void persist_maintenance_journal(const std::filesystem::path& path,
         const std::string& content, const std::string& predecessor_sha256, bool first);
     struct Impl;

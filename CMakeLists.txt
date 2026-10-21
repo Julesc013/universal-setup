@@ -97,6 +97,7 @@ if(WIN32)
     runtime/platform/windows/usk_publisher_bound_rename.cpp
     runtime/platform/windows/usk_publisher_maintenance_mutation.cpp
     runtime/platform/windows/usk_publisher_metadata.cpp
+    runtime/platform/windows/usk_publisher_metadata_parent_internal.cpp
     runtime/platform/windows/usk_publisher_directory_entries.cpp
     runtime/platform/windows/usk_publisher_handle_observation.cpp
     runtime/platform/windows/usk_publisher_security_descriptor.cpp
@@ -1003,6 +1004,13 @@ if(USK_BUILD_TESTS)
     add_test(NAME usk_publisher_anchor_create_smoke
       COMMAND usk_publisher_anchor_create_smoke)
     set_tests_properties(usk_publisher_anchor_create_smoke PROPERTIES TIMEOUT 30)
+
+    add_executable(usk_publisher_metadata_parent_smoke tests/native/usk_publisher_metadata_parent_smoke.cpp)
+    target_compile_features(usk_publisher_metadata_parent_smoke PRIVATE cxx_std_17)
+    target_link_libraries(usk_publisher_metadata_parent_smoke PRIVATE usk_publisher_windows_static)
+    usk_enable_strict_warnings(usk_publisher_metadata_parent_smoke)
+    add_test(NAME usk_publisher_metadata_parent_smoke COMMAND usk_publisher_metadata_parent_smoke)
+    set_tests_properties(usk_publisher_metadata_parent_smoke PROPERTIES TIMEOUT 30)
 
     add_executable(usk_publisher_creation_observation_smoke
       tests/native/usk_publisher_creation_observation_smoke.cpp)
