@@ -74,6 +74,22 @@ void controls() {
         require(usk::json::canonical(query.observation()) == usk::json::canonical(directory_facts) && query.close(),
             "actual directory by-ID readback did not retain its full native binding");
     }
+    // Ordinary public construction must own its expected data. The sealed
+    // round's private borrow must not leak into either standalone constructor.
+    for (const bool supplied_volume : {false, true}) {
+        auto caller_object = first_facts;
+        auto caller_volume = volume_facts;
+        auto query = supplied_volume ?
+            std::make_unique<PublisherBrokerObjectQuery>(root.value, caller_object, caller_volume) :
+            std::make_unique<PublisherBrokerObjectQuery>(root.value, caller_object);
+        caller_object.as_object().clear();
+        caller_volume = Value{};
+        require(usk::json::equal_values(query->observation(), first_facts) &&
+            query->granted_access() == (FILE_READ_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE),
+            "standalone native query retained mutable caller expectations");
+        require(query->close(), "standalone expectation ownership control did not close");
+        refuses([&] { (void)query->observation(); });
+    }
     auto wrong_object = first_facts;
     wrong_object.as_object().at("file_id") = second_facts.at("file_id");
     refuses([&] { PublisherBrokerObjectQuery query(root.value, wrong_object); });

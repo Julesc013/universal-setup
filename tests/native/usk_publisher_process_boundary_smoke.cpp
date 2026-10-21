@@ -1191,7 +1191,9 @@ void effect_execution_record_controls() {
             for (std::size_t index = 0; index < count; ++index)
                 objects.emplace_back(Value::Object{{"file_id", Value(std::string(49u,
                     static_cast<char>('a' + (index * 3u + index / 2u) % 4u)))}});
-            const auto plan = publisher_record_query_plan(Value(objects));
+            const auto plan = publisher_record_query_plan(objects);
+            check(plan == publisher_record_query_plan(Value(objects)),
+                "checked Value scheduling wrapper differs from the production array path");
             std::array<unsigned, 8u> visits{};
             std::array<std::size_t, 8u> workers{}, positions{};
             for (std::size_t plan_worker = 0; plan_worker < plan.size(); ++plan_worker)
@@ -1216,23 +1218,25 @@ void effect_execution_record_controls() {
             for (std::size_t index = 0; index < 8u; ++index)
                 objects.emplace_back(Value::Object{{"file_id", Value(std::string(49u,
                     static_cast<char>('a' + index)))}});
-            const auto plan = publisher_record_query_plan(Value(objects));
+            const auto plan = publisher_record_query_plan(objects);
             check(plan.size() == 4u, "record query worker bound differs");
             for (const auto& assigned_queries : plan)
                 check(assigned_queries.size() == 2u, "distinct record query groups left an original worker unused");
             for (auto& planned_record_object : objects) planned_record_object.as_object().at("file_id") = Value(std::string(49u, 'a'));
-            const auto serial = publisher_record_query_plan(Value(objects));
+            const auto serial = publisher_record_query_plan(objects);
             check(serial.front().size() == objects.size(), "equal record IDs were not serialized");
             for (std::size_t assigned_worker_index = 1u; assigned_worker_index < serial.size(); ++assigned_worker_index)
                 check(serial[assigned_worker_index].empty(), "equal record IDs overlap another worker");
             for (std::size_t index = 0; index < objects.size(); ++index)
                 check(serial.front()[index] == index, "equal record IDs lost input order");
         }
-        sequence_refused([] { (void)publisher_record_query_plan(Value(Value::Array{})); });
-        sequence_refused([] { (void)publisher_record_query_plan(Value(Value::Array(9u))); });
+        sequence_refused([] { (void)publisher_record_query_plan(Value::Array{}); });
+        sequence_refused([] { (void)publisher_record_query_plan(Value::Array(9u)); });
         sequence_refused([] { (void)publisher_record_query_plan(Value(Value::Array{Value(Value::Object{})})); });
         sequence_refused([] { (void)publisher_record_query_plan(Value(Value::Array{
             Value(Value::Object{{"file_id", Value("short")}})})); });
+
+        sequence_refused([] { (void)publisher_record_query_plan(Value{}); });
 
         // The decoder below supplies data only, never a native peer/owner.
         // Production uses this exact parser inside the private native bracket.

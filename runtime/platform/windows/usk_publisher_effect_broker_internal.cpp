@@ -548,7 +548,9 @@ PublisherEffectBrokerOriginalRecord::matching_projections(const Value& fresh) co
 }
 
 PublisherRecordQueryPlan publisher_record_query_plan(const Value& objects_value) {
-    const auto& objects = objects_value.as_array();
+    return publisher_record_query_plan(objects_value.as_array());
+}
+PublisherRecordQueryPlan publisher_record_query_plan(const Value::Array& objects) {
     require(!objects.empty() && objects.size() <= publisher_object_access_batch_limit,
         "record query plan exceeds its original logical chunk bound");
     std::vector<std::pair<std::string, std::vector<std::size_t>>> groups;
@@ -613,11 +615,25 @@ struct PublisherBrokerObjectQuery::State {
     HANDLE volume = nullptr;
     Value volume_facts;
     Value expected;
+    // Only the sealed round borrows immutable inputs already owned by its
+    // synchronous chunk. Standalone queries keep their defensive deep copies.
+    const Value* borrowed_volume = nullptr;
+    const Value* borrowed_expected = nullptr;
+    const Value& volume_expectation() const noexcept {
+        return borrowed_volume ? *borrowed_volume : volume_facts;
+    }
+    const Value& object_expectation() const noexcept {
+        return borrowed_expected ? *borrowed_expected : expected;
+    }
     bool claimed = false, attempted = false, closed = false;
     DWORD close_error = ERROR_SUCCESS;
     bool close() noexcept {
         if (!attempted) {
             attempted = true;
+            // No query method may consume inputs after this first close
+            // attempt. Even an unreachable retained-unknown state drops them.
+            borrowed_volume = nullptr;
+            borrowed_expected = nullptr;
             closed = handle == INVALID_HANDLE_VALUE || CloseHandle(handle) != FALSE;
             if (!closed) close_error = GetLastError();
             if (closed) {
@@ -629,7 +645,7 @@ struct PublisherBrokerObjectQuery::State {
     }
     void fence() const {
         require(claimed && (!round_owner || round_owner->matches()) && !attempted && handle != INVALID_HANDLE_VALUE &&
-            same_object(volume, volume_facts) && same_object(handle, expected) &&
+            same_object(volume, volume_expectation()) && same_object(handle, object_expectation()) &&
             observe_publisher_noninheritable_handle_flags(handle) == 0 &&
             observe_publisher_handle_granted_access(handle) == query_rights,
             "broker query lost its original native object/volume/query-only handle");
@@ -645,7 +661,7 @@ struct PublisherBrokerObjectQuery::State {
         // to expected before checked closure and result retention.
         require(round_owner != nullptr, "broker prepared access lacks its original record round");
         require_live();
-        require(same_object(volume, volume_facts) &&
+        require(same_object(volume, volume_expectation()) &&
             observe_publisher_noninheritable_handle_flags(handle) == 0 &&
             observe_publisher_handle_granted_access(handle) == query_rights,
             "broker query lost its original native object/volume/query-only handle");
@@ -655,7 +671,7 @@ struct PublisherBrokerObjectQuery::State {
         // caller-token endpoints. Consume that fresh object observation here;
         // never accept a caller-supplied value or retain it for another query.
         require(claimed && (!round_owner || round_owner->matches()) && !attempted && handle != INVALID_HANDLE_VALUE &&
-            same_object(volume, volume_facts) && same(observed, expected) &&
+            same_object(volume, volume_expectation()) && same(observed, object_expectation()) &&
             observe_publisher_noninheritable_handle_flags(handle) == 0 &&
             observe_publisher_handle_granted_access(handle) == query_rights,
             "broker query lost its original native object/volume/query-only handle");
@@ -691,20 +707,29 @@ void PublisherBrokerObjectQuery::initialize(HANDLE volume, const Value& expected
         // the channel's complete fresh object proof and joins it to expected
         // before any result. Fresh volume and query-only handle checks enclose
         // that proof; the extra initial object sampling instant is unclaimed.
-        state_->volume_facts = expected_volume ? *expected_volume : object(volume);
-        require_ntfs_root(volume, state_->volume_facts);
+        if (round) {
+            require(expected_volume != nullptr, "broker original record query lacks its volume expectation");
+            state_->borrowed_volume = expected_volume;
+        } else {
+            state_->volume_facts = expected_volume ? *expected_volume : object(volume);
+        }
+        require_ntfs_root(volume, state_->volume_expectation());
         require(expected.as_object().size() == 9 && expected.at("attributes").as_unsigned() <= 0xffffffffu &&
             !(expected.at("attributes").as_unsigned() & FILE_ATTRIBUTE_REPARSE_POINT) &&
             expected.at("reparse_tag").as_unsigned() == 0 && expected.at("link_count").as_unsigned() == 1 &&
             !expected.at("case_sensitive").as_boolean(), "broker requested object is outside the native query profile");
-        state_->expected = expected;
-        auto id = ntfs_id(expected.at("file_id").as_string(), state_->volume_facts.at("file_id").as_string());
+        if (round) state_->borrowed_expected = &expected;
+        else state_->expected = expected;
+        auto id = ntfs_id(expected.at("file_id").as_string(), state_->volume_expectation().at("file_id").as_string());
         state_->handle = OpenFileById(volume, &id, query_rights,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
             FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT);
         require(state_->handle != INVALID_HANDLE_VALUE, "broker actual query-only file-ID reopen failed");
-        if (round) state_->prepare_record_access();
-        else state_->fence();
+        if (round) {
+            state_->prepare_record_access();
+            // Diagnostic route count only, not completed access or authority.
+            usk::diagnostics::note(usk::diagnostics::Counter::broker_borrowed_query_instances);
+        } else state_->fence();
     } catch (...) {
         const auto original = std::current_exception();
         if (!state_->close()) {
@@ -720,7 +745,7 @@ PublisherBrokerQueryClosureUnknown::PublisherBrokerQueryClosureUnknown(DWORD err
     std::runtime_error("broker original native query closure is unknown; Win32 " + std::to_string(error)),
     error_(error), primary_(std::move(primary)) {}
 bool PublisherBrokerObjectQuery::close() noexcept { return state_->close(); }
-Value PublisherBrokerObjectQuery::observation() const { state_->fence(); return state_->expected; }
+Value PublisherBrokerObjectQuery::observation() const { state_->fence(); return state_->object_expectation(); }
 DWORD PublisherBrokerObjectQuery::granted_access() const { state_->fence(); return observe_publisher_handle_granted_access(state_->handle); }
 Value PublisherBrokerObjectQuery::authenticated_access(const PublisherRequestChannel& channel) const {
     state_->require_live();
@@ -740,7 +765,7 @@ Value PublisherBrokerObjectQuery::authenticated_access(const PublisherRequestCha
         }
     }();
     state_->fence_after_authenticated_access(result.at("native_object"));
-    require(same(result.at("native_object"), state_->expected), "broker authenticated access native object differs");
+    require(same(result.at("native_object"), state_->object_expectation()), "broker authenticated access native object differs");
     return result;
 }
 
@@ -1289,7 +1314,7 @@ struct PublisherEffectBrokerReadback::State {
             const Value& client_value, const PublisherRecordQueryRoundOwner& original,
             ULONGLONG start, DWORD budget) : objects(objects_value), volume_facts(volume_value),
             client(client_value), round(original), started(start), timeout(budget),
-            plan(publisher_record_query_plan(Value(objects_value))),
+            plan(publisher_record_query_plan(objects_value)),
             results(objects_value.size()), errors(objects_value.size()) {}
     };
     struct RecordThreadStart { State* owner = nullptr; std::size_t index = 0; };
