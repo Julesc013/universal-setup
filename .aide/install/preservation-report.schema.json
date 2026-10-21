@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.install-preservation-report.schema.v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "source_commit",
+    "preserved_paths",
+    "source_generated_skips",
+    "local_state_skips",
+    "secret_skips",
+    "managed_sections",
+    "warnings",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "preserved_paths": {"type": "array"},
+    "source_generated_skips": {"type": "array"},
+    "local_state_skips": {"type": "array"},
+    "secret_skips": {"type": "array"},
+    "managed_sections": {"type": "array"},
+    "warnings": {"type": "array"},
+    "no_apply": {"const": true}
+  }
+}

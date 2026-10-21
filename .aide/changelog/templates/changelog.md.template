@@ -1,0 +1,26 @@
+# AIDE Changelog Preview
+
+This file is generated from local Git history and is a preview only.
+
+source_range: {{source_range}}
+source_head: {{source_head}}
+commit_count: {{commit_count}}
+malformed_count: {{malformed_count}}
+preview_only: true
+release_publishing: false
+
+## Summary
+
+{{category_counts}}
+
+## Categories
+
+{{category_sections}}
+
+## Malformed Commits
+
+{{malformed_commits}}
+
+## Release Caveat
+
+- Preview only. No tags, GitHub Releases, branch mutation, or publishing were performed.

@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE GitHub Release Asset",
+  "type": "object",
+  "required": [
+    "asset_id",
+    "path",
+    "filename",
+    "kind",
+    "size_bytes",
+    "sha256",
+    "required",
+    "publish_candidate",
+    "upload_order",
+    "validation_status",
+    "notes"
+  ],
+  "properties": {
+    "asset_id": {"type": "string"},
+    "path": {"type": "string"},
+    "filename": {"type": "string"},
+    "kind": {"type": "string"},
+    "size_bytes": {"type": "integer"},
+    "sha256": {"type": "string"},
+    "required": {"type": "boolean"},
+    "publish_candidate": {"type": "boolean"},
+    "upload_order": {"type": "integer"},
+    "validation_status": {"type": "string"},
+    "notes": {"type": "string"}
+  },
+  "additionalProperties": true
+}

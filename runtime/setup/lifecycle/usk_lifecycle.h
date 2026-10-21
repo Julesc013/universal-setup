@@ -147,6 +147,9 @@ struct RepairPlan {
     std::string policy_digest;
     LifecycleRoots roots;
     std::vector<PayloadFile> replacement_files;
+    // Private source owner: one explicit re-admission after maintenance setup,
+    // before any replacement byte is staged. Empty preserves ordinary callers.
+    std::function<void(LifecycleCancellation)> prepare_payload;
 };
 
 struct RepairResult {

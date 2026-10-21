@@ -1,0 +1,11 @@
+schema_version: aide.golden-task.v0
+task_id: git_promote_plan_golden
+title: Git Promote Plan Golden
+status: active
+purpose: Check promote helper review gates and dev-to-main policy linkage.
+input_refs:
+  - .aide/git/helper-policy.yaml
+  - .aide/git/helper-commands.md
+  - .aide/policies/promotion-rules.yaml
+acceptance_ref: .aide/evals/golden-tasks/git_promote_plan_golden/acceptance.md
+expected_result: PASS

@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import sys
+import json
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
@@ -113,6 +115,55 @@ class SelectedCandidatePackageTests(unittest.TestCase):
                              1024 * 1024)
             self.assertIn(str(fixture / "product" / "addon.bin"),
                           inputs["source_files"])
+
+    def test_maintenance_regeneration_preserves_archive_identity_and_prefix(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime = root / "usk_machine.exe"
+            runtime.write_bytes(b"MZ\x00native-packaging-fixture")
+            with patch("tests.windows_publisher_metadata_inputs.host_target", return_value="windows-x64"), \
+                    patch("usk_bundle_plan.host_target", return_value="windows-x64"):
+                for packaged in (False, True):
+                    with self.subTest(packaged=packaged):
+                        before, after, wrong = [root / f"{packaged}.{suffix}"
+                                                for suffix in ("initial", "replacement", "wrong-format")]
+                        for path in (before, after, wrong):
+                            path.mkdir()
+                        selected_runtime = runtime if packaged else None
+                        initial = create_inputs(before, root / "target", "initial",
+                                                packaged_runtime=selected_runtime)
+                        replacement = create_inputs(after, root / "target", "maintenance",
+                                                    packaged_runtime=selected_runtime)
+                        other = create_inputs(wrong, root / "target", "maintenance.wrong",
+                                              packaged_runtime=None if packaged else runtime)
+                        self.assertEqual(Path(initial["archive_file"]).read_bytes(),
+                                         Path(replacement["archive_file"]).read_bytes())
+                        self.assertEqual(initial["archive_sha256"], replacement["archive_sha256"])
+                        self.assertNotEqual(initial["archive_sha256"], other["archive_sha256"])
+                        prefix = "" if packaged else "pkg"
+                        self.assertEqual(replacement["archive_strip_prefix"], prefix)
+                        plan = json.loads(Path(replacement["request_file"]).read_text(encoding="utf-8"))
+                        self.assertEqual(plan["payload"]["archive"]["strip_prefix"], prefix)
+                        self.assertEqual(plan["payload"]["archive"]["expected_sha256"],
+                                         initial["archive_sha256"])
+
+    def test_packaged_fixture_preserves_exact_payload_and_all_retirement_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runtime = root / "usk_machine.exe"
+            runtime.write_bytes(b"MZ\x00native-packaging-fixture")
+            fixture = root / "fixture"
+            fixture.mkdir()
+            with patch("tests.windows_publisher_metadata_inputs.host_target", return_value="windows-x64"), \
+                    patch("usk_bundle_plan.host_target", return_value="windows-x64"):
+                inputs = create_inputs(fixture, root / "target", "packaged.fixture", packaged_runtime=runtime)
+            self.assertEqual(Path(inputs["packaged_host"]).read_bytes(), runtime.read_bytes())
+            self.assertEqual(Path(inputs["archive_file"]), fixture / "packaged" / "payload.zip")
+            self.assertEqual(Path(inputs["archive_file"]).read_bytes(), (fixture / "selected" / "payload.zip").read_bytes())
+            self.assertFalse((fixture / "prefixed.zip").exists())
+            self.assertTrue(Path(inputs["options_file"]).is_file())
+            self.assertIn(inputs["packaged_host"], inputs["source_files"])
+            self.assertIn(inputs["bundle_file"], inputs["source_files"])
 
 
 if __name__ == "__main__":

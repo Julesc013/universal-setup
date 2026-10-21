@@ -1,0 +1,37 @@
+schema_version: aide.install-conflicts-policy.v0
+policy_id: aide.install-conflicts.v0
+status: active
+purpose: >
+  Define install conflict classes and blocking rules for no-apply install
+  planning.
+conflict_types:
+  - existing_manual_file
+  - existing_managed_file
+  - target_specific_file
+  - source_state_leak
+  - schema_version_mismatch
+  - unsupported_old_schema
+  - local_state_tracked
+  - secret_like_path
+  - generated_target_state_collision
+  - ambiguous_owner
+  - unsafe_overwrite
+blocking_by_default:
+  - source_state_leak
+  - unsupported_old_schema
+  - local_state_tracked
+  - secret_like_path
+  - ambiguous_owner
+  - unsafe_overwrite
+default_resolution:
+  existing_manual_file: preserve_and_review
+  existing_managed_file: preserve_and_review
+  target_specific_file: preserve
+  source_state_leak: block_until_removed_or_quarantined_in_future_phase
+  schema_version_mismatch: require_future_migration_review
+  unsupported_old_schema: require_future_repair_or_upgrade
+  local_state_tracked: block
+  secret_like_path: block
+  generated_target_state_collision: preserve_target_state
+  ambiguous_owner: require_review
+  unsafe_overwrite: block

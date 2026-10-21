@@ -1,0 +1,135 @@
+schema_version: aide.provider-catalog.v0
+catalog_id: q20-provider-families
+status: metadata_only
+live_calls_allowed_in_q20: false
+provider_families:
+  - provider_id: deterministic_tools
+    display_name: Deterministic Tools
+    adapter_class: deterministic_tool
+    provider_class: deterministic
+    privacy_class: local
+    credentials_required: false
+    credentials_location: none
+    live_calls_allowed_in_q20: false
+    status: metadata_only
+    notes: Repo-local scripts, tests, verifiers, and structural checks. Preferred when work is deterministic.
+  - provider_id: human
+    display_name: Human Review
+    adapter_class: human_review
+    provider_class: human
+    privacy_class: human
+    credentials_required: false
+    credentials_location: none
+    live_calls_allowed_in_q20: false
+    status: metadata_only
+    notes: Explicit accountable review path for hard floors, safety-sensitive work, and promotion decisions.
+  - provider_id: local_ollama
+    display_name: Local Ollama
+    adapter_class: local_model
+    provider_class: local_model
+    privacy_class: local
+    credentials_required: false
+    credentials_location: none
+    live_calls_allowed_in_q20: false
+    status: planned
+    notes: Advisory local-model family only. Q20 does not install, probe, or call local models.
+  - provider_id: local_lm_studio
+    display_name: Local LM Studio
+    adapter_class: local_model
+    provider_class: local_model
+    privacy_class: local
+    credentials_required: false
+    credentials_location: none
+    live_calls_allowed_in_q20: false
+    status: planned
+    notes: Advisory local-model family only. Q20 does not install, probe, or call local models.
+  - provider_id: local_llama_cpp
+    display_name: Local llama.cpp
+    adapter_class: local_model
+    provider_class: local_model
+    privacy_class: local
+    credentials_required: false
+    credentials_location: none
+    live_calls_allowed_in_q20: false
+    status: planned
+    notes: Advisory local-model family only. Q20 does not install, probe, or call local models.
+  - provider_id: local_vllm
+    display_name: Local vLLM
+    adapter_class: local_model
+    provider_class: local_model
+    privacy_class: local
+    credentials_required: false
+    credentials_location: none
+    live_calls_allowed_in_q20: false
+    status: planned
+    notes: Advisory local-model family only. Q20 does not install, probe, or call local models.
+  - provider_id: local_sglang
+    display_name: Local SGLang
+    adapter_class: local_model
+    provider_class: local_model
+    privacy_class: local
+    credentials_required: false
+    credentials_location: none
+    live_calls_allowed_in_q20: false
+    status: planned
+    notes: Advisory local-model family only. Q20 does not install, probe, or call local models.
+  - provider_id: openai
+    display_name: OpenAI
+    adapter_class: remote_model
+    provider_class: remote_model
+    privacy_class: remote
+    credentials_required: true
+    credentials_location: .aide.local/
+    live_calls_allowed_in_q20: false
+    status: planned
+    notes: Advisory remote provider family only. No endpoint, account, key, pricing, or live call is configured.
+  - provider_id: anthropic
+    display_name: Anthropic
+    adapter_class: remote_model
+    provider_class: remote_model
+    privacy_class: remote
+    credentials_required: true
+    credentials_location: .aide.local/
+    live_calls_allowed_in_q20: false
+    status: planned
+    notes: Advisory remote provider family only. No endpoint, account, key, pricing, or live call is configured.
+  - provider_id: google_gemini
+    display_name: Google Gemini
+    adapter_class: remote_model
+    provider_class: remote_model
+    privacy_class: remote
+    credentials_required: true
+    credentials_location: .aide.local/
+    live_calls_allowed_in_q20: false
+    status: planned
+    notes: Advisory remote provider family only. No endpoint, account, key, pricing, or live call is configured.
+  - provider_id: deepseek
+    display_name: DeepSeek
+    adapter_class: remote_model
+    provider_class: remote_model
+    privacy_class: remote
+    credentials_required: true
+    credentials_location: .aide.local/
+    live_calls_allowed_in_q20: false
+    status: planned
+    notes: Advisory remote provider family only. No endpoint, account, key, pricing, or live call is configured.
+  - provider_id: openrouter
+    display_name: OpenRouter
+    adapter_class: aggregator
+    provider_class: aggregator
+    privacy_class: remote
+    credentials_required: true
+    credentials_location: .aide.local/
+    live_calls_allowed_in_q20: false
+    status: planned
+    notes: Advisory aggregator family only. No endpoint, account, key, pricing, routing, or live call is configured.
+  - provider_id: other_remote_provider
+    display_name: Other Remote Provider
+    adapter_class: unknown
+    provider_class: remote_model
+    privacy_class: unknown
+    credentials_required: true
+    credentials_location: .aide.local/
+    live_calls_allowed_in_q20: false
+    status: deferred
+    notes: Deferred advisory bucket for future reviewed provider metadata.

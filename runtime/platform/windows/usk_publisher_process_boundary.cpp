@@ -89,14 +89,15 @@ Value observe_current_publisher_process_boundary() {
             {"access_mask", Value(static_cast<std::uint64_t>(ace->Mask))},
             {"sid", Value(sid_text(sid))}});
     }
-    return Value(Value::Object{
-        {"schema", Value("usk.publisher_process_boundary.v1")},
-        {"scope", Value("stored_current_process_owner_dacl")},
-        {"process_id", Value(static_cast<std::uint64_t>(GetCurrentProcessId()))},
-        {"owner_sid", Value(sid_text(owner))},
-        {"dacl_present", Value(true)},
-        {"dacl_protected", Value((control & SE_DACL_PROTECTED) != 0)},
-        {"dacl_aces", Value(std::move(aces))}});
+    Value::Object fields;
+    fields.emplace("schema", Value("usk.publisher_process_boundary.v1"));
+    fields.emplace("scope", Value("stored_current_process_owner_dacl"));
+    fields.emplace("process_id", Value(static_cast<std::uint64_t>(GetCurrentProcessId())));
+    fields.emplace("owner_sid", Value(sid_text(owner)));
+    fields.emplace("dacl_present", Value(true));
+    fields.emplace("dacl_protected", Value((control & SE_DACL_PROTECTED) != 0));
+    fields.emplace("dacl_aces", Value(std::move(aces)));
+    return Value(std::move(fields));
 }
 
 void require_publisher_process_boundary(const Value& value, std::uint32_t process_id,

@@ -89,6 +89,21 @@ revision, targets `dev`, passes consumer canaries, and reaches `main` through a
 reviewed promotion. Stable consumers retain exact pins reachable from `main`;
 canary SHAs never rewrite their tracked locks.
 
+During active development, reviewed checkpoints reach `dev` at least daily
+after its required platform build and test checks pass. `main` promotion is
+targeted at least weekly when its additional publisher qualification and
+applicable acceptance checks pass. A development checkpoint can retain a
+failed publisher qualification; it does not establish deployment readiness.
+
+As of 2026-10-18, the latest publisher run for the source integrated by
+[PR #257](https://github.com/Julesc013/universal-setup/pull/257) passed both
+source-free Windows repair recovery cohorts within the unchanged request
+contract, but failed packaged startup and owned service retirement. Earlier
+recovery timeouts remain retained; production deployment is still unqualified.
+The separate
+`publisher-qualification` check reports that work without preventing core
+build/test results from being produced.
+
 See the [repository branch model](docs/governance/branch_model.md) and its
 [active machine-readable policy](release/index/branch_policy.v2.toml). The
 [campaign authority record](release/index/campaign_authority.v1.toml) permits

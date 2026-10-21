@@ -1,0 +1,7 @@
+{
+  "example_id": "deterministic-estimate",
+  "task_text": "Estimate tokens for .aide/context/latest-task-packet.md",
+  "expected_task_class": "deterministic_format_or_count",
+  "expected_route_class": "no_model_tool",
+  "reason": "Token estimation is a deterministic local chars/4 calculation."
+}

@@ -1,0 +1,43 @@
+{
+  "type": "object",
+  "required": [
+    "operation_id",
+    "operation_type",
+    "current_path",
+    "source_pack_path",
+    "target_path",
+    "target_class",
+    "ownership",
+    "action",
+    "reason",
+    "compatibility_level",
+    "conflict_status",
+    "preserve_target_state",
+    "overwrite_allowed",
+    "delete_allowed",
+    "migration_required",
+    "apply_allowed",
+    "validation_required",
+    "rollback_hint"
+  ],
+  "properties": {
+    "operation_id": {"type": "string"},
+    "operation_type": {"type": "string"},
+    "current_path": {"type": "string"},
+    "source_pack_path": {"type": "string"},
+    "target_path": {"type": "string"},
+    "target_class": {"type": "string"},
+    "ownership": {"type": "string"},
+    "action": {"type": "string"},
+    "reason": {"type": "string"},
+    "compatibility_level": {"type": "string"},
+    "conflict_status": {"type": "string"},
+    "preserve_target_state": {"type": "boolean"},
+    "overwrite_allowed": {"type": "boolean", "default": false},
+    "delete_allowed": {"type": "boolean", "default": false},
+    "migration_required": {"type": "boolean"},
+    "apply_allowed": {"type": "boolean", "default": false},
+    "validation_required": {"type": "array"},
+    "rollback_hint": {"type": "string"}
+  }
+}

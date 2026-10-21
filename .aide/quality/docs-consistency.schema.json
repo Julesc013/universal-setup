@@ -1,0 +1,22 @@
+{
+  "schema_version": "aide.docs-consistency.schema.v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "docs_scanned",
+    "stale_path_candidates",
+    "missing_doc_candidates",
+    "public_surface_doc_candidates",
+    "caveats"
+  ],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "generated_by": { "type": "string" },
+    "docs_scanned": { "type": "integer" },
+    "stale_path_candidates": { "type": "array" },
+    "missing_doc_candidates": { "type": "array" },
+    "public_surface_doc_candidates": { "type": "array" },
+    "caveats": { "type": "array" }
+  }
+}

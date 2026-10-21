@@ -1,0 +1,58 @@
+schema_version: aide.install-policy.v0
+policy_id: aide.install.v0
+status: active
+purpose: >
+  Define deterministic, preservation-first install observation, planning, and
+  dry-run behavior before any future AIDE install, update, repair, upgrade,
+  rollback, or uninstall phase.
+operating_mode:
+  - deterministic_local
+  - no_model_calls
+  - no_provider_calls
+  - no_network_calls
+  - observe_plan_dry_run_only
+  - no_apply_in_q43
+  - no_target_mutation
+  - no_file_overwrite
+  - no_file_deletion
+  - no_migration_without_mandatory_reason
+lifecycle:
+  - observe
+  - plan
+  - dry_run
+  - review
+  - future_apply
+  - future_verify
+  - future_repair
+  - future_upgrade
+  - future_rollback
+  - future_uninstall
+install_artifact_classes:
+  - portable_policy
+  - portable_script
+  - portable_schema
+  - portable_template
+  - portable_golden_task
+  - portable_doc
+  - generated_target_state
+  - target_memory
+  - target_queue
+  - target_evidence
+  - local_state
+  - forbidden_secret
+default_rules:
+  additive_by_default: true
+  overwrite_allowed_default: false
+  apply_allowed_default: false
+  migration_automatic_default: false
+  target_specific_state_preserved: true
+  source_generated_state_is_target_truth: false
+  local_state_install_candidate: false
+  secret_like_path_install_candidate: false
+non_goals:
+  - no apply
+  - no target mutation
+  - no release bundle
+  - no upgrade or rollback implementation
+  - no repair implementation
+  - no uninstall implementation

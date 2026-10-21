@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aide.capability-evidence-bindings.v1",
+  "title": "Derived capability source evidence bindings",
+  "description": "Optional source classification freshness projection. Not authority, executed test evidence, or host qualification.",
+  "type": "object",
+  "required": ["schema_version", "ledger_sha256", "inputs", "complete", "truncated"],
+  "properties": {
+    "schema_version": {"const": "aide.capability-evidence-bindings.v1"},
+    "ledger_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "complete": {"type": "boolean"},
+    "truncated": {"type": "boolean"},
+    "inputs": {
+      "type": "array", "minItems": 1, "maxItems": 128,
+      "items": {
+        "type": "object",
+        "required": ["path", "state", "sha256", "bytes", "reason"],
+        "properties": {
+          "path": {"type": "string"},
+          "state": {"enum": ["observed", "unknown"]},
+          "sha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+          "bytes": {"type": ["integer", "null"], "minimum": 0, "maximum": 4194304},
+          "reason": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

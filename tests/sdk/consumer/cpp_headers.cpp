@@ -3,6 +3,7 @@
 
 #include "usk/usk_allocator.h"
 #include "usk/usk_api.h"
+#include "usk/usk_publisher_client.h"
 #include "usk/usk_audit.h"
 #include "usk/usk_command.h"
 #include "usk/usk_context.h"

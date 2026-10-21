@@ -1,0 +1,130 @@
+schema_version: aide.recovery-policy.v0
+policy_id: aide-repo-state-first-recovery-v0
+status: active
+purpose: >
+  Define deterministic recovery profiles for duplicate, out-of-order, partial,
+  dirty, stale, failed, and blocked AIDE task states.
+default_rule: inspect_repo_local_evidence_before_user_escalation
+profiles:
+  duplicate_task:
+    inspect_steps:
+      - queue_index
+      - task_status
+      - evidence_files
+      - latest_task_packet
+    allowed_autonomous_recovery:
+      - no_op_if_acceptance_surfaces_complete
+      - resume_if_partial
+    when_to_stop:
+      - prompt_conflicts_with_existing_accepted_scope
+    required_evidence:
+      - duplicate_or_noop_reason
+      - validation_summary
+  out_of_order_task:
+    inspect_steps:
+      - requested_task_status
+      - prerequisite_status
+      - current_worktree
+    allowed_autonomous_recovery:
+      - complete_safe_prerequisite_metadata
+      - record_reconciliation_report
+    when_to_stop:
+      - prerequisite_requires_human_review
+    required_evidence:
+      - reconciliation_notes
+  partial_task:
+    inspect_steps:
+      - changed_files
+      - status_yaml
+      - validation_md
+      - remaining_risks
+    allowed_autonomous_recovery:
+      - continue_within_allowed_paths
+      - refresh_generated_artifacts
+    when_to_stop:
+      - unknown_manual_changes_block_scope
+    required_evidence:
+      - continuation_summary
+  dirty_tree:
+    inspect_steps:
+      - git_status_short
+      - diff_scope
+      - allowed_and_forbidden_paths
+    allowed_autonomous_recovery:
+      - preserve_unrelated_changes
+      - continue_if_dirty_paths_are_own_scope
+    when_to_stop:
+      - forbidden_path_modified
+      - destructive_ambiguity
+    required_evidence:
+      - dirty_tree_classification
+  stale_status:
+    inspect_steps:
+      - status_yaml
+      - task_yaml
+      - evidence_files
+      - validation_evidence
+    allowed_autonomous_recovery:
+      - reconcile_status_from_evidence
+    when_to_stop:
+      - acceptance_cannot_be_determined
+    required_evidence:
+      - status_reconciliation_report
+  failed_validation:
+    inspect_steps:
+      - validation_output
+      - changed_files
+      - relevant_tests
+    allowed_autonomous_recovery:
+      - fix_within_task_scope
+      - rerun_targeted_validation
+    when_to_stop:
+      - failure_requires_out_of_scope_product_change
+    required_evidence:
+      - failure_and_fix_summary
+  manual_content_conflict:
+    inspect_steps:
+      - manual_sections
+      - managed_markers
+      - diff
+    allowed_autonomous_recovery:
+      - preserve_manual_content
+      - update_managed_section_only
+    when_to_stop:
+      - no_clear_preserving_merge
+    required_evidence:
+      - conflict_resolution_or_stop_reason
+  missing_dependency:
+    inspect_steps:
+      - depends_on
+      - queue_index
+      - dependency_evidence
+    allowed_autonomous_recovery:
+      - report_missing_dependency
+    when_to_stop:
+      - dependency_not_accepted_for_current_task
+    required_evidence:
+      - dependency_status_report
+  missing_external_secret:
+    inspect_steps:
+      - local_state_policy
+      - environment_expectation
+    allowed_autonomous_recovery: []
+    when_to_stop:
+      - always
+    required_evidence:
+      - missing_secret_without_value
+  destructive_ambiguity:
+    inspect_steps:
+      - requested_action
+      - affected_paths
+      - irreversible_operations
+    allowed_autonomous_recovery: []
+    when_to_stop:
+      - always
+    required_evidence:
+      - ambiguity_description
+non_goals:
+  - no fabricating evidence
+  - no provider_or_model_calls
+  - no destructive recovery without explicit reviewed policy

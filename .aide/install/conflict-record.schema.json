@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.install-conflict-record.schema.v0",
+  "type": "object",
+  "required": [
+    "conflict_id",
+    "path",
+    "conflict_type",
+    "status",
+    "blocking",
+    "reason",
+    "recommended_next_action",
+    "evidence_refs"
+  ],
+  "properties": {
+    "conflict_id": {"type": "string"},
+    "path": {"type": "string"},
+    "conflict_type": {"type": "string"},
+    "status": {"type": "string"},
+    "blocking": {"type": "boolean"},
+    "reason": {"type": "string"},
+    "recommended_next_action": {"type": "string"},
+    "evidence_refs": {"type": "array"}
+  }
+}

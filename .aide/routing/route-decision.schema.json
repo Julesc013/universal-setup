@@ -1,0 +1,47 @@
+{
+  "schema_version": "aide.route-decision.schema.v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "route_id",
+    "task_source",
+    "task_class",
+    "risk_class",
+    "route_class",
+    "fallback_route_class",
+    "hard_floor_applied",
+    "blocked",
+    "blocked_reason",
+    "rationale",
+    "evidence_sources",
+    "required_checks",
+    "token_budget_status",
+    "verifier_status",
+    "golden_task_status",
+    "outcome_recommendation_status",
+    "quality_gate_status",
+    "notes"
+  ],
+  "properties": {
+    "route_class": {
+      "enum": [
+        "no_model_tool",
+        "local_small",
+        "local_strong",
+        "cheap_remote",
+        "frontier",
+        "human_review",
+        "blocked"
+      ]
+    },
+    "blocked": {
+      "type": "boolean"
+    },
+    "live_calls_allowed_in_q17": {
+      "const": false
+    },
+    "contents_inline": {
+      "const": false
+    }
+  }
+}

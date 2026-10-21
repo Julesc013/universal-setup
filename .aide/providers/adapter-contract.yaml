@@ -1,0 +1,73 @@
+schema_version: aide.provider-adapter-contract.v0
+contract_id: q20-provider-adapter-contract
+status: metadata_only
+purpose: >
+  Define the adapter metadata shape future Gateway/provider phases must satisfy
+  before any live provider execution can be considered.
+required_fields:
+  - adapter_id
+  - provider_id
+  - adapter_class
+  - capabilities
+  - credential_requirements
+  - privacy_class
+  - call_policy
+  - cache_policy
+  - route_policy
+  - health_policy
+  - status_policy
+  - no_call_boundary
+field_requirements:
+  adapter_id:
+    type: stable_string
+    rule: Must be repo-stable and not contain credentials or endpoint secrets.
+  provider_id:
+    type: provider_family_ref
+    rule: Must reference `.aide/providers/provider-catalog.yaml`.
+  adapter_class:
+    allowed_values:
+      - deterministic_tool
+      - human_review
+      - local_model
+      - remote_model
+      - aggregator
+      - unknown
+  capabilities:
+    source: .aide/providers/capability-matrix.yaml
+    rule: Use conservative statuses; do not claim measured performance in Q20.
+  credential_requirements:
+    required_fields:
+      - credentials_required
+      - credentials_location
+      - credentials_never_committed
+    q20_rule: Credentials may be referenced only as future `.aide.local/` state.
+  privacy_class:
+    allowed_values:
+      - local
+      - remote
+      - human
+      - unknown
+  call_policy:
+    live_calls_allowed_in_q20: false
+    network_calls_allowed_in_q20: false
+    model_calls_allowed_in_q20: false
+    provider_probe_calls_allowed_in_q20: false
+  cache_policy:
+    provider_response_cache_enabled_in_q20: false
+    raw_prompt_storage_default: false
+    raw_response_storage_default: false
+    cache_hit_must_not_bypass_verifier_or_golden_tasks: true
+  route_policy:
+    route_decisions_advisory_only: true
+    hard_floors_must_not_demote: true
+    provider_selection_must_respect_router_profile: true
+  health_policy:
+    offline_metadata_health_only: true
+    provider_ping_allowed_in_q20: false
+  status_policy:
+    committed_status_metadata_allowed: true
+    no_credentials_in_status: true
+    no_raw_prompt_or_response_in_status: true
+  no_call_boundary:
+    q20_adapter_interfaces_must_not_execute: true
+    future_live_call_phase_required: true

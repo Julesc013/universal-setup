@@ -1,0 +1,48 @@
+schema_version: aide.context-ignore.v0
+policy_id: q09-context-ignore
+status: active-pending-review
+purpose: Exclude local state, secrets, caches, generated binaries, and large artifacts from repo snapshots and compact task packets.
+allowlist_note: Generated context packets may reference ignored paths by path name if needed, but must not inline their contents.
+exclude:
+  - .git/**
+  - .env
+  - secrets/**
+  - .aide.local/**
+  - caches/**
+  - cache/**
+  - .cache/**
+  - __pycache__/**
+  - .pytest_cache/**
+  - .mypy_cache/**
+  - .ruff_cache/**
+  - node_modules/**
+  - dist/**
+  - build/**
+  - out/**
+  - target/**
+  - "*.pyc"
+  - "*.pyo"
+  - "*.zip"
+  - "*.tar"
+  - "*.tar.gz"
+  - "*.tgz"
+  - "*.7z"
+  - "*.rar"
+  - "*.png"
+  - "*.jpg"
+  - "*.jpeg"
+  - "*.gif"
+  - "*.bmp"
+  - "*.ico"
+  - "*.pdf"
+  - "*.exe"
+  - "*.dll"
+  - "*.dylib"
+  - "*.so"
+  - "*.bin"
+  - "*.iso"
+  - "*.dmg"
+  - "*.msi"
+  - "*.pkg"
+  - "*.nupkg"
+  - "*.whl"

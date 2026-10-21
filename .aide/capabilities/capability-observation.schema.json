@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aide.capabilities.capability-observation.v0",
+  "title": "AIDE Capability Observation Report",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "mode", "records", "no_apply_boundary"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "aide.capability-observations.v0" },
+    "generated_at": { "type": "string" },
+    "mode": { "type": "string", "const": "report_only" },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["capability_id", "observed_state", "evidence_class", "evidence_ref", "confidence", "notes"],
+        "properties": {
+          "capability_id": { "type": "string" },
+          "observed_state": { "type": "string" },
+          "evidence_class": { "type": "string" },
+          "evidence_ref": { "type": "string" },
+          "confidence": { "type": "string" },
+          "notes": { "type": "string" }
+        },
+        "additionalProperties": false
+      }
+    },
+    "no_apply_boundary": { "type": "object" }
+  },
+  "additionalProperties": false
+}

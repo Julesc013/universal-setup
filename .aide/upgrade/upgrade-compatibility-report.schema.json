@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "required": [
+    "schema_version",
+    "compatibility_summary",
+    "dimensions",
+    "unsupported_count",
+    "unknown_count",
+    "warnings",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "compatibility_summary": {"type": "object"},
+    "dimensions": {"type": "array"},
+    "unsupported_count": {"type": "integer"},
+    "unknown_count": {"type": "integer"},
+    "warnings": {"type": "array"},
+    "no_apply": {"type": "boolean"}
+  }
+}

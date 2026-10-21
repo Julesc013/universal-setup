@@ -1,0 +1,92 @@
+schema_version: q24.adapter-targets.v0
+catalog_status: active
+generator: aide-adapter-compiler-v0
+targets:
+  - target_id: codex_agents_md
+    display_name: Codex AGENTS.md
+    output_path: AGENTS.md
+    generated_path: .aide/generated/adapters/AGENTS.md
+    output_mode: managed_section
+    template_path: .aide/adapters/templates/AGENTS.md.template
+    enabled_by_default: true
+    risk_level: low
+    manual_content_policy: preserve_outside_managed_section
+    drift_policy: compare_managed_section
+    target_notes: Existing root guidance is preserved outside the Q24 managed section.
+  - target_id: claude_code
+    display_name: Claude Code CLAUDE.md
+    output_path: CLAUDE.md
+    generated_path: .aide/generated/adapters/CLAUDE.md
+    output_mode: preview_only
+    template_path: .aide/adapters/templates/CLAUDE.md.template
+    enabled_by_default: true
+    risk_level: medium
+    manual_content_policy: preview_until_target_owner_approves
+    drift_policy: compare_preview_to_target_when_present
+    target_notes: Preview only because this repo has no reviewed root CLAUDE.md write policy.
+  - target_id: aider
+    display_name: Aider guidance
+    output_path: .aider.conf.yml
+    generated_path: .aide/generated/adapters/aider.conf.yml
+    output_mode: preview_only
+    template_path: .aide/adapters/templates/aider.conf.yml.template
+    enabled_by_default: true
+    risk_level: medium
+    manual_content_policy: preview_until_target_owner_approves
+    drift_policy: compare_preview_to_target_when_present
+    target_notes: Preview uses comments and portable command refs; it does not assume Aider config semantics.
+  - target_id: cline
+    display_name: Cline rules
+    output_path: .clinerules
+    generated_path: .aide/generated/adapters/clinerules
+    output_mode: preview_only
+    template_path: .aide/adapters/templates/clinerules.template
+    enabled_by_default: true
+    risk_level: medium
+    manual_content_policy: preview_until_target_owner_approves
+    drift_policy: compare_preview_to_target_when_present
+    target_notes: Preview only; do not overwrite existing Cline rules.
+  - target_id: continue
+    display_name: Continue token-survival check
+    output_path: .continue/checks/aide-token-survival.md
+    generated_path: .aide/generated/adapters/continue-checks/aide-token-survival.md
+    output_mode: preview_only
+    template_path: .aide/adapters/templates/continue-checks.template.md
+    enabled_by_default: true
+    risk_level: medium
+    manual_content_policy: preview_until_target_owner_approves
+    drift_policy: compare_preview_to_target_when_present
+    target_notes: Preview only; Continue runtime configuration remains unimplemented.
+  - target_id: cursor
+    display_name: Cursor rule
+    output_path: .cursor/rules/aide-token-survival.mdc
+    generated_path: .aide/generated/adapters/cursor-rules/aide-token-survival.mdc
+    output_mode: preview_only
+    template_path: .aide/adapters/templates/cursor-rule.template.md
+    enabled_by_default: true
+    risk_level: medium
+    manual_content_policy: preview_until_target_owner_approves
+    drift_policy: compare_preview_to_target_when_present
+    target_notes: Preview only; do not overwrite local Cursor rules.
+  - target_id: windsurf
+    display_name: Windsurf rule
+    output_path: .windsurf/rules/aide-token-survival.md
+    generated_path: .aide/generated/adapters/windsurf-rules/aide-token-survival.md
+    output_mode: preview_only
+    template_path: .aide/adapters/templates/windsurf-rule.template.md
+    enabled_by_default: true
+    risk_level: medium
+    manual_content_policy: preview_until_target_owner_approves
+    drift_policy: compare_preview_to_target_when_present
+    target_notes: Preview only; do not overwrite local Windsurf rules.
+  - target_id: vscode_optional
+    display_name: VS Code optional task preview
+    output_path: .vscode/tasks.json
+    generated_path: ""
+    output_mode: preview_only
+    template_path: ""
+    enabled_by_default: false
+    risk_level: high
+    manual_content_policy: disabled_until_reviewed_policy
+    drift_policy: not_rendered_in_q24
+    target_notes: Q24 records VS Code as optional but does not generate tasks.json to avoid non-invasive-config risk.

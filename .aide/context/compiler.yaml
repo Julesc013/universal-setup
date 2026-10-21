@@ -1,0 +1,51 @@
+schema_version: aide.context-compiler.v0
+compiler_id: q11-context-compiler-v0
+status: active-pending-review
+purpose: >
+  Build deterministic, repo-local context maps and compact context packets
+  so future AIDE work can reference exact repo paths, hashes, roles, and
+  likely tests without whole-repo prompts or long chat-history restatement.
+source_inputs:
+  - .aide/context/ignore.yaml
+  - .aide/context/repo-snapshot.json
+  - .aide/context/priority.yaml
+  - .aide/context/excerpt-policy.yaml
+  - .aide/memory/project-state.md
+  - .aide/queue/index.yaml
+generated_outputs:
+  - .aide/context/repo-map.json
+  - .aide/context/repo-map.md
+  - .aide/context/test-map.json
+  - .aide/context/context-index.json
+  - .aide/context/latest-context-packet.md
+ignore_policy:
+  source: .aide/context/ignore.yaml
+  ignored_paths_must_not_be_indexed: true
+  ignored_contents_must_not_be_inlined: true
+file_role_detection:
+  method: deterministic_path_and_extension_heuristics
+  semantic_certainty_claimed: false
+test_map_policy:
+  method: deterministic_path_and_name_heuristics
+  complete_coverage_claimed: false
+  include_confidence_and_reason: true
+context_packet_policy:
+  refs_not_full_files: true
+  include_repo_map_ref: true
+  include_test_map_ref: true
+  include_current_queue_ref: true
+  include_token_estimate: true
+determinism_requirements:
+  stable_ordering: true
+  repo_relative_paths_only: true
+  no_timestamps_in_generated_outputs: true
+  no_absolute_machine_paths: true
+  no_raw_file_contents: true
+forbidden_behaviors:
+  - whole_repo_prompt
+  - full_prior_transcript
+  - arbitrary_full_file_inline
+  - ignored_file_inline
+  - secrets_or_local_state_inline
+  - provider_or_model_calls
+  - embeddings_or_vector_database

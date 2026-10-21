@@ -51,27 +51,6 @@ void require_bounded_wait(DWORD wait_milliseconds)
 
 } // namespace
 
-std::wstring publisher_volume_operation_guard_name(const std::wstring& root)
-{
-    const std::wstring prefix = L"\\\\?\\Volume{";
-    if (root.size() != prefix.size() + 38u || root.rfind(prefix, 0) != 0 ||
-        root[root.size() - 2u] != L'}' || root.back() != L'\\') {
-        throw std::invalid_argument("publisher volume guard requires an exact volume GUID root");
-    }
-    std::wstring guid = root.substr(prefix.size(), 36u);
-    for (std::size_t index = 0; index < guid.size(); ++index) {
-        const bool hyphen = index == 8u || index == 13u || index == 18u || index == 23u;
-        const wchar_t ch = guid[index];
-        if (hyphen ? ch != L'-' :
-            !((ch >= L'0' && ch <= L'9') || (ch >= L'a' && ch <= L'f') ||
-                (ch >= L'A' && ch <= L'F'))) {
-            throw std::invalid_argument("publisher volume guard GUID is malformed");
-        }
-        if (ch >= L'A' && ch <= L'F') guid[index] = ch - L'A' + L'a';
-    }
-    return L"Global\\USK.Publisher.Volume." + guid;
-}
-
 std::wstring publisher_install_operation_guard_name(const std::wstring& root,
     const std::string& install_id)
 {

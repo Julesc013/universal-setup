@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "required": [
+    "schema_version",
+    "required_migrations",
+    "optional_migrations",
+    "required_count",
+    "optional_count",
+    "automatic_migration",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "required_migrations": {"type": "array"},
+    "optional_migrations": {"type": "array"},
+    "required_count": {"type": "integer"},
+    "optional_count": {"type": "integer"},
+    "automatic_migration": {"type": "boolean"},
+    "no_apply": {"type": "boolean"}
+  }
+}

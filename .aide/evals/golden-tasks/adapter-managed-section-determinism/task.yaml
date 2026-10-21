@@ -1,0 +1,9 @@
+schema_version: aide.golden-task.v0
+task_id: adapter-managed-section-determinism
+title: Adapter Managed Section Determinism
+status: active
+purpose: Check that managed AGENTS guidance rendering is stable and preserves manual text.
+input_refs:
+  - AGENTS.md
+acceptance_ref: .aide/evals/golden-tasks/adapter-managed-section-determinism/acceptance.md
+expected_result: PASS

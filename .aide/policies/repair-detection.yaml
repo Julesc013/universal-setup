@@ -1,0 +1,20 @@
+schema_version: aide.repair-detection-policy.v0
+policy_id: aide.repair-detection.v0
+status: active
+purpose: Define deterministic inputs for Q44 repair observation and diagnosis.
+detection_inputs:
+  - .aide/install/latest-install-observation.json
+  - .aide/install/latest-install-plan.json
+  - .aide/install/latest-conflict-report.json
+  - current validation output
+  - pack-status
+  - file inventory
+  - queue state
+  - generated packet existence
+  - policy/schema existence
+  - local-state ignore status
+  - managed section markers
+fallbacks:
+  install_outputs_missing: observe current repo directly and warn
+  pack_status_unavailable: inspect pack files and manifest presence
+  validation_output_unavailable: record unknown validation summary

@@ -4,8 +4,10 @@
 #include "usk/usk_api.h"
 #include "usk_json.h"
 #include "usk_live_evidence.h"
+#include "usk_one_shot.h"
 #include "usk_public_lifecycle.h"
 #include "usk_replacement_session.h"
+#include "usk_repair_source_admission_internal.h"
 #include "usk_sha256.h"
 #include "usk_transaction_session.h"
 
@@ -16,9 +18,11 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <new>
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -108,6 +112,180 @@ void write_zip(const fs::path& path, bool deflated = false)
     output.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
 }
 
+void repair_source_admission_proof(const fs::path& root)
+{
+    using Clock = std::chrono::steady_clock;
+    const auto require = [](bool condition, const char* message) {
+        if (!condition) throw std::runtime_error(message);
+    };
+    const auto refuses = [](const std::function<void()>& action) {
+        try { action(); } catch (const std::exception&) { return true; }
+        return false;
+    };
+    const auto refusal_message = [](const std::function<void()>& action) {
+        try { action(); } catch (const std::exception& error) { return std::string(error.what()); }
+        return std::string{};
+    };
+    for (const bool deflated : {false, true}) {
+        const auto archive = root / (deflated ? "readmission-deflate.zip" : "readmission-stored.zip");
+        write_zip(archive, deflated);
+        const auto request_for = [](const fs::path& path) {
+            return usk::json::canonical(Value(Value::Object{
+                {"schema", Value("usk.archive_inspect_request.v1")},
+                {"archive_format", Value("zip")}, {"archive_path", Value(path.u8string())},
+                {"budgets", Value(Value::Object{
+                    {"max_depth", Value(std::uint64_t{64})}, {"max_elapsed_ms", Value(std::uint64_t{1000})},
+                    {"max_entries", Value(std::uint64_t{10000})}, {"max_entry_bytes", Value(std::uint64_t{536870912})},
+                    {"max_ratio", Value(std::uint64_t{1000})}, {"max_uncompressed_bytes", Value(std::uint64_t{536870912})}})}}));
+        };
+        const auto request = request_for(archive);
+        const auto inspected = usk::archive::inspect_streaming_payload(request, "product");
+        const auto make_plan = [&] {
+            usk::lifecycle::RepairPlan plan;
+            plan.source_digest = inspected.source_sha256;
+            for (const auto& file : inspected.files)
+                plan.replacement_files.push_back({file.relative_path, {}, file.sha256,
+                    file.size_bytes, file.reader, inspected.payload_buffer_bytes});
+            std::sort(plan.replacement_files.begin(), plan.replacement_files.end(),
+                [](const auto& left, const auto& right) { return left.relative_path < right.relative_path; });
+            return plan;
+        };
+        const auto verify_file = [&](const usk::lifecycle::PayloadFile& file) {
+            std::vector<unsigned char> bytes(static_cast<std::size_t>(file.size_bytes));
+            require(file.reader(0, bytes.data(), bytes.size()) == bytes.size(), "readmitted payload short read");
+            unsigned char probe = 0;
+            require(file.reader(file.size_bytes, &probe, 1) == 0, "readmitted payload has extra bytes");
+            usk::base::Sha256 sha;
+            sha.update(bytes.data(), bytes.size());
+            require(sha.finish() == file.sha256, "readmitted payload hash differs");
+        };
+
+        // Establish actual expiration of the old returned readers, rather than
+        // assuming a fake clock also controls the archive library's clock.
+        std::this_thread::sleep_for(std::chrono::milliseconds(1100));
+        unsigned char probe = 0;
+        require(refuses([&] { (void)inspected.files.front().reader(0, &probe, 1); }),
+            "original payload reader did not expire before fresh admission");
+        auto time = Clock::now();
+        auto positive = make_plan();
+        usk::lifecycle::detail::bind_repair_source_admission(positive, request, "product", inspected,
+            std::chrono::milliseconds(1000), [&] { return time; });
+        positive.prepare_payload({});
+        for (const auto& file : positive.replacement_files) verify_file(file);
+
+        // One phase covers both files and every copied callable. A later file,
+        // EOF probe, clock reversal or new preparation cannot restart it.
+        auto bounded = make_plan();
+        usk::lifecycle::detail::bind_repair_source_admission(bounded, request, "product", inspected,
+            std::chrono::milliseconds(1000), [&] { return time; });
+        auto prepare_copy = bounded.prepare_payload;
+        const auto reader_copy = bounded.replacement_files.front().reader;
+        prepare_copy({});
+        verify_file(bounded.replacement_files.front());
+        time += std::chrono::milliseconds(1001);
+        require(refuses([&] { verify_file(bounded.replacement_files.back()); }), "later file reset extraction budget");
+        time -= std::chrono::milliseconds(1001);
+        require(refuses([&] { (void)reader_copy(0, &probe, 1); }) &&
+            refuses([&] { bounded.prepare_payload({}); }), "failed phase became usable again");
+
+        // Locate expiry using the same clock checks that enforce it. A
+        // prepared source can age while its caller performs native staging;
+        // a reported read boundary is not attribution of that interval's cost.
+        for (const std::string boundary : {"before_replacement_read", "inside_replacement_read", "after_replacement_read"}) {
+            if (deflated && boundary == "after_replacement_read") continue;
+            auto observed = make_plan();
+            auto observed_time = Clock::now();
+            bool active = false;
+            unsigned checks = 0;
+            const unsigned expire_at = boundary == "before_replacement_read" ? 1u :
+                boundary == "inside_replacement_read" ? 2u : 3u;
+            usk::lifecycle::detail::bind_repair_source_admission(observed, request, "product", inspected,
+                std::chrono::milliseconds(1000), [&] {
+                    if (active && ++checks == expire_at) observed_time += std::chrono::milliseconds(1001);
+                    return observed_time;
+                });
+            observed.prepare_payload({});
+            const auto& file = observed.replacement_files.front();
+            // One completed read distinguishes a later offset from entry.
+            require(file.reader(0, &probe, 1) == 1, "diagnostic control did not read actual source bytes");
+            active = true;
+            const auto message = refusal_message([&] { (void)file.reader(1, &probe, 1); });
+            require(message.find("expired;checkpoint=" + boundary + ";elapsed_ms=1001;") != std::string::npos &&
+                message.find("previous_check_elapsed_ms=0;preparation_elapsed_ms=0;file_index=0;offset=1;capacity=1") != std::string::npos,
+                "extraction expiry diagnostic lost its actual boundary or prior clock observations");
+            observed_time -= std::chrono::milliseconds(1001);
+            require(refuses([&] { (void)file.reader(1, &probe, 1); }) &&
+                refuses([&] { observed.prepare_payload({}); }), "diagnostic expiry lost sticky failure");
+        }
+
+        for (const std::string failure : {"early_read", "cancel", "exception", "preparation_budget",
+                "wrong_thread", "read_failure", "reentrant", "abandon", "identity", "selection"}) {
+            auto plan = make_plan();
+            const auto other = root / (deflated ? "readmission-deflate-other.zip" : "readmission-stored-other.zip");
+            if (failure == "identity") write_zip(other, deflated); // Same bytes, different actual file object.
+            if (failure == "selection") plan.replacement_files.back().sha256.assign(64, '0');
+            usk::lifecycle::detail::bind_repair_source_admission(plan,
+                failure == "identity" ? request_for(other) : request, "product", inspected,
+                std::chrono::milliseconds(1000), [&] { return time; });
+            if (failure == "early_read") {
+                require(refuses([&] { (void)plan.replacement_files.front().reader(0, &probe, 1); }),
+                    "unprepared repair bytes escaped");
+            } else if (failure == "abandon") {
+                require(refuses([&] {
+                    plan.prepare_payload([&] {
+                        plan.prepare_payload = {};
+                        plan.replacement_files.clear();
+                        return true;
+                    });
+                }), "abandoned preparation returned success");
+                continue; // Every outer callable is gone; invocation must stay alive until refusal.
+            } else if (failure == "reentrant") {
+                bool enter = false, rejected = false;
+                plan.prepare_payload([&] {
+                    if (enter) {
+                        enter = false;
+                        rejected = refuses([&] { (void)plan.replacement_files.front().reader(0, &probe, 1); });
+                    }
+                    return false;
+                });
+                enter = true;
+                require(refuses([&] { (void)plan.replacement_files.front().reader(0, &probe, 1); }) && rejected,
+                    "reentrant cancellation exposed replacement bytes");
+            } else if (failure == "wrong_thread" || failure == "read_failure") {
+                plan.prepare_payload({});
+                if (failure == "wrong_thread") {
+                    bool rejected = false;
+                    std::thread wrong([&] { rejected = refuses([&] { (void)plan.replacement_files.front().reader(0, &probe, 1); }); });
+                    wrong.join();
+                    require(rejected, "wrong-thread read escaped");
+                } else {
+                    const auto& file = plan.replacement_files.front();
+                    require(refuses([&] { (void)file.reader(file.size_bytes + 1, &probe, 1); }),
+                        "read failure escaped its phase");
+                }
+            } else {
+                unsigned cancellation_calls = 0;
+                require(refuses([&] {
+                    plan.prepare_payload([&] {
+                        ++cancellation_calls;
+                        if (failure == "exception" && cancellation_calls == 2u) throw std::bad_alloc();
+                        if (failure == "preparation_budget" && cancellation_calls == 2u)
+                            time += std::chrono::milliseconds(1001);
+                        return failure == "cancel";
+                    });
+                }), "changed/cancelled source admission succeeded");
+                if (failure == "exception" || failure == "preparation_budget")
+                    require(cancellation_calls >= 2u, "failure control missed fresh archive inspection");
+                if (failure == "preparation_budget")
+                    require(cancellation_calls == 2u, "fresh archive continued past the outer extraction deadline");
+            }
+            require(refuses([&] { plan.prepare_payload({}); }) &&
+                refuses([&] { (void)plan.replacement_files.front().reader(0, &probe, 1); }),
+                "failed repair source admission allowed retry or bytes");
+        }
+    }
+}
+
 std::string execute(usk_context* context, const char* command, const Value& payload, int dry_run, int& status)
 {
     const std::string json = usk::json::canonical(payload);
@@ -121,6 +299,23 @@ std::string execute(usk_context* context, const char* command, const Value& payl
     status = usk_command_execute_v1(context, &request, &response);
     return response.json_payload.data == nullptr ? std::string() :
         std::string(response.json_payload.data, response.json_payload.size);
+}
+
+bool machine_plan_matches(const fs::path& setup, const fs::path& acceptance,
+    const char* command, const Value& payload, const std::string& expected)
+{
+    usk::command::OneShotContextConfig configured{setup.u8string(), acceptance.u8string(), "operator_acceptance_candidate"};
+    const auto request = usk::json::canonical(Value(Value::Object{
+        {"schema", Value("usk.oneshot_request.v1")}, {"request_id", Value("machine.maintenance.plan")},
+        {"command", Value(command)}, {"payload", payload}, {"dry_run", Value(true)}}));
+    const auto result = usk::command::run_one_shot(request, &configured);
+    const auto reply = usk::json::parse(result.document);
+    if (result.exit_code != 0 || reply.at("status").as_string() != "ok" ||
+        usk::json::canonical(reply.at("result")) != usk::json::canonical(usk::json::parse(expected))) {
+        std::cerr << command << " actual machine preview differs: " << result.document << '\n';
+        return false;
+    }
+    return true;
 }
 
 std::string execute_with_fault(
@@ -703,6 +898,12 @@ int main()
     std::error_code error;
     fs::create_directories(root, error);
     if (error) return 1;
+    try {
+        repair_source_admission_proof(root);
+    } catch (const std::exception& failure) {
+        std::cerr << "repair source admission: " << failure.what() << '\n';
+        return 225;
+    }
     write_zip(archive);
 
     usk_context* unavailable = nullptr;
@@ -788,6 +989,7 @@ int main()
         }
         const std::string deflate_repair_digest =
             usk::json::parse(response).at("payload").at("plan_digest").as_string();
+        if (!machine_plan_matches(deflate_setup_root, root, "repair.plan", deflate_repair_plan, response)) return 219;
         const Value deflate_repair_apply = apply_request(
             "usk.repair_apply_request.v1",
             deflate_repair_plan,
@@ -1052,6 +1254,7 @@ int main()
         {"plan_id", Value("plan.move.1")}, {"request_id", Value("move.request.1")},
         {"schema", Value("usk.move_plan_request.v1")}});
     response = execute(context, "move.plan", move_plan, 1, status);
+    if (!machine_plan_matches(setup_root, root, "move.plan", move_plan, response)) return 220;
     if (status != USK_STATUS_OK || fs::exists(moved)) return 15;
     const std::string move_digest = usk::json::parse(response).at("payload").at("plan_digest").as_string();
     const Value move_apply = apply_request("usk.move_apply_request.v1", move_plan,
@@ -1066,6 +1269,7 @@ int main()
         {"request_id", Value("uninstall.request.review")},
         {"schema", Value("usk.uninstall_plan_request.v1")}});
     response = execute(context, "uninstall.plan", uninstall_review, 1, status);
+    if (!machine_plan_matches(setup_root, root, "uninstall.plan", uninstall_review, response)) return 221;
     if (status != USK_STATUS_OK || response.find("operator-note.txt") == std::string::npos) return 17;
     const std::string review_digest = usk::json::parse(response).at("payload").at("plan_digest").as_string();
     const Value uninstall_refused = apply_request("usk.uninstall_apply_request.v1", uninstall_review,

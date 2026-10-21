@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: file_classification_policy_golden
+title: File Classification Policy Golden
+status: active
+description: Verify Q37 file classification policy and known AIDE file classes.
+runner: .aide/scripts/aide_lite.py eval run --task file_classification_policy_golden
+quality_dimensions:
+  - file_classification
+  - policy_anchors
+  - deterministic_output

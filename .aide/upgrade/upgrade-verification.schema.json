@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "required": [
+    "schema_version",
+    "commands",
+    "target_specific_validators",
+    "rollback_prerequisites",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "commands": {"type": "array"},
+    "target_specific_validators": {"type": "array"},
+    "rollback_prerequisites": {"type": "array"},
+    "no_apply": {"type": "boolean"}
+  }
+}

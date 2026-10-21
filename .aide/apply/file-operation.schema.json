@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE File Operation",
+  "type": "object",
+  "required": ["schema_version", "operation_id", "operation_class", "path", "intent", "destructive", "real_repo_apply_allowed", "fixture_only_allowed", "safety_gates"],
+  "properties": {
+    "schema_version": {"const": "aide.file-operation.v0"},
+    "operation_id": {"type": "string"},
+    "operation_class": {"type": "string"},
+    "path": {"type": "string"},
+    "intent": {"type": "string"},
+    "destructive": {"type": "boolean"},
+    "real_repo_apply_allowed": {"const": false},
+    "fixture_only_allowed": {"type": "boolean"},
+    "safety_gates": {"type": "array", "items": {"type": "string"}}
+  },
+  "additionalProperties": true
+}

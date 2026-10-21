@@ -1,0 +1,32 @@
+schema_version: aide.release-provenance-policy.v0
+policy_id: aide-release-provenance-v0
+status: active
+purpose: >
+  Require local release bundles to record source repository, pack, checksum,
+  and publication-boundary provenance.
+provenance_fields:
+  - source_repo
+  - source_commit
+  - source_branch
+  - dirty_state
+  - export_pack_manifest_sha256
+  - export_pack_checksums_sha256
+  - generated_at_or_source_ref
+  - generated_by
+  - artifact_hashes
+  - preview_only
+  - no_publish
+requirements:
+  preview_only: true
+  no_publish: true
+  source_commit_required: true
+  source_branch_required_when_git_available: true
+  dirty_state_recorded: true
+  artifact_hashes_required: true
+  pack_hashes_required: true
+publication_boundary:
+  may_create_tag: false
+  may_create_github_release: false
+  may_upload_assets: false
+  may_publish_packages: false
+  may_mutate_branches: false

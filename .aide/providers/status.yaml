@@ -1,0 +1,17 @@
+schema_version: aide.provider-status.v0
+status_id: q20-provider-adapter-status
+provider_adapter_contract: implemented_metadata_only
+live_provider_calls: false
+live_model_calls: false
+network_calls: false
+provider_probe_calls: false
+credentials_configured: false
+gateway_forwarding: false
+local_model_setup: false
+raw_prompt_storage: false
+raw_response_storage: false
+credential_storage_boundary: .aide.local/
+notes:
+  - Q20 validates provider metadata and no-call boundaries only.
+  - Provider credentials are not configured and must not be committed.
+  - Gateway forwarding and provider probes remain future reviewed phases.

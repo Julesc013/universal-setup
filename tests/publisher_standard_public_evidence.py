@@ -139,6 +139,11 @@ def standard_capture(capture, client, machine_sha256):
 
 
 def reader_rows(readback, capture, client, *, expected_exited=True):
+    independent = readback['independent']
+    require(independent.get('schema') != 'usk.publisher.metadata_incomplete_failed_request_diagnostic.v1' and
+        'content_read_failures' not in independent and
+        all('content_read_failure' not in row for row in independent['rows']),
+        'incomplete failed-request diagnostics cannot supply qualified or complete-backup rows')
     require(readback['observer_task_removed'] is True and readback['independent']['identity'] == 'S-1-5-18' and
         readback['independent']['observer_token_handles_closed'] is True, 'standard native reader closure differs')
     tokens = readback['independent']['effective_right_tokens']
@@ -173,6 +178,8 @@ def _reconcile_contention(observation, client, *, active_holder):
     record = observation.get('active_install_contention' if active_holder else 'registered_contention')
     if record is None:
         return None
+    ownership_bound = active_holder and record.get('schema') == 'usk.publisher_active_install_contention_probe.v3'
+    child_bound = active_holder and (ownership_bound or record.get('schema') == 'usk.publisher_active_install_contention_probe.v2')
     scope = ('active_install_holder_endpoint_before_effect_request_bytes' if active_holder else
              'registered_endpoint_before_effect_request_bytes')
     fields = {'schema', 'scope', 'profile_qualified',
@@ -180,8 +187,14 @@ def _reconcile_contention(observation, client, *, active_holder):
         'worker_stopped'}
     if active_holder:
         fields |= {'paused_worker', 'lease_before', 'installer_live_before_resume', 'worker_pause_restored'}
+        if child_bound:
+            fields |= {'live_pair_before', 'live_pair_after', 'child_observer_close_confirmed'}
+        if ownership_bound:
+            fields |= {'paused_effect_child', 'effect_child_pause_restored'}
     require(isinstance(record, dict) and record.keys() == fields and
-        record['schema'] == 'usk.publisher_registered_contention_probe.v1' and record['scope'] == scope and
+        record['schema'] == ('usk.publisher_active_install_contention_probe.v3' if ownership_bound else
+            'usk.publisher_active_install_contention_probe.v2' if child_bound else
+            'usk.publisher_registered_contention_probe.v1') and record['scope'] == scope and
         record['profile_qualified'] is False and record['worker_stopped'] is (not active_holder),
         'registered contention scope or fixture closure differs')
     for name in ('producer_sha256', 'request_sha256'):
@@ -269,8 +282,38 @@ def _reconcile_contention(observation, client, *, active_holder):
         require(roots[0] == roots[1] == roots[2] and re.fullmatch(r'[A-Z]:\\', roots[0][:3]),
             'active contention reviewed targets or drive prefix differ')
         drive = roots[0][:3]
-        coordination = lease_snapshot(before, drive, installed, volume_root_id,
-                                      allow_active=True, allow_initial_empty_state=True)
+        if ownership_bound:
+            from publisher_installation_lease_evidence import active_ownership
+            from publisher_process_pair_evidence import validate_live_process_pair
+            response = observation.get('plan_response')
+            require(isinstance(response, dict) and response.get('result', {}).get('payload') == plan,
+                    'active ownership actual planning response differs from retained plan')
+            try:
+                original_holder = validate_live_process_pair(record['live_pair_before'], native['worker_process_id'],
+                    native['worker_process_creation_time'], expected_image)
+            except (ValueError, KeyError, TypeError) as error:
+                raise StandardEvidenceError('active ownership original live child differs: ' + str(error)) from error
+            coordination = active_ownership(before, drive, installed, volume_root_id,
+                envelope, response, apply_request, client, original_holder,
+                publication_absence=record['before']['independent'].get('publication_absence'))
+            for readback in (record['before'], record['after']):
+                independent = readback['independent']
+                require('publication_absence' not in independent or isinstance(independent['publication_absence'], dict),
+                        'active ownership native absence receipt is not an actual closed record')
+            require(record['before']['independent'].get('publication_absence') ==
+                    record['after']['independent'].get('publication_absence'),
+                    'active ownership native publication absence changed during contention')
+            after_coordination = active_ownership(after, drive, installed,
+                record['after']['independent']['volume_boundary']['root']['file_id'],
+                envelope, response, apply_request, client, original_holder,
+                publication_absence=record['after']['independent'].get('publication_absence'))
+            require(coordination == after_coordination,
+                    'active ownership independently validated coordination changed during contention')
+        else:
+            require(all('publication_absence' not in record[name]['independent'] for name in ('before', 'after')),
+                    'historical active contention cannot select reserved absence')
+            coordination = lease_snapshot(before, drive, installed, volume_root_id,
+                                          allow_active=True, allow_initial_empty_state=True)
         history = coordination['history']
         require(len(history) == 1 and history[0]['status'] == 'active' and history[0]['generation'] == 1,
                 'active contention lacks the original active native generation')
@@ -281,10 +324,35 @@ def _reconcile_contention(observation, client, *, active_holder):
             isinstance(pause['process_creation_file_time'], str) and
             pause['process_creation_file_time'] == str(native['worker_process_creation_time']) and
             pause['process_id'] == native['worker_process_id'] and
-            history[0]['holder'] == {'process_id': pause['process_id'],
-                'process_creation_time': f"{native['worker_process_creation_time']:016x}"} and
             record['installer_live_before_resume'] is True and record['worker_pause_restored'] is True,
-            'active contention pause/native holder identity or restoration differs')
+            'active contention actual SCM pause/endpoint identity or restoration differs')
+        current_phases = [json.loads(row['content_json'])['schema'] for row in baseline['rows']
+                          if row['path'].endswith('\\lab-prepared-evidence.json')]
+        require(not any(phase in ('usk.publisher.lab_phase_evidence.v10', 'usk.publisher.lab_phase_evidence.v11')
+                        for phase in current_phases) or child_bound,
+                'current child installation downgraded its live-pair contention family')
+        if child_bound:
+            from publisher_process_pair_evidence import validate_live_process_pair
+            try:
+                holder = validate_live_process_pair(record['live_pair_before'], native['worker_process_id'],
+                    native['worker_process_creation_time'], expected_image)
+                after_holder = validate_live_process_pair(record['live_pair_after'], native['worker_process_id'],
+                    native['worker_process_creation_time'], expected_image)
+            except (ValueError, KeyError, TypeError) as error:
+                raise StandardEvidenceError('active contention original live child differs: ' + str(error)) from error
+            require(record['live_pair_before'] == record['live_pair_after'] and holder == after_holder and
+                record['child_observer_close_confirmed'] is True, 'active contention lost original child observer custody')
+        else:
+            holder = {'process_id': pause['process_id'], 'process_creation_time': f"{native['worker_process_creation_time']:016x}"}
+        require(history[0]['holder'] == holder, 'active contention native lease does not name its actual effect holder')
+        if ownership_bound:
+            child_pause = record['paused_effect_child']
+            require(isinstance(child_pause, dict) and child_pause.keys() == {'process_id', 'process_creation_file_time',
+                    'paused_threads', 'identity_live_while_paused'} and child_pause['identity_live_while_paused'] is True and
+                    child_pause['process_id'] == holder['process_id'] and
+                    child_pause['process_creation_file_time'] == str(int(holder['process_creation_time'], 16)) and
+                    integer(child_pause['paused_threads'], 1, 128) and record['effect_child_pause_restored'] is True,
+                    'active ownership original child suspend custody or restoration differs')
         require(record['lease_before'] == {'status': 'bindings_consistent', 'coordination': coordination,
             'profile_qualified': False, 'publication_authority_granted': False},
             'active contention recorded reconciliation differs from independent native rows')
@@ -348,13 +416,16 @@ def service_capability(native, request_id, windows_build, *, protocol="usk.publi
         native['schema'] == 'usk.publisher_service_capability_observation.v1' and native['status'] == 'observed' and
         native['request_id'] == request_id, 'service observation envelope differs')
     value = native['capability_observation']
-    require(protocol in ('usk.publisher_capability.v2', 'usk.publisher_capability.v3'), 'unknown service capability protocol')
-    scoped = protocol == 'usk.publisher_capability.v3'
+    require(protocol in ('usk.publisher_capability.v2', 'usk.publisher_capability.v3', 'usk.publisher_capability.v4', 'usk.publisher_capability.v5'), 'unknown service capability protocol')
+    scoped = protocol != 'usk.publisher_capability.v2'
+    retirement_bound = protocol == 'usk.publisher_capability.v5'
+    child_bound = retirement_bound or protocol == 'usk.publisher_capability.v4'
     if scoped:
         require(isinstance(sdk_version, str) and len(sdk_version) <= 32 and
             (not sdk_version or re.fullmatch(r'[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+', sdk_version)),
             'scoped capability compiled SDK differs')
-    qualified = scoped and windows_build == 20348 and sdk_version == '10.0.26100.0'
+    available = scoped and windows_build == 20348 and sdk_version == '10.0.26100.0'
+    qualified = available and not child_bound
 
     constants = {'schema': 'usk.publisher_capability.v2', 'request_id': request_id,
         'provider_id': 'windows_nt_x64_local_ntfs_service_sid_noreplace_v1',
@@ -369,17 +440,32 @@ def service_capability(native, request_id, windows_build, *, protocol="usk.publi
         'effects': ['service_start_may_occur', 'controller_guard_held_during_observation']}
 
     if scoped:
-        constants.update(schema=protocol, availability=qualified,
+        constants.update(schema=protocol, availability=available,
             qualification='qualified_for_scope' if qualified else 'incomplete',
-            support='supported_for_scope' if qualified else 'unsupported',
-            qualification_scope='registered_public_apply_v9_process_restart_replay_verify',
-            recovery_ceiling='source_free_process_restart_v9')
+            support='candidate_for_scope' if child_bound and available else 'supported_for_scope' if qualified else 'unsupported',
+            qualification_scope='registered_public_apply_v11_owned_child_native_retirement_process_restart_replay_verify' if retirement_bound else 'registered_public_apply_v10_owned_child_process_restart_replay_verify' if child_bound else 'registered_public_apply_v9_process_restart_replay_verify',
+            recovery_ceiling='candidate_source_free_process_restart_v11' if retirement_bound else 'candidate_source_free_process_restart_v10' if child_bound else 'source_free_process_restart_v9')
         bounds = value['qualification_bounds']
-        require(isinstance(bounds, dict) and bounds == {
+        expected_bounds = {
             'phase_schema': 'usk.publisher.lab_phase_evidence.v9',
             'execution_schema': 'usk.publisher_execution_observation.v6',
-            'sdk_version': '10.0.26100.0', 'qualified_windows_build': 20348} and
-            integer(bounds['qualified_windows_build'], 20348, 20348), 'scoped qualification bounds differ')
+            'sdk_version': '10.0.26100.0', 'qualified_windows_build': 20348}
+        if child_bound:
+            expected_bounds = {
+                'phase_schema': 'usk.publisher.lab_phase_evidence.v10',
+                'execution_schema': 'usk.publisher_execution_observation.v7',
+                'creation_schema': 'usk.publisher.creation_observation.v4',
+                'original_custody_schema': 'usk.publisher.maintenance_original_custody.v3',
+                'process_loss_schema': 'usk.publisher.production_rename_observer.v2',
+                'active_contention_schema': 'usk.publisher_active_install_contention_probe.v2',
+                'sdk_version': '10.0.26100.0', 'candidate_windows_build': 20348}
+        if retirement_bound:
+            expected_bounds.update(phase_schema='usk.publisher.lab_phase_evidence.v11', execution_schema='usk.publisher_execution_observation.v8',
+                creation_schema='usk.publisher.creation_observation.v5', worker_security_schema='usk.publisher_worker_security.v2',
+                original_custody_schema='usk.publisher.maintenance_original_custody.v4')
+        require(isinstance(bounds, dict) and bounds == expected_bounds and
+            integer(bounds['candidate_windows_build' if child_bound else 'qualified_windows_build'], 20348, 20348),
+            'scoped qualification bounds differ')
     require(isinstance(value, dict) and value.keys() == constants.keys() | {'platform', 'binding'} |
         ({'qualification_bounds'} if scoped else set()) and
         all(type(value[key]) is type(expected) and value[key] == expected for key, expected in constants.items()),
@@ -404,6 +490,12 @@ def service_capability(native, request_id, windows_build, *, protocol="usk.publi
         all(native[key] == admitted[key] for key in ('service_name', 'service_sid', 'process_id')),
         'service capability differs from independently reconciled admission')
     return value
+
+
+def require_capability_phase(protocol, phase_schema):
+    require((protocol == 'usk.publisher_capability.v5') == (phase_schema == 'usk.publisher.lab_phase_evidence.v11') and
+        (protocol == 'usk.publisher_capability.v4') == (phase_schema == 'usk.publisher.lab_phase_evidence.v10'),
+        'current capability and independently retained child phase family differ')
 
 
 def require_native_capture_set(native_captures, captures, commands, *, allow_legacy_missing=False):
@@ -468,7 +560,7 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
         re.fullmatch(r"[0-9a-f]{64}", build["publisher_project_sha256"]), "standard native build targets differ")
     captures = observation["client_captures"]
     service_protocol = observation.get('capability_protocol')
-    require(service_protocol is None or service_protocol in ('usk.publisher_capability.v2', 'usk.publisher_capability.v3'),
+    require(service_protocol is None or service_protocol in ('usk.publisher_capability.v2', 'usk.publisher_capability.v3', 'usk.publisher_capability.v4', 'usk.publisher_capability.v5'),
         'standard capability protocol is unknown')
     mediated = service_protocol is not None
     commands = ["publisher.inspect"] + (["publisher.observe"] if mediated else []) + [
@@ -531,16 +623,17 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
             report.get("creation_observation", {}).get("worker_security_checked") is True and
             report["profile_qualified"] is False, "standard native creation/worker bindings incomplete")
         prepared_schema = json.loads(prepared[0])['schema']
-        if prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9'):
+        require_capability_phase(service_protocol, prepared_schema)
+        if prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9', 'usk.publisher.lab_phase_evidence.v10', 'usk.publisher.lab_phase_evidence.v11'):
             require_native_capture_set(native_captures, captures, commands)
         if native_captures is not None:
-            require(prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9') and
+            require(prepared_schema in ('usk.publisher.lab_phase_evidence.v6', 'usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9', 'usk.publisher.lab_phase_evidence.v10', 'usk.publisher.lab_phase_evidence.v11') and
                 report.get('held_access_phase_count') == 5 and report.get('native_rename_calls_checked') == 1,
                 'current standard producer requires complete v6 access and actual rename bindings')
-            if prepared_schema in ('usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9'):
+            if prepared_schema in ('usk.publisher.lab_phase_evidence.v7', 'usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9', 'usk.publisher.lab_phase_evidence.v10', 'usk.publisher.lab_phase_evidence.v11'):
                 require(report.get('same_handle_objects_checked') == 35,
                     'current standard producer requires all seven same-handle security objects per phase')
-            if prepared_schema in ('usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9'):
+            if prepared_schema in ('usk.publisher.lab_phase_evidence.v8', 'usk.publisher.lab_phase_evidence.v9', 'usk.publisher.lab_phase_evidence.v10', 'usk.publisher.lab_phase_evidence.v11'):
                 from publisher_authenticated_access_evidence import reconcile_client_capture, reconcile_registered_operation
                 require(report.get('authenticated_access_objects_checked') == 35,
                         'current standard producer requires authenticated access for every held phase role')
@@ -568,6 +661,13 @@ def reconcile(receipt, expected_head, *, allow_legacy_missing_coordination=False
                             'registered operation transaction differs from native public completion')
                 except (ValueError, KeyError, TypeError) as error:
                     raise StandardEvidenceError('registered public operation admission differs: ' + str(error)) from error
+            if prepared_schema in ('usk.publisher.lab_phase_evidence.v10', 'usk.publisher.lab_phase_evidence.v11'):
+                require(report.get('effect_worker_phase_count') == 5 and
+                    report.get('creation_observation', {}).get('schema') == ('usk.publisher_creation_reconciliation.v5' if prepared_schema == 'usk.publisher.lab_phase_evidence.v11' else 'usk.publisher_creation_reconciliation.v4') and
+                    report['creation_observation'].get('original_broker_checked') is True and
+                    report.get('descendant_access_scope') == 'fresh_descriptor_and_request_token_no_content_rehash' and
+                    report.get('authenticated_descendant_objects_checked', 0) > 0,
+                    'current child producer lacks its full original broker/creator/descendant joins')
         require(report == readback["execution_reconciliation"], "standard embedded native reconciliation differs")
         reports.append(report)
     if native_captures is not None:
@@ -642,9 +742,14 @@ def preservation_absence(independent, drive, prefix, volume_root_id):
 
 
 def _bootstrap_loss_readback(loss, observation, captures, installed, completed_readback, drive, phase):
+    prepared_rows = [row['content_json'] for row in completed_readback['independent']['rows']
+                     if row['path'] == drive + 'publication\\journal\\lab-prepared-evidence.json']
+    require(len(prepared_rows) == 1, 'bootstrap loss lacks its independently retained completed phase family')
+    child_bound = json.loads(prepared_rows[0])['schema'] in ('usk.publisher.lab_phase_evidence.v10', 'usk.publisher.lab_phase_evidence.v11')
+    version = '.v2' if child_bound else '.v1'
     require(isinstance(loss, dict) and loss.keys() == {'schema', 'client_capture', 'response', 'boundary', 'readback', 'reconciliation'} and
-        loss['schema'] == ('usk.publisher_registered_bootstrap_loss.v1' if phase == 'bootstrap' else
-            'usk.publisher_registered_bootstrap_preservation_loss.v1'), 'registered bootstrap loss is not closed')
+        loss['schema'] == ('usk.publisher_registered_bootstrap_loss' if phase == 'bootstrap' else
+            'usk.publisher_registered_bootstrap_preservation_loss') + version, 'registered bootstrap loss is not closed for its actual phase family')
     capture = loss['client_capture']
     standard_capture(capture, observation['account_sid'], observation['machine_sha256'])
     require(capture['command'] == 'install_local.apply' and capture['request_id'] not in {x['request_id'] for x in captures} and
@@ -656,7 +761,7 @@ def _bootstrap_loss_readback(loss, observation, captures, installed, completed_r
         response['status'] == 'unknown' and response['result'] is None and
         response['error'] == {'code': 'publisher_outcome_unknown'}, 'bootstrap transport loss fabricated a successful native reply')
     boundary = loss['boundary']
-    require(boundary['schema'] == 'usk.publisher.production_rename_observer.v1' and
+    require(boundary['schema'] == 'usk.publisher.production_rename_observer' + version and
         boundary['identity'] == 'S-1-5-18' and boundary['phase'] == phase and
         boundary['status'] == ('terminated_publication_bootstrap' if phase == 'bootstrap' else
             'terminated_publication_preserved') and boundary['service_name'] == observation['service'] and
@@ -667,11 +772,16 @@ def _bootstrap_loss_readback(loss, observation, captures, installed, completed_r
             'journal_after_kill', 'visible_after_kill')) and boundary['failure'] is None and
         boundary['termination']['confirmed'] is True and boundary['termination']['kill_invoked'] is True and
         integer(boundary['termination']['terminated'], 1, 1024), 'registered bootstrap native process/window proof differs')
+    if child_bound:
+        from publisher_process_pair_evidence import validate_ended_process_pair
+        holder = validate_ended_process_pair(boundary)
+    else:
+        holder = {'process_id': boundary['service_pid'], 'process_creation_time': boundary['process_creation_file_time']}
     if phase == 'bootstrap_preserved':
         from publisher_installation_lease_evidence import digest
         expected_prefix = drive + 'installation-operations\\install-' + digest(installed['install_id']) + '\\operation-' + digest(installed['transaction_id'])
         require(boundary['bootstrap_operation_prefix'] == expected_prefix and
-            boundary['single_worker_closure_confirmed'] is True and
+            (boundary['original_pair_closure_confirmed'] if child_bound else boundary['single_worker_closure_confirmed']) is True and
             boundary['termination']['method'] == 'TerminateProcess_owned_held_root' and
             integer(boundary['termination']['process_id'], 1) and
             boundary['termination']['process_id'] == boundary['service_pid'] and
@@ -692,7 +802,7 @@ def _bootstrap_loss_readback(loss, observation, captures, installed, completed_r
         preservation_absence(readback['independent'], drive, expected_prefix, volume_root_id)
     else:
         require('publication_absence' not in readback['independent'], 'ordinary bootstrap readback admitted absence mode')
-    return rows, {'process_id': boundary['service_pid'], 'process_creation_time': boundary['process_creation_file_time']}
+    return rows, holder
 
 
 def _durable_bootstrap_binding(observation, captures, installed, completed_readback, drive):

@@ -1,0 +1,168 @@
+schema_version: aide.task-classes-policy.v0
+policy_id: aide-task-classes-v0
+status: active
+purpose: >
+  Provide deterministic phrase hints for classifying raw prompts into AIDE task
+  classes. Hints are conservative and do not replace repo-state checks.
+classes:
+  audit:
+    phrases:
+      - audit
+      - check
+      - inspect
+      - report
+      - review
+      - readiness
+    examples:
+      - "audit current queue state"
+      - "check whether Q35 passed"
+  repair:
+    phrases:
+      - fix
+      - repair
+      - failing
+      - broken
+      - warning
+    examples:
+      - "repair failing test"
+  docs:
+    phrases:
+      - docs
+      - document
+      - readme
+      - reference
+      - roadmap
+    examples:
+      - "update README for intent compiler"
+  test:
+    phrases:
+      - test
+      - coverage
+      - unit
+      - unittest
+      - regression
+    examples:
+      - "add unit coverage"
+  implementation:
+    phrases:
+      - implement
+      - build
+      - add command
+      - feature
+    examples:
+      - "implement intent compile"
+  refactor:
+    phrases:
+      - move
+      - rename
+      - restructure
+      - clean up
+      - cleanup roots
+      - root layout
+    examples:
+      - "clean up the repo"
+      - "move all roots into clean layout"
+  release:
+    phrases:
+      - release
+      - publish
+      - tag
+      - ship
+    examples:
+      - "publish a release"
+  install:
+    phrases:
+      - install
+      - import pack
+      - fresh install
+    examples:
+      - "install AIDE into Dominium"
+  upgrade:
+    phrases:
+      - upgrade
+      - update target
+      - sync from pack
+    examples:
+      - "upgrade Eureka from AIDE pack"
+  rollback:
+    phrases:
+      - rollback
+      - revert install
+      - uninstall
+    examples:
+      - "rollback imported AIDE pack"
+  git:
+    phrases:
+      - merge
+      - branch
+      - push
+      - promote
+      - prune
+      - main
+      - dev
+    examples:
+      - "merge dev to main"
+  github:
+    phrases:
+      - github protection
+      - ci
+      - workflow
+      - branch protection
+      - status checks
+    examples:
+      - "add GitHub protection"
+  adapter:
+    phrases:
+      - adapter
+      - existing tool
+      - codex
+      - claude
+      - aider
+    examples:
+      - "generate existing-tool adapter"
+  context:
+    phrases:
+      - next
+      - continue
+      - latest task
+      - context
+      - packet
+    examples:
+      - "next"
+  evidence:
+    phrases:
+      - evidence
+      - validation
+      - proof
+      - review packet
+    examples:
+      - "write validation evidence"
+  unknown:
+    phrases: []
+    examples:
+      - "do it"
+precedence:
+  - release
+  - rollback
+  - upgrade
+  - install
+  - git
+  - github
+  - refactor
+  - repair
+  - implementation
+  - test
+  - docs
+  - audit
+  - adapter
+  - evidence
+  - context
+  - unknown
+provider_gateway_warning:
+  phrases:
+    - provider
+    - model
+    - gateway
+    - openai
+    - anthropic
+  effect: high risk and likely deferred unless a reviewed future phase authorizes it

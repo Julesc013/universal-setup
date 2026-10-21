@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "required": [
+    "plan_id",
+    "operations",
+    "future_removal_candidates",
+    "planned_skips",
+    "planned_preservations",
+    "blocking_issues",
+    "unknown_ownership_count",
+    "no_apply"
+  ],
+  "properties": {
+    "plan_id": {"type": "string"},
+    "operations": {"type": "array"},
+    "future_removal_candidates": {"type": "integer"},
+    "planned_skips": {"type": "integer"},
+    "planned_preservations": {"type": "integer"},
+    "blocking_issues": {"type": "array"},
+    "unknown_ownership_count": {"type": "integer"},
+    "no_apply": {"type": "boolean"}
+  }
+}
+

@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "required": [
+    "operation_id",
+    "rollback_class",
+    "target_path",
+    "previous_source_ref",
+    "current_state_ref",
+    "action",
+    "reason",
+    "preserve_target_state",
+    "overwrite_allowed",
+    "delete_allowed",
+    "managed_section_removal_allowed",
+    "apply_allowed",
+    "validation_required",
+    "rollback_hint"
+  ],
+  "properties": {
+    "operation_id": {"type": "string"},
+    "rollback_class": {"type": "string"},
+    "target_path": {"type": "string"},
+    "previous_source_ref": {"type": "string"},
+    "current_state_ref": {"type": "string"},
+    "action": {"type": "string"},
+    "reason": {"type": "string"},
+    "preserve_target_state": {"type": "boolean"},
+    "overwrite_allowed": {"type": "boolean", "default": false},
+    "delete_allowed": {"type": "boolean", "default": false},
+    "managed_section_removal_allowed": {"type": "boolean", "default": false},
+    "apply_allowed": {"type": "boolean", "default": false},
+    "validation_required": {"type": "array"},
+    "rollback_hint": {"type": "string"}
+  }
+}
+

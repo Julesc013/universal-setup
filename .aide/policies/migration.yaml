@@ -1,0 +1,42 @@
+schema_version: aide.migration-policy.v0
+policy_id: aide-migration-planning-v0
+status: active
+purpose: >
+  Define the migration stages and state vocabulary used by refactor planning,
+  install, upgrade, rollback, and future structural change ledgers.
+migration_stages:
+  - observe
+  - plan
+  - dry_run
+  - review
+  - apply_future
+  - validate_future
+  - rollback_future
+migration_states:
+  - proposed
+  - dry_run
+  - needs_review
+  - approved_future
+  - applied_future
+  - rolled_back_future
+  - rejected
+  - superseded
+compatibility_rule:
+  additive_by_default: true
+  migration_only_when_mandatory: true
+  target_specific_state_preserved: true
+  rollback_notes_required_before_apply: true
+mandatory_migration_reasons:
+  - unsafe old format
+  - unsupported schema version
+  - validation blocker
+  - ambiguous ownership
+  - source/target truth conflict
+q39_constraints:
+  mandatory_migration_in_q39: false
+  no_apply_in_q39: true
+  ledger_events_are_examples_only: true
+non_goals:
+  - no mandatory migration in Q39
+  - no live migration apply
+  - no target mutation

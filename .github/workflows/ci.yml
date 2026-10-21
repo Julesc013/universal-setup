@@ -62,23 +62,99 @@ jobs:
       - run: python -m unittest discover -s tests -v
       - run: python tools/structure_policy_check.py
       - run: python tools/adversarial_coverage_check.py
-      - run: cmake -S . -B build/smoke -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      - run: cmake -S . -B build/smoke -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DUSK_QUALIFICATION_DIAGNOSTICS=OFF
         env:
           USK_TRUSTED_HOSTED_LAB: ${{ runner.os == 'Windows' && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
       - run: cmake --build build/smoke --config Release --parallel
+      - run: ctest --test-dir build/smoke -C Release --output-on-failure --parallel 4 --label-exclude '^publisher-qualification$'
+      - run: python tools/strict_check.py
+      - name: Static analysis
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes cppcheck
+          cppcheck --project=build/smoke/compile_commands.json --inline-suppr --enable=warning,performance,portability --error-exitcode=1 --suppress=missingIncludeSystem --suppress=*:${{ github.workspace }}/external/zlib/upstream/* --suppress=throwInEntryPoint:${{ github.workspace }}/tests/native/*
+
+  # Development checkpoints require the core platform gates above. Publisher
+  # qualification remains an independently failing result and is additionally
+  # required by the main-only ruleset; no lab assertion or deadline is relaxed.
+  publisher-qualification:
+    name: publisher-qualification
+    needs: test
+    if: ${{ github.event_name == 'pull_request' && (github.event.pull_request.head.repo.full_name == github.repository || github.base_ref == 'main') }}
+    runs-on: windows-2022
+    steps:
+      - name: Require the admitted same-repository hosted lab context
+        if: github.event.pull_request.head.repo.full_name != github.repository
+        shell: pwsh
+        run: throw 'Publisher qualification requires an admitted same-repository pull request; qualification was not executed.'
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      # Build this job's actual checked-out merge source. Diagnostic binaries
+      # have their own identity; no equality with the core build is claimed.
+      - name: Qualify the named elevated controller actor before compilation
+        id: controller_actor
+        timeout-minutes: 2
+        shell: pwsh
+        run: ./tests/windows_publisher_controller_actor_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-controller-actor-qualification.json"
+      - name: Retain controller actor qualification
+        if: ${{ always() && (steps.controller_actor.outcome == 'success' || steps.controller_actor.outcome == 'failure') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-controller-actor-qualification
+          path: ${{ runner.temp }}\usk-controller-actor-qualification.json
+          if-no-files-found: error
+      - run: cmake -S . -B build/smoke -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DUSK_QUALIFICATION_DIAGNOSTICS=ON
+        env:
+          USK_TRUSTED_HOSTED_LAB: 'true'
+      - run: cmake --build build/smoke --config Release --parallel
+        id: publisher_build
+      - name: Qualify packaged machine and registered controller publisher journeys
+        id: publisher_hosted
+        run: ctest --test-dir build/smoke -C Release --output-on-failure --label-regex '^publisher-qualification$' --no-tests=error
+      - name: Retain native publisher qualification log
+        if: ${{ always() && (steps.publisher_hosted.outcome == 'success' || steps.publisher_hosted.outcome == 'failure') && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-publisher-native-qualification-log
+          path: build/smoke/Testing/Temporary/LastTest.log
+          if-no-files-found: error
+      - name: Retain packaged machine service observation
+        if: ${{ always() && (steps.publisher_hosted.outcome == 'success' || steps.publisher_hosted.outcome == 'failure') && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu006-packaged-machine-bridge
+          path: ${{ runner.temp }}\usk-wu006-packaged-machine-bridge.json
+          if-no-files-found: error
+      - name: Retain registered controller apply observation
+        if: ${{ always() && (steps.publisher_hosted.outcome == 'success' || steps.publisher_hosted.outcome == 'failure') && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu006-controller-apply-bridge
+          path: ${{ runner.temp }}\usk-wu006-controller-apply-bridge.json
+          if-no-files-found: error
+      # Each public group owns separate targets and cleanup. An earlier legacy
+      # failure must not suppress the connected public path. Its original red
+      # result remains; only a successful build admits these existing groups.
       - name: Install, reconnect, verify and recover through the ordinary publisher client
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        id: install_reconnect_verify_and_recover_through_the_ordinary_publisher_client
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-public-install-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation
       - name: Retain ordinary publisher client observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        if: ${{ always() && (steps.install_reconnect_verify_and_recover_through_the_ordinary_publisher_client.outcome == 'success' || steps.install_reconnect_verify_and_recover_through_the_ordinary_publisher_client.outcome == 'failure' || steps.install_reconnect_verify_and_recover_through_the_ordinary_publisher_client.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-public-install-probe
           path: ${{ runner.temp }}\usk-wu006-public-install-probe.json
           if-no-files-found: warn
       - name: Recover ordinary public requests after prepared and visible production loss
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        id: recover_ordinary_public_requests_after_prepared_and_visible_production_loss
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: |
           $failures=@()
@@ -89,14 +165,15 @@ jobs:
           }
           if($failures.Count){throw ($failures -join '; ')}
       - name: Retain both ordinary public production loss observations
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        if: ${{ always() && (steps.recover_ordinary_public_requests_after_prepared_and_visible_production_loss.outcome == 'success' || steps.recover_ordinary_public_requests_after_prepared_and_visible_production_loss.outcome == 'failure' || steps.recover_ordinary_public_requests_after_prepared_and_visible_production_loss.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-public-production-loss-probes
           path: ${{ runner.temp }}\usk-wu006-public-*-loss-probe.json
           if-no-files-found: error
       - name: Retain ordinary public state after payload drift and metadata collision
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        id: retain_ordinary_public_state_after_payload_drift_and_metadata_collision
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: |
           $failures=@()
@@ -107,47 +184,167 @@ jobs:
           }
           if($failures.Count){throw ($failures -join '; ')}
       - name: Retain both ordinary public refusal observations
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        if: ${{ always() && (steps.retain_ordinary_public_state_after_payload_drift_and_metadata_collision.outcome == 'success' || steps.retain_ordinary_public_state_after_payload_drift_and_metadata_collision.outcome == 'failure' || steps.retain_ordinary_public_state_after_payload_drift_and_metadata_collision.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-public-retained-refusal-probes
           path: ${{ runner.temp }}\usk-wu006-public-*-retention-probe.json
           if-no-files-found: error
       - name: Qualify standard-account public installation and source-free reentry
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        id: qualify_standard_account_public_installation_and_source_free_reentry
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-standard-public-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardActiveInstallContention -PublicStandardStalePlanQualification
       - name: Retain standard-account public observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        if: ${{ always() && (steps.qualify_standard_account_public_installation_and_source_free_reentry.outcome == 'success' || steps.qualify_standard_account_public_installation_and_source_free_reentry.outcome == 'failure' || steps.qualify_standard_account_public_installation_and_source_free_reentry.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-standard-public-probe
           path: ${{ runner.temp }}\usk-wu006-standard-public-probe.json
           if-no-files-found: warn
+      - name: Qualify fresh public C SDK installation and maintenance
+        id: sdk_lifecycle
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: pwsh
+        run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-public-sdk-lifecycle-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardMaintenanceQualification -PublicStandardSdkLifecycleQualification
+      - name: Retain public C SDK lifecycle observation
+        if: ${{ always() && (steps.sdk_lifecycle.outcome == 'success' || steps.sdk_lifecycle.outcome == 'failure' || steps.sdk_lifecycle.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu007-public-sdk-lifecycle-probe
+          path: ${{ runner.temp }}\usk-wu007-public-sdk-lifecycle-probe.json
+          if-no-files-found: error
+      # Measure the failing public SDK route separately from private recovery
+      # and the release-default SDK cohort. Retention never redeems a timeout.
+      - name: Observe public C SDK interrupted recovery CPU phases
+        id: sdk_recovery_diagnostic
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: pwsh
+        run: ./tests/windows_publisher_maintenance_thread_trace_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-public-sdk-recovery-diagnostic-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -RecoveryCpuDiagnostic -SdkRecoveryQualification
+      - name: Retain public C SDK recovery diagnostic observation
+        if: ${{ always() && (steps.sdk_recovery_diagnostic.outcome == 'success' || steps.sdk_recovery_diagnostic.outcome == 'failure' || steps.sdk_recovery_diagnostic.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu007-public-sdk-recovery-diagnostic-probe
+          path: ${{ runner.temp }}\usk-wu007-public-sdk-recovery-diagnostic-probe.json
+          if-no-files-found: error
+      - name: Retain bounded public C SDK recovery CPU diagnostic
+        if: ${{ always() && (steps.sdk_recovery_diagnostic.outcome == 'success' || steps.sdk_recovery_diagnostic.outcome == 'failure' || steps.sdk_recovery_diagnostic.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu007-public-sdk-recovery-diagnostic-trace
+          path: ${{ runner.temp }}\usk-wu007-sdk-recovery-trace\retained\*
+          if-no-files-found: error
+          retention-days: 7
+      # Each cohort creates its own owned volume, service and request. A failure
+      # in another journey must not suppress these independent observations.
+      # The actor-qualified build is required; every failure still fails this
+      # job. All original assertions, deadlines and main gates remain.
+      # Both runs use the same assertions and deadline; keep their receipts separate.
+      - name: Qualify untraced standard-account fresh repair move and uninstall
+        id: fresh_untraced
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: pwsh
+        run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-standard-maintenance-fresh-untraced-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardMaintenanceQualification
+      - name: Retain untraced fresh native maintenance observation
+        if: ${{ always() && (steps.fresh_untraced.outcome == 'success' || steps.fresh_untraced.outcome == 'failure' || steps.fresh_untraced.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu007-standard-maintenance-fresh-untraced-probe
+          path: ${{ runner.temp }}\usk-wu007-standard-maintenance-fresh-untraced-probe.json
+          if-no-files-found: error
+      - name: Observe standard-account fresh repair move and uninstall
+        id: observe_standard_account_fresh_repair_move_and_uninstall
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: pwsh
+        run: ./tests/windows_publisher_maintenance_thread_trace_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-standard-maintenance-fresh-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -FreshQualification
+      - name: Retain fresh native maintenance observation
+        if: ${{ always() && (steps.observe_standard_account_fresh_repair_move_and_uninstall.outcome == 'success' || steps.observe_standard_account_fresh_repair_move_and_uninstall.outcome == 'failure' || steps.observe_standard_account_fresh_repair_move_and_uninstall.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu007-standard-maintenance-fresh-probe
+          path: ${{ runner.temp }}\usk-wu007-standard-maintenance-fresh-probe.json
+          if-no-files-found: error
+      - name: Retain bounded fresh maintenance CPU and wait trace
+        if: ${{ always() && (steps.observe_standard_account_fresh_repair_move_and_uninstall.outcome == 'success' || steps.observe_standard_account_fresh_repair_move_and_uninstall.outcome == 'failure' || steps.observe_standard_account_fresh_repair_move_and_uninstall.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu007-standard-maintenance-fresh-trace
+          path: ${{ runner.temp }}\usk-wu007-maintenance-fresh-trace\retained\*
+          if-no-files-found: error
+          retention-days: 7
+      # Keep the same recovery assertions and deadline with and without WPR.
+      - name: Qualify untraced genuinely interrupted repair without its source archive
+        id: recovery_untraced
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: pwsh
+        run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-standard-maintenance-recovery-untraced-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardMaintenanceRecoveryQualification
+      - name: Retain untraced ended-worker source-free maintenance observation
+        if: ${{ always() && (steps.recovery_untraced.outcome == 'success' || steps.recovery_untraced.outcome == 'failure' || steps.recovery_untraced.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu007-standard-maintenance-recovery-untraced-probe
+          path: ${{ runner.temp }}\usk-wu007-standard-maintenance-recovery-untraced-probe.json
+          if-no-files-found: error
+      - name: Recover a genuinely interrupted repair without its source archive
+        id: recover_a_genuinely_interrupted_repair_without_its_source_archive
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: pwsh
+        run: ./tests/windows_publisher_maintenance_thread_trace_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-standard-maintenance-recovery-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -RecoveryCpuDiagnostic
+      - name: Retain ended-worker source-free maintenance observation
+        if: ${{ always() && (steps.recover_a_genuinely_interrupted_repair_without_its_source_archive.outcome == 'success' || steps.recover_a_genuinely_interrupted_repair_without_its_source_archive.outcome == 'failure' || steps.recover_a_genuinely_interrupted_repair_without_its_source_archive.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu007-standard-maintenance-recovery-probe
+          path: ${{ runner.temp }}\usk-wu007-standard-maintenance-recovery-probe.json
+          if-no-files-found: error
+      - name: Retain bounded ended-repair recovery CPU diagnostic
+        if: ${{ always() && (steps.recover_a_genuinely_interrupted_repair_without_its_source_archive.outcome == 'success' || steps.recover_a_genuinely_interrupted_repair_without_its_source_archive.outcome == 'failure' || steps.recover_a_genuinely_interrupted_repair_without_its_source_archive.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu007-standard-maintenance-recovery-trace
+          path: ${{ runner.temp }}\usk-wu007-maintenance-thread-trace\retained\*
+          if-no-files-found: error
+          retention-days: 7
+      - name: Observe original shared initial maintenance intent before staging
+        id: observe_original_shared_initial_maintenance_intent_before_staging
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: pwsh
+        run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-standard-maintenance-initial-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardMaintenanceInitialQualification
+      - name: Retain initial shared intent and conservative source-free refusal observation
+        if: ${{ always() && (steps.observe_original_shared_initial_maintenance_intent_before_staging.outcome == 'success' || steps.observe_original_shared_initial_maintenance_intent_before_staging.outcome == 'failure' || steps.observe_original_shared_initial_maintenance_intent_before_staging.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu007-standard-maintenance-initial-probe
+          path: ${{ runner.temp }}\usk-wu007-standard-maintenance-initial-probe.json
+          if-no-files-found: error
       - name: Qualify registered bootstrap process-loss takeover and preservation
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        id: qualify_registered_bootstrap_process_loss_takeover_and_preservation
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-standard-bootstrap-loss-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardBootstrapLoss
       - name: Retain registered standard-account bootstrap process-loss observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        if: ${{ always() && (steps.qualify_registered_bootstrap_process_loss_takeover_and_preservation.outcome == 'success' || steps.qualify_registered_bootstrap_process_loss_takeover_and_preservation.outcome == 'failure' || steps.qualify_registered_bootstrap_process_loss_takeover_and_preservation.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu007-standard-bootstrap-loss-probe
           path: ${{ runner.temp }}\usk-wu007-standard-bootstrap-loss-probe.json
           if-no-files-found: error
       - name: Qualify registered reentry after interruption of bootstrap preservation
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        id: qualify_registered_reentry_after_interruption_of_bootstrap_preservation
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-standard-preservation-loss-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardBootstrapPreservationLoss
       - name: Retain registered bootstrap preservation interruption observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        if: ${{ always() && (steps.qualify_registered_reentry_after_interruption_of_bootstrap_preservation.outcome == 'success' || steps.qualify_registered_reentry_after_interruption_of_bootstrap_preservation.outcome == 'failure' || steps.qualify_registered_reentry_after_interruption_of_bootstrap_preservation.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu007-standard-preservation-loss-probe
           path: ${{ runner.temp }}\usk-wu007-standard-preservation-loss-probe.json
           if-no-files-found: error
       - name: Qualify native recovery of constructed ordered bootstrap prefixes
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        id: qualify_native_recovery_of_constructed_ordered_bootstrap_prefixes
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: |
           $cases=@('anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')
@@ -155,18 +352,20 @@ jobs:
             ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-prefix-$case.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardBootstrapLoss -PublicStandardConstructedBootstrapPrefix $case
           }
       - name: Pack byte-preserved constructed bootstrap prefix observations
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        id: pack_byte_preserved_constructed_bootstrap_prefix_observations
+        if: ${{ always() && (steps.qualify_native_recovery_of_constructed_ordered_bootstrap_prefixes.outcome == 'success' || steps.qualify_native_recovery_of_constructed_ordered_bootstrap_prefixes.outcome == 'failure' || steps.qualify_native_recovery_of_constructed_ordered_bootstrap_prefixes.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: python -B tests/publisher_prefix_archive.py "$env:RUNNER_TEMP" "$env:RUNNER_TEMP\usk-wu007-prefix-receipts.xz"
       - name: Retain constructed bootstrap prefix native observations
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        if: ${{ always() && (steps.pack_byte_preserved_constructed_bootstrap_prefix_observations.outcome == 'success' || steps.pack_byte_preserved_constructed_bootstrap_prefix_observations.outcome == 'failure' || steps.pack_byte_preserved_constructed_bootstrap_prefix_observations.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu007-constructed-bootstrap-prefixes
           path: ${{ runner.temp }}\usk-wu007-prefix-receipts.xz
           if-no-files-found: error
       - name: Qualify recovery of constructed durable bootstrap states
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        id: qualify_recovery_of_constructed_durable_bootstrap_states
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: |
           $cases=@('move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')
@@ -175,280 +374,335 @@ jobs:
             ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-durable-$case.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardBootstrapLoss -PublicStandardBootstrapPreservationLoss:$preserved -PublicStandardConstructedBootstrapDurableState $case
           }
       - name: Pack byte-preserved durable bootstrap observations
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        id: pack_byte_preserved_durable_bootstrap_observations
+        if: ${{ always() && (steps.qualify_recovery_of_constructed_durable_bootstrap_states.outcome == 'success' || steps.qualify_recovery_of_constructed_durable_bootstrap_states.outcome == 'failure' || steps.qualify_recovery_of_constructed_durable_bootstrap_states.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: python -B tests/publisher_durable_archive.py "$env:RUNNER_TEMP" "$env:RUNNER_TEMP\usk-wu007-durable-receipts.xz"
       - name: Retain constructed durable bootstrap observations
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        if: ${{ always() && (steps.pack_byte_preserved_durable_bootstrap_observations.outcome == 'success' || steps.pack_byte_preserved_durable_bootstrap_observations.outcome == 'failure' || steps.pack_byte_preserved_durable_bootstrap_observations.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu007-constructed-bootstrap-durable-states
           path: ${{ runner.temp }}\usk-wu007-durable-receipts.xz
           if-no-files-found: error
       - name: Qualify native installation mutex through the authenticated public client
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        id: qualify_native_installation_mutex_through_the_authenticated_public_client
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-installation-guard-public-response.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardInstallationGuardConflict
       - name: Retain native installation mutex public response observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-007-')) }}
+        if: ${{ always() && (steps.qualify_native_installation_mutex_through_the_authenticated_public_client.outcome == 'success' || steps.qualify_native_installation_mutex_through_the_authenticated_public_client.outcome == 'failure' || steps.qualify_native_installation_mutex_through_the_authenticated_public_client.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu007-installation-guard-public-response
           path: ${{ runner.temp }}\usk-wu007-installation-guard-public-response.json
           if-no-files-found: error
       - name: Observe disposable Windows NTFS volume and restricted service
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: observe_disposable_windows_ntfs_volume_and_restricted_service
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-lab-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe"
       - name: Retain disposable Windows publisher lab receipt
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.observe_disposable_windows_ntfs_volume_and_restricted_service.outcome == 'success' || steps.observe_disposable_windows_ntfs_volume_and_restricted_service.outcome == 'failure' || steps.observe_disposable_windows_ntfs_volume_and_restricted_service.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-disposable-volume-probe
           path: ${{ runner.temp }}\usk-wu006-lab-probe.json
           if-no-files-found: warn
       - name: Execute reviewed selected payload and protected metadata in disposable Windows VM
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: execute_reviewed_selected_payload_and_protected_metadata_in_disposable_windows_v
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-metadata-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -InterruptAfterVisibleRecord
       - name: Retain selected publisher metadata observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.execute_reviewed_selected_payload_and_protected_metadata_in_disposable_windows_v.outcome == 'success' || steps.execute_reviewed_selected_payload_and_protected_metadata_in_disposable_windows_v.outcome == 'failure' || steps.execute_reviewed_selected_payload_and_protected_metadata_in_disposable_windows_v.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-selected-metadata-probe
           path: ${{ runner.temp }}\usk-wu006-metadata-probe.json
           if-no-files-found: warn
       - name: Recover ordinary apply renamed before visible journal, without original source
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: recover_ordinary_apply_renamed_before_visible_journal_without_original_source
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-renamed-recovery-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -InterruptAfterRename
       - name: Retain renamed source-free recovery observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.recover_ordinary_apply_renamed_before_visible_journal_without_original_source.outcome == 'success' || steps.recover_ordinary_apply_renamed_before_visible_journal_without_original_source.outcome == 'failure' || steps.recover_ordinary_apply_renamed_before_visible_journal_without_original_source.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-renamed-recovery-probe
           path: ${{ runner.temp }}\usk-wu006-renamed-recovery-probe.json
           if-no-files-found: warn
       - name: Recover prepared ordinary apply before publication without original source
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: recover_prepared_ordinary_apply_before_publication_without_original_source
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-prepared-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -InterruptBeforePublish
       - name: Retain prepared operation observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.recover_prepared_ordinary_apply_before_publication_without_original_source.outcome == 'success' || steps.recover_prepared_ordinary_apply_before_publication_without_original_source.outcome == 'failure' || steps.recover_prepared_ordinary_apply_before_publication_without_original_source.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-prepared-probe
           path: ${{ runner.temp }}\usk-wu006-prepared-probe.json
           if-no-files-found: warn
       - name: Replay an authenticated snapshot-only operation without original source
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: replay_an_authenticated_snapshot_only_operation_without_original_source
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-snapshot-client-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -InterruptAfterStage
       - name: Retain authenticated snapshot-only recovery observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.replay_an_authenticated_snapshot_only_operation_without_original_source.outcome == 'success' || steps.replay_an_authenticated_snapshot_only_operation_without_original_source.outcome == 'failure' || steps.replay_an_authenticated_snapshot_only_operation_without_original_source.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-snapshot-client-probe
           path: ${{ runner.temp }}\usk-wu006-snapshot-client-probe.json
           if-no-files-found: warn
       - name: Replay an authenticated prepared operation without original source
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: replay_an_authenticated_prepared_operation_without_original_source
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-prepared-client-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -InterruptAfterRename
       - name: Retain authenticated prepared recovery observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.replay_an_authenticated_prepared_operation_without_original_source.outcome == 'success' || steps.replay_an_authenticated_prepared_operation_without_original_source.outcome == 'failure' || steps.replay_an_authenticated_prepared_operation_without_original_source.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-prepared-client-probe
           path: ${{ runner.temp }}\usk-wu006-prepared-client-probe.json
           if-no-files-found: warn
       - name: Replay an authenticated visible-journal operation without original source
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: replay_an_authenticated_visible_journal_operation_without_original_source
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-visible-client-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -InterruptAfterVisibleRecord
       - name: Retain authenticated visible-journal recovery observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.replay_an_authenticated_visible_journal_operation_without_original_source.outcome == 'success' || steps.replay_an_authenticated_visible_journal_operation_without_original_source.outcome == 'failure' || steps.replay_an_authenticated_visible_journal_operation_without_original_source.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-visible-client-probe
           path: ${{ runner.temp }}\usk-wu006-visible-client-probe.json
           if-no-files-found: warn
       - name: Complete ordinary caller-bound apply through the shared publisher
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: complete_ordinary_caller_bound_apply_through_the_shared_publisher
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-ordinary-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -HostileRights
       - name: Install from an authenticated reviewed authored source path
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: install_from_an_authenticated_reviewed_authored_source_path
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-reviewed-source-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -ReviewedSource -InterruptAfterVisibleRecord
       - name: Retain reviewed authored-source observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.install_from_an_authenticated_reviewed_authored_source_path.outcome == 'success' || steps.install_from_an_authenticated_reviewed_authored_source_path.outcome == 'failure' || steps.install_from_an_authenticated_reviewed_authored_source_path.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-reviewed-source-probe
           path: ${{ runner.temp }}\usk-wu006-reviewed-source-probe.json
           if-no-files-found: warn
       - name: Complete a reviewed install through the registered service entry
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-014-')) }}
+        id: complete_a_reviewed_install_through_the_registered_service_entry
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && ((github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) || startsWith(github.head_ref, 'task/usk-wu-014-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-registered-service-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -PayloadBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_neutral_payload.exe" -ReviewedSource -RegisteredService -ConsumerAccess -MachineRequestClient -ReuseRegistration
       - name: Retain registered service install observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-014-')) }}
+        if: ${{ always() && (steps.complete_a_reviewed_install_through_the_registered_service_entry.outcome == 'success' || steps.complete_a_reviewed_install_through_the_registered_service_entry.outcome == 'failure' || steps.complete_a_reviewed_install_through_the_registered_service_entry.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && ((github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) || startsWith(github.head_ref, 'task/usk-wu-014-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-registered-service-probe
           path: ${{ runner.temp }}\usk-wu006-registered-service-probe.json
           if-no-files-found: warn
       - name: Exercise concurrent non-admin rights against the production service
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: exercise_concurrent_non_admin_rights_against_the_production_service
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-production-concurrent-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -ReviewedSource -RegisteredService -NonAdminClient -ProductionConcurrentRights -ProductionPostpublishRights
       - name: Retain production concurrent rights observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.exercise_concurrent_non_admin_rights_against_the_production_service.outcome == 'success' || steps.exercise_concurrent_non_admin_rights_against_the_production_service.outcome == 'failure' || steps.exercise_concurrent_non_admin_rights_against_the_production_service.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-production-concurrent-probe
           path: ${{ runner.temp }}\usk-wu006-production-concurrent-probe.json
           if-no-files-found: warn
       - name: Exclude the submitting non-admin from registered staging and publication
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: exclude_the_submitting_non_admin_from_registered_staging_and_publication
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-registered-nonadmin-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service_fault.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -ReviewedSource -RegisteredService -NonAdminClient -HostileRights
       - name: Retain registered non-admin submission observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.exclude_the_submitting_non_admin_from_registered_staging_and_publication.outcome == 'success' || steps.exclude_the_submitting_non_admin_from_registered_staging_and_publication.outcome == 'failure' || steps.exclude_the_submitting_non_admin_from_registered_staging_and_publication.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-registered-nonadmin-probe
           path: ${{ runner.temp }}\usk-wu006-registered-nonadmin-probe.json
           if-no-files-found: warn
       - name: Exclude the submitting non-admin after protected rename before the visible journal
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: exclude_the_submitting_non_admin_after_protected_rename_before_the_visible_journ
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-postrename-hostile-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service_fault.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -ReviewedSource -RegisteredService -NonAdminClient -HostilePostrename
       - name: Retain postrename hostile-rights observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.exclude_the_submitting_non_admin_after_protected_rename_before_the_visible_journ.outcome == 'success' || steps.exclude_the_submitting_non_admin_after_protected_rename_before_the_visible_journ.outcome == 'failure' || steps.exclude_the_submitting_non_admin_after_protected_rename_before_the_visible_journ.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-postrename-hostile-probe
           path: ${{ runner.temp }}\usk-wu006-postrename-hostile-probe.json
           if-no-files-found: warn
       - name: Recover an interrupted registered install without its source
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-014-')) }}
+        id: recover_an_interrupted_registered_install_without_its_source
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && ((github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) || startsWith(github.head_ref, 'task/usk-wu-014-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-registered-poststage-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service_fault.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -ReviewedSource -RegisteredService -InterruptAfterStage
       - name: Retain registered interrupted recovery observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (startsWith(github.head_ref, 'task/usk-wu-006-') || startsWith(github.head_ref, 'task/usk-wu-014-')) }}
+        if: ${{ always() && (steps.recover_an_interrupted_registered_install_without_its_source.outcome == 'success' || steps.recover_an_interrupted_registered_install_without_its_source.outcome == 'failure' || steps.recover_an_interrupted_registered_install_without_its_source.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && ((github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) || startsWith(github.head_ref, 'task/usk-wu-014-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-registered-poststage-probe
           path: ${{ runner.temp }}\usk-wu006-registered-poststage-probe.json
           if-no-files-found: warn
       - name: Classify a terminated registered poststage request as unknown and recover it
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: classify_a_terminated_registered_poststage_request_as_unknown_and_recover_it
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-registered-transport-loss-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service_fault.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -ReviewedSource -RegisteredService -InterruptAfterStage -TerminateAtPoststage
       - name: Retain registered transport-loss recovery observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.classify_a_terminated_registered_poststage_request_as_unknown_and_recover_it.outcome == 'success' || steps.classify_a_terminated_registered_poststage_request_as_unknown_and_recover_it.outcome == 'failure' || steps.classify_a_terminated_registered_poststage_request_as_unknown_and_recover_it.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-registered-transport-loss-probe
           path: ${{ runner.temp }}\usk-wu006-registered-transport-loss-probe.json
           if-no-files-found: warn
       - name: Kill the registered test service after rename and recover without source
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: kill_the_registered_test_service_after_rename_and_recover_without_source
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-registered-postrename-loss-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service_fault.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -ReviewedSource -RegisteredService -InterruptAfterRename -TerminateAtPostrename
       - name: Retain registered postrename transport-loss observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.kill_the_registered_test_service_after_rename_and_recover_without_source.outcome == 'success' || steps.kill_the_registered_test_service_after_rename_and_recover_without_source.outcome == 'failure' || steps.kill_the_registered_test_service_after_rename_and_recover_without_source.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-registered-postrename-loss-probe
           path: ${{ runner.temp }}\usk-wu006-registered-postrename-loss-probe.json
           if-no-files-found: warn
       - name: Stop the exact production service after visible rename and recover
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: stop_the_exact_production_service_after_visible_rename_and_recover
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-production-postrename-loss-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -ReviewedSource -RegisteredService -ProductionPostrenameTermination
       - name: Stop the exact production service after durable prepared intent and recover
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: stop_the_exact_production_service_after_durable_prepared_intent_and_recover
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-production-prepared-loss-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -ReviewedSource -RegisteredService -ProductionPreparedTermination
       - name: Retain exact production prepared-window observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.stop_the_exact_production_service_after_durable_prepared_intent_and_recover.outcome == 'success' || steps.stop_the_exact_production_service_after_durable_prepared_intent_and_recover.outcome == 'failure' || steps.stop_the_exact_production_service_after_durable_prepared_intent_and_recover.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-production-prepared-loss-probe
           path: ${{ runner.temp }}\usk-wu006-production-prepared-loss-probe.json
           if-no-files-found: warn
       - name: Retain exact production postrename observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.stop_the_exact_production_service_after_visible_rename_and_recover.outcome == 'success' || steps.stop_the_exact_production_service_after_visible_rename_and_recover.outcome == 'failure' || steps.stop_the_exact_production_service_after_visible_rename_and_recover.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-production-postrename-loss-probe
           path: ${{ runner.temp }}\usk-wu006-production-postrename-loss-probe.json
           if-no-files-found: warn
       - name: Refuse an unprotected reviewed-source target before any effect
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: refuse_an_unprotected_reviewed_source_target_before_any_effect
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-unprotected-root-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -ReviewedSource -ExpectUnprotectedRefusal
       - name: Retain unprotected-root refusal observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.refuse_an_unprotected_reviewed_source_target_before_any_effect.outcome == 'success' || steps.refuse_an_unprotected_reviewed_source_target_before_any_effect.outcome == 'failure' || steps.refuse_an_unprotected_reviewed_source_target_before_any_effect.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-unprotected-root-probe
           path: ${{ runner.temp }}\usk-wu006-unprotected-root-probe.json
           if-no-files-found: warn
       - name: Refuse a preexisting publication anchor without changing its bytes
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: refuse_a_preexisting_publication_anchor_without_changing_its_bytes
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-preexisting-anchor-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -ReviewedSource -RegisteredService -ExpectPreexistingAnchorRefusal
       - name: Retain preexisting-anchor refusal observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.refuse_a_preexisting_publication_anchor_without_changing_its_bytes.outcome == 'success' || steps.refuse_a_preexisting_publication_anchor_without_changing_its_bytes.outcome == 'failure' || steps.refuse_a_preexisting_publication_anchor_without_changing_its_bytes.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-preexisting-anchor-probe
           path: ${{ runner.temp }}\usk-wu006-preexisting-anchor-probe.json
           if-no-files-found: warn
       - name: Exercise non-admin consumer access and partial-grant recovery
-        if: ${{ runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        id: exercise_non_admin_consumer_access_and_partial_grant_recovery
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         shell: pwsh
         run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu006-consumer-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_service.exe" -DeviceAclBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_lab_device_acl.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicApplyBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_candidate_context_smoke.exe" -ClientBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_client.exe" -PayloadBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_neutral_payload.exe" -ConsumerAccess -InterruptDuringConsumerAccess
       - name: Retain consumer access observations
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.exercise_non_admin_consumer_access_and_partial_grant_recovery.outcome == 'success' || steps.exercise_non_admin_consumer_access_and_partial_grant_recovery.outcome == 'failure' || steps.exercise_non_admin_consumer_access_and_partial_grant_recovery.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-consumer-probe
           path: ${{ runner.temp }}/usk-wu006-consumer-probe.json
           if-no-files-found: ignore
       - name: Retain ordinary operation observation
-        if: ${{ always() && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'task/usk-wu-006-') }}
+        if: ${{ always() && (steps.complete_ordinary_caller_bound_apply_through_the_shared_publisher.outcome == 'success' || steps.complete_ordinary_caller_bound_apply_through_the_shared_publisher.outcome == 'failure' || steps.complete_ordinary_caller_bound_apply_through_the_shared_publisher.outcome == 'cancelled') && runner.os == 'Windows' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && (github.base_ref == 'main' || startsWith(github.head_ref, 'task/usk-wu-006-')) }}
         uses: actions/upload-artifact@v4
         with:
           name: usk-wu006-ordinary-probe
           path: ${{ runner.temp }}\usk-wu006-ordinary-probe.json
           if-no-files-found: warn
-      - run: ctest --test-dir build/smoke -C Release --output-on-failure --parallel 4
-      - name: Retain packaged machine service observation
-        if: ${{ always() && runner.os == 'Windows' && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: usk-wu006-packaged-machine-bridge
-          path: ${{ runner.temp }}\usk-wu006-packaged-machine-bridge.json
-          if-no-files-found: error
-      - name: Retain registered controller apply observation
-        if: ${{ always() && runner.os == 'Windows' && (github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: usk-wu006-controller-apply-bridge
-          path: ${{ runner.temp }}\usk-wu006-controller-apply-bridge.json
-          if-no-files-found: error
-      - run: python tools/strict_check.py
-      - name: Static analysis
-        if: runner.os == 'Linux'
+
+      # All original producers and collectors finish or skip before mode change.
+      # Preserve their failures; these separately owned cohorts provide independent
+      # release-default observations. Reuse libraries and rebuild only the frontends.
+      - name: Select release-default publisher frontends
+        id: release_default_build
+        if: ${{ !cancelled() && steps.publisher_build.outcome == 'success' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: pwsh
+        env:
+          USK_TRUSTED_HOSTED_LAB: 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes cppcheck
-          cppcheck --project=build/smoke/compile_commands.json --enable=warning,performance,portability --error-exitcode=1 --suppress=missingIncludeSystem --suppress=*:${{ github.workspace }}/external/zlib/upstream/* --suppress=throwInEntryPoint:${{ github.workspace }}/tests/native/*
+          cmake -S . -B build/smoke -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DUSK_QUALIFICATION_DIAGNOSTICS=OFF
+          if ($LASTEXITCODE -ne 0) { throw 'Release-default publisher configuration failed' }
+          cmake --build build/smoke --config Release --target usk_publisher_service usk_machine --parallel
+          if ($LASTEXITCODE -ne 0) { throw 'Release-default publisher frontend build failed' }
+      - name: Install verify and maintain with release-default publisher images
+        id: release_default_fresh
+        if: ${{ !cancelled() && steps.release_default_build.outcome == 'success' }}
+        shell: pwsh
+        run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-release-default-maintenance-fresh-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardMaintenanceQualification -ExpectedQualificationDiagnostics OFF
+      - name: Retain release-default fresh maintenance observation
+        if: ${{ always() && (steps.release_default_fresh.outcome == 'success' || steps.release_default_fresh.outcome == 'failure' || steps.release_default_fresh.outcome == 'cancelled') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu007-release-default-maintenance-fresh-probe
+          path: ${{ runner.temp }}\usk-wu007-release-default-maintenance-fresh-probe.json
+          if-no-files-found: error
+      - name: Recover an interrupted repair with release-default publisher images
+        id: release_default_recovery
+        if: ${{ !cancelled() && steps.release_default_build.outcome == 'success' }}
+        shell: pwsh
+        run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-release-default-maintenance-recovery-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardMaintenanceRecoveryQualification -ExpectedQualificationDiagnostics OFF
+      - name: Retain release-default source-free recovery observation
+        if: ${{ always() && (steps.release_default_recovery.outcome == 'success' || steps.release_default_recovery.outcome == 'failure' || steps.release_default_recovery.outcome == 'cancelled') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu007-release-default-maintenance-recovery-probe
+          path: ${{ runner.temp }}\usk-wu007-release-default-maintenance-recovery-probe.json
+          if-no-files-found: error
+
+      # Separate actual C ABI recovery cohort. Reuse the genuine interruption,
+      # source retirement, independent readback and unchanged 120s contract.
+      - name: Recover through public C SDK inspect plan and reviewed finalize
+        id: sdk_recovery
+        if: ${{ !cancelled() && steps.release_default_build.outcome == 'success' }}
+        shell: pwsh
+        run: ./tests/windows_publisher_lab_probe.ps1 -OutputPath "$env:RUNNER_TEMP\usk-wu007-public-sdk-recovery-probe.json" -ServiceBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service.exe" -ServiceControlBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_publisher_service_control.exe" -MachineBinary "$env:GITHUB_WORKSPACE\build\smoke\Release\usk_machine.exe" -PublicInstallation -PublicStandardClient -PublicStandardMaintenanceRecoveryQualification -PublicStandardSdkRecoveryQualification -ExpectedQualificationDiagnostics OFF
+      - name: Retain actual public C SDK recovery observation
+        if: ${{ always() && (steps.sdk_recovery.outcome == 'success' || steps.sdk_recovery.outcome == 'failure' || steps.sdk_recovery.outcome == 'cancelled') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: usk-wu007-public-sdk-recovery-probe
+          path: ${{ runner.temp }}\usk-wu007-public-sdk-recovery-probe.json
+          if-no-files-found: error
 
   windows-win32:
     name: native-windows-win32

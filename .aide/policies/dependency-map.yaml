@@ -1,0 +1,37 @@
+schema_version: aide.dependency-map-policy.v0
+policy_id: aide-dependency-map-v0
+status: active
+purpose: >
+  Build a conservative dependency map from deterministic textual scans without
+  executing files or importing code.
+scan_inputs:
+  - Python import lines
+  - Python from-import lines
+  - quoted or backticked repo path references
+  - command/config path references
+scan_rules:
+  python_import:
+    patterns:
+      - '^\\s*import\\s+([A-Za-z_][A-Za-z0-9_\\. ,]*)'
+      - '^\\s*from\\s+([A-Za-z_][A-Za-z0-9_\\.]*)\\s+import\\s+'
+    output: imports
+  path_reference:
+    minimum_segments: 2
+    accepted_separators:
+      - /
+      - "\\"
+    output: path_references
+  local_reference:
+    rule: path_reference exists in tracked file set
+  unresolved_reference:
+    rule: path_reference looks repo-local and does not exist
+exclusions:
+  - binary files
+  - .git/**
+  - .aide.local/**
+  - caches
+non_goals:
+  - no code execution
+  - no dependency installation
+  - no semantic call graph
+  - no network lookup

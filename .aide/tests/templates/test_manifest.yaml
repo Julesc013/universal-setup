@@ -1,0 +1,21 @@
+schema_version: aide.test-manifest.template.v0
+template_only: true
+repo: example-target
+tiers:
+  T0:
+    commands:
+      - py -3 .aide/scripts/aide_lite.py validate
+  T1:
+    commands:
+      - py -3 .aide/scripts/aide_lite.py test impact-plan --from HEAD~1
+  T2:
+    commands:
+      - <target component or integration command>
+  T3:
+    commands:
+      - <target full promotion suite command>
+    full_discovery: true
+notes:
+  - This is not active target truth.
+  - Preserve target-specific validators.
+

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.repair-plan.schema.v0",
+  "type": "object",
+  "required": ["schema_version", "plan_id", "generated_by", "source_commit", "target_root", "mode", "status", "diagnoses", "operations", "preserved_paths", "conflicts", "required_migrations", "verification_plan", "rollback_prerequisites", "evidence_required", "no_apply"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "plan_id": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "target_root": {"type": "string"},
+    "mode": {"type": "string"},
+    "status": {"type": "string"},
+    "diagnoses": {"type": "array"},
+    "operations": {"type": "array"},
+    "preserved_paths": {"type": "array"},
+    "conflicts": {"type": "array"},
+    "required_migrations": {"type": "array"},
+    "verification_plan": {"type": "array"},
+    "rollback_prerequisites": {"type": "array"},
+    "evidence_required": {"type": "array"},
+    "no_apply": {"const": true}
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "commands",
+    "target_specific_validators",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "commands": {"type": "array"},
+    "target_specific_validators": {"type": "array"},
+    "no_apply": {"type": "boolean"}
+  }
+}
+

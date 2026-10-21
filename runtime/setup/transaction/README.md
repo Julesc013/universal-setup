@@ -7,8 +7,15 @@ writes staged files without clobbering, verifies their stable hash closure,
 and performs a same-volume directory commit with an operating-system
 no-replace primitive.
 
-Every state transition is atomically journaled before the related visible
-effect. Recovery inspection distinguishes a retained stage, a visible target,
+Every effect has atomically journaled prior intent. Native maintenance without
+a caller fault injector publishes the complete `created -> validated -> planned
+-> staging` chain in one initial no-replace snapshot after root/plan/source
+validation and before staging creation. This is one durable boundary; the four
+logical phases do not claim four separate durable writes. Unknown persistence
+stops construction and retains material. Staging creation still has its own
+confirmed identity snapshot. Ordinary sessions and callers requesting phase
+injection keep each original before/after journal checkpoint.
+Recovery inspection distinguishes a retained stage, a visible target,
 and the crash window after rename but before the committed journal record.
 Rollback removes only recorded staged files and empty derived directories;
 unexpected content is retained and leaves the transaction recovery-required.

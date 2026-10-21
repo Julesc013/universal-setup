@@ -1,0 +1,31 @@
+{
+  "artifacts": [".aide/tests/artifacts/t0-smoke.log"],
+  "branch": "main",
+  "command": "py -3 .aide/scripts/aide_lite.py validate",
+  "commit": "example",
+  "dirty_state": false,
+  "duration_seconds": 1.25,
+  "exit_code": 0,
+  "failure_families": [],
+  "finished_at": "2026-06-01T00:00:01Z",
+  "generated_by": "aide-lite",
+  "repo": "aide",
+  "schema_version": "aide.test-summary.v0",
+  "stale_check": {
+    "expected_branch": "main",
+    "expected_commit": "example",
+    "is_stale": false
+  },
+  "started_at": "2026-06-01T00:00:00Z",
+  "status": "PASS",
+  "tier": "T0",
+  "totals": {
+    "error": 0,
+    "fail": 0,
+    "pass": 1,
+    "skipped": 0,
+    "tests": 1
+  },
+  "warnings": []
+}
+

@@ -8,7 +8,10 @@ exact `payload.zip`, and a supplied `usk_machine.exe` into either:
 - `one_file_carrier`: one deterministic `setup.carrier.zip`; no direct
   entrypoint, extraction required before using its contents.
 
-The machine host accepts a bounded read-only command subset. Its
+The machine host provides packaged byte inspection and a separate
+[native reviewed installation candidate](usk-authored-install-candidate.md).
+The latter requires an existing admitted publisher and does not qualify these
+delivery profiles as installers. Its
 `--product-info <path>/product.bundle.json` mode now opens an adjacent compiled
 bundle and prefab manifest, checks the three packaged member sizes and hashes,
 streams the stored ZIP payload through the native archive inspector, and

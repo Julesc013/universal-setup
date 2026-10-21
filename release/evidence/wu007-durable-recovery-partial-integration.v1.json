@@ -1,0 +1,169 @@
+{
+  "schema": "universal.workunit_partial_integration.v1",
+  "status": "partial",
+  "campaign": "USK-SPEC-TO-RELEASE-01",
+  "workunit": "USK-WU-007",
+  "source_commit": "c0d68f02ca750d88b9f472fc5e22989cd95d1826",
+  "source_tree": "b836676ca8f487d48063071733ca5ff5c5c8abab",
+  "pull_request": 236,
+  "merge_commit": "2e64f654b370f500ddbab45ae097df63352c3c25",
+  "successful_ci_run": 37367627561,
+  "successful_ci_attempt": 3,
+  "native_evidence_attempt": 1,
+  "native_physical_producer_job_id": 111956510223,
+  "latest_native_job_id": 111972302661,
+  "native_success_carried_forward": true,
+  "latest_job_bindings_sha256": "99befd73488f98b69303e91aa8de9552c1bdec4fb86d86bc669a45739d01df4c",
+  "native_execution_binding_sha256": "68c82c0fa00db56bbd8cfd1d17f6bc06fd9a3d9694772b934e733d682a801ad7",
+  "compiled_source_binding_sha256": "c57687f9c94b94f10e44a8ab10d75ba19ee9fa28484cf3b3a84e385ed15c39fb",
+  "agent_review_comment_id": 6003018165,
+  "reviewer_context": "/root/review_pr216",
+  "review_sha256": "9ef06007d74e366638875b62cbee5001e616279eaaf68c5938530cd4c7b6019e",
+  "qualified_scope": "Connected public install/recovery chain, genuine before-effect PlanA/commitB/applyA revision refusals, nine constructed ordered-anchor/snapshot classes and six constructed durable bootstrap states after separately observed original worker loss. Exact custody survives generation2/3 completion and source-free recovery/replay/verify. Actual native installation-mutex contention produces the authenticated source-free verification refusal with unchanged protected state, followed by normal holder release and successful verification.",
+  "reconciliation_sha256": "fd2ee2140f592523bfcdea641438158b6dc2eb2710755f2734d54cb9dd5e8657",
+  "runtime_evidence": [
+    {
+      "case": "ordinary",
+      "bytes": 1101299,
+      "sha256": "0a8e158b96ed8fc1fb88c894d5b8b3557cd218ef16f680dc4b8d008401df69d6"
+    },
+    {
+      "case": "prepublish",
+      "bytes": 1284972,
+      "sha256": "6ac562eca72ae8507aca44d6280aca394456692737426b40313c7d7592867058"
+    },
+    {
+      "case": "postrename",
+      "bytes": 1181927,
+      "sha256": "75f5954df6a7769048ebe6c6ceeca18d360e29e91694d9f2fc58961a728850d0"
+    },
+    {
+      "case": "payload_changed",
+      "bytes": 936626,
+      "sha256": "27454337fd6deaa89c533980226082161946ac95297a0a2977d86899d0cbc4d6"
+    },
+    {
+      "case": "metadata_collision",
+      "bytes": 1071502,
+      "sha256": "b9f6af122ebc9d6f827bf3d2685c04fb1636b7df6366bcfa4ca5123f6019080a"
+    },
+    {
+      "case": "standard",
+      "bytes": 2372779,
+      "sha256": "183f0fc94e2bf405072175211146f68007415ceb50244d2db55455e9bbf52364"
+    },
+    {
+      "case": "bootstrap",
+      "bytes": 2123956,
+      "sha256": "426af09a8d90fe15422a6863eed7efcfd78250066746454d7989335f27b1dfa2"
+    },
+    {
+      "case": "preservation",
+      "bytes": 2219566,
+      "sha256": "52c8e19e196ba927bc744c40bfa7d2aa9d1edd0ad13f7cea1d09357fc39db1fd"
+    },
+    {
+      "case": "prefix-anchors_1",
+      "bytes": 2207827,
+      "sha256": "ab97c9c35872a56a2cb838bb364049a663bf1570c59a50afc91bd4bdc0e751b8"
+    },
+    {
+      "case": "prefix-anchors_2",
+      "bytes": 2228439,
+      "sha256": "08a6e7ff678aec61fe103cb262faf746296d1408fcd5adbd00e4f5fa0678a02f"
+    },
+    {
+      "case": "prefix-anchors_3",
+      "bytes": 2247099,
+      "sha256": "dfbe5c08d8e80087dca6dae88f062857ed79700ef0860ac59bb951766afdcadb"
+    },
+    {
+      "case": "prefix-anchors_4",
+      "bytes": 2271589,
+      "sha256": "81a2264dc965d17e157a1172e07e50e77912d74615a304fc61e96c430abd58a2"
+    },
+    {
+      "case": "prefix-snapshot_empty",
+      "bytes": 2289839,
+      "sha256": "70319395b4628a651c13c7950252c923d38a8b0e2012e4ecf9943c375ff6c4e9"
+    },
+    {
+      "case": "prefix-snapshot_first",
+      "bytes": 2292034,
+      "sha256": "5dc9f06a9952b1d88abbe07f07fd5301cd8dd918d3b4008eb6322c2670d82ee5"
+    },
+    {
+      "case": "prefix-snapshot_middle",
+      "bytes": 2308060,
+      "sha256": "74330db623be0e87109a5d839af3794e49ea25715a43ec9cbc26ae0dd15190d9"
+    },
+    {
+      "case": "prefix-snapshot_last",
+      "bytes": 2324211,
+      "sha256": "9107b5c6ebf710678965fd86a5fc96e0d103190f593d2c6e24695a05e5783179"
+    },
+    {
+      "case": "prefix-snapshot_full",
+      "bytes": 2328123,
+      "sha256": "68ffb500bba355e1547c8284681465a9085268fde30e18e7e529f735481ae2e7"
+    },
+    {
+      "case": "durable-move_intent",
+      "bytes": 2193517,
+      "sha256": "3954ec898af291ba75bb1620373083081d653a1669c32eab14257955dca2359c"
+    },
+    {
+      "case": "durable-pending_empty",
+      "bytes": 2207828,
+      "sha256": "0e20dbd0e57aaf26605403fd96e2eb135797856062bec9b5d24c8fc840846367"
+    },
+    {
+      "case": "durable-pending_middle",
+      "bytes": 2205987,
+      "sha256": "028ffb0588cfd98e0d65361081bfc5e416060ec4918043a4b3b7d44b5de705ca"
+    },
+    {
+      "case": "durable-pending_full",
+      "bytes": 2207906,
+      "sha256": "a2f4b59d261c2be06de0791250d171c43b3a6a73eb9c801e5ef7ae21654156c5"
+    },
+    {
+      "case": "durable-publication_absent",
+      "bytes": 2171431,
+      "sha256": "6fd60c5fee77c3ae914b506b22cf768e3fdcf12a3dcbac4436836f40898f776f"
+    },
+    {
+      "case": "durable-next_reservation_absent",
+      "bytes": 2349179,
+      "sha256": "03c2165a50aee2ce1af1feeafd098bee1ae91f1a33fd885622ecbdc9b8b8ef8e"
+    },
+    {
+      "case": "installation-guard",
+      "bytes": 2271419,
+      "sha256": "59019e60fb4354f09d3197a68460048a1dc0e8277a764b016ea395a1c078051d"
+    },
+    {
+      "case": "late-machine",
+      "bytes": 933238,
+      "sha256": "6e7fa840e242466abf9a9eb0e6ab4712b3dfbd80cfcc3c6d35f94f942d137ad9"
+    },
+    {
+      "case": "late-controller",
+      "bytes": 355108,
+      "sha256": "e049e0348cbd8f47832eccb30d7413597f29715b6b57e2ddf0a2f44b4b8806dd"
+    }
+  ],
+  "native_crash_at_constructed_state_observed": false,
+  "native_uncertain_error_observed": false,
+  "power_loss_observed": false,
+  "public_wait_or_cancellation_qualified": false,
+  "live_holder_takeover_qualified": false,
+  "qualification_limit": "Exact reviewed hosted Windows target/build/profile only. Constructed states do not establish crashes at all offsets, arbitrary native errors, public install wait/cancellation, live ownership transfer, all generations or whole-WorkUnit/specification/release acceptance.",
+  "remaining": [
+    "remaining_workunit007_predicates",
+    "remaining_product_workunits"
+  ],
+  "model_profile_qualified": false,
+  "publication_authority_granted": false,
+  "accepted_predecessor_receipt": false
+}

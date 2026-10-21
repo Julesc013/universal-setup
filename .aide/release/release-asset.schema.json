@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Release Asset",
+  "type": "object",
+  "required": [
+    "asset_id",
+    "path",
+    "kind",
+    "size_bytes",
+    "sha256",
+    "source",
+    "included",
+    "reason",
+    "publish_candidate",
+    "validation_status"
+  ],
+  "properties": {
+    "asset_id": {"type": "string"},
+    "path": {"type": "string"},
+    "kind": {"type": "string"},
+    "size_bytes": {"type": "integer", "minimum": 0},
+    "sha256": {"type": "string"},
+    "source": {"type": "string"},
+    "included": {"type": "boolean"},
+    "reason": {"type": "string"},
+    "publish_candidate": {"type": "boolean"},
+    "validation_status": {"type": "string"}
+  },
+  "additionalProperties": true
+}

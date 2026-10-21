@@ -1,0 +1,16 @@
+schema_version: aide.local-config.example.v0
+purpose: Example only. Copy values manually into .aide.local/config.yaml if a future reviewed phase enables local runtime state.
+local_state_root: .aide.local/
+raw_prompt_storage_default: false
+raw_response_storage_default: false
+provider_keys:
+  storage: local_only
+  example_reference: set-provider-key-reference-outside-repo
+  committed_value_allowed: false
+caches:
+  enabled_by_default: false
+  metadata_only_in_committed_repo: true
+  semantic_cache_for_code_edits: forbidden
+notes:
+  - Do not place real provider keys in this example file.
+  - Future Gateway or Runtime work must respect .aide.local/ as the local state root.

@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.move-map.schema.v0",
+  "type": "object",
+  "required": [
+    "map_id",
+    "schema_version",
+    "generated_by",
+    "source_commit",
+    "status",
+    "source_root",
+    "target_root",
+    "source_inputs",
+    "entries",
+    "warnings",
+    "validation",
+    "rollback",
+    "no_apply"
+  ],
+  "properties": {
+    "map_id": {"type": "string"},
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "status": {"type": "string"},
+    "source_root": {"type": "string"},
+    "target_root": {"type": "string"},
+    "source_inputs": {"type": "array"},
+    "entries": {"type": "array"},
+    "warnings": {"type": "array"},
+    "validation": {"type": "array"},
+    "rollback": {"type": "array"},
+    "no_apply": {"const": true}
+  }
+}

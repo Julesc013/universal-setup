@@ -1,0 +1,28 @@
+schema_version: aide.refactor-evidence-policy.v0
+policy_id: aide-refactor-evidence-v0
+status: active
+purpose: >
+  Define evidence required for future refactor WorkUnits and Q39 dry-run
+  readiness reports.
+required_for_future_refactor_workunits:
+  - changed-files.md
+  - validation.md
+  - refactor-plan.md
+  - move-map.md
+  - salvage-map.md
+  - path-aliases.md
+  - migration-ledger.md
+  - rollback-notes.md
+  - remaining-risks.md
+required_plan_evidence_refs:
+  - .aide/repo/latest-repo-intelligence.md
+  - .aide/reports/file-quality-summary.md
+  - .aide/reports/file-quality-ledger.json
+  - .aide/policies/git-workflow.yaml
+  - .aide/policies/refactor-safety.yaml
+evidence_rules:
+  candidate_language_required: true
+  no_deletion_as_final_truth: true
+  generated_outputs_are_evidence_unless_promoted: true
+  validation_before_review_required: true
+  rollback_notes_before_apply_required: true

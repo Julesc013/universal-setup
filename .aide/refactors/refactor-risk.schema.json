@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.refactor-risk.schema.v0",
+  "type": "object",
+  "required": [
+    "risk_id",
+    "risk_class",
+    "description",
+    "affected_paths",
+    "mitigation",
+    "requires_review"
+  ],
+  "properties": {
+    "risk_id": {"type": "string"},
+    "risk_class": {"type": "string"},
+    "description": {"type": "string"},
+    "affected_paths": {"type": "array"},
+    "mitigation": {"type": "string"},
+    "requires_review": {"type": "boolean"}
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE GitHub Release Upload Plan",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "draft_ref",
+    "assets",
+    "upload_steps_preview",
+    "blocked_actions",
+    "prerequisites",
+    "no_upload"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "draft_ref": {"type": "string"},
+    "assets": {"type": "array", "items": {"type": "object"}},
+    "upload_steps_preview": {"type": "array", "items": {"type": "string"}},
+    "blocked_actions": {"type": "array", "items": {"type": "string"}},
+    "prerequisites": {"type": "array", "items": {"type": "string"}},
+    "no_upload": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

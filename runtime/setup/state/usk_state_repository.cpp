@@ -323,6 +323,23 @@ usk::state::InstalledState parse_installed(const Value& value)
 
 namespace usk::state {
 
+InstalledState decode_installed_record(const std::string& text)
+{
+    if (text.size() > 4u * 1024u * 1024u)
+        throw std::runtime_error("installed-state record exceeds its byte bound");
+    const Value document = json::parse(text);
+    const std::string canonical = json::canonical(document);
+    if (canonical + "\n" != text && canonical + "\r\n" != text)
+        throw std::runtime_error("installed-state record is not canonical");
+    return parse_installed(document);
+}
+
+std::string serialize_installed_state(const InstalledState& state)
+{
+    validate_installed(state);
+    return json::canonical(installed_document(state)) + "\n";
+}
+
 StateRepository::StateRepository(fs::path state_root) : root_(fs::absolute(std::move(state_root)).lexically_normal())
 {
     record_io::require_safe_directory(root_);
@@ -346,13 +363,13 @@ OwnershipManifest StateRepository::write_ownership(OwnershipManifest manifest) c
     return manifest;
 }
 
-OwnershipManifest StateRepository::read_ownership(const std::string& manifest_id) const
+OwnershipManifest decode_ownership_record(std::string text, const std::string& manifest_id)
 {
     if (!record_io::valid_identifier(manifest_id)) throw std::runtime_error("ownership lookup id is invalid");
+    if (text.size() > 16u * 1024u * 1024u)
+        throw std::runtime_error("ownership record exceeds its byte bound");
     OwnershipManifest result;
     {
-        const std::string text = record_io::read_stable_text(root_ / "ownership" / (manifest_id + ".json"),
-                                                             16u * 1024u * 1024u);
         const Value document = json::parse(text);
         const std::string canonical = json::canonical(document);
         if (canonical + "\n" != text && canonical + "\r\n" != text) {
@@ -360,6 +377,7 @@ OwnershipManifest StateRepository::read_ownership(const std::string& manifest_id
         }
         result = parse_ownership(document);
     }
+    std::string{}.swap(text);
     // Release the input text and parsed tree before checking the digest over
     // the validated, sorted manifest representation.
     if (!sha256(result.manifest_digest) ||
@@ -370,6 +388,13 @@ OwnershipManifest StateRepository::read_ownership(const std::string& manifest_id
         throw std::runtime_error("ownership lookup identity mismatch");
     }
     return result;
+}
+
+OwnershipManifest StateRepository::read_ownership(const std::string& manifest_id) const
+{
+    if (!record_io::valid_identifier(manifest_id)) throw std::runtime_error("ownership lookup id is invalid");
+    return decode_ownership_record(record_io::read_stable_text(
+        root_ / "ownership" / (manifest_id + ".json"), 16u * 1024u * 1024u), manifest_id);
 }
 
 void StateRepository::write_installed(const InstalledState& state) const
@@ -385,7 +410,7 @@ void StateRepository::write_installed(const InstalledState& state) const
     }
     record_io::write_new_durable_text(
         root_ / "installed" / (state.install_id + "." + state.transaction_id + ".json"),
-        json::canonical(installed_document(state)) + "\n");
+        serialize_installed_state(state));
 }
 
 InstalledState StateRepository::read_installed(const std::string& install_id) const
@@ -401,12 +426,7 @@ InstalledState StateRepository::read_installed(const std::string& install_id) co
             throw std::runtime_error("installed-state repository contains an unsafe entry");
         }
         const std::string text = record_io::read_stable_text(entry.path(), 4u * 1024u * 1024u);
-        const Value document = json::parse(text);
-        const std::string canonical = json::canonical(document);
-        if (canonical + "\n" != text && canonical + "\r\n" != text) {
-            throw std::runtime_error("installed-state record is not canonical");
-        }
-        InstalledState candidate = parse_installed(document);
+        InstalledState candidate = decode_installed_record(text);
         const std::string expected = candidate.install_id + "." + candidate.transaction_id + ".json";
         const std::string legacy = candidate.install_id + ".json";
         if (name != expected && name != legacy) {
@@ -438,12 +458,7 @@ InstalledState StateRepository::read_installed_snapshot(
     }
     const fs::path path = root_ / "installed" / (install_id + "." + transaction_id + ".json");
     const std::string text = record_io::read_stable_text(path, 4u * 1024u * 1024u);
-    const Value document = json::parse(text);
-    const std::string canonical = json::canonical(document);
-    if (canonical + "\n" != text && canonical + "\r\n" != text) {
-        throw std::runtime_error("installed-state snapshot is not canonical");
-    }
-    InstalledState result = parse_installed(document);
+    InstalledState result = decode_installed_record(text);
     if (result.install_id != install_id || result.transaction_id != transaction_id) {
         throw std::runtime_error("installed-state snapshot lookup identity mismatch");
     }

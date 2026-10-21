@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.refactor-plan.schema.v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "plan_id",
+    "generated_by",
+    "source_commit",
+    "status",
+    "purpose",
+    "task_class",
+    "risk_class",
+    "operating_mode",
+    "source_inputs",
+    "operations",
+    "validation_plan",
+    "evidence_required",
+    "rollback_notes",
+    "blocked_reasons",
+    "non_goals",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"const": "aide.refactor-plan.v0"},
+    "plan_id": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "status": {"type": "string"},
+    "purpose": {"type": "string"},
+    "task_class": {"type": "string"},
+    "risk_class": {"type": "string"},
+    "operating_mode": {"type": "object"},
+    "source_inputs": {"type": "array"},
+    "operations": {"type": "array"},
+    "validation_plan": {"type": "array"},
+    "evidence_required": {"type": "array"},
+    "rollback_notes": {"type": "object"},
+    "blocked_reasons": {"type": "array"},
+    "non_goals": {"type": "array"},
+    "no_apply": {"const": true}
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aide.ledgers.checkpoint-ledger.v0",
+  "title": "AIDE Checkpoint Ledger",
+  "type": "object",
+  "required": ["schema_version", "ledger_id", "append_only", "records"],
+  "properties": {
+    "schema_version": { "type": "string", "const": "aide.checkpoint-ledger.v0" },
+    "ledger_id": { "type": "string" },
+    "append_only": { "type": "boolean", "const": true },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["record_id", "checkpoint_id", "wave_id", "promotion_decision", "promotion_status", "evidence_refs", "recorded_at", "example"],
+        "properties": {
+          "record_id": { "type": "string" },
+          "checkpoint_id": { "type": "string" },
+          "wave_id": { "type": "string" },
+          "promotion_decision": { "type": "string" },
+          "promotion_status": { "type": "string" },
+          "evidence_refs": { "type": "array", "items": { "type": "string" } },
+          "recorded_at": { "type": "string" },
+          "example": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

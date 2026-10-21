@@ -1,0 +1,9 @@
+schema_version: aide.golden-task.v0
+id: install_preserves_target_state_golden
+title: Install Preserves Target State Golden
+status: active
+runner: aide_lite
+command: eval run --task install_preserves_target_state_golden
+expected_result: PASS
+no_model_calls: true
+network_calls: false

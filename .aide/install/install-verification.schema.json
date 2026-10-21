@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.install-verification.schema.v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "source_commit",
+    "commands",
+    "target_specific_validators",
+    "secret_scan_required",
+    "local_state_check_required",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "commands": {"type": "array"},
+    "target_specific_validators": {"type": "array"},
+    "secret_scan_required": {"type": "boolean"},
+    "local_state_check_required": {"type": "boolean"},
+    "no_apply": {"const": true}
+  }
+}

@@ -1,0 +1,37 @@
+schema_version: aide.test-map-policy.v0
+policy_id: aide-test-map-v0
+status: active
+purpose: >
+  Build a conservative map from deterministic test file names and paths to
+  likely covered code, policy, or command surfaces.
+test_file_rules:
+  - tests/**
+  - test/**
+  - core/*/tests/**
+  - .aide/scripts/tests/**
+  - "**/test_*.py"
+  - "**/*_test.py"
+target_rules:
+  filename_prefix:
+    pattern: test_<module>.py
+    target_candidates:
+      - <same-root>/<module>.py
+      - <repo-root>/<module>.py
+  filename_suffix:
+    pattern: <module>_test.py
+    target_candidates:
+      - <same-root>/<module>.py
+  aide_lite_tests:
+    pattern: .aide/scripts/tests/test_*.py
+    target_candidates:
+      - .aide/scripts/aide_lite.py
+  policy_named_tests:
+    rule: test name tokens may map to .aide/policies/<token>.yaml when present
+confidence:
+  high: exact target path exists or stable command file target exists.
+  medium: policy or module token target exists.
+  low: only broad subsystem path can be inferred.
+non_goals:
+  - no coverage percentage
+  - no test execution inside map generation
+  - no quality score

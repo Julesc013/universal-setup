@@ -1,0 +1,12 @@
+{
+  "schema_version": "aide.file-operation.v0",
+  "example": true,
+  "operation_id": "op-create-fixture-file",
+  "operation_class": "create",
+  "path": ".aide/examples/apply/fixture-root/generated/fixture-created.txt",
+  "intent": "Create a fixture-only file record for transaction planning.",
+  "destructive": false,
+  "real_repo_apply_allowed": false,
+  "fixture_only_allowed": true,
+  "safety_gates": ["repo_identity_confirmed", "preimage_hash_recorded", "postimage_hash_predicted", "rollback_record_created", "no_real_repo_apply_mode"]
+}

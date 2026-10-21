@@ -24,6 +24,7 @@ param(
     [switch]$ReuseRegistration,
     [switch]$MachineRequestClient,
     [switch]$ControllerApply,
+    [switch]$AdmittedTarget,
     [switch]$NonAdminClient,
     [switch]$ProductionConcurrentRights,
     [switch]$ProductionPostpublishRights,
@@ -35,6 +36,17 @@ param(
     [switch]$HostilePostrename
 )
 $ErrorActionPreference='Stop'
+$admittedControllerProfile=$ControllerApply -and -not ($ConsumerAccess -or $NonAdminClient -or $MachineRequestClient -or $ProductionConcurrentRights)
+$admittedPackagedProfile=$ConsumerAccess -and $MachineRequestClient -and $ProductionConcurrentRights -and -not ($ControllerApply -or $NonAdminClient)
+if($AdmittedTarget -and (-not ($admittedControllerProfile -or $admittedPackagedProfile) -or -not $RegisteredService -or
+    -not $ReviewedSource -or -not $ReuseRegistration -or
+    $InterruptDuringConsumerAccess -or $InterruptAfterVisibleRecord -or
+    $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or
+    $TerminateAtPoststage -or $TerminateAtPostrename -or $ProductionPostpublishRights -or
+    $ProductionPostrenameTermination -or $ProductionPreparedTermination -or
+    $ExpectUnprotectedRefusal -or $ExpectPreexistingAnchorRefusal -or $HostileRights -or $HostilePostrename)) {
+    throw 'Admitted target currently requires the uninterrupted registered controller profile'
+}
 . (Join-Path $PSScriptRoot 'windows_publisher_production_boundary.ps1')
 if($HostilePostrename) {
     if($HostileRights){throw 'Select one hostile-rights phase'}
@@ -49,8 +61,59 @@ function Read-BoundedDiagnostic([string]$Path,[int]$Limit) {
     try {
         $bytes=[byte[]]::new($Limit)
         $count=$stream.Read($bytes,0,$Limit)
-        return [Text.Encoding]::UTF8.GetString($bytes,0,$count)
+        # Redirection is shell-rendered text: Windows PowerShell may write a
+        # UTF16 BOM, while pwsh writes UTF8. Decode only this bounded byte prefix.
+        $buffer=[IO.MemoryStream]::new($bytes,0,$count,$false)
+        $reader=[IO.StreamReader]::new($buffer,[Text.UTF8Encoding]::new($false),$true)
+        try {return $reader.ReadToEnd()} finally {$reader.Dispose();$buffer.Dispose()}
     } finally {$stream.Dispose()}
+}
+function Invoke-ObservedPublisherControl {
+    param([ValidateSet('target_admission','installation_enrollment','service_activation',
+        'start_without_admission','start_wrong_caller','start_wrong_mode','start_changed_admission',
+        'target_admission_preopened','register_wrong_digest','start_control_lock',
+        'register_control_lock','changed_apply','start_preopened_root','recover_wrong_caller',
+        'unregister_control_lock','unregister_wrong_caller','retire_live_service',
+        'retire_wrong_digest','retire_wrong_sid','owned_live_unregister',
+        'owned_live_binary_retirement','owned_live_retirement',
+        'owned_maintenance_enrollment','owned_retirement','retire_binary')]
+        [string]$Phase,[string[]]$Arguments,[string]$DiagnosticPath='')
+    $errorPath=if($DiagnosticPath){$DiagnosticPath}else{Join-Path $root ($Phase+'-'+$id+'.stderr.txt')}
+    $attempt=[ordered]@{phase=$Phase;service=$service;native_exit_code=$null;
+        stderr_observed_bytes=$null;stderr_prefix_limit_bytes=16384;stderr_prefix=$null;
+        invocation_failure=$null;capture_failure=$null}
+    $receipt.control_attempts.Add($attempt)
+    # Clear the previous invocation's exit code before this command can run.
+    # Neither an exception nor missing diagnostics establishes a native outcome.
+    $global:LASTEXITCODE=$null
+    $priorPreference=$ErrorActionPreference;$invocationFailure=$null;$output=@()
+    try {
+        # Only native invocation uses Continue: PS5 otherwise turns expected
+        # stderr into a terminating error before its actual exit is available.
+        $ErrorActionPreference='Continue'
+        $output=@(& $ServiceControlBinary @Arguments 2>$errorPath)
+        $attempt.native_exit_code=$global:LASTEXITCODE
+    } catch {
+        $invocationFailure=$_
+        $attempt.invocation_failure=$_.Exception.Message.Substring(0,[Math]::Min(1024,$_.Exception.Message.Length))
+    } finally {
+        # Restore the caller's policy before any diagnostic cmdlet or assertion.
+        $ErrorActionPreference=$priorPreference
+        try {
+            if(Test-Path -LiteralPath $errorPath -PathType Leaf) {
+                $attempt.stderr_observed_bytes=(Get-Item -LiteralPath $errorPath).Length
+                $attempt.stderr_prefix=Read-BoundedDiagnostic $errorPath 16384
+            }
+        } catch {$attempt.capture_failure=$_.Exception.Message.Substring(0,[Math]::Min(1024,$_.Exception.Message.Length))}
+    }
+    if($invocationFailure){throw $invocationFailure}
+    if($attempt.native_exit_code -isnot [int]) {
+        throw ('Publisher control has no actual native exit: '+$Phase)
+    }
+    if($attempt.capture_failure -or $null -eq $attempt.stderr_observed_bytes) {
+        throw ('Publisher control diagnostic capture is incomplete: '+$Phase)
+    }
+    [pscustomobject]@{native_exit_code=$attempt.native_exit_code;output=$output}
 }
 if(([int][bool]$InterruptAfterVisibleRecord+[int][bool]$InterruptAfterRename+[int][bool]$InterruptBeforePublish+[int][bool]$InterruptAfterStage) -gt 1){throw 'Select one interruption window'}
 if($InterruptDuringConsumerAccess -and (-not $ConsumerAccess -or $InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage)){throw 'Consumer interruption requires its exclusive consumer profile'}
@@ -91,15 +154,31 @@ if($ControllerApply -and (-not $RegisteredService -or $MachineRequestClient -or
 if($RegisteredService -and $HostileRights -and -not $NonAdminClient) {
     throw 'Registered hostile-rights proof requires the same owned non-admin client identity'
 }
-function Read-ConcurrentAttackerDiagnostic([string]$ReceiptPath,[string]$ErrorPath) {
+function Read-ConcurrentAttackerDiagnostic([string]$ReceiptPath,[string]$ErrorPath,
+    [Collections.IDictionary]$Observation=$null) {
     if((Test-Path -LiteralPath $ReceiptPath -PathType Leaf) -and
         (Get-Item -LiteralPath $ReceiptPath).Length -le 512KB) {
         try {
             $attack=Get-Content -LiteralPath $ReceiptPath -Raw|ConvertFrom-Json
             if($attack.schema -ceq 'usk.publisher.unprivileged_access_probe.v1' -and
                 $attack.status -ceq 'failed' -and $attack.failure) {
-                return ([string]$attack.failure).Substring(0,
+                $failure=([string]$attack.failure).Substring(0,
                     [math]::Min(512,([string]$attack.failure).Length))
+                if($null -ne $Observation) {
+                    # Candidate telemetry from the bounded failed producer,
+                    # never accepted hostile-rights or native overlap evidence.
+                    $Observation['receipt_summary']=[ordered]@{
+                        status=$attack.status;failure=$failure;
+                        process_id=$attack.process_id;user_sid=$attack.user_sid;
+                        rename_race=$attack.concurrent.native_rename_overlap;
+                        observation_window=$attack.concurrent.observation_window;
+                        unmatched_rename_attempts=$attack.concurrent.unmatched_native_rename_attempts;
+                        rename_worker_cleanup_failure=$attack.concurrent.rename_worker_cleanup_failure;
+                        ready_utc=$attack.concurrent.ready_utc;
+                        started_seen_utc=$attack.concurrent.started_seen_utc;
+                        completed_seen_utc=$attack.concurrent.completed_seen_utc}
+                }
+                return $failure
             }
         } catch {}
     }
@@ -140,7 +219,7 @@ if($RegisteredService -and $HostileRights -and
 if($NonAdminClient -and (-not $RegisteredService -or $ConsumerAccess)) {
     throw 'Non-admin client requires the registered service without consumer payload rights'
 }
-$registeredMode=if($ConsumerAccess){'--grant-client-read'}elseif($NonAdminClient){'--admit-client-observer'}else{''}
+$registeredMode=if($AdmittedTarget){'--service-admitted-client'}elseif($ConsumerAccess){'--grant-client-read'}elseif($NonAdminClient){'--admit-client-observer'}else{''}
 $script:controllerPending=[bool]$ControllerApply
 $script:controllerMode='apply'
 $recover=$InterruptAfterVisibleRecord -or $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or $InterruptDuringConsumerAccess -or $ProductionPostrenameTermination -or $ProductionPreparedTermination
@@ -151,12 +230,17 @@ $recoveryDecision=if($InterruptAfterStage){'snapshot_only_completed_forward'}els
 . (Join-Path $PSScriptRoot 'windows_publisher_metadata_readback.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_owned_payload_damage.ps1')
 . (Join-Path $PSScriptRoot 'windows_publisher_owned_process.ps1')
+. (Join-Path $PSScriptRoot 'windows_publisher_controller_maintenance_probe.ps1')
 $principal=[Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hosted' -or
     -not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'Metadata execution requires the administrative disposable hosted Windows VM'
 }
 $vhd=[IO.Path]::GetFullPath($VhdPath)
+$PythonBinary=(Get-Command python -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
+if(-not [IO.Path]::IsPathRooted($PythonBinary) -or -not [IO.File]::Exists($PythonBinary)) {
+    throw 'Hosted metadata fixture Python interpreter is unavailable'
+}
 $temp=[IO.Path]::GetFullPath($env:RUNNER_TEMP)
 if(-not $vhd.StartsWith($temp+'\',[StringComparison]::OrdinalIgnoreCase) -or
     ((Get-Item -LiteralPath $vhd).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
@@ -367,6 +451,9 @@ function Complete-StageObserver($Observer) {
         throw 'SYSTEM stage observer did not produce a bounded result'
     }
     $result=Get-Content -LiteralPath $Observer.output -Raw|ConvertFrom-Json
+    # Retain the bounded, unadmitted result even when terminal/coverage checks
+    # refuse it. Only the caller's successful return promotes this observation.
+    $receipt['production_stage_observation_candidate']=$result
     $task=Get-ScheduledTask -TaskName $Observer.task -ErrorAction Stop
     if($task.State -eq 'Running'){Stop-ScheduledTask -TaskName $Observer.task -ErrorAction Stop}
     Unregister-ScheduledTask -TaskName $Observer.task -Confirm:$false -ErrorAction Stop
@@ -396,7 +483,7 @@ function Start-ProductionRenameObserver([string]$Phase='postrename') {
     Assert-OwnedVolume
     Start-OwnedProductionBoundaryObserver -Phase $Phase -Service $service -ObserverRoot $observerRoot `
         -VhdPath $vhd -VolumeRoot $VolumeRoot -DriveRoot $drive -VisibleRoot $visibleRoot `
-        -ServiceCommand $expectedRegisteredCommand -ServiceBinarySha256 $sourceServiceHash
+        -ServiceCommand $expectedRegisteredCommand -ServiceBinarySha256 $sourceServiceHash -ObserverFamily legacy_scm_v1
 }
 function Complete-ProductionRenameObserver($Observer,[string]$Phase='postrename') {
     Complete-OwnedProductionBoundaryObserver $Observer $Phase
@@ -442,7 +529,7 @@ $vmId=(Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Virtual Machine\Guest\Paramete
 if($vmId -notmatch '^[0-9a-fA-F]{8}(-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}$') { throw 'Observed hosted VM identity unavailable' }
 $id=[guid]::NewGuid().ToString('N')
 $service=$(if($RegisteredService){'USK_PUB_'}else{'USK_VM_'})+$id
-$root='C:\USK-Lab'
+$root=if($AdmittedTarget){Join-Path (Split-Path -Parent $vhd) 'controller-inputs'}else{'C:\USK-Lab'}
 if(Test-Path -LiteralPath $root){throw 'Unexpected existing hosted campaign input root'}
 New-Item -ItemType Directory -Path $root|Out-Null
 $fixture=Join-Path $root ('metadata-inputs-'+$id)
@@ -459,15 +546,28 @@ if((Split-Path -Parent $out) -ine (Split-Path -Parent $vhd) -or
     (Test-Path -LiteralPath $observerRoot)) { throw 'Owned root ACL observer output root differs' }
 New-Item -ItemType Directory -Path $observerRoot -ErrorAction Stop|Out-Null
 $runnerSid=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$observerSids=@(@('S-1-5-18',$runnerSid)|Select-Object -Unique)
+$observerDacl=($observerSids|ForEach-Object {'(A;OICI;FA;;;'+$_+')'}) -join ''
 $observerAcl=[Security.AccessControl.DirectorySecurity]::new()
 $observerAcl.SetSecurityDescriptorSddlForm('O:'+$runnerSid+'G:'+$runnerSid+
-    'D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;'+$runnerSid+')')
+    'D:P'+$observerDacl)
 Set-Acl -LiteralPath $observerRoot -AclObject $observerAcl
 $observedAcl=Get-Acl -LiteralPath $observerRoot
-$observerRules=@($observedAcl.GetAccessRules($true,$false,[Security.Principal.SecurityIdentifier]))
-if(-not $observedAcl.AreAccessRulesProtected -or $observerRules.Count -ne 2 -or
-    @($observerRules|Where-Object {$_.IdentityReference.Value -eq 'S-1-5-18'}).Count -ne 1 -or
-    @($observerRules|Where-Object {$_.IdentityReference.Value -eq $runnerSid}).Count -ne 1) {
+$observerRules=@($observedAcl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier]))
+if(-not $observedAcl.AreAccessRulesProtected -or $observerRules.Count -ne $observerSids.Count -or
+    $observedAcl.GetOwner([Security.Principal.SecurityIdentifier]).Value -cne $runnerSid -or
+    @($observerRules|Where-Object {
+        $observerSids -cnotcontains $_.IdentityReference.Value -or $_.IsInherited -or
+        $_.AccessControlType -ne [Security.AccessControl.AccessControlType]::Allow -or
+        $_.FileSystemRights -ne [Security.AccessControl.FileSystemRights]::FullControl -or
+        $_.InheritanceFlags -ne ([Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
+            [Security.AccessControl.InheritanceFlags]::ObjectInherit) -or
+        $_.PropagationFlags -ne [Security.AccessControl.PropagationFlags]::None
+    }).Count -ne 0 -or
+    @($observerSids|Where-Object {
+        $sid=$_
+        @($observerRules|Where-Object {$_.IdentityReference.Value -ceq $sid}).Count -ne 1
+    }).Count -ne 0) {
     throw 'Owned SYSTEM observer output directory has an unexpected ACL'
 }
 $receipt=[ordered]@{schema='usk.publisher.metadata_vm_probe.v1';status='not_run';vm_id=$vmId;
@@ -476,7 +576,8 @@ $receipt=[ordered]@{schema='usk.publisher.metadata_vm_probe.v1';status='not_run'
     service_sid=$null;binary_sha256=(Get-FileHash -LiteralPath $ServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant();
     machine_sha256=(Get-FileHash -LiteralPath $MachineBinary -Algorithm SHA256).Hash.ToLowerInvariant();
     archive_sha256=$null;strip_prefix='pkg';request=$null;plan=$null;native=$null;independent=$null;
-    observer_task_removed=$false;service_removed=$false;failure=$null;power_loss_test=$false}
+    observer_task_removed=$false;service_removed=$false;failure=$null;power_loss_test=$false;
+    control_attempts=[Collections.Generic.List[object]]::new()}
 $created=$false
 $registrationAttempted=$false
 $expectedRegisteredCommand=''
@@ -508,6 +609,10 @@ $concurrentCompleted=''
 $stageObserver=$null
 $postrenameObserver=$null
 $clientCleanupConfirmed=$true
+$ownedStandardLaunches=[Collections.Generic.List[object]]::new()
+$ownedStandardLaunchFailed=$false
+$ownedActorSourceRoot=$null
+$receipt['owned_standard_actor_launches']=[Collections.Generic.List[object]]::new()
 $consumerOutput=Join-Path $root 'consumer-output'
 $consumerScript=Join-Path $root 'consumer-client.ps1'
 function Read-NativeReceipt([string]$Path) {
@@ -557,12 +662,349 @@ function Read-ClientObservation($client) {
     return [pscustomobject]@{service=$parsed.result;envelope=$parsed}
 }
 function Start-RegisteredPublisher {
-    if($script:controllerPending){return}
+    param([switch]$ActivateBeforeControllerRequest)
+    if($ActivateBeforeControllerRequest -and -not ($AdmittedTarget -and $ControllerApply -and
+        $script:controllerPending -and $script:controllerMode -ceq 'verify')) {
+        throw 'Explicit activation requires the existing admitted controller verification'
+    }
+    if($script:controllerPending -and -not $ActivateBeforeControllerRequest){return}
+    if($AdmittedTarget) {
+        # Product activation keeps protected target records and native custody
+        # through its closing proof. It supplies no client-request authority.
+        $activation=Invoke-ObservedPublisherControl -Phase service_activation `
+            -Arguments @('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid,'--service-admitted-client')
+        if($activation.native_exit_code -ne 0){throw 'Owned admitted product activation did not complete'}
+        $response=($activation.output -join "`n")|ConvertFrom-Json
+        if($response.schema -cne 'usk.publisher_service_control.v1' -or
+            $response.status -cne 'start_requested' -or $response.service -cne $service) {
+            throw 'Owned admitted product activation reply differs'
+        }
+        return
+    }
     $startArgs=@('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid)
     if($registeredMode){$startArgs+=$registeredMode}
-    $started=& $ServiceControlBinary @startArgs
-    if($LASTEXITCODE -ne 0 -or ($started|ConvertFrom-Json).status -ne 'start_requested') {
+    $activation=Invoke-ObservedPublisherControl -Phase service_activation -Arguments $startArgs
+    $startText=$activation.output -join [Environment]::NewLine
+    $nativeAttempt=$receipt.control_attempts[$receipt.control_attempts.Count-1]
+    $nativeAttempt['stdout_observed_chars']=$startText.Length
+    $nativeAttempt['stdout_prefix_limit_chars']=4096
+    $nativeAttempt['stdout_prefix']=$startText.Substring(0,[Math]::Min(4096,$startText.Length))
+    if($activation.native_exit_code -ne 0 -or $startText.Length -gt 4096) {
         throw 'Product service control did not start the matching publisher'
+    }
+    $started=$startText|ConvertFrom-Json
+    if($started.schema -cne 'usk.publisher_service_control.v1' -or
+        $started.status -cne 'start_requested' -or $started.service -cne $service) {
+        throw 'Product service control did not start the matching publisher'
+    }
+}
+function Initialize-RegisteredFaultDeviceWithProduct {
+    # The registered production command waits for its authenticated request.
+    # Run the existing native admission, then stop before any client is created.
+    # No fixture-written device policy substitutes for retained original intent.
+    if(-not $registeredFaultService -or $AdmittedTarget -or $script:controllerPending) {
+        throw 'Fault device preparation requires the untouched registered legacy route'
+    }
+    $preparation=[ordered]@{schema='usk.publisher.registered_fault_device_preparation.v1';
+        status='running';client_dispatched=$false;service_process_id=$null;
+        service_creation_file_time=$null;stop_requested=$false;
+        process_exit_confirmed=$false;scm_stopped_confirmed=$false;
+        namespace_unchanged=$false;failure=$null;dispose_failure=$null}
+    $receipt['registered_fault_device_preparation']=$preparation
+    $held=$null
+    try {
+        Assert-OwnedVolume
+        $before=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+        if($before.State -cne 'Stopped' -or $before.ProcessId -ne 0 -or
+            $before.PathName -cne $expectedRegisteredCommand -or
+            (Test-Path -LiteralPath ($drive+'publication')) -or
+            (Test-Path -LiteralPath ($drive+'setup-state')) -or
+            (Test-Path -LiteralPath $nativePath)) {
+            throw 'Fault device preparation lacks an untouched stopped registration'
+        }
+        Start-RegisteredPublisher
+        $started=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+        if($started.State -cne 'Running' -or $started.ProcessId -le 0 -or
+            $started.PathName -cne $expectedRegisteredCommand) {
+            throw 'Product fault preparation did not retain its registered service'
+        }
+        $held=Get-Process -Id $started.ProcessId -ErrorAction Stop
+        $null=$held.Handle
+        $process=Get-CimInstance Win32_Process -Filter ('ProcessId='+$started.ProcessId) -ErrorAction Stop
+        if($held.Id -ne $started.ProcessId -or $process.ProcessId -ne $held.Id -or
+            $held.HasExited -or -not $process.CreationDate -or
+            $process.CommandLine -cne $expectedRegisteredCommand -or
+            -not [string]::Equals($process.ExecutablePath,$ServiceBinary,[StringComparison]::OrdinalIgnoreCase) -or
+            -not [string]::Equals($held.MainModule.FileName,$ServiceBinary,[StringComparison]::OrdinalIgnoreCase) -or
+            [Math]::Abs(($process.CreationDate.ToUniversalTime()-
+                $held.StartTime.ToUniversalTime()).Ticks) -gt 10000) {
+            throw 'Product fault preparation process identity is absent or changed'
+        }
+        $preparation.service_process_id=$started.ProcessId
+        $preparation.service_creation_file_time=$held.StartTime.ToUniversalTime().ToFileTimeUtc().ToString()
+        $bound=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+        if($bound.State -cne 'Running' -or $bound.ProcessId -ne $held.Id -or
+            $bound.PathName -cne $expectedRegisteredCommand -or $held.HasExited) {
+            throw 'Product fault preparation SCM binding changed before stop'
+        }
+        Stop-Service -Name $service -ErrorAction Stop
+        $preparation.stop_requested=$true
+        if(-not $held.WaitForExit(30000)) {
+            throw 'Product fault preparation process did not stop'
+        }
+        $preparation.process_exit_confirmed=$true
+        $stopped=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+        if($stopped.State -cne 'Stopped' -or $stopped.ProcessId -ne 0 -or
+            $stopped.PathName -cne $expectedRegisteredCommand) {
+            throw 'Product fault preparation SCM stop or command differs'
+        }
+        $preparation.scm_stopped_confirmed=$true
+        Assert-OwnedVolume
+        if((Test-Path -LiteralPath ($drive+'publication')) -or
+            (Test-Path -LiteralPath ($drive+'setup-state')) -or
+            (Test-Path -LiteralPath $nativePath)) {
+            throw 'Product fault preparation produced unexpected operation state'
+        }
+        $preparation.namespace_unchanged=$true
+        $preparation.status='admitted_stopped_without_request'
+    } catch {
+        $preparation.status='failed'
+        $preparation.failure=$_.Exception.Message.Substring(0,[Math]::Min(1024,$_.Exception.Message.Length))
+        throw
+    } finally {
+        if($held){
+            try {$held.Dispose()} catch {
+                $preparation.status='failed'
+                $preparation.dispose_failure=$_.Exception.Message.Substring(0,[Math]::Min(1024,$_.Exception.Message.Length))
+                if(-not $preparation.failure){
+                    $preparation.failure=$preparation.dispose_failure
+                    throw
+                }
+            }
+        }
+    }
+}
+function Assert-AdmittedStartRefusal([string]$Phase,[string[]]$Arguments,[string]$Diagnostic) {
+    $before=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+    if(-not $AdmittedTarget -or $before.State -cne 'Stopped' -or
+        $before.PathName -cne $expectedRegisteredCommand -or (Test-Path -LiteralPath $nativePath)) {
+        throw 'Admitted start refusal lacks its untouched stopped registration'
+    }
+    $attempt=Invoke-ObservedPublisherControl -Phase $Phase -Arguments $Arguments
+    $capture=$receipt.control_attempts[$receipt.control_attempts.Count-1]
+    $after=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+    if($attempt.native_exit_code -ne 3 -or $attempt.output.Count -ne 0 -or
+        $capture.capture_failure -or -not $capture.stderr_prefix -or
+        # Windows PowerShell renders native errors with host-width line wraps.
+        # Keep the original capture and all native/state checks; compare only
+        # the diagnostic's words across those display-only whitespace changes.
+        -not ([regex]::Replace($capture.stderr_prefix,'\s+',' ')).Contains(
+            [regex]::Replace($Diagnostic,'\s+',' ')) -or
+        $after.State -cne 'Stopped' -or $after.PathName -cne $before.PathName -or
+        $after.StartName -cne $before.StartName -or $after.ServiceType -cne $before.ServiceType -or
+        (Test-Path -LiteralPath $nativePath)) {
+        throw ('Admitted start did not refuse before activation: '+$Phase)
+    }
+}
+function Close-OwnedPreopenedRootProbe {
+    [IO.File]::WriteAllText($preopenedRelease,
+        "usk.publisher.release_preopened_root.v1`n",[Text.UTF8Encoding]::new($false))
+    if(-not $preopenedRootProcess.WaitForExit(30000)) {
+        throw 'Preopened-root attacker did not release its held handle'
+    }
+    $preopenedRootProcess.WaitForExit()
+    if($preopenedRootProcess.ExitCode -ne 0){throw 'Preopened-root attacker failed after release'}
+    $closed=Stop-OwnedPublisherProcessTree $preopenedRootProcess
+    if($closed.confirmed -ne $true){throw 'Preopened-root actor closure is unconfirmed'}
+    $preopenedRootProcess.Dispose()
+    $script:preopenedRootProcess=$null
+}
+function New-OwnedMetadataActorBody {
+    param([string]$ActorScript,[string[]]$ActorArguments,[string]$ScriptHash)
+    $quote={param([string]$value) "'"+$value.Replace("'","''")+"'"}
+    $invocation='& '+(& $quote $ActorScript)
+    foreach($argument in $ActorArguments) {
+        $invocation+=' '+$(if($argument -cmatch '^-[A-Za-z][A-Za-z0-9]*$'){$argument}else{& $quote $argument})
+    }
+    return (@('$ErrorActionPreference=''Stop''',
+        ('$env:GITHUB_ACTIONS='+(& $quote $env:GITHUB_ACTIONS)),
+        ('$env:RUNNER_ENVIRONMENT='+(& $quote $env:RUNNER_ENVIRONMENT)),
+        ('$env:RUNNER_TEMP='+(& $quote $env:RUNNER_TEMP)),
+        ('if((Get-FileHash -LiteralPath '+(& $quote $ActorScript)+' -Algorithm SHA256).Hash.ToLowerInvariant() -cne '+(& $quote $ScriptHash)+'){throw ''Owned actor script changed''}'),
+        # A child script's exit sets LASTEXITCODE but does not exit this wrapper.
+        # Reset it for actors that complete without invoking a native command.
+        '$global:LASTEXITCODE=0',
+        $invocation,
+        'exit $LASTEXITCODE') -join "`n")
+}
+function Set-OwnedMetadataServiceInputAccess {
+    $acl=Get-Acl -LiteralPath $root
+    # Registered admitted mode uses --no-receipt. Its selected sources need read
+    # access; it must not be able to alter the packaged actor code or wrappers.
+    $rights=if($AdmittedTarget -and $admittedPackagedProfile){'ReadAndExecute'}else{'Modify'}
+    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+        [Security.Principal.SecurityIdentifier]::new($sid),$rights,
+        'ContainerInherit,ObjectInherit','None','Allow'))
+    Set-Acl -LiteralPath $root -AclObject $acl
+}
+function Grant-OwnedMetadataActorParentRead {
+    param([string]$ActorSid)
+    if(-not ($AdmittedTarget -and $admittedPackagedProfile)){return}
+    # Both ancestors are inspected by the child. These noninheriting grants
+    # permit metadata checks without listing, data reads or mutation.
+    foreach($path in @((Split-Path -Parent $root),$root)) {
+        $item=Get-Item -LiteralPath $path -Force -ErrorAction Stop
+        $acl=Get-Acl -LiteralPath $path
+        if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -cnotin @('S-1-5-18','S-1-5-32-544')) {
+            throw 'Owned actor parent metadata is not controlled by the fixture'
+        }
+        $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+            [Security.Principal.SecurityIdentifier]::new($ActorSid),
+            'ReadPermissions,ReadAttributes,Traverse','None','None','Allow'))
+        Set-Acl -LiteralPath $path -AclObject $acl
+    }
+}
+function Grant-OwnedMetadataActorScriptRead {
+    param([string]$ActorSid,[string]$ActorScript,[string]$Wrapper)
+    $copiedActors=@('windows_publisher_preopened_root_probe.ps1','windows_publisher_unprivileged_probe.ps1')|
+        ForEach-Object {Join-Path $script:ownedActorSourceRoot $_}
+    if(($ActorScript -cne $consumerScript -and $ActorScript -cnotin $copiedActors) -or
+        (Split-Path -Parent $Wrapper) -cne $root -or
+        (Split-Path -Leaf $Wrapper) -cnotmatch ('^'+[regex]::Escape((Split-Path -Leaf $ActorScript))+'\.owned-[0-9a-f]{32}\.ps1$')) {
+        throw 'Owned actor read grant requires its fixed script and exact wrapper'
+    }
+    $entries=@(@{path=$ActorScript;rights='ReadAndExecute'},@{path=$Wrapper;rights='ReadAndExecute'})
+    if($ActorScript -cne $consumerScript) {
+        $entries+=@(@{path=$script:ownedActorSourceRoot;rights='ReadPermissions,ReadAttributes,Traverse'},
+            @{path=(Join-Path $script:ownedActorSourceRoot 'windows_publisher_owned_process.ps1');rights='ReadAndExecute'})
+    }
+    foreach($entry in $entries) {
+        $item=Get-Item -LiteralPath $entry.path -Force -ErrorAction Stop
+        $acl=Get-Acl -LiteralPath $entry.path
+        if(($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            $acl.GetOwner([Security.Principal.SecurityIdentifier]).Value -cnotin @('S-1-5-18','S-1-5-32-544')) {
+            throw 'Owned actor source type or owner differs before read grant'
+        }
+        $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+            [Security.Principal.SecurityIdentifier]::new($ActorSid),$entry.rights,'None','None','Allow'))
+        Set-Acl -LiteralPath $entry.path -AclObject $acl
+    }
+}
+function Start-OwnedMetadataProcess {
+    [CmdletBinding()]
+    param([string]$FilePath,[string[]]$ArgumentList,[Management.Automation.PSCredential]$Credential,
+        [switch]$PassThru,[string]$WindowStyle,[string]$WorkingDirectory,
+        [string]$RedirectStandardOutput,[string]$RedirectStandardError)
+    if(-not ($AdmittedTarget -and $admittedPackagedProfile -and $Credential)) {
+        return Microsoft.PowerShell.Management\Start-Process @PSBoundParameters
+    }
+    if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18' -or -not $PassThru) {
+        throw 'Owned standard metadata launch requires the acknowledged SYSTEM fixture'
+    }
+    $accountName=($Credential.UserName -split '\\')[-1]
+    $expectedSid=if($accountName -ceq $consumerName){$consumerSid}
+        elseif($accountName -ceq $unrelatedAccountName){$unrelatedSid}else{throw 'Owned standard actor is not registered'}
+    Initialize-PublisherMetadataNativeTypes
+    $outputFolder=if($RedirectStandardOutput){Split-Path -Parent $RedirectStandardOutput}
+        elseif($RedirectStandardError){Split-Path -Parent $RedirectStandardError}else{$consumerOutput}
+    $prefix=Join-Path $outputFolder ('owned-launch-'+[guid]::NewGuid().ToString('N'))
+    if(-not $RedirectStandardOutput){$RedirectStandardOutput=$prefix+'.stdout'}
+    if(-not $RedirectStandardError){$RedirectStandardError=$prefix+'.stderr'}
+    if($ArgumentList.Count -lt 7 -or ($ArgumentList[0..4] -join '|') -cne
+        '-NoProfile|-NonInteractive|-ExecutionPolicy|Bypass|-File') {
+        throw 'Owned standard actor requires the fixed PowerShell script invocation'
+    }
+    $actorScript=$ArgumentList[5].Trim('"')
+    $allowedScripts=@($consumerScript,(Join-Path $PSScriptRoot 'windows_publisher_preopened_root_probe.ps1'),
+        (Join-Path $PSScriptRoot 'windows_publisher_unprivileged_probe.ps1'))
+    if($actorScript -cnotin $allowedScripts){throw 'Owned standard actor script is not in the fixed profile'}
+    $actorArguments=@($ArgumentList[6..($ArgumentList.Count-1)]|ForEach-Object {$_.Trim('"')})
+    if($actorScript -cne $consumerScript){$actorArguments+=@('-OwnedHostedLabRoot',$root)}
+    if(-not $script:ownedActorSourceRoot) {
+        $sourceRoot=Join-Path $root 'owned-actor-sources'
+        if(Test-Path -LiteralPath $sourceRoot){throw 'Owned actor source directory is not fresh'}
+        New-Item -ItemType Directory -Path $sourceRoot -ErrorAction Stop|Out-Null
+        # Freeze both actor scripts and their sole helper before any actor starts.
+        # These copies inherit the protected input root, never consumer Modify.
+        foreach($name in @('windows_publisher_preopened_root_probe.ps1',
+            'windows_publisher_unprivileged_probe.ps1','windows_publisher_owned_process.ps1')) {
+            $source=Join-Path $PSScriptRoot $name;$copy=Join-Path $sourceRoot $name
+            $bytes=[IO.File]::ReadAllBytes($source)
+            $stream=[IO.File]::Open($copy,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+            try {$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+        }
+        $script:ownedActorSourceRoot=$sourceRoot
+    }
+    if($actorScript -cne $consumerScript){$actorScript=Join-Path $script:ownedActorSourceRoot (Split-Path -Leaf $actorScript)}
+    $scriptHash=(Get-FileHash -LiteralPath $actorScript -Algorithm SHA256).Hash.ToLowerInvariant()
+    # Isolated logon environments intentionally exclude arbitrary parent values.
+    # Supply only verified hosted context through this protected, fixed wrapper.
+    $wrapper=Join-Path $root ((Split-Path -Leaf $actorScript)+'.owned-'+[guid]::NewGuid().ToString('N')+'.ps1')
+    $body=New-OwnedMetadataActorBody $actorScript $actorArguments $scriptHash
+    $stream=[IO.File]::Open($wrapper,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
+    try {$bytes=[Text.UTF8Encoding]::new($false).GetBytes($body);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
+    Grant-OwnedMetadataActorScriptRead $expectedSid $actorScript $wrapper
+    $nativeArguments='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$wrapper+'"'
+    $attempt=[ordered]@{account_sid=$expectedSid;image=[IO.Path]::GetFullPath($FilePath);
+        process_id=$null;creation_file_time=$null;status='creating';primary_token=$null;launcher_token=$null;
+        stdout=$RedirectStandardOutput;stderr=$RedirectStandardError;script=$actorScript;script_sha256=$scriptHash;
+        wrapper=$wrapper;wrapper_sha256=(Get-FileHash -LiteralPath $wrapper -Algorithm SHA256).Hash.ToLowerInvariant()}
+    $receipt.owned_standard_actor_launches.Add($attempt)
+    try {
+        $launch=[UskPublisherPausedClient]::CreateOwnedStandard($FilePath,$nativeArguments,
+            $RedirectStandardOutput,$RedirectStandardError,$accountName,$Credential.Password,$expectedSid)
+        # Retain the native owner before opening or resuming the process. A failed
+        # resume/close must not permit account, service or volume retirement.
+        $script:ownedStandardLaunches.Add([pscustomobject]@{owner=$launch;receipt=$attempt})
+        $process=Get-Process -Id $launch.ProcessId -ErrorAction Stop;$null=$process.Handle
+        if($process.StartTime.ToUniversalTime().ToFileTimeUtc() -ne $launch.CreationFileTime) {
+            throw 'Owned standard actor birth identity differs'
+        }
+        $attempt.process_id=$launch.ProcessId;$attempt.creation_file_time=$launch.CreationFileTime.ToString()
+        $attempt.primary_token=$launch.OwnedStandardPrimaryFacts;$attempt.launcher_token=$launch.OwnedStandardLauncherFacts
+        $launch.Resume();$attempt.status='resumed'
+        return $process
+    } catch {
+        $script:ownedStandardLaunchFailed=$true;$script:clientCleanupConfirmed=$false
+        $attempt.status='uncertain';throw
+    }
+}
+function Assert-ChangedAdmissionStartRefusal {
+    # Mutate only this fresh fixture's owned record while SCM is stopped.
+    $admittedPath=Join-Path (Split-Path -Parent $ServiceBinary) ($service+'.target-admitted.json')
+    $admittedBytes=[IO.File]::ReadAllBytes($admittedPath)
+    $admittedSddl=(Get-Acl -LiteralPath $admittedPath).Sddl
+    $changedAdmission=[Text.Encoding]::UTF8.GetString($admittedBytes)|ConvertFrom-Json
+    $changedAdmission.identity.registration_sha256='0'*64
+    $control=[ordered]@{primary_failure=$null;restoration_status='not_attempted';restoration_failure=$null}
+    $receipt['changed_admission_start_control']=$control
+    $primaryError=$null
+    try {
+        [IO.File]::WriteAllText($admittedPath,($changedAdmission|ConvertTo-Json -Depth 32 -Compress)+"`n",
+            [Text.UTF8Encoding]::new($false))
+        Assert-AdmittedStartRefusal -Phase start_changed_admission `
+            -Arguments @('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid,'--service-admitted-client') `
+            -Diagnostic 'registered start protected admission identity differs'
+    } catch {
+        $primaryError=$_
+        $control.primary_failure=$_.Exception.Message
+    } finally {
+        try {
+            [IO.File]::WriteAllBytes($admittedPath,$admittedBytes)
+            if([Convert]::ToBase64String([IO.File]::ReadAllBytes($admittedPath)) -cne
+                [Convert]::ToBase64String($admittedBytes) -or (Get-Acl -LiteralPath $admittedPath).Sddl -cne $admittedSddl) {
+                throw 'Owned admission fixture did not restore its exact bytes and security'
+            }
+            $control.restoration_status='restored'
+        } catch {
+            $control.restoration_status='unconfirmed'
+            $control.restoration_failure=$_.Exception.Message
+        }
+    }
+    if($primaryError){throw $primaryError}
+    if($control.restoration_status -cne 'restored') {
+        throw 'Owned admission record restoration is unconfirmed; retain authority'
     }
 }
 function Start-RequestClient($submitted=$applyRequest) {
@@ -613,7 +1055,7 @@ function Start-RequestClient($submitted=$applyRequest) {
         $options['Credential']=$consumerCredential
         $options['WorkingDirectory']=$consumerOutput
     }
-    $process=Start-Process @options
+    $process=Start-OwnedMetadataProcess @options
     if($controllerRequest){$script:controllerPending=$false}
     return [pscustomobject]@{process=$process;response=$prefix+'-response.json';error=$prefix+'-error.txt';
         identity=$identityPath;binary_path=[IO.Path]::GetFullPath($requestBinary);
@@ -633,7 +1075,7 @@ function Assert-RequestClientImage($client) {
 }
 function Complete-RequestClient($client,[bool]$expectSuccess,[bool]$requireFailureResponse=$false) {
     if(-not $client.process.WaitForExit(120000)) {
-        Stop-OwnedPublisherProcessTree $client.process|Out-Null;throw 'Owned request client timed out'
+        $closed=Stop-OwnedPublisherProcessTree $client.process;if($closed.confirmed -ne $true){throw 'Owned actor closure is unconfirmed'};throw 'Owned request client timed out'
     }
     $client.process.WaitForExit()
     if(($client.process.ExitCode -eq 0) -ne $expectSuccess) {
@@ -671,12 +1113,17 @@ function Complete-RequestClient($client,[bool]$expectSuccess,[bool]$requireFailu
     return $result
 }
 try {
+    if($AdmittedTarget -and $admittedPackagedProfile -and
+        [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18') {
+        throw 'Admitted packaged fixture requires its acknowledged SYSTEM launcher'
+    }
     if($ConsumerAccess -or $NonAdminClient) {
-        $consumerName='USKUSR_'+[guid]::NewGuid().ToString('N').Substring(0,13)
+        $consumerName=$(if($AdmittedTarget -and $admittedPackagedProfile){'USKCLI_'}else{'USKUSR_'})+[guid]::NewGuid().ToString('N').Substring(0,13)
         if(Get-LocalUser -Name $consumerName -ErrorAction SilentlyContinue){throw 'Consumer account collision'}
         $secure=ConvertTo-SecureString ('Aa1!'+[guid]::NewGuid().ToString('N')) -AsPlainText -Force
         $account=New-LocalUser -Name $consumerName -Password $secure -PasswordNeverExpires
         $consumerCreated=$true;$consumerSid=$account.SID.Value
+        Grant-OwnedMetadataActorParentRead $consumerSid
         Add-LocalGroupMember -Group (Get-LocalGroup -SID 'S-1-5-32-545').Name -Member $account
         $consumerCredential=[Management.Automation.PSCredential]::new($env:COMPUTERNAME+'\'+$consumerName,$secure)
         $receipt['consumer_account_sid']=$consumerSid
@@ -855,6 +1302,12 @@ try {
     if($InterruptDuringConsumerAccess){$command+=' --interrupt-consumer-grant'}
     if($ClientBinary) {
         $callerSid=if($ConsumerAccess -or $NonAdminClient){$consumerSid}else{[Security.Principal.WindowsIdentity]::GetCurrent().User.Value}
+        if($AdmittedTarget) {
+            # Service admission binds its configured account's read projection.
+            # This controller profile does not claim a non-admin consumer actor.
+            $consumerSid=$callerSid
+            $receipt['admitted_caller_sid']=$callerSid
+        }
         $clientArguments=' --authorized-client-sid '+$callerSid
         if($ConsumerAccess){$clientArguments+=' --grant-client-read'}
         $command+=$clientArguments
@@ -867,16 +1320,16 @@ try {
         $sourceServiceHash=(Get-FileHash -LiteralPath $ServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant()
         $expectedRegisteredCommand='"'+$installedServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
             ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+
-            $(if($NonAdminClient){' --admit-client-observer'}else{''})+
+            $(if($AdmittedTarget){' --service-admitted-client'}elseif($NonAdminClient){' --admit-client-observer'}else{''})+
             ' --authorized-client-sid '+$callerSid+
-            $(if($ConsumerAccess){' --grant-client-read'}else{''})
+            $(if($ConsumerAccess -and -not $AdmittedTarget){' --grant-client-read'}else{''})
         $controlArgs=@('--register',$service,$ServiceBinary,$VolumeRoot,$envelope,
             $receipt.envelope_sha256,$callerSid,$sourceServiceHash)
         if($registeredMode){$controlArgs+=$registeredMode}
         $wrongBinaryHash=@($controlArgs)
         $wrongBinaryHash[7]='0000000000000000000000000000000000000000000000000000000000000000'
-        & $ServiceControlBinary @wrongBinaryHash 2>$null|Out-Null
-        if($LASTEXITCODE -eq 0 -or
+        $wrongBinaryAttempt=Invoke-ObservedPublisherControl -Phase register_wrong_digest -Arguments $wrongBinaryHash
+        if($wrongBinaryAttempt.native_exit_code -eq 0 -or
             (Test-Path -LiteralPath $installedServiceBinary) -or
             (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $installedServiceBinary) ($service+'.registration-intent.json'))) -or
             (Get-Service $service -ErrorAction SilentlyContinue)) {
@@ -916,6 +1369,26 @@ try {
         $receipt['interrupted_copy_reclaimed']=$true
         $ServiceBinary=$installedServiceBinary
         $receipt['protected_service_binary_sha256']=$sourceServiceHash
+        # Bind the test's pre-dispatch profile to the actual original SCM
+        # command. Missing coordination can never select a compatibility route.
+        $configuredOriginal=Get-CimInstance Win32_Service -Filter "Name='$service'" -ErrorAction Stop
+        $registeredFamily=if($AdmittedTarget){'owned_effect_child_v1'}else{'legacy_scm_v1'}
+        if($configuredOriginal.PathName -cne $expectedRegisteredCommand) {
+            throw 'Original registered execution profile command differs'
+        }
+        $registeredArgumentFamily=Resolve-OwnedProductionObserverFamily $configuredOriginal.PathName $registeredFamily 'prepublish'
+        $receipt['registered_execution_profile']=[ordered]@{
+            schema='usk.publisher_registered_execution_profile.v1'
+            family=$registeredFamily
+            explicit_admitted_target=[bool]$AdmittedTarget
+            original_operation=$(if($recover){'source_free_recovery'}else{'initial_install'})
+            native_argument_family=$registeredArgumentFamily
+            service_name=$service
+            service_command=$configuredOriginal.PathName
+            service_binary_sha256=$sourceServiceHash
+            volume_root=$VolumeRoot
+            authorized_client_sid=$callerSid
+        }
         $receipt['service_control_binary_sha256']=(Get-FileHash -LiteralPath $ServiceControlBinary -Algorithm SHA256).Hash.ToLowerInvariant()
         if($ProductionConcurrentRights) {
             if(-not $env:ProgramW6432){throw 'Protected Program Files root is unavailable'}
@@ -929,8 +1402,8 @@ try {
             try {
                 $blockedStart=@('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid)
                 if($registeredMode){$blockedStart+=$registeredMode}
-                & $ServiceControlBinary @blockedStart 2>$null|Out-Null
-                if($LASTEXITCODE -eq 0 -or (Get-Service $service).Status -ne 'Stopped') {
+                $blockedStartAttempt=Invoke-ObservedPublisherControl -Phase start_control_lock -Arguments $blockedStart
+                if($blockedStartAttempt.native_exit_code -eq 0 -or (Get-Service $service).Status -ne 'Stopped') {
                     throw 'Publisher service start bypassed held control lock'
                 }
                 $otherFirstDigit=if($VolumeRoot[11] -ceq '0'){'1'}else{'0'}
@@ -939,8 +1412,9 @@ try {
                 $crossVolumeArgs=@('--register',$service,$ServiceBinary,$otherVolume,
                     $envelope,$receipt.envelope_sha256,$callerSid,$sourceServiceHash)
                 if($registeredMode){$crossVolumeArgs+=$registeredMode}
-                & $ServiceControlBinary @crossVolumeArgs 2>$crossVolumeError|Out-Null
-                if($LASTEXITCODE -eq 0 -or
+                $crossVolumeAttempt=Invoke-ObservedPublisherControl -Phase register_control_lock `
+                    -Arguments $crossVolumeArgs -DiagnosticPath $crossVolumeError
+                if($crossVolumeAttempt.native_exit_code -eq 0 -or
                     -not ((Get-Content -LiteralPath $crossVolumeError -Raw) -clike '*control is active*')) {
                     throw 'Cross-volume registration did not use the service-name lock'
                 }
@@ -957,13 +1431,7 @@ try {
     $created=$true
     $sid=[Security.Principal.NTAccount]::new('NT SERVICE\'+$service).Translate([Security.Principal.SecurityIdentifier]).Value
     $receipt.service_sid=$sid
-    # Only this newly created input directory in the disposable hosted VM is
-    # writable by the service. The independent observer lives elsewhere.
-    $acl=Get-Acl -LiteralPath $root
-    $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
-        [Security.Principal.SecurityIdentifier]::new($sid),'Modify',
-        'ContainerInherit,ObjectInherit','None','Allow'))
-    Set-Acl -LiteralPath $root -AclObject $acl
+    Set-OwnedMetadataServiceInputAccess
     if($ReviewedSource) {
         $sourceAcl=Get-Acl -LiteralPath $sourceDir
         $sourceAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
@@ -984,34 +1452,6 @@ try {
         Set-Acl -LiteralPath $path -AclObject $acl
     }
     Assert-OwnedVolume
-    if($ProductionConcurrentRights) {
-        # The attack originates from a writable file on this same disposable
-        # NTFS volume. Its ACL is explicit; the volume root stays protected.
-        $scratch=Join-Path $drive 'attacker-scratch'
-        $scratchFile=Join-Path $scratch 'replacement.bin'
-        if((Test-Path -LiteralPath $scratch) -or (Test-Path -LiteralPath $scratchFile)) {
-            throw 'Owned same-volume attack source is not fresh'
-        }
-        New-Item -ItemType Directory -Path $scratch -ErrorAction Stop|Out-Null
-        [IO.File]::WriteAllBytes($scratchFile,[byte[]]@(0x42))
-        $scratchSha256=(Get-FileHash -LiteralPath $scratchFile -Algorithm SHA256).Hash.ToLowerInvariant()
-        $consumerIdentity=[Security.Principal.SecurityIdentifier]::new($consumerSid)
-        $systemIdentity=[Security.Principal.SecurityIdentifier]::new('S-1-5-18')
-        foreach($path in @($scratch,$scratchFile)) {
-            $scratchAcl=Get-Acl -LiteralPath $path
-            $scratchAcl.SetAccessRuleProtection($true,$false)
-            $inherit=if($path -ceq $scratch){'ContainerInherit,ObjectInherit'}else{'None'}
-            $scratchAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
-                $systemIdentity,'FullControl',$inherit,'None','Allow'))
-            $scratchAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
-                $consumerIdentity,'Modify',$inherit,'None','Allow'))
-            Set-Acl -LiteralPath $path -AclObject $scratchAcl
-        }
-        $attackSource=$VolumeRoot+'attacker-scratch\replacement.bin'
-        $receipt['same_volume_attacker_source']=[ordered]@{
-            path=$attackSource;volume_root=$VolumeRoot;size_bytes=1;
-            sha256=$scratchSha256}
-    }
     $receipt['root_acl_before']=(Get-Acl -LiteralPath $VolumeRoot).Sddl
     if($ExpectPreexistingAnchorRefusal) {
         # This object is created only on the newly formatted campaign VHD.
@@ -1048,7 +1488,7 @@ try {
             throw 'Preopened-root attacker markers are not fresh'
         }
         $preopenedScript=Join-Path $PSScriptRoot 'windows_publisher_preopened_root_probe.ps1'
-        $preopenedRootProcess=Start-Process -FilePath (Get-Command pwsh).Source `
+        $preopenedRootProcess=Start-OwnedMetadataProcess -FilePath (Get-Command pwsh).Source `
             -ArgumentList @('-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass',
                 '-File',('"'+$preopenedScript+'"'),'-VolumeRoot',('"'+$VolumeRoot.TrimEnd('\')+'"'),
                 '-ExpectedUserSid',$consumerSid,'-ServiceSid',$sid,
@@ -1079,19 +1519,115 @@ try {
         $receipt['preopened_root_process_id']=$preopenedRootProcess.Id
         $receipt['preopened_root_user_sid']=$consumerSid
     }
-    if(-not $ExpectUnprotectedRefusal) {
+    if($AdmittedTarget) {
+        # Provision only the still-empty, exactly owned target. No lab ACL
+        # writer substitutes for the product's retained admission protocol.
+        Assert-OwnedVolume
+        Assert-AdmittedStartRefusal -Phase start_without_admission `
+            -Arguments @('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid,'--service-admitted-client') `
+            -Diagnostic 'service-admitted start requires completed safe-original target admission'
+        if($ProductionConcurrentRights) {
+            # The first exclusive lock belongs to target provisioning. Admitted
+            # starts intentionally observe the completed boundary without relocking.
+            $rootBefore=(Get-Acl -LiteralPath $VolumeRoot).Sddl
+            $protectedHome=Split-Path -Parent $ServiceBinary
+            Assert-AdmittedStartRefusal -Phase target_admission_preopened `
+                -Arguments @('--provision-target',$service,'--confirm-empty-volume') `
+                -Diagnostic 'target volume has open handles or cannot be exclusively admitted'
+            if((Get-Acl -LiteralPath $VolumeRoot).Sddl -cne $rootBefore -or
+                (Test-Path -LiteralPath (Join-Path $protectedHome ($service+'.target-intent.json'))) -or
+                (Test-Path -LiteralPath (Join-Path $protectedHome ($service+'.target-admitted.json'))) -or
+                (Test-Path -LiteralPath ($drive+'publication')) -or
+                (Test-Path -LiteralPath ($drive+'setup-state'))) {
+                throw 'Refused target provisioning changed the empty target or retained admission'
+            }
+            $receipt['preopened_root_refusal']=[ordered]@{status='admission_refused_before_effects';
+                controller_error=$receipt.control_attempts[$receipt.control_attempts.Count-1].stderr_prefix}
+            Close-OwnedPreopenedRootProbe
+        }
+        $admissionAttempt=Invoke-ObservedPublisherControl -Phase target_admission `
+            -Arguments @('--provision-target',$service,'--confirm-empty-volume')
+        if($admissionAttempt.native_exit_code -ne 0){throw 'Product target admission did not complete'}
+        $admitted=$admissionAttempt.output
+        $admission=($admitted -join "`n")|ConvertFrom-Json
+        if($admission.schema -cne 'usk.publisher_service_control.v1' -or
+            $admission.status -cne 'target_admitted' -or $admission.service -cne $service) {
+            throw 'Product target admission response differs'
+        }
+        $receipt['target_admission']=$admission
+        $enrollmentAttempt=Invoke-ObservedPublisherControl -Phase installation_enrollment `
+            -Arguments @('--enroll-reviewed-operation',$service,$envelope,$receipt.envelope_sha256,$binding.apply_file)
+        if($enrollmentAttempt.native_exit_code -ne 0){throw 'Product reviewed installation enrollment did not complete'}
+        $enrolled=$enrollmentAttempt.output
+        $enrollment=($enrolled -join "`n")|ConvertFrom-Json
+        if($enrollment.schema -cne 'usk.publisher_service_control.v1' -or
+            $enrollment.status -cne 'reviewed_operation_enrolled' -or $enrollment.service -cne $service) {
+            throw 'Product reviewed installation enrollment response differs'
+        }
+        $receipt['original_installation_enrollment']=$enrollment
+        $differentCaller=if($callerSid -ceq 'S-1-5-18'){'S-1-5-19'}else{'S-1-5-18'}
+        Assert-AdmittedStartRefusal -Phase start_wrong_caller `
+            -Arguments @('--start',$service,$ServiceBinary,$VolumeRoot,$differentCaller,'--service-admitted-client') `
+            -Diagnostic 'existing authorized caller differs'
+        Assert-AdmittedStartRefusal -Phase start_wrong_mode `
+            -Arguments @('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid,'--admit-client-observer') `
+            -Diagnostic 'existing caller access mode differs'
+        Assert-ChangedAdmissionStartRefusal
+    }
+    if($ProductionConcurrentRights) {
+        # The attack originates from a writable file on this same disposable
+        # NTFS volume. Its ACL is explicit; the volume root stays protected.
+        $scratch=Join-Path $drive 'attacker-scratch'
+        $scratchFile=Join-Path $scratch 'replacement.bin'
+        if((Test-Path -LiteralPath $scratch) -or (Test-Path -LiteralPath $scratchFile)) {
+            throw 'Owned same-volume attack source is not fresh'
+        }
+        New-Item -ItemType Directory -Path $scratch -ErrorAction Stop|Out-Null
+        [IO.File]::WriteAllBytes($scratchFile,[byte[]]@(0x42))
+        $scratchSha256=(Get-FileHash -LiteralPath $scratchFile -Algorithm SHA256).Hash.ToLowerInvariant()
+        $consumerIdentity=[Security.Principal.SecurityIdentifier]::new($consumerSid)
+        $systemIdentity=[Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+        foreach($path in @($scratch,$scratchFile)) {
+            $scratchAcl=Get-Acl -LiteralPath $path
+            $scratchAcl.SetAccessRuleProtection($true,$false)
+            $inherit=if($path -ceq $scratch){'ContainerInherit,ObjectInherit'}else{'None'}
+            $scratchAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                $systemIdentity,'FullControl',$inherit,'None','Allow'))
+            $scratchAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                $consumerIdentity,'Modify',$inherit,'None','Allow'))
+            Set-Acl -LiteralPath $path -AclObject $scratchAcl
+        }
+        $attackSource=$VolumeRoot+'attacker-scratch\replacement.bin'
+        $receipt['same_volume_attacker_source']=[ordered]@{
+            path=$attackSource;volume_root=$VolumeRoot;size_bytes=1;
+            sha256=$scratchSha256}
+    }
+    if(-not $ExpectUnprotectedRefusal -and -not $AdmittedTarget) {
         $acl=[Security.AccessControl.DirectorySecurity]::new()
         $acl.SetSecurityDescriptorSddlForm('O:SYG:SYD:P(A;;FA;;;SY)(A;;FA;;;'+$sid+')')
         Set-Acl -LiteralPath $VolumeRoot -AclObject $acl
     }
     $receipt['root_acl_at_service_start']=Get-OwnedVolumeRootSddl 'service-start'
     Assert-OwnedVolume
-    $device=& $DeviceAclBinary --owned-hosted-vm-vhd-volume $VolumeRoot $service ([int]$disk.Number) $vhd $vmId 2>&1
+    # Product admission retains the real original and derives its exact policy.
+    # Gated legacy tests prepare through the same native start, then stop without
+    # dispatch before changing the command. The lab helper only observes it.
+    $registeredFaultService=$RegisteredService -and ($InterruptAfterStage -or $HostileRights -or $TerminateAtPostrename)
+    if($registeredFaultService){Initialize-RegisteredFaultDeviceWithProduct}
+    $deviceMode=if($AdmittedTarget -or $registeredFaultService){'--observe-owned-hosted-vm-vhd-volume'}
+        elseif($RegisteredService){'--observe-owned-hosted-vm-pre-admission-volume'}
+        else{'--owned-hosted-vm-vhd-volume'}
+    $device=& $DeviceAclBinary $deviceMode $VolumeRoot $service ([int]$disk.Number) $vhd $vmId 2>&1
     if($LASTEXITCODE -ne 0){throw ('Owned VHD device ACL failed: '+($device -join '; '))}
     $deviceText=$device -join "`n"
     if($deviceText.Length -gt 16KB){throw 'Owned VHD device ACL receipt exceeds bound'}
     $deviceAdmission=$deviceText|ConvertFrom-Json
-    if($deviceAdmission.service_sid -cne $sid -or
+    $expectedDeviceAdmission=if($AdmittedTarget -or $registeredFaultService){'hosted_vm_read_only'}
+        elseif($RegisteredService){'hosted_vm_pre_admission_read_only'}else{'hosted_vm'}
+    if($deviceAdmission.admission -cne $expectedDeviceAdmission -or
+        ($deviceMode -cne '--owned-hosted-vm-vhd-volume' -and
+            $deviceAdmission.before_dacl -cne $deviceAdmission.after_dacl) -or
+        $deviceAdmission.service_sid -cne $sid -or
         [string]::IsNullOrWhiteSpace($deviceAdmission.before_dacl) -or
         [string]::IsNullOrWhiteSpace($deviceAdmission.after_dacl)) {
         throw 'Owned VHD device ACL receipt differs'
@@ -1115,10 +1651,12 @@ try {
         $changed.transaction_id=$changed.transaction_id+'.substituted'
         [IO.File]::WriteAllText($changedApply,
             ($changed|ConvertTo-Json -Depth 32 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
-        & $ServiceControlBinary --apply-registered $service $ServiceBinary $VolumeRoot `
-            $envelope $receipt.envelope_sha256 $callerSid $sourceServiceHash $changedApply `
-            2>$changedError|Out-Null
-        if($LASTEXITCODE -ne 3 -or (Get-Service $service).Status -ne 'Stopped' -or
+        $changedArgs=@('--apply-registered',$service,$ServiceBinary,$VolumeRoot,
+            $envelope,$receipt.envelope_sha256,$callerSid,$sourceServiceHash,$changedApply)
+        if($AdmittedTarget){$changedArgs+=$registeredMode}
+        $changedApplyAttempt=Invoke-ObservedPublisherControl -Phase changed_apply `
+            -Arguments $changedArgs -DiagnosticPath $changedError
+        if($changedApplyAttempt.native_exit_code -ne 3 -or (Get-Service $service).Status -ne 'Stopped' -or
             (Test-Path -LiteralPath ($drive+'publication')) -or
             (Get-Content -LiteralPath $changedError -Raw) -notmatch 'apply request differs') {
             throw 'Changed reviewed apply reached the protected publisher'
@@ -1129,21 +1667,23 @@ try {
         $wrongStartError=Join-Path $root ('wrong-start-'+$id+'.txt')
         $wrongStartArgs=@('--start',$service,$ServiceBinary,$VolumeRoot,'S-1-5-18')
         if($registeredMode){$wrongStartArgs+=$registeredMode}
-        & $ServiceControlBinary @wrongStartArgs 2>$wrongStartError|Out-Null
-        if($LASTEXITCODE -eq 0 -or (Get-Service $service).Status -ne 'Stopped') {
+        $wrongStartAttempt=Invoke-ObservedPublisherControl -Phase start_wrong_caller `
+            -Arguments $wrongStartArgs -DiagnosticPath $wrongStartError
+        if($wrongStartAttempt.native_exit_code -eq 0 -or (Get-Service $service).Status -ne 'Stopped') {
             throw 'Registered publisher accepted a different start caller'
         }
         $receipt['wrong_caller_start_refused']=$true
         if($ConsumerAccess) {
             $wrongModeError=Join-Path $root ('wrong-mode-'+$id+'.txt')
-            & $ServiceControlBinary --start $service $ServiceBinary $VolumeRoot $callerSid `
-                --admit-client-observer 2>$wrongModeError|Out-Null
-            if($LASTEXITCODE -eq 0 -or (Get-Service $service).Status -ne 'Stopped') {
+            $wrongModeAttempt=Invoke-ObservedPublisherControl -Phase start_wrong_mode `
+                -Arguments @('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid,'--admit-client-observer') `
+                -DiagnosticPath $wrongModeError
+            if($wrongModeAttempt.native_exit_code -eq 0 -or (Get-Service $service).Status -ne 'Stopped') {
                 throw 'Registered publisher accepted a weaker caller mode'
             }
             $receipt['wrong_caller_mode_refused']=$true
         }
-        if($InterruptAfterStage -or $HostileRights -or $TerminateAtPostrename) {
+        if($registeredFaultService) {
             $registeredGate=if($HostilePostrename -or $TerminateAtPostrename){'--postrename-gate'}elseif($HostileRights){'--prepublish-gate'}else{'--poststage-gate'}
             $testCommand='"'+$ServiceBinary+'" --service '+$service+' --no-receipt '+$VolumeRoot+
                 ' --reviewed-plan-envelope "'+$envelope+'" '+$receipt.envelope_sha256+
@@ -1156,14 +1696,15 @@ try {
                 throw 'Owned fault-test service command readback differs'
             }
             try{Start-Service $service}catch{if((Get-Service $service).Status -ne 'Stopped'){throw}}
-        } elseif($ProductionConcurrentRights) {
+        } elseif($ProductionConcurrentRights -and -not $AdmittedTarget) {
             # This elevated product controller must refuse SCM start while the
             # non-admin process retains its pre-hardening volume-root handle.
             $blockedStartError=Join-Path $root ('preopened-start-'+$id+'.txt')
             $blockedStartArgs=@('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid)
             if($registeredMode){$blockedStartArgs+=$registeredMode}
-            & $ServiceControlBinary @blockedStartArgs 2>$blockedStartError|Out-Null
-            if($LASTEXITCODE -eq 0 -or (Get-Service $service).Status -ne 'Stopped' -or
+            $preopenedStartAttempt=Invoke-ObservedPublisherControl -Phase start_preopened_root `
+                -Arguments $blockedStartArgs -DiagnosticPath $blockedStartError
+            if($preopenedStartAttempt.native_exit_code -eq 0 -or (Get-Service $service).Status -ne 'Stopped' -or
                 -not (Test-Path -LiteralPath $blockedStartError -PathType Leaf) -or
                 (Get-Item -LiteralPath $blockedStartError).Length -gt 16KB -or
                 (Get-Content -LiteralPath $blockedStartError -Raw) -notmatch
@@ -1175,16 +1716,7 @@ try {
             $receipt['preopened_root_refusal']=[ordered]@{
                 status='start_refused_before_effects';
                 controller_error=(Get-Content -LiteralPath $blockedStartError -Raw)}
-            [IO.File]::WriteAllText($preopenedRelease,
-                "usk.publisher.release_preopened_root.v1`n",[Text.UTF8Encoding]::new($false))
-            if(-not $preopenedRootProcess.WaitForExit(30000)) {
-                throw 'Preopened-root attacker did not release its held handle'
-            }
-            $preopenedRootProcess.WaitForExit()
-            if($preopenedRootProcess.ExitCode -ne 0) {
-                throw 'Preopened-root attacker failed after release'
-            }
-            $preopenedRootProcess=$null
+            Close-OwnedPreopenedRootProbe
             Start-RegisteredPublisher
             $receipt['preopened_root_clean_retry_started']=$true
         } else { Start-RegisteredPublisher }
@@ -1249,8 +1781,7 @@ try {
         $concurrentError=Join-Path $consumerOutput 'concurrent-stderr.txt'
         $concurrentReady=Join-Path $consumerOutput 'concurrent-ready.txt'
         $concurrentCompleted=Join-Path $consumerOutput 'concurrent-completed.txt'
-        $stageObserver=Start-StageObserver
-        $unrelatedAccountName='USKATK_'+[guid]::NewGuid().ToString('N').Substring(0,13)
+        $unrelatedAccountName=$(if($AdmittedTarget -and $admittedPackagedProfile){'USKCLI_'}else{'USKATK_'})+[guid]::NewGuid().ToString('N').Substring(0,13)
         if(Get-LocalUser -Name $unrelatedAccountName -ErrorAction SilentlyContinue){
             throw 'Unrelated production attacker account collision'
         }
@@ -1260,6 +1791,7 @@ try {
             -Password $unrelatedPassword -PasswordNeverExpires -ErrorAction Stop
         $unrelatedAccountCreated=$true
         $unrelatedSid=$unrelatedAccount.SID.Value
+        Grant-OwnedMetadataActorParentRead $unrelatedSid
         if($unrelatedSid -ceq $consumerSid){throw 'Unrelated attacker reused the client SID'}
         # The same-volume replacement source was initially granted only to
         # the submitting login. Give the second login the identical narrow
@@ -1308,7 +1840,7 @@ try {
             '-PayloadRelativePath',$attackRelative,'-VisibleLeaf',$visibleLeaf,
             '-SameVolumeSource',('"'+$attackSource+'"'),
             '-ExpectedSameVolumeSourceSha256',$scratchSha256)
-        $concurrentAttacker=Start-Process -FilePath (Get-Command pwsh).Source `
+        $concurrentAttacker=Start-OwnedMetadataProcess -FilePath (Get-Command pwsh).Source `
             -ArgumentList $attackArgs -Credential $consumerCredential -PassThru `
             -WindowStyle Hidden -WorkingDirectory $consumerOutput `
             -RedirectStandardError $concurrentError -ErrorAction Stop
@@ -1320,7 +1852,7 @@ try {
             '-PayloadRelativePath',$attackRelative,'-VisibleLeaf',$visibleLeaf,
             '-SameVolumeSource',('"'+$attackSource+'"'),
             '-ExpectedSameVolumeSourceSha256',$scratchSha256,'-UnrelatedConcurrent')
-        $unrelatedAttacker=Start-Process -FilePath (Get-Command pwsh).Source `
+        $unrelatedAttacker=Start-OwnedMetadataProcess -FilePath (Get-Command pwsh).Source `
             -ArgumentList $unrelatedArgs -Credential $unrelatedCredential -PassThru `
             -WindowStyle Hidden -WorkingDirectory $unrelatedOutputRoot `
             -RedirectStandardError $unrelatedError -ErrorAction Stop
@@ -1379,6 +1911,11 @@ try {
         $receipt['production_rename_observer_ready_sha256']=(Get-FileHash `
             -LiteralPath $postrenameObserver.ready -Algorithm SHA256).Hash.ToLowerInvariant()
     }
+    # Account creation and both attackers' bounded readiness are preparation,
+    # before this client can dispatch the admitted publication. Start the
+    # unchanged 120-second observer only after that preparation, and require its
+    # ready marker before creating the request client or releasing attackers.
+    if($ProductionConcurrentRights){$stageObserver=Start-StageObserver}
     if($ClientBinary){$requestClient=Start-RequestClient}
     if($ProductionConcurrentRights) {
         if(-not $requestClient -or $requestClient.process.HasExited) {
@@ -1533,7 +2070,7 @@ try {
                 '-ServiceSid',$sid,'-OutputPath',('"'+$concurrentOutput+'"'),
                 '-Stage','Concurrent','-ReleasePath',('"'+$release+'"'),
                 '-PayloadRelativePath',$attackRelative)
-            $concurrentAttacker=Start-Process -FilePath (Get-Command pwsh).Source `
+            $concurrentAttacker=Start-OwnedMetadataProcess -FilePath (Get-Command pwsh).Source `
                 -ArgumentList $attackArgs -Credential $consumerCredential -PassThru `
                 -WindowStyle Hidden -WorkingDirectory $consumerOutput `
                 -RedirectStandardError $concurrentError -ErrorAction Stop
@@ -1807,7 +2344,7 @@ try {
         $partialWitness=[pscustomobject]@{volume_drive_root=$drive;native=$partial;service_sid=$sid;consumer_sid=$consumerSid;
             independent=$before.independent;observer_task_removed=$before.observer_task_removed;plan=$plan;archive_sha256=$inputs.archive_sha256;
             apply_request=$applyRequest;request=$request.payload}
-        Assert-IndependentMetadataProbe $partialWitness -AllowPartialConsumerGrant
+        Assert-IndependentMetadataProbe $partialWitness -AllowPartialConsumerGrant -PythonBinary $PythonBinary
         $receipt['partial_consumer_grant']=[ordered]@{native=$partial;independent=$before.independent;observer_task_removed=$before.observer_task_removed;granted_objects=$granted.Count}
         $removed=[Collections.Generic.List[string]]::new()
         foreach($path in $sourceInputs) {
@@ -1935,6 +2472,9 @@ try {
                             status=$attackReceipt.status;
                             failure=$attackReceipt.failure;
                             rename_race=$attackReceipt.concurrent.native_rename_overlap;
+                        observation_window=$attackReceipt.concurrent.observation_window;
+                        unmatched_rename_attempts=$attackReceipt.concurrent.unmatched_native_rename_attempts;
+                        rename_worker_cleanup_failure=$attackReceipt.concurrent.rename_worker_cleanup_failure;
                             ready_utc=$attackReceipt.concurrent.ready_utc;
                             started_seen_utc=$attackReceipt.concurrent.started_seen_utc;
                             completed_seen_utc=$attackReceipt.concurrent.completed_seen_utc;
@@ -1950,6 +2490,9 @@ try {
                     ($attackDiagnostic|ConvertTo-Json -Compress -Depth 5))
             }
             $concurrent=Get-Content -LiteralPath $concurrentOutput -Raw|ConvertFrom-Json
+            # Bounded producer data, retained even when its validation fails.
+            # Only the existing success field below denotes accepted evidence.
+            $receipt['concurrent_hostile_rights_candidate']=$concurrent
             $coverage=if($ProductionConcurrentRights) {
                 $nativeCall=$receipt.native.protected_anchors.publication_probe.native_rename_call
                 $nativeStart=[long]$nativeCall.start_tick
@@ -2065,11 +2608,14 @@ try {
                 if($unrelatedAttacker.ExitCode -ne 0 -or
                     -not (Test-Path -LiteralPath $unrelatedAttackOutput -PathType Leaf) -or
                     (Get-Item -LiteralPath $unrelatedAttackOutput).Length -gt 512KB) {
+                    $failureObservation=[ordered]@{exit_code=$unrelatedAttacker.ExitCode}
+                    $receipt['unrelated_attacker_failure']=$failureObservation
                     $diagnostic=Read-ConcurrentAttackerDiagnostic `
-                        $unrelatedAttackOutput $unrelatedError
+                        $unrelatedAttackOutput $unrelatedError $failureObservation
                     throw ('Unrelated concurrent attacker failed: '+$diagnostic)
                 }
                 $unrelated=Get-Content -LiteralPath $unrelatedAttackOutput -Raw|ConvertFrom-Json
+                $receipt['unrelated_hostile_rights_candidate']=$unrelated
                 $unrelatedOverlap=$unrelated.concurrent.native_rename_overlap
                 $unrelatedAttempt=@($unrelatedOverlap.overlap_attempt)
                 $unrelatedStageCoverage=[ordered]@{}
@@ -2110,9 +2656,9 @@ try {
                 $receipt['production_unrelated_concurrent_hostile_rights']=$unrelated
                 $receipt['concurrent_qualification_limit']=
                     'two_local_nonadmin_sids_denied_during_staging_and_native_rename_staged_replace_source_delete_denied_not_target_proof_other_profile_cases_remain'
-                $unrelatedAttacker=$null
+                if(-not $AdmittedTarget){$unrelatedAttacker=$null}
             }
-            $concurrentAttacker=$null
+            if(-not $AdmittedTarget){$concurrentAttacker=$null}
         }
     } else {
         $deadline=[DateTime]::UtcNow.AddSeconds(90)
@@ -2125,7 +2671,7 @@ try {
         }
         $receipt['native_receipt_sha256']=(Get-FileHash -LiteralPath $nativePath -Algorithm SHA256).Hash.ToLowerInvariant()
     }
-    $receipt['consumer_sid']=if($ConsumerAccess){$consumerSid}else{''}
+    $receipt['consumer_sid']=if($ConsumerAccess -or $AdmittedTarget){$consumerSid}else{''}
     if($RegisteredService -and -not $HostileRights -and -not $recover) {
         # The packaged client has received the terminal reply and closed its
         # authenticated pipe. The one-request service must now stop itself
@@ -2174,7 +2720,7 @@ try {
     }
     $readback=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId $id
     $receipt.independent=$readback.independent;$receipt.observer_task_removed=$readback.observer_task_removed
-    Assert-IndependentMetadataProbe ([pscustomobject]$receipt)
+    Assert-IndependentMetadataProbe ([pscustomobject]$receipt) -PythonBinary $PythonBinary
     if($RegisteredService -and $recover) {
         $stagedRoot=$drive+'publication\staging\candidate'
         foreach($row in $before.independent.rows) {
@@ -2226,8 +2772,9 @@ try {
         $wrongCallerError=Join-Path $root ('wrong-caller-'+$id+'.txt')
         $wrongArgs=@('--recover',$service,$ServiceBinary,$VolumeRoot,'S-1-5-18')
         if($registeredMode){$wrongArgs+=$registeredMode}
-        & $ServiceControlBinary @wrongArgs 2>$wrongCallerError|Out-Null
-        if($LASTEXITCODE -eq 0 -or
+        $wrongCallerAttempt=Invoke-ObservedPublisherControl -Phase recover_wrong_caller `
+            -Arguments $wrongArgs -DiagnosticPath $wrongCallerError
+        if($wrongCallerAttempt.native_exit_code -eq 0 -or
             (Get-CimInstance Win32_Service -Filter "Name='$service'").PathName -cne $beforeControl) {
             throw 'Registered recovery accepted a different caller or changed service configuration'
         }
@@ -2285,12 +2832,14 @@ try {
         $requestClient=$null
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
         $repeat=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
-        if($repeat.independent.identity -ne 'S-1-5-18' -or -not $repeat.observer_task_removed -or
-            ($receipt.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
-            ($repeat.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
-            throw 'Registered source-free reentry changed independently observed installed rows'
+        $receipt.registered_source_free_reentry['independent_readback']=$repeat
+        if($AdmittedTarget) {
+            $receipt.registered_source_free_reentry['lease_transition']=Assert-IndependentLeaseTransition -Result $receipt -Before $readback -After $repeat -InstalledState $installedResponse.payload -Mode append -PythonBinary $PythonBinary
+        } else {
+            $receipt.registered_source_free_reentry['legacy_retained_state']=Assert-IndependentLegacyRegisteredRetention -Result $receipt -Before $readback -After $repeat -InstalledState $installedResponse.payload -PythonBinary $PythonBinary
         }
-        $receipt.registered_source_free_reentry['unchanged_independent_rows']=@($repeat.independent.rows).Count
+        $receipt.registered_source_free_reentry['unchanged_independent_rows']=@($readback.independent.rows).Count
+        $receipt.registered_source_free_reentry['appended_ownership_rows']=(@($repeat.independent.rows).Count - @($readback.independent.rows).Count)
         $staleRecovery=[ordered]@{
             schema='usk.publisher_recovery_request.v1'
             request_id='recover.stale.'+$id
@@ -2307,6 +2856,11 @@ try {
         $staleClientIdentity=Assert-RequestClientImage $requestClient
         $staleResult=Read-ClientObservation $requestClient
         $stale=$staleResult.service
+        $receipt['registered_stale_recovery_observation']=[ordered]@{
+            submitted_request=$staleRecovery;client_exit_code=$requestClient.process.ExitCode;
+            client_mode=$requestClient.client_mode;service_response=$stale;
+            one_shot_status=$(if($staleResult.envelope){$staleResult.envelope.status}else{$null});
+            response_file_sha256=(Get-FileHash -LiteralPath $requestClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
         if($requestClient.process.ExitCode -eq 0 -or $stale.status -ne 'failed' -or
             $stale.error -cne 'reviewed install reentry differs from durable plan and source') {
             throw 'Changed minimal recovery request was admitted'
@@ -2320,10 +2874,11 @@ try {
         $requestClient=$null
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service}
         $afterStale=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
-        if($afterStale.independent.identity -ne 'S-1-5-18' -or -not $afterStale.observer_task_removed -or
-            ($repeat.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
-            ($afterStale.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
-            throw 'Changed minimal recovery request altered installed state'
+        $receipt.stale_minimal_recovery_refused['independent_readback']=$afterStale
+        if($AdmittedTarget) {
+            $receipt.stale_minimal_recovery_refused['lease_transition']=Assert-IndependentLeaseTransition -Result $receipt -Before $repeat -After $afterStale -InstalledState $installedResponse.payload -Mode readonly -PythonBinary $PythonBinary
+        } else {
+            $receipt.stale_minimal_recovery_refused['legacy_retained_state']=Assert-IndependentLegacyRegisteredRetention -Result $receipt -Before $repeat -After $afterStale -InstalledState $installedResponse.payload -PythonBinary $PythonBinary
         }
     }
     if($RegisteredService -and -not $InterruptAfterStage) {
@@ -2349,7 +2904,9 @@ try {
                 throw 'Product service control did not configure read-only verification'
             }
         }
-        Start-RegisteredPublisher
+        # This existing successful verification must positively exercise product
+        # activation while retaining the controller's authenticated request.
+        Start-RegisteredPublisher -ActivateBeforeControllerRequest:($AdmittedTarget -and $ControllerApply)
         $requestClient=Start-RequestClient $verifyRequest
         $verifyClient=$requestClient
         if(-not $verifyClient.process.WaitForExit(120000)){throw 'Registered verification client timed out'}
@@ -2361,6 +2918,11 @@ try {
         }
         $verifiedResult=Read-ClientObservation $verifyClient
         $verified=$verifiedResult.service
+        $receipt['registered_installed_verify_observation']=[ordered]@{
+            submitted_request=$verifyRequest;client_exit_code=$verifyClient.process.ExitCode;
+            client_mode=$verifyClient.client_mode;service_response=$verified;
+            one_shot_status=$(if($verifiedResult.envelope){$verifiedResult.envelope.status}else{$null});
+            response_file_sha256=(Get-FileHash -LiteralPath $verifyClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
         if($verified.status -ne 'pass' -or $verified.transaction_id -cne $applyRequest.transaction_id -or
             $verified.verify_response.status -ne 'ok' -or
             $verified.verify_response.payload.status -ne 'pass' -or
@@ -2394,8 +2956,13 @@ try {
         $requestClient=$null
         $staleVerifyResult=Read-ClientObservation $staleClient
         $staleResponse=$staleVerifyResult.service
+        $receipt['registered_stale_verify_observation']=[ordered]@{
+            submitted_request=$staleVerify;client_exit_code=$staleClient.process.ExitCode;
+            client_mode=$staleClient.client_mode;service_response=$staleResponse;
+            one_shot_status=$(if($staleVerifyResult.envelope){$staleVerifyResult.envelope.status}else{$null});
+            response_file_sha256=(Get-FileHash -LiteralPath $staleClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
         if($staleClient.process.ExitCode -eq 0 -or $staleResponse.status -ne 'failed' -or
-            $staleResponse.error -notmatch 'differs from completed install') {
+            $staleResponse.error -cne 'authenticated verify request lacks the current completed installed state') {
             throw 'Stale authenticated verification request was not refused'
         }
         $receipt.registered_installed_verify['stale_transaction_refused']=$true
@@ -2404,10 +2971,11 @@ try {
         }
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
         $verifyRows=Invoke-IndependentMetadataReadback -DriveRoot $drive -OutputRoot (Split-Path -Parent $vhd) -RunId ([guid]::NewGuid().ToString('N'))
-        if($verifyRows.independent.identity -ne 'S-1-5-18' -or -not $verifyRows.observer_task_removed -or
-            ($receipt.independent.rows|ConvertTo-Json -Depth 32 -Compress) -cne
-            ($verifyRows.independent.rows|ConvertTo-Json -Depth 32 -Compress)) {
-            throw 'Read-only verification changed independently observed installed rows'
+        $receipt.registered_installed_verify['independent_readback']=$verifyRows
+        if($AdmittedTarget) {
+            $receipt.registered_installed_verify['lease_transition']=Assert-IndependentLeaseTransition -Result $receipt -Before $afterStale -After $verifyRows -InstalledState $installedResponse.payload -Mode readonly -PythonBinary $PythonBinary
+        } else {
+            $receipt.registered_installed_verify['legacy_retained_state']=Assert-IndependentLegacyRegisteredRetention -Result $receipt -Before $afterStale -After $verifyRows -InstalledState $installedResponse.payload -PythonBinary $PythonBinary
         }
         $receipt.registered_installed_verify['unchanged_independent_rows']=@($verifyRows.independent.rows).Count
         if(-not $HostileRights) {
@@ -2436,6 +3004,11 @@ try {
             }
             $damageResult=Read-ClientObservation $damageClient
             $damageResponse=$damageResult.service
+            $receipt['registered_damaged_verify_observation']=[ordered]@{
+                submitted_request=$damageVerify;client_exit_code=$damageClient.process.ExitCode;
+                client_mode=$damageClient.client_mode;service_response=$damageResponse;
+                one_shot_status=$(if($damageResult.envelope){$damageResult.envelope.status}else{$null});
+                response_file_sha256=(Get-FileHash -LiteralPath $damageClient.response -Algorithm SHA256).Hash.ToLowerInvariant()}
             $damagedFiles=@($damageResponse.verify_response.payload.files|Where-Object {
                 $_.relative_path -ceq $damageEntries[0].relative_path
             })
@@ -2593,7 +3166,7 @@ try {
             observer_task_removed=$after.observer_task_removed;plan=$plan;archive_sha256=$inputs.archive_sha256;
             apply_request=$applyRequest;request=$request.payload;consumer_sid=$consumerSid}
         $repeatResult|Add-Member -NotePropertyName consumer_sid -NotePropertyValue $consumerSid -Force
-        Assert-IndependentMetadataProbe $repeatResult
+        Assert-IndependentMetadataProbe $repeatResult -PythonBinary $PythonBinary
         if($after.independent.rows.Count -ne $receipt.independent.rows.Count){throw 'Repeated recovery changed record closure'}
         foreach($row in $receipt.independent.rows) {
             $matching=@($after.independent.rows|Where-Object path -ceq $row.path)
@@ -2680,12 +3253,12 @@ try {
         $accessPath=Join-Path $consumerOutput 'payload-access.json'
         $accessError=Join-Path $consumerOutput 'payload-access-error.txt'
         $accessStdout=Join-Path $consumerOutput 'payload-access-output.txt'
-        $consumerProcess=Start-Process -FilePath (Get-Command pwsh).Source -ArgumentList @(
+        $consumerProcess=Start-OwnedMetadataProcess -FilePath (Get-Command pwsh).Source -ArgumentList @(
             '-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-File',$consumerScript,
             '-ExpectedUserSid',$consumerSid,'-IdentityPath',$identityPath,
             '-PayloadRoot',$visibleRoot,'-AccessReceipt',$accessPath) -Credential $consumerCredential -PassThru -WindowStyle Hidden -WorkingDirectory $consumerOutput `
             -RedirectStandardError $accessError -RedirectStandardOutput $accessStdout
-        if(-not $consumerProcess.WaitForExit(45000)){Stop-OwnedPublisherProcessTree $consumerProcess|Out-Null;throw 'Consumer payload probe timed out'}
+        if(-not $consumerProcess.WaitForExit(45000)){$closed=Stop-OwnedPublisherProcessTree $consumerProcess;if($closed.confirmed -ne $true){throw 'Owned actor closure is unconfirmed'};throw 'Consumer payload probe timed out'}
         $consumerProcess.WaitForExit()
         if($consumerProcess.ExitCode -ne 0){
             throw ('Non-admin payload access probe failed: '+
@@ -2703,6 +3276,37 @@ try {
         $receipt['consumer_attempts_unchanged_rows']=$afterAccess.independent.rows
         $receipt['consumer_attempts_observer_removed']=$afterAccess.observer_task_removed
     }
+    if($AdmittedTarget) {
+        if($admittedPackagedProfile) {
+            # Every attacker and consumer must be positively closed before its
+            # exact scratch namespace can be removed for owned retirement.
+            $script:clientCleanupConfirmed=$false
+            foreach($owned in @($concurrentAttacker,$unrelatedAttacker,$consumerProcess)) {
+                if($owned) {
+                    $closed=Stop-OwnedPublisherProcessTree $owned
+                    if($closed.confirmed -ne $true){throw 'Packaged fixture actor closure is unconfirmed'}
+                    $owned.Dispose()
+                }
+            }
+            $concurrentAttacker=$null;$unrelatedAttacker=$null;$consumerProcess=$null
+            $script:clientCleanupConfirmed=$true
+            Assert-OwnedVolume
+            if([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne 'S-1-5-18' -or
+                [IO.Path]::GetFullPath($scratch) -cne ($drive+'attacker-scratch') -or
+                ((Get-Item -LiteralPath $scratch -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+                ((Get-Item -LiteralPath $scratchFile -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+                @((Get-ChildItem -LiteralPath $scratch -Force)).Count -ne 1 -or
+                (Get-Item -LiteralPath $scratchFile -Force).Length -ne 1 -or
+                (Get-FileHash -LiteralPath $scratchFile -Algorithm SHA256).Hash.ToLowerInvariant() -cne $scratchSha256) {
+                throw 'Owned scratch identity, namespace or original bytes changed before retirement'
+            }
+            Remove-Item -LiteralPath $scratchFile -Force -ErrorAction Stop
+            Remove-Item -LiteralPath $scratch -Force -ErrorAction Stop
+            if(Test-Path -LiteralPath $scratch){throw 'Owned attacker scratch remains after removal'}
+            $receipt['same_volume_attacker_source_removed']=$true
+        }
+        $null=Invoke-ControllerOwnedUninstall
+    }
     if($ReviewedSource) {
         if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
         if((Get-Service $service).Status -ne 'Stopped') { throw 'Reviewed service remains active during root ACL observation' }
@@ -2711,29 +3315,40 @@ try {
             throw 'Reviewed-source service changed the preprotected volume root ACL'
         }
     }
+    if($AdmittedTarget) {
+        $activations=@($receipt.control_attempts|Where-Object {
+            $_.phase -ceq 'service_activation' -and $_.native_exit_code -eq 0})
+        if($activations.Count -lt 1){throw 'Admitted journey never completed actual product activation'}
+        $receipt['admitted_product_activation_observed']=$true
+    }
     $receipt.status='protected_metadata_observed'
     }
 } catch {
     $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'
+    if($AdmittedTarget){$receipt['primary_failure']=$failure}
 } finally {
     if($requestClient) {
-        try { Stop-OwnedPublisherProcessTree $requestClient.process|Out-Null }
+        try { $closed=Stop-OwnedPublisherProcessTree $requestClient.process;if($closed.confirmed -ne $true){throw 'Owned actor closure is unconfirmed'} }
         catch { $clientCleanupConfirmed=$false;$failure='Owned client cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
     }
     if($consumerProcess) {
-        try {Stop-OwnedPublisherProcessTree $consumerProcess|Out-Null}
+        try {$closed=Stop-OwnedPublisherProcessTree $consumerProcess;if($closed.confirmed -ne $true){throw 'Owned actor closure is unconfirmed'}}
         catch {$clientCleanupConfirmed=$false;$failure='Consumer payload process cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
     }
     if($concurrentAttacker) {
-        try {Stop-OwnedPublisherProcessTree $concurrentAttacker|Out-Null}
+        try {$closed=Stop-OwnedPublisherProcessTree $concurrentAttacker;if($closed.confirmed -ne $true){throw 'Owned actor closure is unconfirmed'}}
         catch {$clientCleanupConfirmed=$false;$failure='Concurrent attacker cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
     }
     if($unrelatedAttacker) {
-        try {Stop-OwnedPublisherProcessTree $unrelatedAttacker|Out-Null}
+        try {$closed=Stop-OwnedPublisherProcessTree $unrelatedAttacker;if($closed.confirmed -ne $true){throw 'Owned actor closure is unconfirmed'}}
         catch {$clientCleanupConfirmed=$false;$failure='Unrelated attacker cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
     }
     if($preopenedRootProcess) {
-        try {Stop-OwnedPublisherProcessTree $preopenedRootProcess|Out-Null}
+        # This fixed actor releases its handle and exits on the existing exact
+        # marker. Confirm that protocol before the normal closed-process check;
+        # Windows PowerShell cannot call Process.Kill(bool). Failed release
+        # remains unconfirmed and retains the account and laboratory material.
+        try {Close-OwnedPreopenedRootProbe}
         catch {$clientCleanupConfirmed=$false;$failure='Preopened-root attacker cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
     }
     if($stageObserver -and -not $stageObserver.removed) {
@@ -2757,13 +3372,16 @@ try {
             $receipt.failure=$failure;$receipt.status='failed'
         }
     }
-    $receipt['client_cleanup_confirmed']=$clientCleanupConfirmed
-    if($consumerCreated -and $clientCleanupConfirmed) {
-        try {Remove-LocalUser -Name $consumerName -ErrorAction Stop;$receipt['consumer_account_removed']=$true}
-        catch {$failure='Owned consumer account cleanup failed';$receipt.failure=$failure;$receipt.status='failed'}
+    foreach($nativeLaunch in $ownedStandardLaunches) {
+        try {$nativeLaunch.owner.Dispose();$nativeLaunch.receipt.status='closed'}
+        catch {$clientCleanupConfirmed=$false;$nativeLaunch.receipt.status='closure_unconfirmed';$receipt['standard_actor_cleanup_failure']=$_.Exception.Message;$receipt.status='failed'}
+        if($nativeLaunch.receipt.status -ceq 'closed') {
+            try {$nativeLaunch.receipt['stderr_prefix']=Read-BoundedDiagnostic $nativeLaunch.receipt.stderr 2048}
+            catch {$nativeLaunch.receipt['stderr_capture_failure']=$_.Exception.Message}
+        }
     }
-    if($consumerCreated -and -not $clientCleanupConfirmed){$receipt['consumer_account_retained']=$consumerName}
-    $consumerCredential=$null
+    if($ownedStandardLaunchFailed){$clientCleanupConfirmed=$false}
+    $receipt['client_cleanup_confirmed']=$clientCleanupConfirmed
     if($unrelatedAccountCreated -and $clientCleanupConfirmed) {
         try {
             Remove-LocalUser -Name $unrelatedAccountName -ErrorAction Stop
@@ -2795,14 +3413,22 @@ try {
     if($created) {
         try {
             if((Get-Service $service).Status -ne 'Stopped'){Stop-Service $service -ErrorAction Stop}
-            if($ProductionConcurrentRights -and $receipt.status -eq 'protected_metadata_observed') {
+            if($AdmittedTarget) {
+                # Keep authority when product retirement refuses. Never use
+                # sc-delete or erase retained lifecycle evidence to pass cleanup.
+                if($receipt.changed_admission_start_control -and
+                    $receipt.changed_admission_start_control.restoration_status -cne 'restored') {
+                    throw 'Owned admission record restoration is unconfirmed; retain authority'
+                }
+                Invoke-ControllerOwnedRetirement
+            } elseif($ProductionConcurrentRights -and $receipt.status -eq 'protected_metadata_observed') {
                 $held=[IO.File]::Open($controlLock,[IO.FileMode]::Open,
                     [IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
                 try {
                     $blockedRemove=@('--unregister',$service,$ServiceBinary,$VolumeRoot,$callerSid)
                     if($registeredMode){$blockedRemove+=$registeredMode}
-                    & $ServiceControlBinary @blockedRemove 2>$null|Out-Null
-                    if($LASTEXITCODE -eq 0 -or
+                    $blockedRemoveAttempt=Invoke-ObservedPublisherControl -Phase unregister_control_lock -Arguments $blockedRemove
+                    if($blockedRemoveAttempt.native_exit_code -eq 0 -or
                         -not (Get-Service $service -ErrorAction SilentlyContinue)) {
                         throw 'Publisher service unregister bypassed held control lock'
                     }
@@ -2810,12 +3436,13 @@ try {
                 $receipt['service_control_lock_unregister_refusal']=$true
                 $wrongRemove=@('--unregister',$service,$ServiceBinary,$VolumeRoot,'S-1-5-18')
                 if($registeredMode){$wrongRemove+=$registeredMode}
-                & $ServiceControlBinary @wrongRemove 2>$null|Out-Null
-                if($LASTEXITCODE -eq 0 -or -not (Get-Service $service -ErrorAction SilentlyContinue)) {
+                $wrongRemoveAttempt=Invoke-ObservedPublisherControl -Phase unregister_wrong_caller -Arguments $wrongRemove
+                if($wrongRemoveAttempt.native_exit_code -eq 0 -or -not (Get-Service $service -ErrorAction SilentlyContinue)) {
                     throw 'Publisher service accepted a different unregister caller'
                 }
-                & $ServiceControlBinary --retire-binary $service $installedServiceBinary $sourceServiceHash $sid 2>$null|Out-Null
-                if($LASTEXITCODE -eq 0 -or
+                $liveRetirementAttempt=Invoke-ObservedPublisherControl -Phase retire_live_service `
+                    -Arguments @('--retire-binary',$service,$installedServiceBinary,$sourceServiceHash,$sid)
+                if($liveRetirementAttempt.native_exit_code -eq 0 -or
                     -not (Test-Path -LiteralPath $installedServiceBinary -PathType Leaf)) {
                     throw 'Publisher service binary retired while its service was registered'
                 }
@@ -2837,7 +3464,15 @@ try {
                 [DateTime]::UtcNow -lt $removeDeadline){Start-Sleep -Milliseconds 100}
             if(Get-Service $service -ErrorAction SilentlyContinue){throw 'Owned service remains after deletion'}
             $receipt.service_removed=$true
-        } catch { $failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
+        } catch {
+            if($AdmittedTarget) {
+                $receipt['retirement_cleanup_failure']=$_.Exception.Message
+                $receipt['service_present_after_retirement_failure']=[bool](Get-Service $service -ErrorAction SilentlyContinue)
+                $receipt['binary_present_after_retirement_failure']=Test-Path -LiteralPath $installedServiceBinary -PathType Leaf
+                if(-not $failure){$failure=$_.Exception.Message;$receipt.failure=$failure}
+                $receipt.status='failed'
+            } else {$failure=$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed'}
+        }
     }
     if($RegisteredService -and $installedServiceBinary -and
         -not (Get-Service $service -ErrorAction SilentlyContinue) -and
@@ -2849,20 +3484,24 @@ try {
                 (Get-FileHash -LiteralPath $installedServiceBinary -Algorithm SHA256).Hash.ToLowerInvariant() -cne
                     $sourceServiceHash){throw 'Protected service cleanup identity differs'}
             $wrongDigest=if($sourceServiceHash -cne ('0'*64)){'0'*64}else{'1'*64}
-            & $ServiceControlBinary --retire-binary $service $installedServiceBinary $wrongDigest $sid 2>$null|Out-Null
-            if($LASTEXITCODE -eq 0 -or
+            $wrongRetireDigestAttempt=Invoke-ObservedPublisherControl -Phase retire_wrong_digest `
+                -Arguments @('--retire-binary',$service,$installedServiceBinary,$wrongDigest,$sid)
+            if($wrongRetireDigestAttempt.native_exit_code -eq 0 -or
                 -not (Test-Path -LiteralPath $installedServiceBinary -PathType Leaf)) {
                 throw 'Protected service retirement accepted an incorrect digest'
             }
             $wrongSid='S-1-5-80-1-2-3-4-5'
             if($wrongSid -ceq $sid){$wrongSid='S-1-5-80-5-4-3-2-1'}
-            & $ServiceControlBinary --retire-binary $service $installedServiceBinary $sourceServiceHash $wrongSid 2>$null|Out-Null
-            if($LASTEXITCODE -eq 0 -or
+            $wrongRetireSidAttempt=Invoke-ObservedPublisherControl -Phase retire_wrong_sid `
+                -Arguments @('--retire-binary',$service,$installedServiceBinary,$sourceServiceHash,$wrongSid)
+            if($wrongRetireSidAttempt.native_exit_code -eq 0 -or
                 -not (Test-Path -LiteralPath $installedServiceBinary -PathType Leaf)) {
                 throw 'Protected service retirement accepted a different service SID'
             }
-            $retired=& $ServiceControlBinary --retire-binary $service $installedServiceBinary $sourceServiceHash $sid
-            if($LASTEXITCODE -ne 0 -or
+            $retireAttempt=Invoke-ObservedPublisherControl -Phase retire_binary `
+                -Arguments @('--retire-binary',$service,$installedServiceBinary,$sourceServiceHash,$sid)
+            $retired=$retireAttempt.output
+            if($retireAttempt.native_exit_code -ne 0 -or
                 ($retired|ConvertFrom-Json).status -cne 'binary_retired' -or
                 (Test-Path -LiteralPath $installedServiceBinary)) {
                 throw 'Product control did not retire its protected service binary'
@@ -2878,10 +3517,18 @@ try {
                 [bool](Test-Path -LiteralPath $installedServiceBinary -ErrorAction SilentlyContinue)
         }
     }
+    $callerRetirementConfirmed=-not $AdmittedTarget -or ([object]::Equals($receipt.service_removed,$true) -and [object]::Equals($receipt.protected_service_binary_removed,$true) -and -not $receipt.retirement_cleanup_failure)
+    if($consumerCreated -and $clientCleanupConfirmed -and $callerRetirementConfirmed) {
+        try {Remove-LocalUser -Name $consumerName -ErrorAction Stop;$receipt['consumer_account_removed']=$true}
+        catch {$failure='Owned consumer account cleanup failed';$receipt.failure=$failure;$receipt.status='failed'}
+    }
+    if($consumerCreated -and (-not $clientCleanupConfirmed -or -not $callerRetirementConfirmed)){$receipt['consumer_account_retained']=$consumerName}
+    if($clientCleanupConfirmed -and $callerRetirementConfirmed){$consumerCredential=$null}
     if($receipt.status -in @('protected_metadata_observed','preprotected_boundary_refusal_observed',
         'preexisting_anchor_recovery_required_observed') -and $receipt.service_removed) {
         try {
-            if([IO.Path]::GetFullPath($root) -cne 'C:\USK-Lab'){throw 'Owned hosted cleanup root differs'}
+            $expectedRoot=if($AdmittedTarget){Join-Path (Split-Path -Parent $vhd) 'controller-inputs'}else{'C:\USK-Lab'}
+            if([IO.Path]::GetFullPath($root) -cne $expectedRoot){throw 'Owned hosted cleanup root differs'}
             $pending=[Collections.Generic.Queue[string]]::new();$pending.Enqueue($root)
             while($pending.Count) {
                 $directory=$pending.Dequeue();$item=Get-Item -LiteralPath $directory -Force
@@ -2909,6 +3556,7 @@ try {
                     throw 'Production rename observer task remains registered; retain its inputs'
                 }
                 foreach($leaf in @('production-rename-observer.ps1','owned-process.ps1',
+                    'owned-effect-child.ps1','initial-maintenance-boundary.ps1',
                     'production-rename-config.json','production-rename-ready.txt',
                     'production-rename-observation.json','production-rename-observation.json.tmp')) {
                     $path=Join-Path $observerRoot $leaf
@@ -2926,6 +3574,11 @@ try {
             Remove-Item -LiteralPath $observerRoot -ErrorAction Stop
         }
         catch { $failure='Owned root ACL observer directory cleanup failed: '+$_.Exception.Message;$receipt.failure=$failure;$receipt.status='failed' }
+    }
+    if($AdmittedTarget -and $receipt.primary_failure) {
+        if($failure -cne $receipt.primary_failure){$receipt['cleanup_failure']=$failure}
+        $failure=$receipt.primary_failure
+        $receipt.failure=$failure
     }
     $receipt|ConvertTo-Json -Depth 32|Set-Content -LiteralPath $out -Encoding UTF8
     # The existing outer harness dismounts/deletes only its identified VHD.

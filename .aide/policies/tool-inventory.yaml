@@ -1,0 +1,75 @@
+schema_version: aide.tool-inventory-policy.v0
+policy_id: aide.tool-inventory.v0
+status: active
+purpose: >
+  Define deterministic inputs and path/name heuristics for discovering
+  candidate tools without executing them.
+operating_mode:
+  - deterministic_local
+  - no_model_calls
+  - no_provider_calls
+  - no_network_calls
+  - no_unknown_tool_execution
+deterministic_inputs:
+  - git_tracked_files
+  - repo_intelligence_index
+  - file_quality_ledger
+  - root_inventory
+  - path_name_patterns
+  - shebangs
+  - file_extensions
+  - command_catalogs
+  - existing_docs_references
+  - known_ci_workflow_files
+  - known_aide_surfaces
+candidate_paths:
+  - scripts/**
+  - tools/**
+  - .aide/scripts/**
+  - .aide/hooks/**
+  - .github/workflows/**
+candidate_files:
+  - aide
+  - Makefile
+  - CMakeLists.txt
+  - pyproject.toml
+  - package.json
+  - noxfile.py
+  - tox.ini
+  - justfile
+  - Taskfile.yml
+name_hints:
+  - check
+  - validate
+  - audit
+  - test
+  - build
+  - generate
+  - migrate
+  - release
+  - package
+  - doctor
+  - lint
+  - format
+  - sync
+  - import
+  - export
+  - install
+  - upgrade
+  - rollback
+shebang_hints:
+  - python
+  - bash
+  - sh
+  - node
+  - powershell
+safe_inventory_rules:
+  execute_discovered_tools: false
+  read_file_metadata_only: true
+  hash_and_size_allowed: true
+  contents_scan_allowed_for_shebang_and_names: true
+local_state:
+  forbidden_if_tracked:
+    - .aide.local/**
+    - .env
+    - secrets/**

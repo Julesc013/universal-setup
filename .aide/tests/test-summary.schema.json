@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "artifacts": {"items": {"type": "string"}, "type": "array"},
+    "branch": {"type": "string"},
+    "command": {"type": "string"},
+    "commit": {"type": "string"},
+    "dirty_state": {"type": "boolean"},
+    "exit_code": {"type": "integer"},
+    "failure_families": {"type": "array"},
+    "finished_at": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "repo": {"type": "string"},
+    "schema_version": {"type": "string"},
+    "stale_check": {"type": "object"},
+    "started_at": {"type": "string"},
+    "status": {"enum": ["PASS", "WARN", "FAIL", "TIMEOUT", "ERROR"], "type": "string"},
+    "tier": {"enum": ["T0", "T1", "T2", "T3"], "type": "string"},
+    "totals": {"type": "object"},
+    "warnings": {"type": "array"}
+  },
+  "required": ["schema_version", "repo", "commit", "branch", "dirty_state", "command", "tier", "started_at", "exit_code", "status", "totals", "failure_families", "artifacts", "warnings", "stale_check", "generated_by"],
+  "type": "object"
+}
+

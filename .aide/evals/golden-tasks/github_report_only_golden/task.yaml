@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: github_report_only_golden
+title: GitHub Report Only Golden
+status: active
+description: Verify Q35 report-only boundaries.
+runner: .aide/scripts/aide_lite.py eval run --task github_report_only_golden
+quality_dimensions:
+  - no_mutation
+  - report_only
+  - deterministic_output

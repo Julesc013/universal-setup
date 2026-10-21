@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: path_alias_schema_golden
+title: Path Alias Schema Golden
+status: active
+objective: Verify Q39 path-alias schema exists and remains planning-only.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task path_alias_schema_golden
+no_model_calls: true
+no_network_calls: true

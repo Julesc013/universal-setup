@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.install-conflict-report.schema.v0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "source_commit",
+    "conflicts",
+    "conflict_count",
+    "blocking_count",
+    "warnings",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "conflicts": {"type": "array"},
+    "conflict_count": {"type": "integer"},
+    "blocking_count": {"type": "integer"},
+    "warnings": {"type": "array"},
+    "no_apply": {"const": true}
+  }
+}

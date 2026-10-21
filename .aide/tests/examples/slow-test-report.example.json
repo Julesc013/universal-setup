@@ -1,0 +1,17 @@
+{
+  "branch": "main",
+  "commit": "example",
+  "generated_by": "aide-lite",
+  "repo": "aide",
+  "schema_version": "aide.slow-test-report.v0",
+  "tests": [
+    {
+      "duration_seconds": 10.5,
+      "path": ".aide/scripts/tests/test_example.py::Example::test_slow",
+      "status": "PASS",
+      "tier": "T2"
+    }
+  ],
+  "warnings": []
+}
+

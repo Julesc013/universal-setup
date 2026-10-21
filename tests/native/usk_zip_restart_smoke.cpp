@@ -830,43 +830,74 @@ int retired_reinstall_replay() {
 int concurrent_original_and_replay() {
     for (bool deflate : {false, true}) {
         Fixture fixture; auto original = plan(fixture, deflate);
-        std::mutex mutex; std::condition_variable ready; int verified = 0; bool release = false;
+        std::mutex mutex; std::condition_variable ready; int verified = 0, committing = 0;
+        bool release = false, commit_release = false;
         std::atomic<int> completed{0};
+        std::string original_error, replay_error;
         const auto barrier = [&](const std::string&, const std::string& point) {
-            if (point != "transaction.verified.after_journal") return;
-            std::unique_lock<std::mutex> lock(mutex); ++verified; ready.notify_all();
-            if (!ready.wait_for(lock, std::chrono::seconds(20), [&] { return release; })) {
-                throw std::runtime_error("bounded commit rendezvous expired");
+            const bool commit = point == "transaction.committing.after_journal";
+            if (!commit && point != "transaction.verified.after_journal") return;
+            std::unique_lock<std::mutex> lock(mutex);
+            if (commit) ++committing; else ++verified;
+            ready.notify_all();
+            if (!ready.wait_for(lock, std::chrono::seconds(20), [&] { return commit ? commit_release : release; })) {
+                throw std::runtime_error(commit ? "bounded publication rendezvous expired" : "bounded verified rendezvous expired");
             }
         };
         std::thread first([&] {
             try { (void)usk::lifecycle::apply_install(original, original.plan_digest, "old", "2026-09-07T00:00:01Z", barrier); ++completed; }
-            catch (const std::exception&) {}
+            catch (const std::exception& error) { original_error = error.what(); }
         });
         bool first_ready = false;
         { std::unique_lock<std::mutex> lock(mutex); first_ready = ready.wait_for(lock, std::chrono::seconds(20), [&] { return verified == 1; }); }
-        if (!first_ready) { { std::lock_guard<std::mutex> lock(mutex); release = true; } ready.notify_all(); first.join(); return 120; }
+        if (!first_ready) { { std::lock_guard<std::mutex> lock(mutex); release = true; commit_release = true; } ready.notify_all(); first.join(); return 120; }
         auto fresh = plan(fixture, deflate);
         const auto restart = native_restart_request(fixture, fresh, "old");
         std::thread second([&] {
             try { (void)usk::lifecycle::restart_install(fresh, fresh.plan_digest, "new", "2026-09-07T00:00:02Z", restart, barrier); ++completed; }
-            catch (const std::exception&) {}
+            catch (const std::exception& error) { replay_error = error.what(); }
         });
         bool both_ready = false;
         { std::unique_lock<std::mutex> lock(mutex); both_ready = ready.wait_for(lock, std::chrono::seconds(20), [&] { return verified == 2; }); release = true; }
+        ready.notify_all();
+        // Verified transactions have not yet checked target absence. Keep
+        // either contender from publishing until both passed that preflight
+        // and durably entered committing; otherwise a valid earlier refusal
+        // can be mistaken for a failed no-replace rename race.
+        bool both_committing = false;
+        { std::unique_lock<std::mutex> lock(mutex);
+            if (both_ready) both_committing = ready.wait_for(lock, std::chrono::seconds(20), [&] { return committing == 2; });
+            commit_release = true;
+        }
         ready.notify_all(); first.join(); second.join();
-        if (!both_ready || completed.load() != 1 || read(fixture.root / "target/bin/probe.txt") != probe_content()) return 121;
+        if (!both_ready || !both_committing || completed.load() != 1 || read(fixture.root / "target/bin/probe.txt") != probe_content()) {
+            std::cerr << "concurrent commit: deflate=" << deflate << " both_ready=" << both_ready
+                << " both_committing=" << both_committing << " completed=" << completed.load() << " original_error=" << original_error
+                << " replay_error=" << replay_error << '\n';
+            return 121;
+        }
         int completed_journals = 0, retained_journals = 0;
+        std::string observations;
         for (const auto* id : {"old", "new"}) {
             const usk::transaction::TransactionSpec spec{id, fresh.plan_id, fresh.plan_digest, "install_local",
                 fixture.roots.staging_parent, fresh.target_root, fixture.roots.state_root, fixture.roots.audit_root};
             const auto inspected = usk::transaction::TransactionSession::inspect_recovery(spec);
+            observations += std::string(id) + ":state=" + inspected.current_state +
+                ",staging_exists=" + (inspected.staging_exists ? "true" : "false") + ",actions=";
+            for (const auto& action : inspected.available_actions) observations += action + ",";
+            observations += ";";
             if (inspected.current_state == "completed") ++completed_journals;
             else if (inspected.current_state == "recovery_required" && inspected.staging_exists &&
                 inspected.available_actions == std::vector<std::string>{"retain_for_operator"} &&
                 read(fixture.roots.staging_parent / (std::string(".usk-stage-") + id) / "bin/probe.txt") == probe_content()) ++retained_journals;
         }
-        if (completed_journals != 1 || retained_journals != 1) return 122;
+        if (completed_journals != 1 || retained_journals != 1) {
+            std::cerr << "concurrent journals: deflate=" << deflate
+                << " completed=" << completed_journals << " retained=" << retained_journals
+                << " original_error=" << original_error << " replay_error=" << replay_error
+                << " observations=" << observations << '\n';
+            return 122;
+        }
     }
     return 0;
 }

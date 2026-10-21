@@ -1,0 +1,12 @@
+# {{managed_begin_text}}
+# AIDE Existing-Tool Adapter: Aider
+#
+# This is a preview guidance fragment, not canonical config truth.
+# Use `.aide/context/latest-task-packet.md` as the task brief.
+# Do not paste long chat history or full repo dumps.
+# Do not include secrets, provider keys, `.aide.local/`, raw prompts, or raw responses.
+# Use path and line refs instead of copied source bodies.
+# Run `py -3 .aide/scripts/aide_lite.py doctor`, `validate`, `pack`, `verify`,
+# and `review-pack` where available.
+# Gateway/provider forwarding remains deferred; do not add live-call config here.
+# {{managed_end_text}}

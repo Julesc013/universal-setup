@@ -1,0 +1,56 @@
+schema_version: aide.move-map-policy.v0
+policy_id: aide.move-map.v0
+status: active
+purpose: >
+  Define deterministic, local, candidate-only move-map planning before any
+  future file move, root migration, tool migration, install, upgrade, or
+  cleanup phase.
+operating_mode:
+  - deterministic_local
+  - no_model_calls
+  - no_provider_calls
+  - no_network_calls
+  - candidate_only
+  - dry_run_first
+  - no_apply_in_q42
+  - no_file_moves
+  - no_file_deletes
+  - no_reference_rewrites
+inputs:
+  - repo_intelligence_index
+  - file_quality_ledger
+  - refactor_plan
+  - root_inventory
+  - root_classification
+  - tool_inventory
+  - tool_wrap_plan
+move_entry_statuses:
+  - candidate
+  - needs_review
+  - blocked
+  - rejected
+  - superseded
+  - future_approved
+  - future_applied
+requirements_before_future_apply:
+  - source_exists
+  - target_parent_policy
+  - identity_preservation_check
+  - references_known_or_accepted_unknown
+  - validation_plan
+  - rollback_plan
+  - review_gate
+safety_rules:
+  apply_allowed_default: false
+  current_maps_are_target_truth: false
+  candidate_is_approval: false
+  deletion_approval_allowed: false
+  branch_mutation_allowed: false
+  target_repo_mutation_allowed: false
+non_goals:
+  - no moves
+  - no deletes
+  - no apply
+  - no target mutation
+  - no path alias application
+  - no reference rewrite

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk/usk_api.h"
+#include "usk/usk_publisher_client.h"
 
 #include <stdio.h>
 #include <stdlib.h>

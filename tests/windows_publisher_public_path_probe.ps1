@@ -242,7 +242,7 @@ function Invoke-PublicRequest([string]$Command,$Payload,[int]$ExpectedExit=0) {
     if((Get-Service $service).Status -ne 'Stopped'){throw 'Public one-request service did not stop'}
     return $result
 }
-function Assert-PublicVolumeBoundary($Observation,$Boundary,[string]$DriveRoot,[string]$VolumeRoot,[uint32]$DiskNumber,[long]$PartitionOffset,[long]$PartitionSize,[string]$ServiceSid,[switch]$RequireUnrelated) {
+function Assert-PublicVolumeBoundary($Observation,$Boundary,[string]$DriveRoot,[string]$VolumeRoot,[uint32]$DiskNumber,[long]$PartitionOffset,[long]$PartitionSize,[string]$ServiceSid,$DeviceIntent,[switch]$RequireUnrelated) {
     $root=$Boundary.root
     $prepared=@($Observation.rows|Where-Object path -ceq ($DriveRoot+'publication\journal\lab-prepared-evidence.json'))
     if($prepared.Count -ne 1){throw 'Volume boundary has no retained prepared binding'}
@@ -281,6 +281,21 @@ function Assert-PublicVolumeBoundary($Observation,$Boundary,[string]$DriveRoot,[
         }
     }
     if($serviceAces -ne 1){throw 'Independent raw-volume service grant absent or repeated'}
+    $intended=$DeviceIntent.intended_policy
+    if($null -eq $intended -or @($intended.PSObject.Properties).Count -ne 3 -or
+        $intended.owner -cne $deviceRaw.Owner.Value -or $intended.dacl_protected -ne $true -or
+        -not ($deviceRaw.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -or
+        @($intended.aces).Count -ne $deviceRaw.DiscretionaryAcl.Count) {
+        throw 'Independent mounted device policy differs from the retained bootstrap intent'
+    }
+    for($index=0;$index -lt $deviceRaw.DiscretionaryAcl.Count;$index++) {
+        $actual=$deviceRaw.DiscretionaryAcl[$index];$expected=$intended.aces[$index]
+        if(@($expected.PSObject.Properties).Count -ne 4 -or $expected.type -ne [uint32]$actual.AceType -or
+            $expected.flags -ne [uint32]$actual.AceFlags -or $expected.sid -cne $actual.SecurityIdentifier.Value -or
+            $expected.mask -ne [uint32]([long]$actual.AccessMask -band 0xffffffff)) {
+            throw 'Independent mounted device ordered ACE differs from the retained bootstrap intent'
+        }
+    }
     foreach($checks in @($root.effective_rights,$boundary.device.checks)) {
         $principals=@('filtered')
         if($RequireUnrelated) {
@@ -337,7 +352,7 @@ function Read-IndependentPublicRows {
         throw 'Independent held machine-client token binding differs'
     }
     $boundary=$readback.independent.volume_boundary
-    Assert-PublicVolumeBoundary $readback.independent $boundary $drive $VolumeRoot $disk.Number $partitions[0].Offset $partitions[0].Size $sid -RequireUnrelated
+    Assert-PublicVolumeBoundary $readback.independent $boundary $drive $VolumeRoot $disk.Number $partitions[0].Offset $partitions[0].Size $sid $targetIntent.mounted_device_transition -RequireUnrelated
     $boundaryJson=$boundary|ConvertTo-Json -Depth 16 -Compress
     if($volumeBoundaryBaseline -and $boundaryJson -cne $volumeBoundaryBaseline) {
         throw 'Independent volume-root/device boundary changed across recovery or replay'
@@ -453,7 +468,7 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
     $prepared=@($Observation.rows|Where-Object path -ceq ($drive+'publication\journal\lab-prepared-evidence.json'))
     if($prepared.Count -ne 1){throw 'Independent prepared record absent'}
     $record=$prepared[0].content_json|ConvertFrom-Json
-    if($record.schema -cnotin @('usk.publisher.lab_phase_evidence.v4','usk.publisher.lab_phase_evidence.v5','usk.publisher.lab_phase_evidence.v6','usk.publisher.lab_phase_evidence.v7','usk.publisher.lab_phase_evidence.v8','usk.publisher.lab_phase_evidence.v9') -or
+    if($record.schema -cnotin @('usk.publisher.lab_phase_evidence.v4','usk.publisher.lab_phase_evidence.v5','usk.publisher.lab_phase_evidence.v6','usk.publisher.lab_phase_evidence.v7','usk.publisher.lab_phase_evidence.v8','usk.publisher.lab_phase_evidence.v9','usk.publisher.lab_phase_evidence.v10','usk.publisher.lab_phase_evidence.v11') -or
         $record.phase -cne 'lab_prepared_evidence' -or $record.service_sid -cne $sid -or
         $record.source_file_id -cne $record.sealed_tree.root.file_id) {
         $receipt['native_execution_diagnostic']=@{schema=$record.schema;phase=$record.phase;
@@ -541,18 +556,26 @@ function Assert-IndependentNativeClosure($Observation,[string]$PayloadRoot) {
     $executionResult=& python -B (Join-Path $PSScriptRoot 'publisher_execution_evidence.py') --input $executionInput
     if($LASTEXITCODE -ne 0){throw 'Independent native execution record reconciliation failed'}
     $executionReport=($executionResult -join "`n")|ConvertFrom-Json
-    if($executionReport.schema -cne 'usk.publisher_execution_reconciliation.v4' -or
+    $childEvidence=$record.schema -cin @('usk.publisher.lab_phase_evidence.v10','usk.publisher.lab_phase_evidence.v11')
+    $reportSchema=if($childEvidence){'usk.publisher_execution_reconciliation.v5'}else{'usk.publisher_execution_reconciliation.v4'}
+    $creatorSchema=if($record.schema -ceq 'usk.publisher.lab_phase_evidence.v11'){'usk.publisher_creation_reconciliation.v5'}elseif($childEvidence){'usk.publisher_creation_reconciliation.v4'}else{'usk.publisher_creation_reconciliation.v3'}
+    if($executionReport.schema -cne $reportSchema -or
         $executionReport.status -cne 'bindings_consistent' -or $executionReport.profile_qualified -ne $false -or
         $executionReport.held_roles_per_phase -ne 7 -or
         $executionReport.process_bound_phase_count -ne $executionReport.phase_count -or
         $executionReport.worker_security_phase_count -ne $executionReport.phase_count -or
-        $executionReport.creation_observation.schema -cne 'usk.publisher_creation_reconciliation.v3' -or
+        $executionReport.creation_observation.schema -cne $creatorSchema -or
         $executionReport.creation_observation.process_boundary_checked -ne $true -or
         $executionReport.creation_observation.worker_security_checked -ne $true -or
         $executionReport.creation_observation.status -cne 'bindings_consistent' -or
         $executionReport.creation_observation.profile_qualified -ne $false -or
         $executionReport.creation_observation.created_object_count -lt 6) {
         throw 'Independent execution reconciliation result differs'
+    }
+    if($childEvidence -and ($executionReport.effect_worker_phase_count -ne $executionReport.phase_count -or
+        $executionReport.creation_observation.original_broker_checked -ne $true -or
+        @($executionReport.broker_process_ids).Count -le 0 -or @($executionReport.worker_process_ids).Count -le 0)) {
+        throw 'Independent native child evidence lacks separate original broker/creator bindings'
     }
     $receipt.execution_readback_reconciliations.Add(@{result=$executionReport;
         input_sha256=(Get-FileHash -LiteralPath $executionInput -Algorithm SHA256).Hash.ToLowerInvariant();
@@ -684,7 +707,15 @@ try {
     $targetAdmittedPath=Join-Path (Split-Path -Parent $installedBinary) ($service+'.target-admitted.json')
     $targetIntent=Get-Content -LiteralPath $targetIntentPath -Raw|ConvertFrom-Json
     $targetIntentHash=(Get-FileHash -LiteralPath $targetIntentPath -Algorithm SHA256).Hash
-    if($targetIntent.schema -cne 'usk.publisher_target_intent.v2'){throw 'Target transition intent schema differs'}
+    if($targetIntent.schema -cne 'usk.publisher_target_intent.v3' -or @($targetIntent.PSObject.Properties).Count -ne 5 -or
+        @($targetIntent.mounted_device_transition.PSObject.Properties).Count -ne 2 -or
+        $targetIntent.mounted_device_transition.original_owner_dacl.Length -gt 8192) {
+        throw 'Target transition intent schema or mounted device binding differs'
+    }
+    $originalDevice=[Security.AccessControl.RawSecurityDescriptor]::new($targetIntent.mounted_device_transition.original_owner_dacl)
+    if($null -eq $originalDevice.DiscretionaryAcl -or $originalDevice.Owner.Value -cnotin @('S-1-5-18','S-1-5-32-544')) {
+        throw 'Target transition intent has an unavailable original mounted device descriptor'
+    }
     Assert-VolumeMetadataSnapshot $metadataBefore $targetIntent.original_metadata
     $metadataAfter=Read-VolumeMetadata
     Assert-VolumeMetadataSnapshot $metadataAfter $targetIntent.identity.metadata
@@ -718,7 +749,7 @@ try {
         $boundaryObserver=Start-OwnedProductionBoundaryObserver -Phase $PublicationLoss -Service $service `
             -ObserverRoot $observerRoot -VhdPath $VhdPath -VolumeRoot $VolumeRoot -DriveRoot $drive `
             -VisibleRoot ($drive+'publication\destination\visible') -ServiceCommand $command `
-            -ServiceBinarySha256 $receipt.service_sha256
+            -ServiceBinarySha256 $receipt.service_sha256 -ObserverFamily legacy_scm_v1
         $receipt['interrupted_apply']=Invoke-PublicRequest 'install_local.apply' $apply 5
         if($receipt.interrupted_apply.status -cne 'unknown' -or
             $receipt.interrupted_apply.error.code -cne 'publisher_outcome_unknown' -or

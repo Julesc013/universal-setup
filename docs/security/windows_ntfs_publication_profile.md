@@ -2066,3 +2066,149 @@ refuses registered installation before context entry and refuses registered
 forward recovery before publication or finalization. Existing material remains
 retained. Historical record parsing and private candidate paths keep their
 original platform floor, and read-only verification keeps its existing scope.
+
+### Prospective broker thread custody (qualification pending)
+
+The private SCM readback owner now retains the original query-only,
+non-inheritable native thread handles transferred from a completed, service-bound
+full policy observation before its first authenticated reply. This is separate
+from the effect child's immutable original-thread continuity. It cannot adopt a
+retained JSON record or acquire provenance by reopening a remembered thread ID.
+
+Later native walks compare returned objects to the continuously held originals
+using [CompareObjectHandles](https://learn.microsoft.com/en-us/windows/win32/api/handleapi/nf-handleapi-compareobjecthandles),
+then recheck native PID, TID, birth and exact stored owner/DACL facts. Only a
+previously completely admitted non-execution original may positively retire:
+its held object must signal, a separate post-signal time query must supply a
+nonzero exit at or after birth, repeated identity/birth/signal/exit must agree,
+and its stored security must remain readable and unchanged. Token/security read
+failures cannot become retirement evidence. Execution identity and primary
+token/defaults remain frozen; fresh SCM, configuration, caller, custody, process
+security and target observations still bracket replies.
+
+A retired original whose numeric ID appears in either independent census
+requires matching same-object evidence from that native walk. Its old exit
+alone cannot identify a BEFORE-only, missing or access-filtered census entry.
+
+New and partially observed threads remain pending through the entire native
+coverage and policy read. Death, access filtering, missing mandatory coverage,
+security changes and unresolved churn still refuse. Successful whole reads
+transfer their first handles and facts into the owner without reopening them.
+The cumulative provenance bound is 4096 objects, including retired originals;
+there is no eviction or baseline refresh. Collection keeps its four-round
+bound and bracketed census scope. Positive old-object retirement may extend a
+successful read; it cannot replay a failed read or forgive pending-object loss.
+
+The distinct closed `usk.publisher_broker_worker_security.v1` record carries a
+complete admitted history and live/retired partition under broker native
+readback v3. Native transport and independent retained-record checks require
+monotonic admission and immutable retirement facts across replies and phases.
+Older broker readback v2 still requires ordinary worker security v1; child
+retirement records and their frozen baseline rules remain separate.
+
+This source change does not retrospectively classify the failed head
+`67cc06d`'s thread, identify its creator, prove I/O quiescence, confer effect
+authority or establish public availability. Its new native controls distinguish
+completed original custody from otherwise equivalent unknown or pending loss.
+Exact-source review and the full supported hosted profile remain required.
+
+The private effect-transport image binding is scoped to the registration-admitted
+protected running publisher executable. The protected installation creates a
+BA/SY-only output, completes synchronous writes and FlushFileBuffers, closes it,
+then promotes it; the admitted service grant is read/execute only. Registration
+checks its protected location, descriptor, actual process image and expected
+digest. This existing boundary excludes hostile pre-admission pending writers
+within the profile. Ordinary data-file test construction grants no production
+admission and supplies no general immutable-file guarantee.
+
+The private effect-transport image binding retains one original, non-inheritable
+GENERIC_READ/FILE_SHARE_READ handle for its entire wire lifetime, including
+closure-unknown retention. The held handle must positively identify a fixed local
+volume GUID, NTFS and its original volume serial, with no remote protocol facts.
+An initial complete SHA-256 binds content under that handle. Repeated custody
+observations reuse only this content binding: they still inspect held and
+reopened-path metadata, the actual live peer PID/birth/image path, and the
+callers' existing token and authorization facts. A failed image metadata check
+permanently invalidates that image owner. Restored mutable file observations and
+the general StableFile::sha256_hex() method retain fresh hashing.
+
+This replaces the previous repeated image-content sampling guarantee with local
+NTFS write exclusion. It does not sample later full-image read or CNG errors,
+cache authorization, cover remote filesystems, or assert immutable metadata.
+Existing writable handles or file-backed writable mappings must prevent
+admission; copy-on-write views do not alter the bound file. Trusted kernel and
+filesystem enforcement remains part of this profile's stated threat model.
+Source changes and local controls alone do not establish recovery qualification
+or a request-deadline improvement.
+
+
+## Public repair source re-admission before staging
+
+The public repair path prepares its existing durable maintenance context before
+reading replacement bytes. Archive inspection's returned readers previously
+shared an absolute deadline created before policy evaluation, repeated installed
+verification and native maintenance setup. A stored-ZIP time-budget refusal at
+staging therefore did not establish 30 seconds of archive extraction work.
+
+The private repair source owner now performs one explicit, fresh admission at
+that staging boundary. The original held source remains retained; a new complete
+inspection must match its source SHA-256, native identity digest, archive size
+and entry-set digest. Every selected path, size and payload SHA-256 must match
+the reviewed repair replacements. Existing ZIP/Deflate CRC, compressed/expanded
+boundary checks, source verification, cancellation and staged size/hash checks
+remain in force. This is a separately bounded source admission, not reuse of an
+expired observation or an authorization grant.
+
+One 30-second extraction-phase deadline starts before that fresh inspection and
+covers its identity/hash/metadata work plus all selected reads and EOF probes.
+It never resets per file or read. Preparation can occur only once; premature or
+wrong-thread reads, exceptions, cancellation, mismatches and expiration make all
+copies of that owner's callbacks unusable. Failure never selects the old reader
+route. Preparation runs inside the existing repair failure handler, after durable
+maintenance setup; its failure is not evidence that dispatch had no effects.
+The separate 120-second request contract and every native authorization fence
+remain unchanged. Install, update and ordinary internal repair callers retain
+their existing behavior.
+
+This changes the former inspection-to-last-read age limit into separately bounded
+inspection and extraction phases; it does not preserve an unchanged cumulative
+archive-time allowance. Metadata includes the bounded reviewed replacement table,
+one fresh inspection table and its selected reader slots (at most the existing
+10,000-entry limits). Original and fresh source handles coexist. Full payload
+bytes are not retained; archive and staging keep their existing streaming buffer
+bounds. These are separate bounds, not a claim of a fixed total-memory ceiling.
+Local source controls alone do not establish packaged repair, source-free recovery,
+a deadline improvement or main/release qualification.
+
+Extraction expiry diagnostics identify the checkpoint, elapsed phase time, prior
+successful clock check and completed preparation time. At a selected read they
+also identify its ordered file index, offset and capacity. These use the existing
+clock samples; they add no deadline, reset, authorization input or fallback. An
+interval between checks includes intervening caller work and blocking I/O; its
+duration does not attribute exclusive cost to the archive or native staging.
+Cancellation is reported separately without sampling the clock after it fires.
+
+The shared deadline is observed at the archive's existing hashing/decoding
+checkpoints and before/after returned reads. Blocking native I/O is not made
+preemptible. The archive's retained checker refers back to its source owner
+without an ownership cycle; each outer invocation retains that owner until
+return or failure, including when caller callbacks abandon the plan. Reentrant
+caller callbacks invalidate the phase even if they catch the nested refusal.
+The private preparation callback is not serialized into the durable repair
+plan: interrupted source-free recovery continues from its existing retained
+transaction payload and does not require re-admitting a retired archive.
+
+## Qualification stage observer and request dispatch
+
+The hosted stage observer starts after both attacker processes pass readiness
+and owner checks, before the first admitted request client is created. Account
+creation and attacker preparation do not consume its unchanged 120-second
+watchdog. Its ready marker still precedes possible client dispatch and attacker
+release. The 200ms continuity limit, 64-interval bound, native rename overlap,
+source hashes, SYSTEM identity and terminal checks remain required.
+
+The bounded parsed observer result is retained as a candidate before terminal
+or coverage admission. A rejected candidate cannot be promoted by cleanup or
+diagnostic retention. Local AST/collector controls exercise ordering and refusal;
+they do not establish actual SYSTEM execution or publisher qualification. The
+request deadline and production source-validation behavior are unchanged.

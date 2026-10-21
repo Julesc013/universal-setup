@@ -1,0 +1,21 @@
+{
+  "artifacts": [],
+  "branch": "main",
+  "command": "py -3 -m unittest discover",
+  "commit": "example",
+  "dirty_state": false,
+  "duration_seconds": 1,
+  "exit_code": 1,
+  "failure_families": [],
+  "generated_by": "aide-lite",
+  "raw_log": "full raw output must not be embedded in compact summaries",
+  "repo": "aide",
+  "schema_version": "aide.test-summary.v0",
+  "stale_check": {"is_stale": false},
+  "started_at": "2026-06-01T00:00:00Z",
+  "status": "FAIL",
+  "tier": "T3",
+  "totals": {"error": 0, "fail": 1, "pass": 0, "skipped": 0, "tests": 1},
+  "warnings": []
+}
+

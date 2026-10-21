@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "required": [
+    "schema_version",
+    "pack_ref",
+    "pack_manifest",
+    "pack_checksums",
+    "pack_versions",
+    "portable_files",
+    "source_generated_exclusions",
+    "warnings"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "pack_ref": {"type": "object"},
+    "pack_manifest": {"type": "object"},
+    "pack_checksums": {"type": "object"},
+    "pack_versions": {"type": "object"},
+    "portable_files": {"type": "array"},
+    "source_generated_exclusions": {"type": "array"},
+    "warnings": {"type": "array"}
+  }
+}

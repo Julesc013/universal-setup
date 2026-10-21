@@ -1,0 +1,40 @@
+schema_version: aide.upgrade-compatibility-policy.v0
+policy_id: aide.upgrade-compatibility.v0
+status: active
+purpose: >
+  Define deterministic compatibility dimensions and levels for comparing a
+  current AIDE install to a source AIDE Lite pack.
+compatibility_dimensions:
+  - pack_schema_version
+  - policy_schema_version
+  - script_command_surface
+  - golden_task_catalog
+  - managed_section_format
+  - generated_artifact_format
+  - install_plan_schema
+  - repair_plan_schema
+  - refactor_schema
+  - target_specific_extension
+  - unknown
+compatibility_levels:
+  - compatible
+  - compatible_with_warnings
+  - migration_required_future
+  - unsupported
+  - unknown
+comparison_categories:
+  - exact_match
+  - portable_update_available
+  - target_specific_preserved
+  - generated_state_should_regenerate
+  - schema_compatible
+  - schema_migration_required_future
+  - unsupported
+  - unknown
+rules:
+  no_semver_invention: true
+  use_manifest_when_present: true
+  use_policy_schema_versions: true
+  use_script_command_surface: true
+  use_file_hashes: true
+  unknown_is_review_required: true

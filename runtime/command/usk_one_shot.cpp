@@ -5,6 +5,9 @@
 
 #include "usk/usk_api.h"
 #include "usk_json.h"
+#include "usk_publisher_response_internal.h"
+#include "usk_publisher_client_context_internal.h"
+#include "usk_publisher_recovery_request_internal.h"
 #include "usk_effect_dispatch.h"
 
 #include <array>
@@ -14,6 +17,7 @@
 #include <ostream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 namespace usk::command {
@@ -34,17 +38,18 @@ OneShotResult failure(const std::string& request_id, const char* code)
 }
 
 OneShotResult candidate_outcome(const std::string& request_id, const char* status,
-    const Value& result, const char* error_code, int exit_code)
+    Value result, const char* error_code, int exit_code)
 {
     const Value error = error_code == nullptr ? Value() :
         Value(Value::Object{{"code", Value(error_code)}});
-    const Value envelope(Value::Object{
+    Value::Object fields{
         {"schema", Value("usk.oneshot_response.v1")},
         {"request_id", Value(request_id)},
         {"status", Value(status)},
-        {"result", result},
         {"error", error}
-    });
+    };
+    fields.emplace("result", std::move(result));
+    const Value envelope(std::move(fields));
     const std::string document = usk::json::canonical(envelope);
     if (document.size() > max_response_bytes)
         return candidate_outcome(request_id, "unknown", Value(),
@@ -52,51 +57,10 @@ OneShotResult candidate_outcome(const std::string& request_id, const char* statu
     return {document, "", exit_code};
 }
 
-bool safe_id(const std::string& value)
-{
-    if (value.empty() || value.size() > 128) return false;
-    for (const unsigned char ch : value) {
-        if (!((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
-              (ch >= '0' && ch <= '9') || ch == '.' || ch == '_' || ch == '-')) {
-            return false;
-        }
-    }
-    return true;
-}
-
-bool lower_hex(const std::string& value, std::size_t length)
-{
-    return value.size() == length &&
-        value.find_first_not_of("0123456789abcdef") == std::string::npos;
-}
-
-// These are diagnostics from the authenticated service, not reconstructed
-// native exceptions or a grant to retry. Preserve the service's effects status.
-const char* publisher_operation_error_code(const Value& observed)
-{
-    if (!observed.contains("error_code")) return nullptr;
-    const auto& code = observed.at("error_code").as_string();
-    if (code == "operation_conflict") return "operation_conflict";
-    if (code == "operation_cancelled") return "operation_cancelled";
-    if (code == "lease_stale") return "lease_stale";
-    if (code == "state_revision_stale") return "state_revision_stale";
-    if (code == "stale_plan") return "stale_plan";
-    return nullptr;
-}
-
-Value publisher_operation_diagnostic(const Value& observed, const char* code)
-{
-    if (!code || !observed.contains("operation_inspection_ref")) return Value();
-    const auto& reference = observed.at("operation_inspection_ref").as_string();
-    const std::string prefix = "usk.operation-inspection.v1:";
-    if (reference.compare(0, prefix.size(), prefix) != 0 ||
-        !lower_hex(reference.substr(prefix.size()), 64))
-        throw std::runtime_error("publisher operation inspection reference differs");
-    return Value(Value::Object{
-        {"schema", Value("usk.publisher_operation_diagnostic.v1")},
-        {"error_code", Value(code)},
-        {"inspection_reference", Value(reference)}});
-}
+using detail::safe_id;
+using detail::lower_hex;
+using detail::publisher_operation_error_code;
+using detail::publisher_operation_diagnostic;
 
 bool sid_text(const std::string& value, bool service = false)
 {
@@ -178,8 +142,13 @@ void require_capability_observation(const Value& value, const std::string& reque
     }
 }
 
-void require_service_capability_observation(const Value& response, const std::string& request_id, bool scoped_profile)
+void require_service_capability_observation(const Value& response, const std::string& request_id, unsigned protocol_version)
 {
+    if (protocol_version != 2 && protocol_version != 3 && protocol_version != 4 && protocol_version != 5)
+        throw std::runtime_error("service capability protocol differs");
+    const bool scoped_profile = protocol_version != 2;
+    const bool child_profile = protocol_version >= 4;
+    const bool retirement_profile = protocol_version == 5;
     if (response.as_object().size() != 8 ||
         response.at("schema").as_string() != "usk.publisher_service_capability_observation.v1" ||
         response.at("status").as_string() != "observed" ||
@@ -189,15 +158,24 @@ void require_service_capability_observation(const Value& response, const std::st
     const auto& effects=value.at("effects").as_array();
     const auto& platform=value.at("platform");
     bool qualified = false;
+    bool available = false;
     if (scoped_profile) {
         const auto& bounds = value.at("qualification_bounds");
         const auto& sdk = platform.at("sdk_version").as_string();
-        if (bounds.as_object().size() != 4 ||
-            bounds.at("phase_schema").as_string() != "usk.publisher.lab_phase_evidence.v9" ||
-            bounds.at("execution_schema").as_string() != "usk.publisher_execution_observation.v6" ||
+        if (bounds.as_object().size() != (retirement_profile ? 9u : child_profile ? 8u : 4u) ||
+            bounds.at("phase_schema").as_string() != (retirement_profile ? "usk.publisher.lab_phase_evidence.v11" : child_profile ? "usk.publisher.lab_phase_evidence.v10" : "usk.publisher.lab_phase_evidence.v9") ||
+            bounds.at("execution_schema").as_string() != (retirement_profile ? "usk.publisher_execution_observation.v8" : child_profile ? "usk.publisher_execution_observation.v7" : "usk.publisher_execution_observation.v6") ||
             bounds.at("sdk_version").as_string() != "10.0.26100.0" ||
-            bounds.at("qualified_windows_build").as_unsigned() != 20348 || sdk.size() > 32)
+            bounds.at(child_profile ? "candidate_windows_build" : "qualified_windows_build").as_unsigned() != 20348 || sdk.size() > 32)
             throw std::runtime_error("scoped publisher qualification bounds differ");
+        if (retirement_profile && bounds.at("worker_security_schema").as_string() != "usk.publisher_worker_security.v2")
+            throw std::runtime_error("scoped publisher native retirement bounds differ");
+        if (child_profile &&
+            (bounds.at("creation_schema").as_string() != (retirement_profile ? "usk.publisher.creation_observation.v5" : "usk.publisher.creation_observation.v4") ||
+             bounds.at("original_custody_schema").as_string() != (retirement_profile ? "usk.publisher.maintenance_original_custody.v4" : "usk.publisher.maintenance_original_custody.v3") ||
+             bounds.at("process_loss_schema").as_string() != "usk.publisher.production_rename_observer.v2" ||
+             bounds.at("active_contention_schema").as_string() != "usk.publisher_active_install_contention_probe.v2"))
+            throw std::runtime_error("owned child capability source bounds differ");
         if (!sdk.empty()) {
             std::size_t separators = 0;
             bool component = false;
@@ -213,23 +191,28 @@ void require_service_capability_observation(const Value& response, const std::st
             }
             if (!component || separators != 3) throw std::runtime_error("scoped publisher SDK differs");
         }
-        qualified = platform.at("windows_build").as_unsigned() == 20348 && sdk == "10.0.26100.0";
+        available = platform.at("windows_build").as_unsigned() == 20348 && sdk == "10.0.26100.0";
+        // Retained V3 has its original semantics. Current V4 compatibility
+        // alone cannot promote the new child path to qualified support.
+        qualified = !child_profile && available;
     }
     if (value.as_object().size() != (scoped_profile ? 22u : 21u) ||
-        value.at("schema").as_string() != (scoped_profile ? "usk.publisher_capability.v3" : "usk.publisher_capability.v2") ||
+        value.at("schema").as_string() != (retirement_profile ? "usk.publisher_capability.v5" : child_profile ? "usk.publisher_capability.v4" : scoped_profile ? "usk.publisher_capability.v3" : "usk.publisher_capability.v2") ||
         value.at("request_id").as_string() != request_id ||
         value.at("provider_id").as_string() != "windows_nt_x64_local_ntfs_service_sid_noreplace_v1" ||
         value.at("implementation").as_string() != "partial" ||
-        value.at("realization").as_string() != "restricted_service" || value.at("availability").as_boolean() != qualified ||
+        value.at("realization").as_string() != "restricted_service" || value.at("availability").as_boolean() != available ||
         value.at("required_privilege").as_string() != "none_for_registered_caller" ||
         value.at("permission").as_string() != "registered_caller_observed" ||
         value.at("authority").as_string() != "not_granted_by_discovery" ||
         value.at("qualification").as_string() != (qualified ? "qualified_for_scope" : "incomplete") ||
-        value.at("qualification_scope").as_string() != (scoped_profile ?
+        value.at("qualification_scope").as_string() != (retirement_profile ?
+            "registered_public_apply_v11_owned_child_native_retirement_process_restart_replay_verify" : child_profile ?
+            "registered_public_apply_v10_owned_child_process_restart_replay_verify" : scoped_profile ?
             "registered_public_apply_v9_process_restart_replay_verify" : "service_admitted_target_observation") ||
         value.at("binding_provenance").as_string() != "retained_controller_admission_and_current_disk_identity" ||
-        value.at("support").as_string() != (qualified ? "supported_for_scope" : "unsupported") ||
-        value.at("recovery_ceiling").as_string() != (scoped_profile ? "source_free_process_restart_v9" : "candidate_source_free_restart") ||
+        value.at("support").as_string() != (child_profile && available ? "candidate_for_scope" : qualified ? "supported_for_scope" : "unsupported") ||
+        value.at("recovery_ceiling").as_string() != (retirement_profile ? "candidate_source_free_process_restart_v11" : child_profile ? "candidate_source_free_process_restart_v10" : scoped_profile ? "source_free_process_restart_v9" : "candidate_source_free_restart") ||
         value.at("power_loss_qualified").as_boolean() ||
         !value.at("revalidation_required_before_effects").as_boolean() ||
         value.at("execution_lease_held").as_boolean() || value.at("service_state").as_unsigned() != 4 ||
@@ -299,7 +282,8 @@ bool initial_command(const std::string& command)
 {
     return command == "command_graph.inspect" || command == "command_graph.inspect_v2" ||
         command == "policy.inspect" || command == "diagnostics.report" ||
-        command == "install_local.inspect" || command == "install_local.plan";
+        command == "install_local.inspect" || command == "install_local.plan" ||
+        command == "repair.plan" || command == "move.plan" || command == "uninstall.plan";
 }
 
 } // namespace
@@ -366,7 +350,9 @@ OneShotResult run_one_shot(const std::string& request_json,
             input.at("payload").type() != Value::Type::object) {
             return failure(request_id, "invalid_request");
         }
-        if ((command == "install_local.plan") != (context_config != nullptr)) {
+        const bool configured_plan = command == "install_local.plan" || command == "repair.plan" ||
+            command == "move.plan" || command == "uninstall.plan";
+        if (configured_plan != (context_config != nullptr)) {
             return failure(request_id, "context_mismatch");
         }
         if (context_config != nullptr && !valid_context(*context_config)) {
@@ -440,6 +426,7 @@ static OneShotResult run_publisher_request(const std::string& request_json,
     std::string response_field;
     std::string candidate_command;
     Value submitted;
+    bool public_recovery = false;
     try {
         usk::json::ParseLimits limits;
         limits.max_bytes = max_request_bytes;
@@ -456,7 +443,10 @@ static OneShotResult run_publisher_request(const std::string& request_json,
         const std::string command = input.at("command").as_string();
         candidate_command = command;
         std::string expected_schema;
-        if (command == "install_local.apply") {
+        if (command == "install_local.plan" && !retain_observation) {
+            expected_schema = "usk.install_local_plan_request.v1";
+            response_field = "plan_response";
+        } else if (command == "install_local.apply") {
             expected_schema = "usk.install_local_apply_request.v1";
             response_field = "apply_response";
         } else if (command == "installed.verify") {
@@ -465,20 +455,46 @@ static OneShotResult run_publisher_request(const std::string& request_json,
         } else if (command == "install_local.recover") {
             expected_schema = "usk.publisher_recovery_request.v1";
             response_field = "recovery_installed_response";
+        } else if (!retain_observation && (command == "repair.apply" || command == "move.apply" ||
+                command == "uninstall.apply")) {
+            expected_schema = "usk." + command.substr(0, command.find('.')) + "_apply_request.v1";
+            response_field = "apply_response";
+        } else if (!retain_observation && (command == "repair.recover" || command == "move.recover" ||
+                command == "uninstall.recover")) {
+            expected_schema = "usk.publisher_maintenance_recovery_request.v1";
+            response_field = "recovery_response";
+        } else if (!retain_observation && (command == "recovery.inspect" ||
+                command == "recovery.plan" || command == "recovery.apply")) {
+            public_recovery = true;
+            expected_schema = command == "recovery.inspect" ? "usk.recovery_inspect_request.v1" :
+                command == "recovery.plan" ? "usk.recovery_plan_request.v1" : "usk.recovery_apply_request.v1";
         } else if (command == "publisher.inspect" && !retain_observation) {
             expected_schema = "usk.publisher_capability_request.v1";
         } else if (command == "publisher.observe") {
-            expected_schema = input.at("payload").at("schema").as_string() == "usk.publisher_capability_request.v3" ?
-                "usk.publisher_capability_request.v3" : "usk.publisher_capability_request.v2";
+            const auto& schema = input.at("payload").at("schema").as_string();
+            expected_schema = schema == "usk.publisher_capability_request.v5" ? schema :
+                schema == "usk.publisher_capability_request.v4" ? schema :
+                schema == "usk.publisher_capability_request.v3" ? schema : "usk.publisher_capability_request.v2";
         } else {
             return failure(request_id, "command_unavailable");
         }
         const bool inspection = command == "publisher.inspect";
-        if (input.at("dry_run").as_boolean() != inspection ||
+        const bool read_only = inspection || command == "install_local.plan" || (public_recovery && command != "recovery.apply");
+        if (input.at("dry_run").as_boolean() != read_only ||
             input.at("payload").type() != Value::Type::object ||
             input.at("payload").at("schema").as_string() != expected_schema)
             return failure(request_id, "invalid_request");
         submitted = input.at("payload");
+        if (command == "install_local.plan") detail::require_public_install_plan_request(submitted);
+        // The SDK's complete closed decoder precedes all transport callbacks.
+        // Preserve the full request, reviewed digests and selected action;
+        // never reduce public recovery to the older private lookup selector.
+        if (public_recovery && !detail::publisher_public_recovery_inspection(submitted))
+            return failure(request_id, "invalid_request");
+        if (response_field == "recovery_response" && (submitted.as_object().size() != 4 ||
+            submitted.at("operation").as_string() != command.substr(0, command.find('.')) ||
+            !safe_id(submitted.at("install_id").as_string()) || !safe_id(submitted.at("transaction_id").as_string())))
+            return failure(request_id, "invalid_request");
         if ((inspection || command == "publisher.observe") && (submitted.as_object().size() != 2 ||
             submitted.at("request_id").as_string() != request_id))
             return failure(request_id, "invalid_request");
@@ -486,6 +502,22 @@ static OneShotResult run_publisher_request(const std::string& request_json,
     } catch (const std::exception&) {
         return failure(request_id, "invalid_request");
     }
+
+    // Prepare current-call uncertainty before any transport can connect/start/write.
+    // A later exception, including allocation failure while parsing/formatting a
+    // reply, returns these already owned bytes without another allocation.
+    static_assert(std::is_nothrow_move_constructible<OneShotResult>::value,
+        "publisher uncertainty return must not allocate");
+    Value unknown_result;
+    if (public_recovery) {
+        unknown_result = Value(Value::Object{{"schema", Value("usk.command_response.v1")},
+            {"status", Value("unknown")},
+            {"payload", detail::publisher_client_invocation_identity(candidate_command, submitted)},
+            {"error", Value(Value::Object{{"code", Value("publisher_outcome_unknown")}})}});
+    }
+    auto unknown_response = candidate_outcome(request_id, "unknown", std::move(unknown_result),
+        candidate_command == "publisher.observe" ? "publisher_observation_unknown" :
+            "publisher_outcome_unknown", 5);
 
     if (candidate_command == "publisher.inspect") {
         try {
@@ -512,14 +544,16 @@ static OneShotResult run_publisher_request(const std::string& request_json,
             limits.max_string_bytes=4096;
             const auto response=usk::json::parse(raw,limits);
             require_service_capability_observation(response,request_id,
-                submitted.at("schema").as_string() == "usk.publisher_capability_request.v3");
+                submitted.at("schema").as_string() == "usk.publisher_capability_request.v5" ? 5u :
+                submitted.at("schema").as_string() == "usk.publisher_capability_request.v4" ? 4u :
+                submitted.at("schema").as_string() == "usk.publisher_capability_request.v3" ? 3u : 2u);
             return candidate_outcome(request_id,"ok",
                 retain_observation ? response : response.at("capability_observation"),nullptr,0);
         } catch (const usk::base::EffectRequestNotDispatched&) {
             // Startup or controller admission may already have occurred.
-            return candidate_outcome(request_id,"unknown",Value(),"publisher_observation_unknown",5);
-        } catch (const std::exception&) {
-            return candidate_outcome(request_id,"unknown",Value(),"publisher_observation_unknown",5);
+            return unknown_response;
+        } catch (...) {
+            return unknown_response;
         }
     }
 
@@ -528,95 +562,12 @@ static OneShotResult run_publisher_request(const std::string& request_json,
     try {
         if (!transport) return failure(request_id, "transport_unavailable");
         const std::string response = transport(request);
-        usk::json::ParseLimits limits;
-        limits.max_bytes = max_response_bytes;
-        limits.max_string_bytes = max_response_bytes / 2;
-        const Value observed = usk::json::parse(response, limits);
-        if (observed.at("schema").as_string() !=
-                "usk.publisher_lab_service_observation.v1")
-            throw std::runtime_error("candidate response schema differs");
-        const std::string status = observed.at("status").as_string();
-        if (status == "pass") {
-            const Value* public_response = &observed.at(response_field);
-            if (candidate_command == "install_local.apply") {
-                const bool direct_present = public_response->type() != Value::Type::null_value;
-                const bool replay_present =
-                    observed.at("recovery_installed_response").type() !=
-                    Value::Type::null_value;
-                if (direct_present == replay_present)
-                    throw std::runtime_error("candidate apply completion is ambiguous");
-                if (replay_present)
-                    public_response = &observed.at("recovery_installed_response");
-            }
-            if (public_response->at("schema").as_string() !=
-                    "usk.command_response.v1" ||
-                public_response->at("status").as_string() != "ok")
-                throw std::runtime_error("candidate public response differs");
-            if (!retain_observation) {
-                const auto& payload = public_response->at("payload");
-                if (candidate_command == "installed.verify") {
-                    if (payload.at("schema").as_string() != "usk.verification_report.v1" ||
-                        payload.at("status").as_string() != "pass" ||
-                        payload.at("install_id").as_string() != submitted.at("install_id").as_string() ||
-                        payload.at("report_id").as_string() != submitted.at("report_id").as_string() ||
-                        payload.at("verified_at").as_string() != submitted.at("verified_at").as_string() ||
-                        payload.at("report_digest").as_string() != observed.at("bound_report_digest").as_string())
-                        throw std::runtime_error("publisher verification binding differs");
-                } else {
-                    const std::string install_id = candidate_command == "install_local.apply" ?
-                        submitted.at("plan_request").at("install_id").as_string() :
-                        submitted.at("install_id").as_string();
-                    if (payload.at("schema").as_string() != "usk.installed_state.v1" ||
-                        payload.at("lifecycle_status").as_string() != "installed" ||
-                        payload.at("install_id").as_string() != install_id ||
-                        payload.at("transaction_id").as_string() != submitted.at("transaction_id").as_string() ||
-                        (candidate_command == "install_local.apply" &&
-                         payload.at("created_at").as_string() != submitted.at("applied_at").as_string()))
-                        throw std::runtime_error("publisher installation binding differs");
-                }
-            }
-            return candidate_outcome(request_id, "ok",
-                retain_observation ? observed : *public_response, nullptr, 0);
-        }
-        if (status == "failed" && candidate_command == "installed.verify" &&
-            observed.contains("verify_response")) {
-            const auto& public_response = observed.at("verify_response");
-            if (public_response.at("schema").as_string() !=
-                    "usk.command_response.v1" ||
-                public_response.at("status").as_string() != "ok" ||
-                public_response.at("payload").at("schema").as_string() !=
-                    "usk.verification_report.v1")
-                throw std::runtime_error("candidate verification response differs");
-            const std::string report_status =
-                public_response.at("payload").at("status").as_string();
-            if ((report_status != "fail" && report_status != "warn" &&
-                    report_status != "unknown") ||
-                public_response.at("payload").at("report_digest").as_string() !=
-                    observed.at("bound_report_digest").as_string())
-                throw std::runtime_error("candidate verification report differs");
-            // A valid drift report is a completed diagnosis, not a refusal.
-            if (!retain_observation) {
-                const auto& report = public_response.at("payload");
-                if (report.at("install_id").as_string() != submitted.at("install_id").as_string() ||
-                    report.at("report_id").as_string() != submitted.at("report_id").as_string() ||
-                    report.at("verified_at").as_string() != submitted.at("verified_at").as_string())
-                    throw std::runtime_error("publisher drift report binding differs");
-            }
-            return candidate_outcome(request_id, "ok",
-                retain_observation ? observed : public_response, nullptr, 0);
-        }
-        if (status == "failed") {
-            const auto code = publisher_operation_error_code(observed);
-            const auto diagnostic = publisher_operation_diagnostic(observed, code);
-            return candidate_outcome(request_id, "refused", retain_observation ? observed : diagnostic,
-                code ? code : "publisher_failed", 4);
-        }
-        if (status == "recovery_required") {
-            const auto code = publisher_operation_error_code(observed);
-            const auto diagnostic = publisher_operation_diagnostic(observed, code);
-            return candidate_outcome(request_id, "recovery_required", retain_observation ? observed : diagnostic,
-                code ? code : "recovery_required", 5);
-        }
+        auto normalized = detail::validate_publisher_response(
+            candidate_command, submitted, response, retain_observation);
+        const bool completed = normalized.disposition == detail::PublisherResponseDisposition::completed;
+        const bool refused = normalized.disposition == detail::PublisherResponseDisposition::refused;
+        return candidate_outcome(request_id, completed ? "ok" : refused ? "refused" : "recovery_required",
+            std::move(normalized.result), normalized.error_code, completed ? 0 : refused ? 4 : 5);
     } catch (const usk::base::EffectRequestNotDispatched& error) {
         using Reason = usk::base::EffectRequestNotDispatched::Reason;
         if (error.reason() == Reason::admission_refused)
@@ -630,14 +581,12 @@ static OneShotResult run_publisher_request(const std::string& request_json,
             return candidate_outcome(request_id, "refused",
                 publisher_operation_diagnostic(observed, code), code, 4);
         } catch (const std::exception&) {
-            return candidate_outcome(request_id, "unknown", Value(), "publisher_outcome_unknown", 5);
+            return unknown_response;
         }
-    } catch (const std::exception&) {
-        return candidate_outcome(request_id, "unknown", Value(),
-            "publisher_outcome_unknown", 5);
+    } catch (...) {
+        return unknown_response;
     }
-    return candidate_outcome(request_id, "unknown", Value(),
-        "publisher_outcome_unknown", 5);
+    return unknown_response;
 }
 
 OneShotResult run_candidate_one_shot(const std::string& request_json,

@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.repo-intelligence-summary-schema.v0",
+  "title": "AIDE Repo Intelligence Summary",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "generated_by",
+    "source_commit",
+    "file_counts_by_kind",
+    "file_counts_by_status",
+    "owner_counts",
+    "unknown_count",
+    "orphan_candidate_count",
+    "warnings",
+    "next_recommended_phase"
+  ],
+  "properties": {
+    "schema_version": {"const": "aide.repo-intelligence-summary.v0"},
+    "generated_by": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "file_counts_by_kind": {"type": "object"},
+    "file_counts_by_status": {"type": "object"},
+    "owner_counts": {"type": "object"},
+    "unknown_count": {"type": "integer"},
+    "orphan_candidate_count": {"type": "integer"},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "next_recommended_phase": {"type": "string"}
+  }
+}

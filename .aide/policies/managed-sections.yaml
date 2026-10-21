@@ -1,0 +1,57 @@
+schema_version: aide.managed-sections-policy.v0
+policy_id: managed_sections_v0
+status: active_needs_review
+implemented_in: AIDE-APPLY-01-managed-section-patcher
+purpose: Define fixture-safe managed-section patch planning before any real apply mode exists.
+ownership_model:
+  manual_content_outside_markers: user_owned
+  marker_lines: boundary_owned_by_aide_generated_contract
+  generated_content_between_markers: aide_owned_when_markers_are_valid
+  missing_or_ambiguous_markers: user_owned_until_reviewed
+manual_content_preservation:
+  required: true
+  method: preserve exact text outside the managed replacement region
+  verification: compare manual prefix and suffix hashes before and after fixture patching
+conflict_classes:
+  - missing_start_marker
+  - missing_end_marker
+  - duplicate_start_marker
+  - duplicate_end_marker
+  - nested_marker
+  - malformed_marker
+  - marker_order_invalid
+  - existing_hash_mismatch
+  - manual_content_changed
+  - binary_file
+  - unsupported_encoding
+  - destructive_patch
+  - unknown
+allowed_operation_classes:
+  - inspect_managed_section
+  - plan_fixture_patch
+  - verify_fixture_patch
+  - create_rollback_record_for_fixture
+  - report_conflict
+blocked_operation_classes:
+  - active_repo_patch
+  - install_apply
+  - upgrade_apply
+  - repair_apply
+  - rollback_apply
+  - uninstall_apply
+  - target_repo_mutation
+  - branch_or_worktree_mutation
+  - merge_push_promotion
+  - release_publication
+fixture_only_boundary:
+  active_repo_apply_allowed: false
+  fixture_patch_allowed: true
+  target_repo_mutation_allowed: false
+  branch_mutation_allowed: false
+  worktree_mutation_allowed: false
+  provider_or_model_calls: none
+  network_calls: none
+future_integration_path:
+  - AIDE-CHECK-APPLY-01 must review this layer before any apply-capable phase.
+  - Future install or upgrade apply must consume transaction, ownership, preimage, postimage, rollback, conflict, and safety-gate records.
+  - Future apply phases must not replace markerless or ambiguous target content by default.

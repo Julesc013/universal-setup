@@ -1,0 +1,6 @@
+schema_version: aide.golden-task.v0
+id: transaction_no_real_apply_golden
+title: Transaction No Real Apply Golden
+status: active
+task_type: golden_task
+runner: .aide/scripts/aide_lite.py eval run --task transaction_no_real_apply_golden

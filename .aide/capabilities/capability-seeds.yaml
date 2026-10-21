@@ -1,0 +1,184 @@
+schema_version: aide.capability-seeds.v0
+seed_id: x-os-02-capability-reality-seeds
+status: active-pending-review
+mode: report_only_no_apply
+seeds:
+  - capability_id: task_os_lifecycle_contracts
+    title: Task OS Lifecycle Contracts
+    description: Task OS lifecycle, blocker, repair, wave, checkpoint, and promotion policy contracts.
+    expected_state: specified
+    expected_modifiers:
+      - report_only
+      - review_gated
+    expected_evidence_hints:
+      - .aide/policies/task-lifecycle.yaml
+      - .aide/policies/blockers.yaml
+      - .aide/policies/repair-loop.yaml
+      - docs/reference/task-os-v0.md
+    known_limits:
+      - schemas and policies do not execute tasks or repairs
+  - capability_id: task_os_report_commands
+    title: Task OS Report-Only Commands
+    description: AIDE Lite task, blocker, wave, and checkpoint report-only command surface.
+    expected_state: exposed
+    expected_modifiers:
+      - report_only
+      - no_call
+      - review_gated
+    expected_evidence_hints:
+      - .aide/scripts/aide_lite.py
+      - .aide/reports/task-os-command-status.md
+      - .aide/scripts/tests/test_x_os_01_task_os_commands.py
+      - .aide/evals/golden-tasks/task_os_command_surface_golden/task.yaml
+    known_limits:
+      - command exposure is report-only and does not execute tasks or repairs
+  - capability_id: capability_reality_ledger
+    title: Capability Reality Ledger
+    description: X-OS-02 capability reality seeds, scans, generated ledger, overclaim report, and validation surface.
+    expected_state: implemented
+    expected_modifiers:
+      - report_only
+      - no_call
+      - review_gated
+    expected_evidence_hints:
+      - .aide/capabilities/capability-seeds.yaml
+      - .aide/ledgers/capability-ledger.schema.json
+      - docs/reference/capability-reality-ledger.md
+      - .aide/scripts/aide_lite.py
+    known_limits:
+      - generated ledger is evidence classification, not apply behavior
+  - capability_id: capability_reality_tests
+    title: Capability Reality Tests
+    description: Unit and golden tests for capability command surface, report generation, and no-overclaim boundaries.
+    expected_state: tested
+    expected_modifiers:
+      - test_only
+      - report_only
+    expected_evidence_hints:
+      - .aide/scripts/tests/test_x_os_02_capability_reality.py
+      - .aide/evals/golden-tasks/capability_command_surface_golden/task.yaml
+      - .aide/evals/golden-tasks/capability_ledger_generation_golden/task.yaml
+    known_limits:
+      - tests prove report behavior, not live target behavior
+  - capability_id: task_os_docs
+    title: Task OS Documentation
+    description: Reference documentation for Task OS contracts, report-only commands, and capability reality classification.
+    expected_state: documented
+    expected_modifiers:
+      - docs_only
+      - report_only
+    expected_evidence_hints:
+      - docs/reference/task-os-v0.md
+      - docs/reference/task-os-report-only-commands.md
+      - docs/reference/capability-reality-ledger.md
+      - docs/reference/README.md
+    known_limits:
+      - documentation alone is not implementation proof
+  - capability_id: gateway_runtime_forwarding
+    title: Gateway Runtime Forwarding
+    description: Gateway architecture and status surfaces without live runtime forwarding.
+    expected_state: stubbed
+    expected_modifiers:
+      - no_call
+      - report_only
+      - apply_gated
+    expected_evidence_hints:
+      - core/gateway/README.md
+      - docs/reference/gateway-skeleton.md
+      - .aide/policies/gateway.yaml
+    known_limits:
+      - gateway status is not runtime forwarding
+  - capability_id: provider_adapter_metadata
+    title: Provider Adapter Metadata
+    description: Provider adapter contract and metadata surfaces without live provider/model calls.
+    expected_state: specified
+    expected_modifiers:
+      - no_call
+      - report_only
+      - apply_gated
+    expected_evidence_hints:
+      - .aide/providers/provider-catalog.yaml
+      - .aide/providers/capability-matrix.yaml
+      - docs/reference/provider-adapter-v0.md
+    known_limits:
+      - provider metadata is not live provider integration
+  - capability_id: github_release_draft
+    title: GitHub Release Draft
+    description: Local GitHub release draft reports and publication-boundary checklists.
+    expected_state: documented
+    expected_modifiers:
+      - release_draft_only
+      - local_only
+      - no_call
+    expected_evidence_hints:
+      - .aide/policies/github-release-draft.yaml
+      - docs/reference/github-release-draft.md
+      - .aide/release/latest-github-release-draft.json
+    known_limits:
+      - draft output is not public release publication
+  - capability_id: install_repair_upgrade_models
+    title: Install Repair Upgrade Models
+    description: Install, repair, upgrade, rollback, and uninstall planning surfaces.
+    expected_state: specified
+    expected_modifiers:
+      - dry_run_only
+      - report_only
+      - target_specific
+      - apply_gated
+    expected_evidence_hints:
+      - docs/reference/aide-install-model.md
+      - docs/reference/aide-repair-model.md
+      - docs/reference/aide-upgrade-model.md
+      - docs/reference/aide-rollback-uninstall.md
+    known_limits:
+      - dry-run planning is not target install, repair, upgrade, rollback, or uninstall apply
+  - capability_id: target_pilot_handoffs
+    title: Target Pilot Handoffs
+    description: Deferred target pilot records and handoff guidance for target-local work.
+    expected_state: planned
+    expected_modifiers:
+      - target_specific
+      - source_generated_only
+      - review_gated
+    expected_evidence_hints:
+      - .aide/reports/target-work-deferral.md
+      - .aide/context/latest-task-packet.md
+    known_limits:
+      - target pilot notes are not product-general availability or target truth
+  - capability_id: raw_prompt_direct_execution
+    title: Raw Prompt Direct Execution
+    description: Direct execution of vague raw prompts as canonical work without queue/intake normalization.
+    expected_state: removed
+    expected_modifiers:
+      - removed
+      - review_gated
+    expected_evidence_hints:
+      - AGENTS.md
+      - .aide/policies/prompt-normalization.yaml
+      - docs/reference/source-of-truth.md
+    known_limits:
+      - raw prompt text is not canonical task truth
+  - capability_id: legacy_bootstrap_prompt_history
+    title: Legacy Bootstrap Prompt History
+    description: Bootstrap-era prompt history preserved as history but no longer canonical over queue/profile records.
+    expected_state: deprecated
+    expected_modifiers:
+      - deprecated
+      - docs_only
+    expected_evidence_hints:
+      - AGENTS.md
+      - docs/reference/source-of-truth.md
+      - .aide/memory/project-state.md
+    known_limits:
+      - preserved history does not override the filesystem queue or Profile contract
+  - capability_id: autonomous_task_scheduler
+    title: Autonomous Task Scheduler
+    description: Future scheduler/worker behavior for Task OS if a later reviewed queue item authorizes it.
+    expected_state: unknown
+    expected_modifiers:
+      - unknown
+      - apply_gated
+    expected_evidence_hints:
+      - .aide/queue/X-OS-02-capability-reality-ledger-v0/task.yaml
+    known_limits:
+      - no scheduler or worker exists in X-OS-02

@@ -1,0 +1,55 @@
+schema_version: aide.release-publication-boundary-policy.v0
+policy_id: aide-release-publication-boundary-v0
+status: active
+purpose: >
+  Define the hard Q48 publication boundary and the prerequisites for any later
+  operator-approved or owner-delegated publication phase. This policy does not
+  make Q48 an apply or network phase.
+hard_forbidden_actions:
+  - create_git_tag
+  - push_git_tag
+  - create_github_release
+  - upload_release_asset
+  - publish_package
+  - mutate_branch
+  - mutate_github_settings
+  - install_ci
+  - call_network
+  - call_provider_model
+q48_evidence_values:
+  tag_created: false
+  github_release_created: false
+  upload_performed: false
+  branch_mutation: false
+  active_ci_installed: false
+  network_or_github_api_call: false
+future_publication_prerequisites:
+  - separately admitted exact release-effect WorkUnit
+  - reviewed public version and compatibility contract with qualified profile
+  - clean worktree or accepted generated artifacts
+  - release bundle validation pass
+  - pack-status pass
+  - secret scan pass
+  - changelog/release notes reviewed
+  - publication checklist reviewed
+  - explicit operator approval or applicable recorded campaign owner delegation
+  - qualified independent technical release verdict under review-gates.yaml on the frozen candidate and effect manifest
+  - exact source, main result, tag and channel decision in the frozen manifest
+  - reviewed asset list with final sizes and hashes
+  - mandatory installed and cross-version consumer evidence for every claimed profile
+future_campaign_route:
+  campaign_id: AIDE-CONVERGENCE-AND-DELIVERY-01
+  authority_ref: .aide/queue/AIDE-CONVERGENCE-AND-DELIVERY-01/evidence/owner-delegation-2026-09-25.md
+  effect_workunit_required: true
+  main_tag_upload_publish_in_this_contract_workunit: false
+  independent_review_required: true
+  exact_manifest_required: true
+  fresh_remote_observation_before_each_effect: true
+  uncertain_effect_requires_observation_before_retry: true
+  no_force_push_or_retag: true
+  post_publication_download_hash_and_consumer_check_required: true
+validation_rules:
+  - Generated drafts must state preview_only and no_publish.
+  - Suggested tags must not be created by Q48.
+  - Upload plans must state no_upload.
+  - Publication boundary reports must show no tag, no GitHub Release, no upload, no network/API call, no branch mutation, and no active CI installation.

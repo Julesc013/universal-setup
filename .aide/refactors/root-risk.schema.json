@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "authority_sensitive": {
+      "type": "boolean"
+    },
+    "build_sensitive": {
+      "type": "boolean"
+    },
+    "generated_sensitive": {
+      "type": "boolean"
+    },
+    "identity_sensitive": {
+      "type": "boolean"
+    },
+    "reasons": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "risk_class": {
+      "type": "string"
+    },
+    "root": {
+      "type": "string"
+    },
+    "review_required": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "root",
+    "risk_class",
+    "identity_sensitive",
+    "build_sensitive",
+    "authority_sensitive",
+    "generated_sensitive",
+    "reasons",
+    "review_required"
+  ],
+  "type": "object"
+}

@@ -196,8 +196,12 @@ int wmain(int argc, wchar_t** argv) {
             std::wstring(argv[1]) == L"--owned-vhd-volume";
         const bool campaign_vm = argc == 7 &&
             std::wstring(argv[1]) == L"--owned-vm-vhd-volume";
+        const bool observe_pre_admission = argc == 7 &&
+            std::wstring(argv[1]) == L"--observe-owned-hosted-vm-pre-admission-volume";
+        const bool observe_only = observe_pre_admission || (argc == 7 &&
+            std::wstring(argv[1]) == L"--observe-owned-hosted-vm-vhd-volume");
         const bool hosted_vm = argc == 7 &&
-            std::wstring(argv[1]) == L"--owned-hosted-vm-vhd-volume";
+            (std::wstring(argv[1]) == L"--owned-hosted-vm-vhd-volume" || observe_only);
         if (!hosted && !campaign_vm && !hosted_vm) {
             throw std::runtime_error("expected a supported disposable-lab admission mode");
         }
@@ -221,7 +225,8 @@ int wmain(int argc, wchar_t** argv) {
             generated_suffix(service_name, L"USK_WU006_", L"") :
             generated_suffix(service_name, L"USK_VM_", L"") ||
                 (hosted_vm && generated_suffix(service_name, L"USK_PUB_", L""));
-        if (!admitted_service) {
+        if (!admitted_service || (observe_pre_admission &&
+                !generated_suffix(service_name, L"USK_PUB_", L""))) {
             throw std::runtime_error("invalid campaign service name");
         }
         const std::wstring vhd(argv[5]);
@@ -233,11 +238,19 @@ int wmain(int argc, wchar_t** argv) {
         VIRTUAL_STORAGE_TYPE type{};
         type.DeviceId = VIRTUAL_STORAGE_TYPE_DEVICE_VHDX;
         type.VendorId = VIRTUAL_STORAGE_TYPE_VENDOR_MICROSOFT;
+        // An already permanently attached VHD cannot be reopened through the
+        // legacy GET_INFO-only access mask. Use the query-only V2 interface
+        // for observation, without requesting attachment or detachment rights.
+        OPEN_VIRTUAL_DISK_PARAMETERS query_parameters{};
+        query_parameters.Version = OPEN_VIRTUAL_DISK_VERSION_2;
+        query_parameters.Version2.GetInfoOnly = TRUE;
+        query_parameters.Version2.ReadOnly = TRUE;
         HANDLE raw_vhd = nullptr;
         const DWORD open_error = OpenVirtualDisk(&type, vhd.c_str(),
-            VIRTUAL_DISK_ACCESS_GET_INFO | VIRTUAL_DISK_ACCESS_DETACH,
+            observe_only ? VIRTUAL_DISK_ACCESS_NONE :
+                (VIRTUAL_DISK_ACCESS_GET_INFO | VIRTUAL_DISK_ACCESS_DETACH),
             OPEN_VIRTUAL_DISK_FLAG_NONE,
-            nullptr, &raw_vhd);
+            observe_only ? &query_parameters : nullptr, &raw_vhd);
         if (open_error != ERROR_SUCCESS || !raw_vhd ||
             raw_vhd == INVALID_HANDLE_VALUE) {
             throw std::runtime_error("owned VHD cannot be opened: " +
@@ -246,7 +259,7 @@ int wmain(int argc, wchar_t** argv) {
         Handle vhd_handle(raw_vhd);
         const DWORD vhd_disk_number = attached_vhd_disk_number(vhd_handle.get());
         const std::wstring device = root.substr(0, root.size() - 1);
-        Handle volume(CreateFileW(device.c_str(), READ_CONTROL | WRITE_DAC,
+        Handle volume(CreateFileW(device.c_str(), READ_CONTROL | (observe_only ? 0u : WRITE_DAC),
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
             OPEN_EXISTING, 0, nullptr));
         wchar_t* disk_end = nullptr;
@@ -289,6 +302,24 @@ int wmain(int argc, wchar_t** argv) {
             throw std::runtime_error("dedicated service SID cannot be rendered");
         }
         LocalPointer owned_sid_text(sid_text);
+        if (observe_only) {
+            // Neither observation mode opens an ACL writer. A registered
+            // legacy controller must observe its actual pre-admission policy,
+            // without a lab service grant changing that original first.
+            // The existing admitted mode still requires the product's grant.
+            PACL confirmed_dacl = nullptr;
+            LocalPointer confirmed_descriptor;
+            const auto after = dacl_sddl(volume.get(), &confirmed_dacl, confirmed_descriptor);
+            if (before != after || (!observe_pre_admission &&
+                    after.find(ascii(sid_text)) == std::string::npos))
+                throw std::runtime_error("read-only admitted device observation differs or lacks service SID");
+            std::cout << "{\"admission\":" << quote(observe_pre_admission ?
+                "hosted_vm_pre_admission_read_only" : "hosted_vm_read_only") <<
+                ",\"before_dacl\":" << quote(before) <<
+                ",\"after_dacl\":" << quote(after) << ",\"service_sid\":" << quote(ascii(sid_text)) <<
+                ",\"vhd_disk_number\":" << vhd_disk_number << "}\n";
+            return 0;
+        }
         EXPLICIT_ACCESS_W entry{};
         entry.grfAccessPermissions = FILE_ALL_ACCESS;
         entry.grfAccessMode = GRANT_ACCESS;

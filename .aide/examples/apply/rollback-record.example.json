@@ -1,0 +1,12 @@
+{
+  "schema_version": "aide.rollback-record.v0",
+  "example": true,
+  "rollback_id": "rollback-fixture-transaction",
+  "transaction_id": "transaction-fixture-example",
+  "mode": "fixture_only",
+  "preimages": [{"path": ".aide/examples/apply/fixture-root/AGENTS.fixture.md", "sha256": "sha256:fixture-preimage"}],
+  "inverse_operations": [{"operation_id": "inverse-op-managed-section-fixture", "operation_class": "update_managed_section", "apply_allowed": false}],
+  "apply_allowed": false,
+  "review_required": true,
+  "evidence_refs": [".aide/queue/AIDE-APPLY-00-transaction-model/evidence/rollback-record-proof.md"]
+}

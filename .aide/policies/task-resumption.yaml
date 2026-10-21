@@ -1,0 +1,56 @@
+schema_version: aide.task-resumption-policy.v0
+policy_id: aide-task-resumption-standard-v0
+status: active
+purpose: >
+  Make AIDE-managed tasks reusable, resumable, duplicate-safe, and
+  order-aware so agents recover from repo-local queue/evidence before asking
+  the user or replaying long chat history.
+stable_task_id_required: true
+resume_from_repo_state_first: true
+ask_user_only_when_blocked_after_repo_reconciliation: true
+required_task_surfaces:
+  - ".aide/queue/index.yaml"
+  - ".aide/queue/<TASK-ID>/task.yaml"
+  - ".aide/queue/<TASK-ID>/status.yaml"
+  - ".aide/queue/<TASK-ID>/evidence/"
+  - ".aide/context/latest-task-packet.md"
+branch_preflight:
+  inspect_current_branch_role_before_non_trivial_edits: true
+  canonical_branch_direct_edit_policy: discouraged_except_emergency_repair
+  integration_branch_direct_edit_policy: integration_repair_or_explicit_scope_only
+  normal_work_branch_policy: task_branch_recommended
+  out_of_order_prompt_requires_branch_role_inspection: true
+  duplicate_prompt_noop_if_branch_contains_accepted_work: true
+  q28_behavior: report_recommendations_only_no_branch_changes
+repeated_prompt_policy:
+  if_complete: verify evidence and no-op
+  if_incomplete: continue from status/evidence
+  if_duplicate: reconcile changed instructions before editing
+out_of_order_prompt_policy:
+  inspect_queue_index: true
+  inspect_current_and_requested_status: true
+  prefer_safe_prerequisite_completion: true
+  record_reconciliation_evidence: true
+incomplete_previous_task_policy:
+  inspect_changed_files: true
+  inspect_status: true
+  inspect_validation_evidence: true
+  continue_or_close_before_new_work_when_safe: true
+validation_gates:
+  - git status --short
+  - git diff --check
+  - doctor
+  - validate
+  - eval run
+  - task-specific tests
+blocker_policy:
+  missing_credentials: stop
+  destructive_ambiguity: stop
+  conflicting_manual_content: preserve_or_quarantine
+  bounded_missing_files: recreate_with_evidence
+  stale_status: reconcile_from_evidence
+non_goals:
+  - no autonomous product implementation without queued task
+  - no hiding blockers
+  - no fabricating evidence
+  - no asking user before repo-local evidence inspection

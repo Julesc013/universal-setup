@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import csv
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -19,6 +20,1011 @@ def write_json(path: Path, value: dict) -> str:
     data = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode()
     path.write_bytes(data)
     return hashlib.sha256(data).hexdigest()
+
+
+def verify_fixture_retention(repository: Path, root: Path,
+                             powershell: str = "powershell.exe") -> None:
+    # Execute the fixtures' actual catch/finally blocks. Replace only disk and
+    # process effects: no VHD, mount, service or administrator token is needed.
+    driver = root / "fixture-retention.ps1"
+    driver.write_text(r'''
+param([string]$Repository,[string]$Scratch)
+$ErrorActionPreference='Stop'
+Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Security\Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
+Import-Module (Join-Path $PSHOME 'Modules\Microsoft.PowerShell.Utility\Microsoft.PowerShell.Utility.psd1') -ErrorAction Stop
+function Read-OuterTry([string]$Name) {
+    $tokens=$null;$errors=$null
+    $ast=[Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $Repository ('tests\'+$Name)),[ref]$tokens,[ref]$errors)
+    if($errors.Count){throw 'Fixture parse failed'}
+    $tries=@($ast.EndBlock.Statements|Where-Object {
+        $_ -is [Management.Automation.Language.TryStatementAst] -and $_.Finally})
+    if(-not $tries.Count){throw 'Fixture outer cleanup is missing'}
+    return $tries[-1]
+}
+function Read-Block($Block) {
+    $source=$Block.Extent.Text
+    return [scriptblock]::Create($source.Substring(1,$source.Length-2))
+}
+# Execute the public build-profile reader without native installation effects.
+# The release-default cohort must reject a diagnostic or contradictory build.
+& {
+    $tokens=$null;$errors=$null
+    $ast=[Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $Repository 'tests\windows_publisher_lab_probe.ps1'),[ref]$tokens,[ref]$errors)
+    if($errors.Count){throw 'Public build-profile fixture parse failed'}
+    $reader=@($ast.EndBlock.Statements|Where-Object {
+        $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $_.Name -ceq 'Read-PublicBuildProfile'})
+    if($reader.Count -ne 1){throw 'Actual public build-profile reader is missing or ambiguous'}
+    . ([scriptblock]::Create($reader[0].Extent.Text))
+    $build=Join-Path $Scratch 'build-profile'
+    $compilerDirectory=Join-Path $build 'CMakeFiles\4.0.1'
+    [IO.Directory]::CreateDirectory($compilerDirectory)|Out-Null
+    [IO.File]::WriteAllText((Join-Path $compilerDirectory 'CMakeCXXCompiler.cmake'),
+        'set(CMAKE_CXX_COMPILER_VERSION "19.44.35228")'+"`n"+'set(CMAKE_CXX_COMPILER_ID "MSVC")')
+    $eventPath=Join-Path $build 'event.json'
+    [IO.File]::WriteAllText($eventPath,'{"pull_request":{"head":{"sha":"'+('c'*40)+'"}}}')
+    $oldEvent=$env:GITHUB_EVENT_PATH
+    function git {
+        $global:LASTEXITCODE=0
+        if($args[-1] -ceq 'HEAD^{tree}'){return 'b'*40}
+        return 'a'*40
+    }
+    try {
+        $env:GITHUB_EVENT_PATH=$eventPath
+        foreach($case in @('off','on','any','expected_off','expected_on','duplicate','unknown',
+            'mixed_unknown','mixed_type','wrong_type',
+            'missing','service_mismatch','machine_mismatch','wrong_value','trace_only','missing_trace')) {
+            $mode=if($case -in @('on','expected_off','wrong_value','missing_trace')){'ON'}else{'OFF'}
+            $ExpectedQualificationDiagnostics=switch($case){
+                'off' {'OFF'} 'on' {'ON'} 'expected_off' {'OFF'} 'expected_on' {'ON'} default {'any'}}
+            $cachePath=Join-Path $build 'CMakeCache.txt'
+            $cache='USK_QUALIFICATION_DIAGNOSTICS:BOOL='+$mode+"`n"
+            if($case -ceq 'duplicate'){$cache+=$cache}
+            if($case -ceq 'unknown'){$cache='USK_QUALIFICATION_DIAGNOSTICS:BOOL=unknown'}
+            if($case -ceq 'mixed_unknown'){$cache+='USK_QUALIFICATION_DIAGNOSTICS:BOOL=unknown'+"`n"}
+            if($case -ceq 'mixed_type'){$cache+='USK_QUALIFICATION_DIAGNOSTICS:STRING=OFF'+"`n"}
+            if($case -ceq 'wrong_type'){$cache='USK_QUALIFICATION_DIAGNOSTICS:STRING=OFF'}
+            [IO.File]::WriteAllText($cachePath,$cache)
+            if($case -ceq 'missing'){[IO.File]::Delete($cachePath)}
+            foreach($frontend in @('usk_publisher_service','usk_machine')) {
+                $enabled=$mode -ceq 'ON' -or
+                    ($case -ceq 'service_mismatch' -and $frontend -ceq 'usk_publisher_service') -or
+                    ($case -ceq 'machine_mismatch' -and $frontend -ceq 'usk_machine')
+                $flag=if($enabled){'USK_QUALIFICATION_DIAGNOSTICS='+$(if($case -ceq 'wrong_value'){'0'}else{'1'})+';'}else{''}
+                $trace=if(($enabled -or $case -ceq 'trace_only') -and $case -cne 'missing_trace'){
+                    '<ItemGroup><ClCompile Include="usk_qualification_trace_internal.cpp"/></ItemGroup>'}else{''}
+                [IO.File]::WriteAllText((Join-Path $build ($frontend+'.vcxproj')),
+                    '<Project><PropertyGroup><WindowsTargetPlatformVersion>10.0.26100.0</WindowsTargetPlatformVersion>'+
+                    '<PlatformToolset>v143</PlatformToolset></PropertyGroup><ItemDefinitionGroup><ClCompile>'+
+                    '<PreprocessorDefinitions>'+$flag+'%(PreprocessorDefinitions)</PreprocessorDefinitions>'+
+                    '</ClCompile></ItemDefinitionGroup>'+$trace+'</Project>')
+            }
+            $caught=$null;$profile=$null
+            try {$profile=Read-PublicBuildProfile (Join-Path $build 'Release\usk_publisher_service.exe')}catch{$caught=$_}
+            $accepted=$case -in @('off','on','any')
+            if(($null -eq $caught) -ne $accepted){throw ('Public diagnostics profile admission differs: '+$case)}
+            if($accepted -and ($profile.qualification_diagnostics -ne ($mode -ceq 'ON') -or
+                $profile.diagnostics_cache_sha256 -cne
+                    (Get-FileHash -LiteralPath $cachePath -Algorithm SHA256).Hash.ToLowerInvariant())) {
+                throw 'Public diagnostics profile did not retain its actual mode/cache hash'
+            }
+        }
+    } finally {$env:GITHUB_EVENT_PATH=$oldEvent}
+}
+# Execute the real three live-retirement controls and native collector. Only
+# the product process/SCM observations are inert; cmd emits fixed stderr/exits.
+& {
+    $tokens=$null;$errors=$null
+    $metadata=[Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $Repository 'tests\windows_publisher_metadata_hosted_probe.ps1'),[ref]$tokens,[ref]$errors)
+    if($errors.Count){throw 'Native control fixture parse failed'}
+    foreach($name in @('Read-BoundedDiagnostic','Invoke-ObservedPublisherControl')) {
+        $node=@($metadata.EndBlock.Statements|Where-Object {
+            $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq $name})
+        if($node.Count -ne 1){throw 'Actual native control helper missing or ambiguous'}
+        if($name -ceq 'Invoke-ObservedPublisherControl'){$nativeCollector=Read-Block $node[0].Body}
+        else {. ([scriptblock]::Create($node[0].Extent.Text))}
+    }
+    $maintenance=[Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $Repository 'tests\windows_publisher_controller_maintenance_probe.ps1'),[ref]$tokens,[ref]$errors)
+    if($errors.Count){throw 'Owned maintenance fixture parse failed'}
+    $owner=@($maintenance.EndBlock.Statements|Where-Object {
+        $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq 'Invoke-ControllerOwnedUninstall'})
+    if($owner.Count -ne 1){throw 'Actual owned uninstall fixture missing'}
+    $statements=@($owner[0].Body.EndBlock.Statements)
+    $first=@(0..($statements.Count-1)|Where-Object {
+        $statements[$_] -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $statements[$_].Left.Extent.Text -ceq '$errorFile' -and
+        $statements[$_].Right.Extent.Text.Contains('owned-live-unregister-error.txt')})
+    $last=@(0..($statements.Count-1)|Where-Object {
+        $statements[$_] -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $statements[$_].Left.Extent.Text -ceq '$afterRefusals'})
+    if($first.Count -ne 1 -or $last.Count -ne 1 -or $last[0] -le $first[0]) {
+        throw 'Actual live retirement control sequence missing or ambiguous'
+    }
+    $controls=[scriptblock]::Create(($statements[$first[0]..($last[0]-1)]|
+        ForEach-Object {$_.Extent.Text}) -join "`n")
+    $root=Join-Path $Scratch 'live-retirement-controls';[IO.Directory]::CreateDirectory($root)|Out-Null
+    $installedServiceBinary=Join-Path $root 'retained-image-sentinel'
+    [IO.File]::WriteAllText($installedServiceBinary,'retained image')
+    $ServiceControlBinary=Join-Path $env:WINDIR 'System32\cmd.exe'
+    $service='USK_PUB_fixture';$ServiceBinary='original.exe';$VolumeRoot='owned-volume'
+    $callerSid='S-1-5-21-1-2-3-1001';$registeredMode='--service-admitted-client';$sourceServiceHash='a'*64;$sid='fixture-service-sid'
+    function Get-Service {if($case -cne 'service_absent'){return [pscustomobject]@{Status='Stopped'}}}
+    function Test-Path([string]$LiteralPath,[object]$PathType) {
+        if($LiteralPath -ceq $installedServiceBinary -and $case -ceq 'image_absent'){return $false}
+        return Microsoft.PowerShell.Management\Test-Path -LiteralPath $LiteralPath
+    }
+    function Invoke-ObservedPublisherControl([string]$Phase,[string[]]$Arguments,[string]$DiagnosticPath) {
+        $expected=switch($Phase) {
+            'owned_live_unregister' {@('--unregister',$service,$ServiceBinary,$VolumeRoot,$callerSid,$registeredMode)}
+            'owned_live_binary_retirement' {@('--retire-binary',$service,$installedServiceBinary,$sourceServiceHash,$sid)}
+            'owned_live_retirement' {@('--retire-owned',$service)}
+            default {throw 'Unexpected live retirement command phase'}
+        }
+        if(($Arguments -join '|') -cne ($expected -join '|')){throw 'Live retirement command arguments changed'}
+        $exitCode=if($case -ceq $Phase){0}else{3}
+        # Fixed command text only: no product command or caller data is executed.
+        & $nativeCollector -Phase $Phase -Arguments @('/d','/c',('echo simulated retirement refusal 1>&2 & exit /b '+$exitCode)) -DiagnosticPath $DiagnosticPath
+    }
+    foreach($case in @('refusals','owned_live_unregister','owned_live_binary_retirement',
+        'owned_live_retirement','service_absent','image_absent')) {
+        $receipt=[ordered]@{control_attempts=[Collections.Generic.List[object]]::new()}
+        $result=[ordered]@{};$caught=$null
+        try {. $controls} catch {$caught=$_}
+        if(($null -eq $caught) -ne ($case -ceq 'refusals') -or $ErrorActionPreference -cne 'Stop') {
+            throw ('Actual live retirement outcome or error policy differs: '+$case)
+        }
+        if($case -ceq 'refusals' -and ($receipt.control_attempts.Count -ne 3 -or $result.Count -ne 3)) {
+            throw 'Live retirement did not retain all three actual native refusals'
+        }
+        foreach($attempt in $receipt.control_attempts) {
+            if($attempt.native_exit_code -isnot [int] -or
+                $attempt.stderr_prefix -notmatch 'simulated retirement refusal' -or
+                $attempt.invocation_failure -or $attempt.capture_failure) {
+                throw 'Live retirement native exit or diagnostic capture differs'
+            }
+        }
+    }
+}
+# Exercise the real observer ACL setup with Windows descriptors, without
+# changing filesystem permissions. SYSTEM is also the runner in one profile.
+& {
+    $tokens=$null;$errors=$null
+    $metadataAst=[Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $Repository 'tests\windows_publisher_metadata_hosted_probe.ps1'),[ref]$tokens,[ref]$errors)
+    if($errors.Count){throw 'Observer ACL fixture parse failed'}
+    $statements=@($metadataAst.EndBlock.Statements)
+    $runnerIndex=@(0..($statements.Count-1)|Where-Object {
+        $statements[$_] -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $statements[$_].Left.Extent.Text -ceq '$runnerSid'})
+    $receiptIndex=@(0..($statements.Count-1)|Where-Object {
+        $statements[$_] -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $statements[$_].Left.Extent.Text -ceq '$receipt'})
+    if($runnerIndex.Count -ne 1 -or $receiptIndex.Count -ne 1 -or
+        $receiptIndex[0] -le $runnerIndex[0]+1){throw 'Observer ACL setup missing or ambiguous'}
+    $setup=[scriptblock]::Create(($statements[($runnerIndex[0]+1)..($receiptIndex[0]-1)]|
+        ForEach-Object {$_.Extent.Text}) -join "`n")
+    $observerRoot='in-memory-observer-acl-only'
+    $namedSid='S-1-5-21-101-102-103-1001';$unexpectedSid='S-1-5-32-545'
+    function Set-Acl([string]$LiteralPath,[Security.AccessControl.DirectorySecurity]$AclObject) {
+        if($LiteralPath -cne $observerRoot){throw 'Unexpected observer ACL write'}
+        $script:observerAclWrites++
+        $script:storedObserverAcl=[Security.AccessControl.DirectorySecurity]::new()
+        $script:storedObserverAcl.SetSecurityDescriptorBinaryForm($AclObject.GetSecurityDescriptorBinaryForm())
+    }
+    function Get-Acl([string]$LiteralPath) {
+        if($LiteralPath -cne $observerRoot){throw 'Unexpected observer ACL read'}
+        $script:observerAclReads++
+        $acl=$script:storedObserverAcl
+        switch($case) {
+            'missing_system' {$acl.PurgeAccessRules([Security.Principal.SecurityIdentifier]'S-1-5-18')}
+            'missing_runner' {$acl.PurgeAccessRules([Security.Principal.SecurityIdentifier]$runnerSid)}
+            'extra' {$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                [Security.Principal.SecurityIdentifier]$unexpectedSid,'FullControl','ContainerInherit,ObjectInherit','None','Allow'))}
+            'rights' {$acl.SetAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                [Security.Principal.SecurityIdentifier]$runnerSid,'Read','ContainerInherit,ObjectInherit','None','Allow'))}
+            'inheritance' {$acl.SetAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                [Security.Principal.SecurityIdentifier]$runnerSid,'FullControl','ContainerInherit','None','Allow'))}
+            'propagation' {$acl.SetAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                [Security.Principal.SecurityIdentifier]$runnerSid,'FullControl','ContainerInherit,ObjectInherit','InheritOnly','Allow'))}
+            'deny' {$acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                [Security.Principal.SecurityIdentifier]$runnerSid,'FullControl','ContainerInherit,ObjectInherit','None','Deny'))}
+            'unprotected' {$acl.SetAccessRuleProtection($false,$true)}
+            'owner' {$acl.SetOwner([Security.Principal.SecurityIdentifier]$unexpectedSid)}
+            'inherited_extra' {$acl.SetSecurityDescriptorSddlForm(
+                $acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::All)+
+                '(A;OICIID;FA;;;'+$unexpectedSid+')')}
+            'inherited_runner' {$acl.SetSecurityDescriptorSddlForm(
+                $acl.GetSecurityDescriptorSddlForm([Security.AccessControl.AccessControlSections]::All)+
+                '(A;OICIID;FA;;;'+$runnerSid+')')}
+        }
+        if($case -in @('inherited_extra','inherited_runner') -and
+            (-not $acl.AreAccessRulesProtected -or
+                @($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])|
+                    Where-Object {$_.IsInherited}).Count -ne 1)) {
+            throw 'Inherited observer ACL fixture did not reach its intended boundary'
+        }
+        return $acl
+    }
+    foreach($case in @('system','named','missing_system','missing_runner','extra',
+        'rights','inheritance','propagation','deny','unprotected','owner','inherited_extra','inherited_runner')) {
+        $runnerSid=if($case -ceq 'system'){'S-1-5-18'}else{$namedSid}
+        $script:observerAclWrites=0;$script:observerAclReads=0;$caught=$null
+        try {. $setup} catch {$caught=$_}
+        $accept=$case -in @('system','named')
+        if($script:observerAclWrites -ne 1 -or $script:observerAclReads -ne 1 -or
+            (($null -eq $caught) -ne $accept)) {
+            throw ('Observer ACL protection differs: '+$case+'; '+$caught.Exception.Message)
+        }
+        if(-not $accept -and $caught.Exception.Message -cne
+            'Owned SYSTEM observer output directory has an unexpected ACL') {
+            throw ('Observer ACL control failed at the wrong boundary: '+$case)
+        }
+    }
+}
+function Get-DiskImage([string]$ImagePath,[object]$ErrorAction) {
+    if($ImagePath -cne $vhd){throw 'Unexpected cleanup image'}
+    $script:imageQueries++
+    return [pscustomobject]@{Attached=$true}
+}
+function Dismount-DiskImage([string]$ImagePath,[object]$ErrorAction) {
+    if($ImagePath -cne $vhd){throw 'Unexpected dismount image'}
+    $script:dismountCalls++
+}
+function Remove-Item([string]$LiteralPath,[switch]$Force,[object]$ErrorAction) {
+    if($LiteralPath -cne $vhd){throw 'Unexpected deletion target'}
+    $script:deleteCalls++
+    [IO.File]::Delete($LiteralPath)
+}
+$outer=Read-OuterTry 'windows_publisher_lab_probe.ps1'
+$cleanup=Read-Block $outer.Finally
+$vhd=Join-Path $Scratch 'cleanup-owned-vhd-sentinel.vhdx'
+$out=Join-Path $Scratch 'cleanup-receipt.json'
+$PublicStandardClient=$false;$standardLauncherClosed=$true;$mounted=$true
+$cases=@(
+    @{name='missing';observation=$null;retain=$true},
+    @{name='service';observation=@{service_removed=$false};retain=$true},
+    @{name='binary';observation=@{service_removed=$true;client_cleanup_confirmed=$true};retain=$true},
+    @{name='client';observation=@{service_removed=$true;protected_service_binary_removed=$true};retain=$true},
+    @{name='untyped';observation=@{service_removed='true';protected_service_binary_removed=$true;client_cleanup_confirmed=$true};retain=$true},
+    @{name='refused';observation=@{service_removed=$true;protected_service_binary_removed=$true;client_cleanup_confirmed=$true;retirement_cleanup_failure='refused'};retain=$true},
+    @{name='launcher';observation=@{service_removed=$true;protected_service_binary_removed=$true;client_cleanup_confirmed=$true};retain=$true;launcher_closed=$false},
+    @{name='packaged_launcher';packaged=$true;observation=@{service_removed=$true;protected_service_binary_removed=$true;client_cleanup_confirmed=$true};retain=$true;launcher_closed=$false},
+    @{name='packaged_confirmed';packaged=$true;observation=@{service_removed=$true;protected_service_binary_removed=$true;client_cleanup_confirmed=$true};retain=$false},
+    @{name='confirmed';observation=@{service_removed=$true;protected_service_binary_removed=$true;client_cleanup_confirmed=$true};retain=$false},
+    @{name='legacy';observation=$null;retain=$false})
+foreach($case in $cases) {
+    [IO.File]::WriteAllText($vhd,'owned cleanup sentinel')
+    $script:imageQueries=0;$script:dismountCalls=0;$script:deleteCalls=0
+    $AdmittedTarget=$case.name -cne 'legacy';$failure=$null
+    $controllerLauncherClosed=-not $case.ContainsKey('launcher_closed') -or $case.launcher_closed
+    $admittedPackagedProfile=$case.ContainsKey('packaged') -and $case.packaged
+    $admittedControllerProfile=-not $admittedPackagedProfile
+    $standardLauncherClosed=-not $case.ContainsKey('launcher_closed') -or $case.launcher_closed
+    $receipt=[ordered]@{status='fixture_body_passed';service_observation=$case.observation}
+    . $cleanup
+    $retained=Test-Path -LiteralPath $vhd -PathType Leaf
+    if($case.retain) {
+        if(-not $retained -or $script:imageQueries -or $script:dismountCalls -or $script:deleteCalls -or
+            -not $failure -or $receipt.status -cne 'failed') {
+            throw ('Unconfirmed retirement reached VHD cleanup: '+$case.name)
+        }
+    } elseif($retained -or $script:imageQueries -ne 1 -or $script:dismountCalls -ne 1 -or
+        $script:deleteCalls -ne 1 -or $failure) {
+        throw ('Confirmed or legacy cleanup changed: '+$case.name)
+    }
+}
+# The original failure must survive a second exception in real client cleanup.
+function Stop-OwnedPublisherProcessTree($Process) {throw 'synthetic client cleanup failure'}
+$inner=Read-OuterTry 'windows_publisher_metadata_hosted_probe.ps1'
+$primaryCatch=Read-Block $inner.CatchClauses[0].Body
+$innerCleanup=Read-Block $inner.Finally
+$AdmittedTarget=$true;$RegisteredService=$false;$registrationAttempted=$false;$created=$false
+$consumerCreated=$false;$unrelatedAccountCreated=$false;$clientCleanupConfirmed=$true
+$requestClient=[pscustomobject]@{process='owned fixture process'}
+$consumerProcess=$null;$concurrentAttacker=$null;$unrelatedAttacker=$null;$preopenedRootProcess=$null
+$stageObserver=$null;$postrenameObserver=$null
+$observerRoot=Join-Path $Scratch 'nonexistent-observer-root'
+$receipt=[ordered]@{status='pending'};$failure=$null
+try {throw 'synthetic primary request failure'} catch {. $primaryCatch}
+. $innerCleanup
+if($failure -cne 'synthetic primary request failure' -or
+    $receipt.primary_failure -cne $failure -or $receipt.failure -cne $failure -or
+    $receipt.cleanup_failure -cne 'Owned client cleanup failed: synthetic client cleanup failure' -or
+    $receipt.client_cleanup_confirmed -ne $false -or $receipt.status -cne 'failed') {
+    throw 'Client cleanup obscured the primary request failure'
+}
+# Execute the account finalizer itself, with inert account effects. A closed
+# launcher alone cannot retire an account still bound to product authority.
+$tokens=$null;$errors=$null
+$helperAst=[Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $Repository 'tests\windows_publisher_standard_launcher.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Launcher parse failed'}
+$actorFunction=$helperAst.Find({param($Node)
+    $Node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $Node.Name -ceq 'Invoke-OwnedPublisherFixtureTask'},$false)
+$actorTries=@($actorFunction.Body.EndBlock.Statements|Where-Object {
+    $_ -is [Management.Automation.Language.TryStatementAst] -and $_.Finally})
+if($actorTries.Count -ne 1){throw 'Owned account finalizer is missing or ambiguous'}
+$accountCleanup=Read-Block $actorTries[0].Finally
+function Get-LocalUser($SID,$ErrorAction) {
+    if($script:accountReadFailure){throw 'synthetic account cleanup failure'}
+    if($script:accountPresent){return [pscustomobject]@{Name=$accountName;Description=('USKCTL:'+('a'*32))}}
+}
+function Remove-LocalUser($SID,$ErrorAction) {$script:accountDeletes++;$script:accountPresent=$false}
+$named=$true;$accountAttempted=$true;$accountSid='S-1-5-21-1-2-3-1001'
+$accountName='USKCTL_fixture';$taskName='USK_ADMITTED_CONTROLLER_'+('a'*32)
+$OutputPath=Join-Path $Scratch 'actor-child.json';$secure=$null
+$cases=@(
+    @{name='live';closed=$false;state=@{service_removed=$true;protected_service_binary_removed=$true;client_cleanup_confirmed=$true};remove=$false},
+    @{name='authority';closed=$true;state=@{service_removed=$false;client_cleanup_confirmed=$true};remove=$false},
+    @{name='binary';closed=$true;state=@{service_removed=$true;client_cleanup_confirmed=$true};remove=$false},
+    @{name='untyped';closed=$true;state=@{service_removed='true';protected_service_binary_removed=$true;client_cleanup_confirmed=$true};remove=$false},
+    @{name='retired';closed=$true;state=@{service_removed=$true;protected_service_binary_removed=$true;client_cleanup_confirmed=$true};remove=$true},
+    @{name='probe';closed=$true;probe=$true;state=@{schema='usk.publisher_controller_actor_probe.v1';scope='identity_only_no_product_dispatch';status='passed'};remove=$true},
+    @{name='wrong_scope';closed=$true;probe=$true;state=@{schema='usk.publisher_controller_actor_probe.v1';scope='product_dispatch';status='passed'};remove=$false})
+foreach($case in $cases) {
+    $case.state|ConvertTo-Json|Set-Content -LiteralPath $OutputPath -Encoding utf8
+    $actorClosed=$case.closed;$IdentityProbe=[bool]$case.probe;$actorOriginalError=$null
+    $script:accountReadFailure=$false;$script:accountPresent=$true;$script:accountDeletes=0
+    $controllerActorObservation=[ordered]@{account_removed=$false;account_retained=$false}
+    . $accountCleanup
+    if(($script:accountDeletes -eq 1) -ne $case.remove -or
+        $controllerActorObservation.account_removed -ne $case.remove -or
+        $controllerActorObservation.account_retained -eq $case.remove) {
+        throw ('Owned controller account retirement differs: '+$case.name)
+    }
+}
+$IdentityProbe=$false;$actorClosed=$true
+@{service_removed=$true;protected_service_binary_removed=$true;client_cleanup_confirmed=$true}|
+    ConvertTo-Json|Set-Content -LiteralPath $OutputPath -Encoding utf8
+try {throw 'original actor failure'} catch {$actorOriginalError=$_}
+$script:accountReadFailure=$true;$script:accountDeletes=0
+$controllerActorObservation=[ordered]@{account_removed=$false;account_retained=$false}
+. $accountCleanup
+if($script:accountDeletes -or -not $controllerActorObservation.account_retained -or
+    $controllerActorObservation.account_cleanup_failure -cne 'synthetic account cleanup failure' -or
+    $actorOriginalError.Exception.Message -cne 'original actor failure') {
+    throw 'Account cleanup erased original failure or removed an uncertain account'
+}
+# Execute the actual configured-caller cleanup statements. Account and usable
+# credentials survive an uncertain owned retirement or incomplete client closure.
+$inner=Read-OuterTry 'windows_publisher_metadata_hosted_probe.ps1'
+$callerStatements=@($inner.Finally.Statements|Where-Object {
+    $_.Extent.Text -match '^\$callerRetirementConfirmed=|^if\(\$consumerCreated|^if\(\$clientCleanupConfirmed -and \$callerRetirementConfirmed\)'
+})
+if($callerStatements.Count -ne 4){throw 'Configured caller cleanup statements missing'}
+$callerCleanup=[scriptblock]::Create(($callerStatements|ForEach-Object {$_.Extent.Text}) -join "`n")
+function Remove-LocalUser([string]$Name,[object]$ErrorAction) {
+    if($Name -cne 'fixture-consumer'){throw 'Wrong configured caller deletion'}
+    $script:consumerDeletes++
+}
+foreach($case in @(
+    @{name='service_retained';service=$false;image=$true;closed=$true;refusal=$false;remove=$false},
+    @{name='image_retained';service=$true;image=$false;closed=$true;refusal=$false;remove=$false},
+    @{name='client_uncertain';service=$true;image=$true;closed=$false;refusal=$false;remove=$false},
+    @{name='retirement_refused';service=$true;image=$true;closed=$true;refusal=$true;remove=$false},
+    @{name='retired';service=$true;image=$true;closed=$true;refusal=$false;remove=$true}
+)) {
+    $AdmittedTarget=$true;$consumerCreated=$true;$clientCleanupConfirmed=$case.closed
+    $consumerName='fixture-consumer';$consumerCredential='retained credential sentinel';$script:consumerDeletes=0
+    $receipt=[ordered]@{service_removed=$case.service;protected_service_binary_removed=$case.image;
+        retirement_cleanup_failure=$(if($case.refusal){'refused'}else{$null})}
+    . $callerCleanup
+    if(($script:consumerDeletes -eq 1) -ne $case.remove -or
+        (($null -eq $consumerCredential) -ne $case.remove) -or
+        (([bool]$receipt.consumer_account_retained) -eq $case.remove)) {
+        throw ('Configured recovery caller cleanup differs: '+$case.name)
+    }
+}
+# Exercise the actual closed admission guards without running either fixture.
+# Exactly the original controller and complete packaged-consumer profiles enter;
+# missing prerequisites and every selected fault/control variant remain refused.
+foreach($fixtureName in @('windows_publisher_lab_probe.ps1','windows_publisher_metadata_hosted_probe.ps1')) {
+    $tokens=$null;$errors=$null
+    $fixtureAst=[Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $Repository ('tests\'+$fixtureName)),[ref]$tokens,[ref]$errors)
+    if($errors.Count){throw 'Closed admission fixture parse failed'}
+    $profileAssignments=@($fixtureAst.EndBlock.Statements|Where-Object {
+        $_ -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $_.Left.Extent.Text -in @('$admittedControllerProfile','$admittedPackagedProfile')})
+    # Select the intended admission predicate, independent of earlier guards.
+    # New profile validation must not redirect this existing refusal matrix.
+    $admittedGuard=@($fixtureAst.EndBlock.Statements|Where-Object {
+        $_ -is [Management.Automation.Language.IfStatementAst] -and
+        $_.Clauses[0].Item1.Extent.Text -cmatch '^\$AdmittedTarget -and '})
+    if($profileAssignments.Count -ne 2 -or $admittedGuard.Count -ne 1){throw 'Closed admission guard missing or ambiguous'}
+    $guard=[scriptblock]::Create((@($profileAssignments|ForEach-Object {$_.Extent.Text})+
+        @($admittedGuard[0].Extent.Text)) -join "`n")
+    $parameterNames=@($fixtureAst.ParamBlock.Parameters|ForEach-Object {$_.Name.VariablePath.UserPath})
+    $selected=@('ControllerApply','ConsumerAccess','MachineRequestClient','ProductionConcurrentRights','NonAdminClient')
+    $required=@('RegisteredService','ReviewedSource','ReuseRegistration')
+    $faults=@('PublicInstallation','InterruptDuringConsumerAccess','InterruptAfterVisibleRecord',
+        'InterruptAfterRename','InterruptBeforePublish','InterruptAfterStage','TerminateAtPoststage',
+        'TerminateAtPostrename','ProductionPostpublishRights','ProductionPostrenameTermination',
+        'ProductionPreparedTermination','ExpectUnprotectedRefusal','ExpectPreexistingAnchorRefusal',
+        'HostileRights','HostilePostrename')|Where-Object {$_ -in $parameterNames}
+    $cases=[Collections.Generic.List[object]]::new()
+    foreach($mask in 0..31) {
+        foreach($omit in @('none')+$required) {
+            $flags=@('AdmittedTarget')+@($required|Where-Object {$_ -cne $omit})
+            foreach($bit in 0..4){if($mask -band (1 -shl $bit)){$flags+=@($selected[$bit])}}
+            $cases.Add(@{flags=$flags;accepted=($mask -in @(1,14) -and $omit -ceq 'none')})
+        }
+    }
+    foreach($mask in @(1,14)) {
+        foreach($fault in $faults) {
+            $flags=@('AdmittedTarget')+$required+@($fault)
+            foreach($bit in 0..4){if($mask -band (1 -shl $bit)){$flags+=@($selected[$bit])}}
+            $cases.Add(@{flags=$flags;accepted=$false})
+        }
+    }
+    foreach($case in $cases) {
+        $accepted=$true
+        try {& {
+            param($names,$flags,$guard)
+            foreach($name in $names){Set-Variable -Name $name -Value $false -Scope Local}
+            foreach($flag in $flags){Set-Variable -Name $flag -Value $true -Scope Local}
+            & $guard
+        } $parameterNames $case.flags $guard} catch {$accepted=$false}
+        if($accepted -ne $case.accepted){throw ('Closed admission profile differs: '+$fixtureName+' '+($case.flags -join ','))}
+    }
+}
+# Exercise each actual SDK admission guard separately, before any fixture body.
+# This does not invoke a launcher, create an account or admit a native operation.
+$sdkProfiles=@(
+    @{file='windows_publisher_lab_probe.ps1';function=$null;flag='PublicStandardSdkLifecycleQualification';
+        required=@('PublicInstallation','PublicStandardClient','PublicStandardMaintenanceQualification');
+        forbidden=@('PublicStandardMaintenanceRecoveryQualification','PublicStandardMaintenanceInitialQualification',
+            'PublicStandardBootstrapLoss','PublicStandardBootstrapPreservationLoss','PublicStandardActiveInstallContention',
+            'PublicStandardStalePlanQualification','PublicStandardInstallationGuardConflict');
+        prefix='PublicStandardConstructedBootstrapPrefix';durable='PublicStandardConstructedBootstrapDurableState'},
+    @{file='windows_publisher_standard_public_probe.ps1';function=$null;flag='SdkLifecycleQualification';
+        required=@('MaintenanceQualification');forbidden=@('MaintenanceRecoveryQualification',
+            'MaintenanceInitialQualification','BootstrapProcessLoss','BootstrapPreservationProcessLoss',
+            'ActiveInstallContention','StalePlanQualification','InstallationGuardConflict');
+        prefix='ConstructedBootstrapPrefix';durable='ConstructedBootstrapDurableState'},
+    @{file='windows_publisher_standard_launcher.ps1';function='Invoke-OwnedPublisherFixtureTask';flag='SdkLifecycleQualification';
+        required=@('MaintenanceQualification');forbidden=@('PackagedAdmittedConsumer','IdentityProbe',
+            'MaintenanceRecoveryQualification','MaintenanceInitialQualification','BootstrapProcessLoss',
+            'BootstrapPreservationProcessLoss','ActiveInstallContention','StalePlanQualification','InstallationGuardConflict');
+        prefix='ConstructedBootstrapPrefix';durable='ConstructedBootstrapDurableState'}
+)
+$sdkAdmissionCases=0
+foreach($profile in $sdkProfiles) {
+    $tokens=$null;$errors=$null
+    $parsed=[Management.Automation.Language.Parser]::ParseFile(
+        (Join-Path $Repository ('tests\'+$profile.file)),[ref]$tokens,[ref]$errors)
+    if($errors.Count){throw 'SDK admission fixture parse failed'}
+    $scope=$parsed
+    if($profile.function) {
+        $functions=@($parsed.EndBlock.Statements|Where-Object {
+            $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq $profile.function})
+        if($functions.Count -ne 1){throw 'SDK launcher function missing or ambiguous'}
+        $scope=$functions[0].Body
+    }
+    $condition='^'+[regex]::Escape('$'+$profile.flag)+' -and '
+    $guards=@($scope.EndBlock.Statements|Where-Object {
+        $_ -is [Management.Automation.Language.IfStatementAst] -and
+        $_.Clauses[0].Item1.Extent.Text -cmatch $condition})
+    if($guards.Count -ne 1){throw 'SDK admission guard missing or ambiguous'}
+    $guard=[scriptblock]::Create($guards[0].Extent.Text)
+    $names=@($scope.ParamBlock.Parameters|ForEach-Object {$_.Name.VariablePath.UserPath})
+    $valid=@{};$valid[$profile.flag]=$true
+    foreach($name in $profile.required){$valid[$name]=$true}
+    $cases=[Collections.Generic.List[object]]::new()
+    $cases.Add(@{values=@{};accepted=$true;name='SDK not selected'})
+    $cases.Add(@{values=$valid;accepted=$true;name='fresh SDK cohort'})
+    foreach($name in $profile.required) {
+        $changed=$valid.Clone();$changed[$name]=$false
+        $cases.Add(@{values=$changed;accepted=$false;name=('missing '+$name)})
+    }
+    foreach($name in $profile.forbidden) {
+        $changed=$valid.Clone();$changed[$name]=$true
+        $cases.Add(@{values=$changed;accepted=$false;name=('ineligible '+$name)})
+    }
+    foreach($change in @(@{key=$profile.prefix;value='anchors_1'},
+            @{key=$profile.durable;value='move_intent'})) {
+        $changed=$valid.Clone();$changed[$change.key]=$change.value
+        $cases.Add(@{values=$changed;accepted=$false;name=('ineligible '+$change.key)})
+    }
+    if($profile.function) {
+        $changed=$valid.Clone();$changed['ActorProfile']='NamedController'
+        $cases.Add(@{values=$changed;accepted=$false;name='named actor'})
+    }
+    foreach($case in $cases) {
+        $accepted=$true
+        try {& {
+            param($names,$values,$guard,$profile)
+            foreach($name in $names){Set-Variable -Name $name -Value $false -Scope Local}
+            Set-Variable -Name $profile.prefix -Value 'none' -Scope Local
+            Set-Variable -Name $profile.durable -Value 'none' -Scope Local
+            if($profile.function){Set-Variable -Name ActorProfile -Value 'SystemStandard' -Scope Local}
+            foreach($name in $values.Keys){Set-Variable -Name $name -Value $values[$name] -Scope Local}
+            & $guard
+        } $names $case.values $guard $profile} catch {$accepted=$false}
+        if($accepted -ne $case.accepted){throw ('SDK admission differs: '+$profile.file+' '+$case.name)}
+        $sdkAdmissionCases++
+    }
+}
+if($sdkAdmissionCases -ne 41){throw 'SDK admission case membership differs'}
+Write-Output ('SDK admission guards checked: '+$sdkAdmissionCases)
+# Execute the real activation helper without native effects. Its success must
+# bind the product reply to this service; a prior exit code cannot admit it.
+$tokens=$null;$errors=$null
+$ast=[Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $Repository 'tests\windows_publisher_metadata_hosted_probe.ps1'),[ref]$tokens,[ref]$errors)
+if($errors.Count){throw 'Activation fixture parse failed'}
+
+# Execute the actual hosted device-observation block. A registered controller
+# must capture its own safe prestate; the lab may not first add its service ACE.
+$modeStatement=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Extent.Text -cmatch '^\$registeredFaultService='},$true))
+$receiptStatement=@($ast.FindAll({param($node) $node -is [Management.Automation.Language.AssignmentStatementAst] -and $node.Extent.Text -cmatch '^\$receipt\[''device_acl_admission''\]='},$true))
+if($modeStatement.Count -ne 1 -or $receiptStatement.Count -ne 1){throw 'Actual device observation block missing or ambiguous'}
+$start=$modeStatement[0].Extent.StartOffset
+$end=$receiptStatement[0].Extent.EndOffset
+$deviceBlock=[scriptblock]::Create($ast.Extent.Text.Substring($start,$end-$start))
+$deviceProfiles=@(
+    @{name='registered';registered=$true;admitted=$false;faults=@();mode='--observe-owned-hosted-vm-pre-admission-volume';admission='hosted_vm_pre_admission_read_only'},
+    @{name='admitted';registered=$true;admitted=$true;faults=@();mode='--observe-owned-hosted-vm-vhd-volume';admission='hosted_vm_read_only'},
+    @{name='unregistered';registered=$false;admitted=$false;faults=@();mode='--owned-hosted-vm-vhd-volume';admission='hosted_vm'},
+    @{name='registered.poststage';registered=$true;admitted=$false;faults=@('InterruptAfterStage');mode='--observe-owned-hosted-vm-vhd-volume';admission='hosted_vm_read_only'},
+    @{name='registered.hostile';registered=$true;admitted=$false;faults=@('HostileRights');mode='--observe-owned-hosted-vm-vhd-volume';admission='hosted_vm_read_only'},
+    @{name='registered.hostile_postrename';registered=$true;admitted=$false;faults=@('HostileRights','HostilePostrename');mode='--observe-owned-hosted-vm-vhd-volume';admission='hosted_vm_read_only'},
+    @{name='registered.terminate_postrename';registered=$true;admitted=$false;faults=@('TerminateAtPostrename');mode='--observe-owned-hosted-vm-vhd-volume';admission='hosted_vm_read_only'},
+    @{name='registered.mixed_faults';registered=$true;admitted=$false;faults=@('InterruptAfterStage','HostileRights','HostilePostrename','TerminateAtPostrename');mode='--observe-owned-hosted-vm-vhd-volume';admission='hosted_vm_read_only'}
+)
+$deviceCases=0
+foreach($profile in $deviceProfiles) {
+    $variants=@('valid','native_failure','wrong_admission','wrong_sid','empty_before','empty_after','changed')
+    if($profile.registered -and $profile.faults.Count){$variants+='preparation_failure'}
+    foreach($variant in $variants) {
+        & {
+            param($Block,$Profile,$Variant)
+            $AdmittedTarget=$Profile.admitted
+            $RegisteredService=$Profile.registered
+            foreach($flag in @('InterruptAfterStage','HostileRights','HostilePostrename','TerminateAtPostrename')){
+                Set-Variable -Name $flag -Value ($flag -cin $Profile.faults) -Scope Local
+            }
+            $expectedMode=$Profile.mode
+            $expectedAdmission=$Profile.admission
+            $VolumeRoot='\\?\Volume{00000000-0000-0000-0000-000000000000}\'
+            $service='USK_PUB_'+('1'*32);$sid='S-1-5-80-1-2-3-4-5'
+            $disk=[pscustomobject]@{Number=7};$vhd='owned.vhdx';$vmId='owned-guest';$receipt=@{}
+            $script:deviceInvocations=0;$script:preparationInvocations=0
+            # This matrix checks routing and observer admission. The preparation
+            # helper's real closure flow has separate inert controls.
+            function Initialize-RegisteredFaultDeviceWithProduct {
+                $script:preparationInvocations++
+                if($Variant -ceq 'preparation_failure'){throw 'inert preparation refusal'}
+            }
+            $DeviceAclBinary={
+                param($Mode,$Volume,$ServiceName,$DiskNumber,$VhdPath,$Guest)
+                $script:deviceInvocations++
+                if($Mode -cne $expectedMode -or $Volume -cne $VolumeRoot -or
+                    $ServiceName -cne $service -or $DiskNumber -ne 7 -or
+                    $VhdPath -cne $vhd -or $Guest -cne $vmId){throw 'Device observer invocation differs'}
+                $result=[ordered]@{admission=$expectedAdmission;service_sid=$sid;
+                    before_dacl='safe original';after_dacl='safe original'}
+                if($expectedAdmission -ceq 'hosted_vm'){$result.after_dacl='lab service postimage'}
+                switch($Variant) {
+                    'wrong_admission' {$result.admission='hosted_vm_read_only.substituted'}
+                    'wrong_sid' {$result.service_sid='S-1-5-80-5-4-3-2-1'}
+                    'empty_before' {$result.before_dacl=''}
+                    'empty_after' {$result.after_dacl=''}
+                    'changed' {$result.after_dacl='another policy'}
+                }
+                $global:LASTEXITCODE=if($Variant -ceq 'native_failure'){2}else{0}
+                $result|ConvertTo-Json -Compress
+            }
+            $caught=$null
+            try {& $Block} catch {$caught=$_}
+            $expectedPreparation=[int]($Profile.registered -and $Profile.faults.Count -gt 0)
+            if($script:preparationInvocations -ne $expectedPreparation){throw 'Device preparation membership differs'}
+            if($Variant -ceq 'preparation_failure') {
+                if(-not $caught -or $caught.Exception.Message -cne 'inert preparation refusal' -or
+                    $script:deviceInvocations -ne 0 -or $receipt.ContainsKey('device_acl_admission')) {
+                    throw 'Failed preparation reached device observation or acceptance'
+                }
+                return
+            }
+            $expectedPass=$Variant -ceq 'valid' -or ($expectedAdmission -ceq 'hosted_vm' -and $Variant -ceq 'changed')
+            if($script:deviceInvocations -ne 1 -or ([bool]$caught -eq $expectedPass) -or
+                ($expectedPass -and -not $receipt.ContainsKey('device_acl_admission')) -or
+                (-not $expectedPass -and $receipt.ContainsKey('device_acl_admission'))) {
+                throw ('Device fixture acceptance differs: '+$Profile.name+'/'+$Variant+' '+$caught)
+            }
+        } $deviceBlock $profile $variant
+        $deviceCases++
+    }
+}
+if($deviceCases -ne 61){throw 'Device observation matrix membership differs'}
+Write-Output ('Actual device observation profiles/refusals checked: '+$deviceCases)
+$aclHelpers=@($ast.EndBlock.Statements|Where-Object {
+    $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and
+    $_.Name -in @('Set-OwnedMetadataServiceInputAccess','Grant-OwnedMetadataActorParentRead','Grant-OwnedMetadataActorScriptRead')})
+if($aclHelpers.Count -ne 3){throw 'Owned metadata ACL construction helpers missing'}
+& {
+    param($Helpers,$Repository,$Scratch)
+    foreach($helper in $Helpers){. ([scriptblock]::Create($helper.Extent.Text))}
+    . (Join-Path $Repository 'tests\windows_publisher_owned_process.ps1')
+    $root=Join-Path (Join-Path $Scratch ('usk-wu006-'+[guid]::NewGuid().ToString('N'))) 'controller-inputs'
+    $parent=Split-Path -Parent $root
+    $AdmittedTarget=$true;$admittedPackagedProfile=$true
+    $sid='S-1-5-80-1-2-3-4-5';$consumerSid='S-1-5-21-1-2-3-1001';$unrelatedSid='S-1-5-21-1-2-3-1002'
+    $consumerScript=Join-Path $root 'consumer-client.ps1'
+    $script:ownedActorSourceRoot=Join-Path $root 'owned-actor-sources'
+    $actorScript=Join-Path $script:ownedActorSourceRoot 'windows_publisher_unprivileged_probe.ps1'
+    $actorHelper=Join-Path $script:ownedActorSourceRoot 'windows_publisher_owned_process.ps1'
+    $wrapper=Join-Path $root ('windows_publisher_unprivileged_probe.ps1.owned-'+('1'*32)+'.ps1')
+    $base='O:SYG:SYD:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)'
+    $script:inputAcl=[Security.AccessControl.DirectorySecurity]::new();$script:inputAcl.SetSecurityDescriptorSddlForm($base)
+    $script:parentAcl=[Security.AccessControl.DirectorySecurity]::new();$script:parentAcl.SetSecurityDescriptorSddlForm($base)
+    $script:actorAcls=@{}
+    foreach($path in @($script:ownedActorSourceRoot,$actorScript,$actorHelper,$wrapper)) {
+        $acl=if($path -ceq $script:ownedActorSourceRoot){[Security.AccessControl.DirectorySecurity]::new()}
+            else{[Security.AccessControl.FileSecurity]::new()}
+        $acl.SetSecurityDescriptorSddlForm($base);$script:actorAcls[$path]=$acl
+    }
+    $script:inputAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+        [Security.Principal.SecurityIdentifier]::new($consumerSid),'ReadAndExecute','ContainerInherit,ObjectInherit','None','Allow'))
+    $script:linkedParent=$false
+    function Get-Acl([string]$LiteralPath) {
+        if($LiteralPath -ceq $root){return $script:inputAcl}
+        if($LiteralPath -ceq $parent){return $script:parentAcl}
+        if($script:actorAcls.ContainsKey($LiteralPath)){return $script:actorAcls[$LiteralPath]}
+        throw 'Unexpected ACL path'
+    }
+    function Set-Acl([string]$LiteralPath,$AclObject) {
+        if($LiteralPath -ceq $root){$script:inputAcl=$AclObject;return}
+        if($LiteralPath -ceq $parent){$script:parentAcl=$AclObject;return}
+        if($script:actorAcls.ContainsKey($LiteralPath)){$script:actorAcls[$LiteralPath]=$AclObject;return}
+        throw 'Unexpected ACL write path'
+    }
+    function Get-Item([string]$LiteralPath,[switch]$Force,[object]$ErrorAction) {
+        if($LiteralPath -cnotin @($root,$parent) -and -not $script:actorAcls.ContainsKey($LiteralPath)){throw 'Unexpected actor path'}
+        [pscustomobject]@{PSIsContainer=($LiteralPath -cin @($root,$parent,$script:ownedActorSourceRoot));Attributes=$(if($script:linkedParent -and $LiteralPath -ceq $parent){
+            [IO.FileAttributes]::ReparsePoint}else{[IO.FileAttributes]::Directory})}
+    }
+    function Get-CimInstance([string]$ClassName,[object]$ErrorAction) {
+        if($ClassName -cne 'Win32_ComputerSystem'){throw 'Unexpected actor native query'}
+        [pscustomobject]@{Manufacturer='Microsoft Corporation';Model='Virtual Machine'}
+    }
+    $saved=@{};foreach($name in @('GITHUB_ACTIONS','RUNNER_ENVIRONMENT','RUNNER_TEMP')){
+        $saved[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
+    try {
+        $env:GITHUB_ACTIONS='true';$env:RUNNER_ENVIRONMENT='github-hosted';$env:RUNNER_TEMP=$Scratch
+        Set-OwnedMetadataServiceInputAccess
+        Grant-OwnedMetadataActorParentRead $consumerSid
+        Grant-OwnedMetadataActorParentRead $unrelatedSid
+        Grant-OwnedMetadataActorScriptRead $unrelatedSid $actorScript $wrapper
+        if((Get-OwnedPublisherActorRoot $root) -cne $root){throw 'Produced actor ACL was not admitted'}
+        $parentRules=@($script:parentAcl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])|
+            Where-Object {$_.IdentityReference.Value -ceq $consumerSid})
+        if($parentRules.Count -ne 1 -or $parentRules[0].InheritanceFlags -ne 'None' -or
+            ($parentRules[0].FileSystemRights -band [Security.AccessControl.FileSystemRights]'ListDirectory,Write,Delete,ChangePermissions,TakeOwnership')) {
+            throw 'Actor parent metadata grant escaped its noninheriting read scope'
+        }
+        foreach($acl in @($script:inputAcl,$script:parentAcl,$script:actorAcls[$script:ownedActorSourceRoot])) {
+            $rules=@($acl.GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])|
+                Where-Object {$_.IdentityReference.Value -ceq $unrelatedSid})
+            if($rules.Count -ne 1 -or $rules[0].InheritanceFlags -ne 'None' -or
+                ($rules[0].FileSystemRights -band [Security.AccessControl.FileSystemRights]'ListDirectory,Write,Delete,ChangePermissions,TakeOwnership')) {
+                throw 'Unrelated actor acquired listing, broad input access or inherited grants'
+            }
+        }
+        foreach($file in @($actorScript,$actorHelper,$wrapper)) {
+            $rules=@($script:actorAcls[$file].GetAccessRules($true,$true,[Security.Principal.SecurityIdentifier])|
+                Where-Object {$_.IdentityReference.Value -ceq $unrelatedSid})
+            if($rules.Count -ne 1 -or $rules[0].InheritanceFlags -ne 'None' -or
+                ($rules[0].FileSystemRights -band [Security.AccessControl.FileSystemRights]'ReadAndExecute') -ne
+                    [Security.AccessControl.FileSystemRights]'ReadAndExecute' -or
+                ($rules[0].FileSystemRights -band [Security.AccessControl.FileSystemRights]'Write,Delete,ChangePermissions,TakeOwnership')) {
+                throw 'Unrelated actor fixed script/wrapper read grant differs'
+            }
+        }
+        $caught=$null
+        try {Grant-OwnedMetadataActorScriptRead $unrelatedSid (Join-Path $root 'archive.zip') $wrapper} catch {$caught=$_}
+        if(-not $caught){throw 'Unrelated actor read grant accepted another input'}
+        $valid=$script:inputAcl.Sddl
+        foreach($writer in @($sid,$consumerSid,$unrelatedSid)) {
+            $script:inputAcl.SetSecurityDescriptorSddlForm($valid)
+            $script:inputAcl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                [Security.Principal.SecurityIdentifier]::new($writer),'Modify','ContainerInherit,ObjectInherit','None','Allow'))
+            $caught=$null;try {$null=Get-OwnedPublisherActorRoot $root} catch {$caught=$_}
+            if(-not $caught){throw 'Actor source guard accepted a service/consumer writer'}
+        }
+        $script:inputAcl.SetSecurityDescriptorSddlForm($valid);$script:linkedParent=$true
+        $caught=$null;try {$null=Get-OwnedPublisherActorRoot $root} catch {$caught=$_}
+        if(-not $caught){throw 'Actor source guard accepted a linked parent'}
+        $script:linkedParent=$false;$script:inputAcl.SetOwner([Security.Principal.SecurityIdentifier]::new($consumerSid))
+        $caught=$null;try {$null=Get-OwnedPublisherActorRoot $root} catch {$caught=$_}
+        if(-not $caught){throw 'Actor source guard accepted an untrusted owner'}
+    } finally {
+        foreach($name in $saved.Keys){[Environment]::SetEnvironmentVariable($name,$saved[$name],'Process')}
+    }
+} $aclHelpers $Repository $Scratch
+$bodyFactory=@($ast.EndBlock.Statements|Where-Object {
+    $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq 'New-OwnedMetadataActorBody'})
+if($bodyFactory.Count -ne 1){throw 'Owned actor body factory missing'}
+. ([scriptblock]::Create($bodyFactory[0].Extent.Text))
+$stubScript=Join-Path $Scratch "actor ' literal.ps1"
+$stubOutput=Join-Path $Scratch 'owned-actor-roundtrip.json'
+function Invoke-OwnedActorBody([string]$Body) {
+    $wrapper=Join-Path $Scratch 'owned-actor-wrapper.ps1'
+    # A previous native result must not become an implicit-success actor's exit.
+    [IO.File]::WriteAllText($wrapper,('$global:LASTEXITCODE=73'+"`n"+$Body))
+    $info=[Diagnostics.ProcessStartInfo]::new()
+    $info.FileName=(Get-Process -Id $PID).Path
+    $info.Arguments='-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "'+$wrapper+'"'
+    $info.UseShellExecute=$false;$info.CreateNoWindow=$true
+    $info.RedirectStandardOutput=$true;$info.RedirectStandardError=$true
+    # A PS7 parent can leave PS5.1 with only incompatible module search paths.
+    $info.EnvironmentVariables['PSModulePath']=Join-Path $PSHOME 'Modules'
+    $process=[Diagnostics.Process]::new();$process.StartInfo=$info
+    try {
+        if(-not $process.Start()){throw 'Owned actor wrapper control did not start'}
+        $stdout=$process.StandardOutput.ReadToEndAsync();$stderr=$process.StandardError.ReadToEndAsync()
+        if(-not $process.WaitForExit(10000)) {
+            $process.Kill();$process.WaitForExit();throw 'Owned actor wrapper control timed out'
+        }
+        $process.WaitForExit()
+        return [pscustomobject]@{exit_code=$process.ExitCode;
+            stdout=$stdout.GetAwaiter().GetResult();stderr=$stderr.GetAwaiter().GetResult()}
+    } finally {$process.Dispose()}
+}
+[IO.File]::WriteAllText($stubScript,@'
+param([string]$Message,[string]$OutputPath,[switch]$Selected,
+    [int]$ExitCode=0,[switch]$ImplicitSuccess,[switch]$ThrowFailure)
+[ordered]@{message=$Message;selected=[bool]$Selected;github=$env:GITHUB_ACTIONS;
+    runner=$env:RUNNER_ENVIRONMENT;temporary=$env:RUNNER_TEMP}|
+    ConvertTo-Json|Set-Content -LiteralPath $OutputPath -Encoding utf8
+Write-Output 'actual actor response'
+if($ThrowFailure){throw 'actual actor failure'}
+if($ImplicitSuccess){return}
+exit $ExitCode
+'@)
+$contextNames=@('GITHUB_ACTIONS','RUNNER_ENVIRONMENT','RUNNER_TEMP');$savedContext=@{}
+foreach($name in $contextNames){$savedContext[$name]=[Environment]::GetEnvironmentVariable($name,'Process')}
+try {
+    $env:GITHUB_ACTIONS='true';$env:RUNNER_ENVIRONMENT='github-hosted';$env:RUNNER_TEMP=$Scratch+"\literal ' root"
+    $message="literal ' ; "+'$()'
+    $digest=(Get-FileHash -LiteralPath $stubScript -Algorithm SHA256).Hash.ToLowerInvariant()
+    $body=New-OwnedMetadataActorBody $stubScript @('-Message',$message,'-OutputPath',$stubOutput,'-Selected') $digest
+    $completed=Invoke-OwnedActorBody $body
+    if($completed.exit_code -ne 0){throw ('Owned actor roundtrip failed: '+$completed.stderr)}
+    $observed=Get-Content -LiteralPath $stubOutput -Raw|ConvertFrom-Json
+    if($completed.exit_code -ne 0 -or $completed.stdout.Trim() -cne 'actual actor response' -or
+        $observed.message -cne $message -or -not $observed.selected -or $observed.github -cne 'true' -or
+        $observed.runner -cne 'github-hosted' -or $observed.temporary -cne $env:RUNNER_TEMP) {
+        throw 'Owned actor argument/context literals did not roundtrip'
+    }
+    foreach($code in @(1,4,5)) {
+        $exitBody=New-OwnedMetadataActorBody $stubScript @('-Message',$message,
+            '-OutputPath',$stubOutput,'-ExitCode',[string]$code) $digest
+        $completed=Invoke-OwnedActorBody $exitBody
+        if($completed.exit_code -ne $code -or $completed.stdout.Trim() -cne 'actual actor response') {
+            throw ('Owned actor wrapper changed its actual child exit: '+$code)
+        }
+    }
+    foreach($case in @('ImplicitSuccess','ThrowFailure')) {
+        $caseBody=New-OwnedMetadataActorBody $stubScript @('-OutputPath',$stubOutput,('-'+$case)) $digest
+        $completed=Invoke-OwnedActorBody $caseBody
+        if(($completed.exit_code -eq 0) -ne ($case -ceq 'ImplicitSuccess')) {
+            throw ('Owned actor wrapper changed implicit success or exception: '+$case)
+        }
+    }
+    [IO.File]::Delete($stubOutput);[IO.File]::AppendAllText($stubScript,"`n# changed")
+    $completed=Invoke-OwnedActorBody $body
+    if($completed.exit_code -eq 0 -or (Test-Path -LiteralPath $stubOutput)) {
+        throw 'Changed actor source executed despite the bound digest'
+    }
+} finally {
+    foreach($name in $contextNames){[Environment]::SetEnvironmentVariable($name,$savedContext[$name],'Process')}
+}
+$activation=@($ast.EndBlock.Statements|Where-Object {
+    $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq 'Start-RegisteredPublisher'})
+if($activation.Count -ne 1){throw 'Activation fixture helper missing'}
+. ([scriptblock]::Create($activation[0].Extent.Text))
+$service='USK_PUB_0123456789abcdef0123456789abcdef';$ServiceBinary='owned-publisher.exe'
+$VolumeRoot='owned-volume';$callerSid='S-1-5-21-1-2-3-1001';$AdmittedTarget=$true
+$script:controllerPending=$false
+function Invoke-ObservedPublisherControl([string]$Phase,[string[]]$Arguments) {
+    $script:activationCalls++
+    if($Phase -cne 'service_activation' -or ($Arguments -join '|') -cne
+        (@('--start',$service,$ServiceBinary,$VolumeRoot,$callerSid,'--service-admitted-client') -join '|')) {
+        throw 'Activation did not use the exact product command'
+    }
+    return [pscustomobject]@{native_exit_code=$script:activationExit;output=@($script:activationReply)}
+}
+$reply=@{schema='usk.publisher_service_control.v1';status='start_requested';service=$service}
+foreach($case in @('valid','wrong_service','wrong_status','wrong_schema','unknown','missing_exit')) {
+    $script:activationCalls=0;$script:activationExit=0;$current=$reply.Clone()
+    switch($case) {
+        'wrong_service' {$current.service=$service+'.different'}
+        'wrong_status' {$current.status='registered'}
+        'wrong_schema' {$current.schema='usk.other.v1'}
+        'unknown' {$script:activationExit=5}
+        'missing_exit' {$script:activationExit=$null}
+    }
+    $script:activationReply=$current|ConvertTo-Json -Compress
+    $caught=$null
+    try {Start-RegisteredPublisher} catch {$caught=$_}
+    if($script:activationCalls -ne 1 -or (($null -eq $caught) -ne ($case -ceq 'valid'))) {
+        throw ('Product activation reply validation differs: '+$case)
+    }
+}
+$script:controllerPending=$true;$script:activationCalls=0
+Start-RegisteredPublisher
+if($script:activationCalls){throw 'Pending controller dispatch started a second worker'}
+$ControllerApply=$true;$script:controllerMode='verify'
+$script:activationExit=0;$script:activationReply=$reply|ConvertTo-Json -Compress
+Start-RegisteredPublisher -ActivateBeforeControllerRequest
+if($script:activationCalls -ne 1 -or -not $script:controllerPending) {
+    throw 'Explicit admitted verification activation skipped start or changed the controller request'
+}
+foreach($invalidMode in @('apply','recover')) {
+    $script:controllerMode=$invalidMode;$script:activationCalls=0;$caught=$null
+    try {Start-RegisteredPublisher -ActivateBeforeControllerRequest} catch {$caught=$_}
+    if(-not $caught -or $script:activationCalls){throw 'Explicit activation admitted an unintended controller operation'}
+}
+$script:controllerMode='verify';$ControllerApply=$false;$script:activationCalls=0;$caught=$null
+try {Start-RegisteredPublisher -ActivateBeforeControllerRequest} catch {$caught=$_}
+if(-not $caught -or $script:activationCalls){throw 'Explicit controller activation admitted a different profile'}
+# A native refusal failure and an uncertain restore have separate receipts.
+# Only an owned temporary file is changed; no registered service is present.
+$mutation=@($ast.EndBlock.Statements|Where-Object {
+    $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and $_.Name -ceq 'Assert-ChangedAdmissionStartRefusal'})
+if($mutation.Count -ne 1){throw 'Admission mutation fixture helper missing'}
+. ([scriptblock]::Create($mutation[0].Extent.Text))
+$ServiceBinary=Join-Path $Scratch 'owned-publisher.exe'
+$ownedRecord=Join-Path $Scratch ($service+'.target-admitted.json')
+$originalBytes=[Text.Encoding]::UTF8.GetBytes('{"identity":{"registration_sha256":"original"}}')
+function Assert-AdmittedStartRefusal([string]$Phase,[string[]]$Arguments,[string]$Diagnostic) {
+    if($Phase -cne 'start_changed_admission' -or
+        ([IO.File]::ReadAllText($ownedRecord)|ConvertFrom-Json).identity.registration_sha256 -cne ('0'*64)) {
+        throw 'Changed record did not reach the intended refusal'
+    }
+    if($script:failRestore){[IO.File]::SetAttributes($ownedRecord,[IO.FileAttributes]::ReadOnly)}
+    if($script:failNative){throw 'synthetic native refusal failure'}
+}
+foreach($case in @('success','native_failure','native_and_restore_failure')) {
+    [IO.File]::WriteAllBytes($ownedRecord,$originalBytes)
+    $receipt=[ordered]@{};$script:failNative=$case -cne 'success'
+    $script:failRestore=$case -ceq 'native_and_restore_failure';$caught=$null
+    try {Assert-ChangedAdmissionStartRefusal} catch {$caught=$_}
+    finally {[IO.File]::SetAttributes($ownedRecord,[IO.FileAttributes]::Normal)}
+    $control=$receipt.changed_admission_start_control
+    if($script:failNative) {
+        if(-not $caught -or $caught.Exception.Message -cne 'synthetic native refusal failure' -or
+            $control.primary_failure -cne 'synthetic native refusal failure') {
+            throw 'Admission restore replaced the primary native failure'
+        }
+    } elseif($caught -or $control.primary_failure) {
+        throw ('Successful refusal acquired a primary failure: '+$caught.Exception.Message+'; '+$control.primary_failure)
+    }
+    if($script:failRestore) {
+        if($control.restoration_status -cne 'unconfirmed' -or -not $control.restoration_failure) {
+            throw 'Failed admission restore was not separately retained'
+        }
+    } elseif($control.restoration_status -cne 'restored' -or $control.restoration_failure -or
+        [Convert]::ToBase64String([IO.File]::ReadAllBytes($ownedRecord)) -cne
+        [Convert]::ToBase64String($originalBytes)) {throw 'Exact admission restoration differs'}
+}
+
+$observerFile=Join-Path $Repository 'tests\windows_publisher_production_rename_observer.ps1'
+# Exercise only the real observer's preselection AST, before native construction.
+& {
+    $tokens=$null;$parseErrors=$null
+    $observerAst=[Management.Automation.Language.Parser]::ParseFile(
+        $observerFile,[ref]$tokens,[ref]$parseErrors)
+    if($parseErrors.Count){throw 'Observer fixture source does not parse'}
+    $selection=@($observerAst.FindAll({param($node)
+        $node -is [Management.Automation.Language.IfStatementAst] -and
+        $node.Extent.Text.StartsWith('if(-not $effectPair) {',[StringComparison]::Ordinal)
+    },$true))
+    if($selection.Count -ne 1){throw 'Observer candidate preselection is ambiguous'}
+    $statements=@($selection[0].Clauses[0].Item2.Statements)
+    $constructor=@(0..($statements.Count-1)|Where-Object {
+        $statements[$_] -is [Management.Automation.Language.AssignmentStatementAst] -and
+        $statements[$_].Left.Extent.Text -ceq '$effectPair'})
+    if($constructor.Count -ne 1 -or $constructor[0] -lt 4 -or
+        -not $statements[$constructor[0]].Extent.Text.Contains('[UskOwnedEffectChildObserver]::new(')) {
+        throw 'Observer native construction boundary differs'
+    }
+    $prelude=[scriptblock]::Create(($statements[0..($constructor[0]-1)]|
+        ForEach-Object {$_.Extent.Text}) -join [Environment]::NewLine)
+    $expectedImage='C:\owned-fixture\publisher.exe'
+    function Get-CimInstance {
+        param([string]$ClassName,[string]$Filter,[string]$ErrorAction)
+        if($ClassName -cne 'Win32_Process' -or $Filter -cne 'ParentProcessId=700' -or
+            $ErrorAction -cne 'Stop'){throw 'Unexpected candidate native query'}
+        return $script:metadataRows
+    }
+    function Start-Sleep {
+        param([int]$Milliseconds)
+        if($Milliseconds -ne 1){throw 'Candidate retry changed its interval'}
+        throw 'METADATA_PENDING_BEFORE_NATIVE_CONSTRUCTION'
+    }
+    function New-CandidateRow {
+        return [pscustomobject]@{ProcessId=701;CreationDate=[DateTime]::UtcNow
+            ExecutablePath=$expectedImage;CommandLine='"C:\owned-fixture\publisher.exe" --usk-private-effect-worker-transport-v1 4 8 12'}
+    }
+    $cases=0
+    function Test-CandidatePrelude {
+        param([object[]]$Rows,[string]$Expected)
+        $script:metadataRows=$Rows
+        $held=[pscustomobject]@{Id=700}
+        $config=[pscustomobject]@{process_id=700;process_executable=$expectedImage}
+        $effectPair=$null;$result=[ordered]@{status='not_run';termination=$null}
+        $actual='eligible_for_native_checks';$caught=$null
+        try {& $prelude} catch {
+            $caught=$_.Exception.Message
+            $actual=if($caught -ceq 'METADATA_PENDING_BEFORE_NATIVE_CONSTRUCTION'){'pending'}else{'refused'}
+        }
+        if($actual -cne $Expected){throw ('Candidate outcome differs: expected='+$Expected+'; actual='+$actual+'; '+$caught)}
+        if($actual -ceq 'refused' -and $caught -cnotin @(
+            'Owned effect-child candidate image/command/birth differs',
+            'Owned SCM has an ambiguous native effect-child population')) {
+            throw ('Unexpected candidate refusal: '+$caught)
+        }
+        if($effectPair -or $result.status -cne 'not_run' -or $result.termination) {
+            throw 'Provisional candidate escaped into a native observer or outcome'
+        }
+        if($Rows.Count -eq 1) {
+            if(-not $result.Contains('effect_child_candidate')) {
+                throw 'Candidate metadata projection is missing'
+            }
+            $facts=$result.effect_child_candidate;$row=$Rows[0]
+            if($facts.process_id -ne $row.ProcessId -or
+                $facts.creation_present -ne [bool]$row.CreationDate -or
+                $facts.image_present -ne [bool]$row.ExecutablePath -or
+                $facts.command_present -ne [bool]$row.CommandLine -or
+                ($row.ExecutablePath -and $facts.image_matches -ne ($row.ExecutablePath -ceq $expectedImage)) -or
+                (-not $row.ExecutablePath -and $null -ne $facts.image_matches)) {
+                throw 'Candidate metadata projection differs from the observed row'
+            }
+        }
+    }
+    Test-CandidatePrelude @(New-CandidateRow) 'eligible_for_native_checks';$cases++
+    foreach($mask in 1..7) {
+        $row=New-CandidateRow
+        if($mask -band 1){$row.CreationDate=$null}
+        if($mask -band 2){$row.ExecutablePath=$null}
+        if($mask -band 4){$row.CommandLine=$null}
+        Test-CandidatePrelude @($row) 'pending';$cases++
+    }
+    foreach($invalidId in @(0,-1,700)) {
+        foreach($incomplete in @($false,$true)) {
+            $row=New-CandidateRow;$row.ProcessId=$invalidId
+            if($incomplete){$row.CreationDate=$null;$row.ExecutablePath=$null;$row.CommandLine=$null}
+            Test-CandidatePrelude @($row) 'refused';$cases++
+        }
+    }
+    foreach($incomplete in @($false,$true)) {
+        $row=New-CandidateRow;$row.ExecutablePath='C:\foreign\publisher.exe'
+        if($incomplete){$row.CreationDate=$null;$row.CommandLine=$null}
+        Test-CandidatePrelude @($row) 'refused';$cases++
+    }
+    $row=New-CandidateRow;$row.ExecutablePath='c:\owned-fixture\publisher.exe'
+    Test-CandidatePrelude @($row) 'refused';$cases++
+    Test-CandidatePrelude @() 'pending';$cases++
+    Test-CandidatePrelude @((New-CandidateRow),(New-CandidateRow)) 'refused';$cases++
+    if($cases -ne 19){throw 'Candidate metadata matrix is incomplete'}
+    Write-Output ('Observer candidate preselection cases PASS: '+$cases)
+}
+
+''', encoding="utf-8")
+    result = subprocess.run(
+        [powershell, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+         "-File", str(driver), "-Repository", str(repository), "-Scratch", str(root)],
+        capture_output=True, text=True, timeout=30, check=False,
+    )
+    if result.returncode != 0:
+        raise AssertionError(f"fixture cleanup containment failed: {result}")
 
 
 def main() -> int:
@@ -47,29 +1053,115 @@ def main() -> int:
                                 capture_output=True, timeout=10, check=False)
         if before.returncode != 1060:
             raise AssertionError("generated test service absence was not established")
-        result = subprocess.run(args, capture_output=True, text=True,
-                                timeout=10, check=False)
-        if result.returncode != 3 or "differs" not in result.stderr:
-            raise AssertionError(f"reviewed apply substitution was admitted: {result}")
-        for operation, expected_schema in (
-            ("--recover-registered", "usk.publisher_recovery_request.v1"),
-            ("--verify-registered", "usk.publisher_installed_verify_request.v1"),
-        ):
-            wrong_request = root / (operation[2:] + ".json")
-            write_json(wrong_request, {"schema": "usk.install_local_apply_request.v1"})
+        # Exercise the real controller parser and request checks in every mode,
+        # including the admitted route. The distinct diagnostic proves these
+        # refusals reached the request check rather than an unsupported option.
+        for mode in ([], ["--admit-client-observer"], ["--grant-client-read"],
+                     ["--service-admitted-client"]):
+            result = subprocess.run(
+                args + mode, capture_output=True, text=True, timeout=10, check=False,
+            )
+            if result.returncode != 3 or "apply request differs" not in result.stderr:
+                raise AssertionError(f"reviewed apply substitution was admitted in {mode}: {result}")
+            for operation, expected_schema in (
+                ("--recover-registered", "usk.publisher_recovery_request.v1"),
+                ("--verify-registered", "usk.publisher_installed_verify_request.v1"),
+            ):
+                wrong_request = root / (operation[2:] + ".json")
+                write_json(wrong_request, {"schema": "usk.install_local_apply_request.v1"})
+                result = subprocess.run(
+                    [str(executable), operation, service, str(executable), volume,
+                     caller, "0" * 64, str(wrong_request)] + mode,
+                    capture_output=True, text=True, timeout=10, check=False,
+                )
+                if result.returncode != 3 or "request mode differs" not in result.stderr:
+                    raise AssertionError(
+                        f"{operation} accepted a request other than {expected_schema} in {mode}: {result}"
+                    )
+        # Admitted requests must bind the current caller before reading input.
+        # A different canonical account SID is insufficient, even with this mode.
+        wrong_caller_args = list(args)
+        wrong_caller_args[7] = "S-1-5-18" if caller != "S-1-5-18" else "S-1-5-19"
+        result = subprocess.run(
+            wrong_caller_args + ["--service-admitted-client"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        if result.returncode != 3 or "caller differs from this process identity" not in result.stderr:
+            raise AssertionError(f"admitted controller did not reject the actual caller mismatch: {result}")
+        # Legacy reconfiguration remains unavailable for admitted registrations.
+        for operation in ("--recover", "--verify"):
             result = subprocess.run(
                 [str(executable), operation, service, str(executable), volume,
-                 caller, "0" * 64, str(wrong_request)],
+                 caller, "--service-admitted-client"],
                 capture_output=True, text=True, timeout=10, check=False,
             )
-            if result.returncode != 3 or "mode differs" not in result.stderr:
-                raise AssertionError(
-                    f"{operation} accepted a request other than {expected_schema}: {result}"
-                )
+            if result.returncode != 3 or "caller access mode is invalid" not in result.stderr:
+                raise AssertionError(f"admitted mode reached legacy {operation}: {result}")
+        # Admitted activation is parsed, but an ordinary build executable is
+        # still refused at the native protected-image fence before SCM access.
+        result = subprocess.run(
+            [str(executable), "--start", service, str(executable), volume,
+             caller, "--service-admitted-client"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+        if result.returncode != 3 or "outside the protected installation directory" not in result.stderr:
+            raise AssertionError(f"admitted start bypassed protected-image custody: {result}")
         after = subprocess.run(["sc.exe", "query", service],
                                capture_output=True, timeout=10, check=False)
         if after.returncode != 1060:
             raise AssertionError("invalid apply left a service or unknown SCM state")
+        # Run the real fixture entry points with rejected profile combinations.
+        # Fake inputs must remain unopened and no output/VHD may be created.
+        repository = Path(__file__).resolve().parents[2]
+        verify_fixture_retention(repository, root)
+        fixture_environment = dict(os.environ, GITHUB_ACTIONS="false", RUNNER_ENVIRONMENT="local")
+        admitted = ["-AdmittedTarget", "-ControllerApply", "-RegisteredService",
+                    "-ReviewedSource", "-ReuseRegistration"]
+        output = root / "must-not-be-created.json"
+        missing_vhd = root / "must-not-be-created.vhdx"
+        for name in ("windows_publisher_lab_probe.ps1", "windows_publisher_metadata_hosted_probe.ps1"):
+            fixture = repository / "tests" / name
+            inputs = ["-OutputPath", str(output)]
+            if "metadata" in name:
+                inputs += ["-VhdPath", str(missing_vhd), "-VolumeRoot", volume,
+                           "-ServiceBinary", str(executable), "-DeviceAclBinary", str(executable),
+                           "-MachineBinary", str(executable), "-PublicApplyBinary", str(executable)]
+            else:
+                inputs += ["-ServiceControlBinary", str(executable)]
+            combinations = [[flag for flag in admitted if flag != "-ControllerApply"]]
+            combinations += [admitted + [flag] for flag in (
+                "-ConsumerAccess", "-MachineRequestClient", "-InterruptAfterStage", "-NonAdminClient")]
+            for flags in combinations:
+                result = subprocess.run(
+                    ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                     "-File", str(fixture)] + inputs + flags,
+                    capture_output=True, text=True, timeout=10, check=False, env=fixture_environment,
+                )
+                if result.returncode == 0 or "Admitted target currently requires" not in result.stderr:
+                    raise AssertionError(f"unsafe admitted fixture profile reached setup: {name}: {result}")
+                if output.exists() or missing_vhd.exists():
+                    raise AssertionError("rejected fixture profile created output or storage")
+        actor_probe = repository / "tests" / "windows_publisher_controller_actor_probe.ps1"
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+             "-File", str(actor_probe), "-OutputPath", str(output)],
+            capture_output=True, text=True, timeout=10, check=False, env=fixture_environment,
+        )
+        if result.returncode == 0 or "requires the hosted disposable VM" not in result.stderr or output.exists():
+            raise AssertionError(f"controller actor probe bypassed hosted admission: {result}")
+        if len(sys.argv) > 2:
+            observer = Path(sys.argv[2]).resolve(strict=True)
+            for mode in ("--observe-owned-hosted-vm-vhd-volume",
+                         "--observe-owned-hosted-vm-pre-admission-volume"):
+                result = subprocess.run(
+                    [str(observer), mode, volume, service,
+                     "4294967295", str(missing_vhd), "00000000-0000-0000-0000-000000000000"],
+                    capture_output=True, text=True, timeout=10, check=False, env=fixture_environment,
+                )
+                if result.returncode != 2 or "requires a hosted disposable runner" not in result.stderr:
+                    raise AssertionError(f"read-only device observer bypassed native hosted admission: {mode}: {result}")
+                if missing_vhd.exists():
+                    raise AssertionError("non-hosted device observer created storage")
     return 0
 
 

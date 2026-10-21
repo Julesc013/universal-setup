@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.migration-ledger-entry.schema.v0",
+  "type": "object",
+  "required": [
+    "event_id",
+    "event_type",
+    "source_ref",
+    "target_ref",
+    "status",
+    "evidence_refs",
+    "validation_refs",
+    "rollback_refs",
+    "notes"
+  ],
+  "properties": {
+    "event_id": {"type": "string"},
+    "event_type": {"type": "string"},
+    "source_ref": {"type": "string"},
+    "target_ref": {"type": "string"},
+    "status": {"type": "string"},
+    "evidence_refs": {"type": "array"},
+    "validation_refs": {"type": "array"},
+    "rollback_refs": {"type": "array"},
+    "notes": {"type": "array"}
+  }
+}

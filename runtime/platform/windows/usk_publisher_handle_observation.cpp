@@ -3,6 +3,7 @@
 
 #include "usk_publisher_handle_observation.h"
 #include "usk_publisher_security_descriptor.h"
+#include "usk_diagnostic_metrics.h"
 
 #if defined(_WIN32)
 #include <sddl.h>
@@ -55,14 +56,32 @@ std::string file_id_text(const FILE_ID_INFO& id) {
 }
 
 std::wstring handle_name(HANDLE handle) {
-    std::vector<unsigned char> buffer(65536);
-    if (!GetFileInformationByHandleEx(handle, FileNameInfo, buffer.data(),
-            static_cast<DWORD>(buffer.size()))) {
-        throw std::runtime_error("publisher observation cannot read the handle name");
+    const usk::diagnostics::DurationCounter elapsed(
+        usk::diagnostics::Counter::handle_name_elapsed_us,
+        usk::diagnostics::Counter::handle_name_calls);
+    // Most native names fit locally. Every observation still queries this
+    // held handle; the fixed fallback retains the existing long-name bound.
+    alignas(FILE_NAME_INFO) unsigned char inline_buffer[512]{};
+    std::vector<unsigned char> expanded;
+    auto* data = inline_buffer;
+    DWORD capacity = static_cast<DWORD>(sizeof(inline_buffer));
+    if (!GetFileInformationByHandleEx(handle, FileNameInfo, data, capacity)) {
+        const DWORD error = GetLastError();
+        if (error != ERROR_MORE_DATA) {
+            throw std::runtime_error("publisher observation cannot read the handle name");
+        }
+        // Ignore the failed response, including its reported length. A name
+        // may change before this fresh query; only its successful bytes count.
+        expanded.resize(65536);
+        data = expanded.data();
+        capacity = static_cast<DWORD>(expanded.size());
+        if (!GetFileInformationByHandleEx(handle, FileNameInfo, data, capacity)) {
+            throw std::runtime_error("publisher observation cannot read the handle name");
+        }
     }
-    const auto* info = reinterpret_cast<const FILE_NAME_INFO*>(buffer.data());
+    const auto* info = reinterpret_cast<const FILE_NAME_INFO*>(data);
     if (info->FileNameLength % sizeof(WCHAR) != 0 ||
-        info->FileNameLength > buffer.size() - offsetof(FILE_NAME_INFO, FileName)) {
+        info->FileNameLength > capacity - offsetof(FILE_NAME_INFO, FileName)) {
         throw std::runtime_error("publisher observation has a malformed handle name");
     }
     return {info->FileName, info->FileNameLength / sizeof(WCHAR)};
@@ -133,6 +152,9 @@ std::uint32_t observe_publisher_handle_granted_access(HANDLE handle) {
 
 static PublisherHandleObservation observe_publisher_handle(HANDLE handle,
     bool require_directory) {
+    const usk::diagnostics::DurationCounter elapsed(
+        usk::diagnostics::Counter::handle_observation_elapsed_us,
+        usk::diagnostics::Counter::handle_observation_calls);
     (void)observe_publisher_noninheritable_handle_flags(handle);
     if (!handle || handle == INVALID_HANDLE_VALUE) {
         throw std::runtime_error("publisher observation requires an open handle");
@@ -197,12 +219,85 @@ usk::json::Value publisher_handle_observation_json(const PublisherHandleObservat
             {"flags", Value(static_cast<std::uint64_t>(ace.flags))},
             {"access_mask", Value(static_cast<std::uint64_t>(ace.access_mask))}, {"sid", Value(ace.sid)}});
     }
-    return Value(Value::Object{{"file_id", Value(observation.file_id)}, {"native_name", Value(name)},
-        {"owner_sid", Value(observation.owner_sid)}, {"dacl_protected", Value(observation.dacl_protected)},
-        {"attributes", Value(static_cast<std::uint64_t>(observation.attributes))},
-        {"reparse_tag", Value(static_cast<std::uint64_t>(observation.reparse_tag))},
-        {"link_count", Value(static_cast<std::uint64_t>(observation.link_count))},
-        {"case_sensitive", Value(observation.case_sensitive)}, {"dacl_aces", Value(std::move(aces))}});
+    Value::Object fields;
+    fields.emplace("file_id", Value(observation.file_id));
+    fields.emplace("native_name", Value(std::move(name)));
+    fields.emplace("owner_sid", Value(observation.owner_sid));
+    fields.emplace("dacl_protected", Value(observation.dacl_protected));
+    fields.emplace("attributes", Value(static_cast<std::uint64_t>(observation.attributes)));
+    fields.emplace("reparse_tag", Value(static_cast<std::uint64_t>(observation.reparse_tag)));
+    fields.emplace("link_count", Value(static_cast<std::uint64_t>(observation.link_count)));
+    fields.emplace("case_sensitive", Value(observation.case_sensitive));
+    fields.emplace("dacl_aces", Value(std::move(aces)));
+    return Value(std::move(fields));
+}
+
+bool detail::equal_publisher_handle_observations(const PublisherHandleObservation& a,
+    const PublisherHandleObservation& b) {
+    // Preserve refusal for either invalid projection before any field mismatch.
+    for (const auto ch : a.native_name)
+        if (ch > 0x7f) throw std::runtime_error("publisher retained native name is outside the ASCII profile");
+    for (const auto ch : b.native_name)
+        if (ch > 0x7f) throw std::runtime_error("publisher retained native name is outside the ASCII profile");
+    if (a.file_id != b.file_id || a.native_name != b.native_name ||
+        a.attributes != b.attributes || a.reparse_tag != b.reparse_tag ||
+        a.link_count != b.link_count || a.case_sensitive != b.case_sensitive ||
+        a.owner_sid != b.owner_sid || a.dacl_protected != b.dacl_protected ||
+        a.dacl_aces.size() != b.dacl_aces.size()) return false;
+    for (std::size_t index = 0; index < a.dacl_aces.size(); ++index) {
+        const auto& first = a.dacl_aces[index];
+        const auto& second = b.dacl_aces[index];
+        if (first.type != second.type || first.flags != second.flags ||
+            first.access_mask != second.access_mask || first.sid != second.sid) return false;
+    }
+    return true;
+}
+
+bool detail::equal_publisher_handle_observation_json(const PublisherHandleObservation& observed,
+    const usk::json::Value& expected) {
+    using usk::json::Value;
+    // Projection failure precedes every comparison, just as eagerly building
+    // publisher_handle_observation_json(observed) did at the call site.
+    for (const auto ch : observed.native_name)
+        if (ch > 0x7f) throw std::runtime_error("publisher retained native name is outside the ASCII profile");
+    if (expected.type() != Value::Type::object || expected.as_object().size() != 9u) return false;
+    const auto member = [](const Value::Object& fields, const char* key) -> const Value* {
+        const auto found = fields.find(key);
+        return found == fields.end() ? nullptr : &found->second;
+    };
+    const auto text = [&](const Value::Object& fields, const char* key, const std::string& value) {
+        const auto* field = member(fields, key);
+        return field && field->type() == Value::Type::string && field->as_string() == value;
+    };
+    const auto number = [&](const Value::Object& fields, const char* key, std::uint64_t value) {
+        const auto* field = member(fields, key);
+        return field && field->type() == Value::Type::unsigned_integer && field->as_unsigned() == value;
+    };
+    const auto boolean = [&](const Value::Object& fields, const char* key, bool value) {
+        const auto* field = member(fields, key);
+        return field && field->type() == Value::Type::boolean && field->as_boolean() == value;
+    };
+    const auto& fields = expected.as_object();
+    const auto* name = member(fields, "native_name");
+    if (!name || name->type() != Value::Type::string ||
+        name->as_string().size() != observed.native_name.size()) return false;
+    for (std::size_t index = 0; index < observed.native_name.size(); ++index)
+        if (name->as_string()[index] != static_cast<char>(observed.native_name[index])) return false;
+    if (!text(fields, "file_id", observed.file_id) || !text(fields, "owner_sid", observed.owner_sid) ||
+        !number(fields, "attributes", observed.attributes) || !number(fields, "reparse_tag", observed.reparse_tag) ||
+        !number(fields, "link_count", observed.link_count) || !boolean(fields, "case_sensitive", observed.case_sensitive) ||
+        !boolean(fields, "dacl_protected", observed.dacl_protected)) return false;
+    const auto* aces = member(fields, "dacl_aces");
+    if (!aces || aces->type() != Value::Type::array || aces->as_array().size() != observed.dacl_aces.size()) return false;
+    for (std::size_t index = 0; index < observed.dacl_aces.size(); ++index) {
+        const auto& value = aces->as_array()[index];
+        const auto& ace = observed.dacl_aces[index];
+        if (value.type() != Value::Type::object || value.as_object().size() != 4u) return false;
+        const auto& entry = value.as_object();
+        if (!number(entry, "type", ace.type) || !number(entry, "flags", ace.flags) ||
+            !number(entry, "access_mask", ace.access_mask) || !text(entry, "sid", ace.sid)) return false;
+    }
+    return true;
 }
 
 } // namespace usk::platform::windows

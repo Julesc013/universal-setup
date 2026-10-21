@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SPDX-FileCopyrightText: 2026 Jules C -->
+<!-- SPDX-License-Identifier: MIT -->
+<WindowsPerformanceRecorder Version="1.0" Author="Universal Setup owned diagnostic">
+  <Profiles>
+    <SystemCollector Id="CreatorSystemCollector" Name="NT Kernel Logger">
+      <BufferSize Value="512" />
+      <Buffers Value="128" />
+    </SystemCollector>
+    <!-- Collectors must precede providers in the hosted WPR profile schema. -->
+    <EventCollector Id="QualificationCollector" Name="UniversalSetupQualification">
+      <BufferSize Value="64" />
+      <Buffers Value="128" />
+    </EventCollector>
+    <SystemProvider Id="CreatorSystemProvider">
+      <Keywords>
+        <Keyword Value="ProcessThread" Strict="true" />
+        <Keyword Value="Loader" Strict="true" />
+        <Keyword Value="SampledProfile" Strict="true" />
+        <Keyword Value="CSwitch" Strict="true" />
+        <Keyword Value="ReadyThread" Strict="true" />
+      </Keywords>
+      <Stacks>
+        <Stack Value="ThreadCreate" />
+        <Stack Value="SampledProfile" />
+      </Stacks>
+    </SystemProvider>
+    <!-- Recovery needs complete CPU attribution within the same ring budget.
+         Scheduler events remain in the fresh/thread profiles. -->
+    <SystemProvider Id="RecoveryCPUProvider">
+      <Keywords>
+        <Keyword Value="ProcessThread" Strict="true" />
+        <Keyword Value="Loader" Strict="true" />
+        <Keyword Value="SampledProfile" Strict="true" />
+      </Keywords>
+      <Stacks>
+        <Stack Value="ThreadCreate" />
+        <Stack Value="SampledProfile" />
+      </Stacks>
+    </SystemProvider>
+    <EventProvider Id="QualificationProvider" Name="7e4a4d0e-4d53-4c2d-93a3-6ba61cf46711" Level="5">
+      <Keywords><Keyword Value="0x1" /></Keywords>
+    </EventProvider>
+    <!-- Recovery selects major phase boundaries. The same payload and the
+         original event/buffer ceilings remain; detailed fresh capture is level5. -->
+    <EventProvider Id="RecoveryQualificationProvider" Name="7e4a4d0e-4d53-4c2d-93a3-6ba61cf46711" Level="4">
+      <Keywords><Keyword Value="0x1" /></Keywords>
+    </EventProvider>
+    <Profile Id="USKFreshCPU.Verbose.Memory" Name="USKFreshCPU" Description="Owned fresh maintenance CPU stacks and scheduler events diagnostic" DetailLevel="Verbose" LoggingMode="Memory">
+      <Collectors>
+        <SystemCollectorId Value="CreatorSystemCollector"><SystemProviderId Value="CreatorSystemProvider" /></SystemCollectorId>
+        <EventCollectorId Value="QualificationCollector"><EventProviders><EventProviderId Value="QualificationProvider" /></EventProviders></EventCollectorId>
+      </Collectors>
+    </Profile>
+    <!-- WPR's schema requires the paired profile; the wrapper never selects file mode. -->
+    <Profile Id="USKFreshCPU.Verbose.File" Name="USKFreshCPU" Description="Owned fresh maintenance CPU stacks and scheduler events diagnostic; file mode not admitted" DetailLevel="Verbose" LoggingMode="File">
+      <Collectors>
+        <SystemCollectorId Value="CreatorSystemCollector"><SystemProviderId Value="CreatorSystemProvider" /></SystemCollectorId>
+        <EventCollectorId Value="QualificationCollector"><EventProviders><EventProviderId Value="QualificationProvider" /></EventProviders></EventCollectorId>
+      </Collectors>
+    </Profile>
+    <Profile Id="USKRecoveryCPU.Verbose.Memory" Name="USKRecoveryCPU" Description="Owned recovery CPU stacks and process identity diagnostic; no scheduler events" DetailLevel="Verbose" LoggingMode="Memory">
+      <Collectors>
+        <SystemCollectorId Value="CreatorSystemCollector"><SystemProviderId Value="RecoveryCPUProvider" /></SystemCollectorId>
+        <EventCollectorId Value="QualificationCollector"><EventProviders><EventProviderId Value="RecoveryQualificationProvider" /></EventProviders></EventCollectorId>
+      </Collectors>
+    </Profile>
+    <!-- Paired schema definition only; the wrapper still never selects file mode. -->
+    <Profile Id="USKRecoveryCPU.Verbose.File" Name="USKRecoveryCPU" Description="Owned recovery CPU diagnostic; file mode not admitted" DetailLevel="Verbose" LoggingMode="File">
+      <Collectors>
+        <SystemCollectorId Value="CreatorSystemCollector"><SystemProviderId Value="RecoveryCPUProvider" /></SystemCollectorId>
+        <EventCollectorId Value="QualificationCollector"><EventProviders><EventProviderId Value="RecoveryQualificationProvider" /></EventProviders></EventCollectorId>
+      </Collectors>
+    </Profile>
+  </Profiles>
+</WindowsPerformanceRecorder>

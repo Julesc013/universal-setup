@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: tool_record_schema_golden
+title: Tool Record Schema Golden
+status: active
+objective: Verify Q41 tool record schema fields for capability, risk, fate, and no-execution state.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task tool_record_schema_golden
+no_model_calls: true
+no_network_calls: true

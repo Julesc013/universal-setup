@@ -7,6 +7,10 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <array>
+#include <cstddef>
+#include <vector>
+#include <exception>
 #include "usk_json.h"
 #include <memory>
 #include <string>
@@ -21,11 +25,67 @@ struct PublisherRequestOptions {
     DWORD conflict_wait_milliseconds = 0;
 };
 inline constexpr DWORD publisher_request_max_conflict_wait_milliseconds = 30000;
-class PublisherRequestOutcomeUnknown final : public std::runtime_error {
+// Message construction/copy must not allocate: this exception can be thrown
+// while handling allocation failure after the first possible request write.
+// A lost diagnostic suffix never changes the outcome or authorizes a retry.
+class PublisherRequestOutcomeUnknown final : public std::exception {
 public:
-    explicit PublisherRequestOutcomeUnknown(const std::string& reason) :
-        std::runtime_error("publisher response unavailable; outcome unknown: " + reason) {}
+    explicit PublisherRequestOutcomeUnknown(const char* reason) noexcept {
+        append("publisher response unavailable; outcome unknown: ");
+        append(reason);
+    }
+    explicit PublisherRequestOutcomeUnknown(const std::string& reason) noexcept :
+        PublisherRequestOutcomeUnknown(reason.c_str()) {}
+    PublisherRequestOutcomeUnknown(const char* context, const char* reason) noexcept :
+        PublisherRequestOutcomeUnknown(context) { append(reason); }
+    PublisherRequestOutcomeUnknown(const char* context, DWORD error) noexcept :
+        PublisherRequestOutcomeUnknown(context) {
+        // DWORD's complete decimal range fits in ten digits plus the terminator.
+        char digits[11]{};
+        auto* cursor = digits + sizeof(digits) - 1u;
+        do {
+            *--cursor = static_cast<char>('0' + error % 10u);
+            error /= 10u;
+        } while (error != 0);
+        append(cursor);
+    }
+    const char* what() const noexcept override { return message_.data(); }
+private:
+    std::array<char, 512> message_{};
+    void append(const char* text) noexcept {
+        if (!text) return;
+        std::size_t used = 0;
+        while (message_[used]) ++used;
+        while (*text && used + 1u < message_.size()) message_[used++] = *text++;
+        if (*text) {
+            message_[used - 3u] = '.';
+            message_[used - 2u] = '.';
+            message_[used - 1u] = '.';
+        }
+        message_[used] = '\0';
+    }
 };
+namespace detail {
+// One freshly returned token-information value, not a token or authority cache.
+// TokenUser/Groups contain pointers into their own returned buffer. C++17
+// prvalue construction and deleted moves keep that storage at a fixed address.
+class PublisherClientTokenBytes final {
+public:
+    PublisherClientTokenBytes(HANDLE token, TOKEN_INFORMATION_CLASS kind);
+    PublisherClientTokenBytes(const PublisherClientTokenBytes&) = delete;
+    PublisherClientTokenBytes& operator=(const PublisherClientTokenBytes&) = delete;
+    PublisherClientTokenBytes(PublisherClientTokenBytes&&) = delete;
+    PublisherClientTokenBytes& operator=(PublisherClientTokenBytes&&) = delete;
+    const unsigned char* data() const noexcept {
+        return expanded_.empty() ? inline_bytes_.data() : expanded_.data();
+    }
+    std::size_t size() const noexcept { return size_; }
+private:
+    alignas(std::max_align_t) std::array<unsigned char, 1024> inline_bytes_{};
+    std::vector<unsigned char> expanded_;
+    DWORD size_ = 0;
+};
+}
 // Private transport only. This grants no filesystem or publisher authority.
 // The service supplies the admitted caller SID; message fields cannot choose it.
 class PublisherRequestChannel final {
@@ -37,6 +97,13 @@ public:
     PublisherRequestChannel(const PublisherRequestChannel&) = delete;
     PublisherRequestChannel& operator=(const PublisherRequestChannel&) = delete;
     std::string receive();
+    // Immutable canonical bytes actually received on this channel, available
+    // only while its original authenticated token is unchanged and unreplied.
+    // A caller cannot replace this binding with supplied request text.
+    std::string authenticated_canonical_request() const;
+    // Read-only query boundary: same authenticated request, cancellation and
+    // original absolute channel deadline. This does not extend the deadline.
+    void require_active_request() const;
     // Actual authenticated identification token and current held file-object
     // descriptor only. This is read-only evidence, not publication admission.
     // The token stays private to this one-request channel and is never exported.

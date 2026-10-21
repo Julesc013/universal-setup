@@ -1,0 +1,68 @@
+schema_version: aide.verification-policy.v0
+policy_id: q12.verifier.v0
+status: active-pending-review
+purpose: >
+  Define deterministic repo-local mechanical verification for compact task
+  packets, evidence packets, file references, changed-file scope, adapter
+  drift, context packet shape, token warnings, and obvious secret risks.
+verification_result_values:
+  - PASS
+  - WARN
+  - FAIL
+checks:
+  required_files:
+    enabled: true
+    severity_if_missing: error
+  required_sections:
+    enabled: true
+    severity_if_missing: error
+  file_references:
+    enabled: true
+    severity_missing_file: warning
+    severity_invalid_line_range: error
+  diff_scope:
+    enabled: true
+    severity_forbidden_path: error
+    severity_unknown_path: warning
+  forbidden_paths:
+    enabled: true
+    severity: error
+  adapter_drift:
+    enabled: true
+    severity: warning
+  context_packet_shape:
+    enabled: true
+    severity_missing_section: warning
+  review_packet_shape:
+    enabled: true
+    severity_missing_section: error
+    severity_missing_reference: warning
+    severity_forbidden_prompt_pattern: warning
+  token_budget_warnings:
+    enabled: true
+    severity_over_hard_limit: warning
+  secret_scan:
+    enabled: true
+    severity_actual_secret_like_value: error
+    severity_policy_text_match: info
+non_goals:
+  - no LLM judging
+  - no provider calls
+  - no automatic repair
+  - no semantic diff analysis
+  - no exact tokenizer
+severity_model:
+  info: informational finding that does not affect result
+  warning: mechanical concern that permits completion with review attention
+  error: hard verifier failure
+result_rules:
+  PASS: no warnings or errors
+  WARN: one or more warnings and no errors
+  FAIL: one or more errors
+reporting:
+  compact_by_default: true
+  no_raw_file_contents: true
+  no_raw_prompt_logs: true
+  include_counts: true
+  include_warnings_and_errors: true
+  include_evidence_paths: true

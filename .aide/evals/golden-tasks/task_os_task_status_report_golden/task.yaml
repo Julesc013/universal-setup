@@ -1,0 +1,11 @@
+schema_version: aide.golden-task.v0
+id: task_os_task_status_report_golden
+title: Task OS Task Status Report Golden
+status: active
+description: Verify task status and classification reports are generated with no-apply boundaries.
+quality_dimensions:
+  - task_status
+  - classification
+  - no_apply
+runner: .aide/scripts/aide_lite.py eval run --task task_os_task_status_report_golden
+no_call: true

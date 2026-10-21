@@ -1,0 +1,48 @@
+schema_version: aide.tool-risk-policy.v0
+policy_id: aide.tool-risk.v0
+status: active
+purpose: >
+  Define deterministic risk hints for discovered tool records.
+risk_classes:
+  - low
+  - medium
+  - high
+  - destructive
+  - release
+  - security
+  - external_side_effect
+  - unknown
+high_risk_hints:
+  - delete
+  - clean
+  - prune
+  - migrate
+  - release
+  - publish
+  - deploy
+  - push
+  - secret
+  - credential
+  - production
+  - live
+medium_risk_hints:
+  - build
+  - test
+  - generate
+  - compile
+  - install
+  - upgrade
+  - rollback
+low_risk_hints:
+  - docs
+  - report
+  - status
+  - inventory
+  - explain
+  - list
+risk_rules:
+  destructive_name_is_not_deletion_authority: true
+  release_tool_requires_future_release_gate: true
+  security_tool_requires_no_secret_capture: true
+  unknown_tool_execution_allowed: false
+  target_mutation_allowed_in_q41: false

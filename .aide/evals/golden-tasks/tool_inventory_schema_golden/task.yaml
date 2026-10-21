@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: tool_inventory_schema_golden
+title: Tool Inventory Schema Golden
+status: active
+objective: Verify Q41 tool inventory schema and generated inventory shape.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task tool_inventory_schema_golden
+no_model_calls: true
+no_network_calls: true

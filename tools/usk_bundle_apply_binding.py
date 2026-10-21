@@ -111,10 +111,19 @@ def compose_binding(request: dict[str, Any], response: dict[str, Any], *,
         raise BindingError("native plan or authored request is malformed") from error
 
 
-def _read_json(path: Path) -> dict[str, Any]:
-    if path.stat().st_size > 1024 * 1024:
+def review_response(request: dict[str, Any], review: dict[str, Any]) -> dict[str, Any]:
+    if (set(review) != {"schema", "request", "response"} or
+            review["schema"] != "usk.authored_install_review.v1" or _bytes(review["request"]) != _bytes(request)):
+        raise BindingError("authored review differs from the complete independently composed request")
+    return review["response"]
+
+
+def _read_json(path: Path, maximum: int = 1024 * 1024) -> dict[str, Any]:
+    with path.open("rb") as source:
+        encoded = source.read(maximum + 1)
+    if len(encoded) > maximum:
         raise BindingError("planning input exceeds byte budget")
-    value = json.loads(path.read_text(encoding="utf-8"))
+    value = json.loads(encoded)
     if not isinstance(value, dict):
         raise BindingError("planning input is not an object")
     return value
@@ -127,13 +136,17 @@ def _bytes(value: dict[str, Any]) -> bytes:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    for name in ("request-file", "response-file", "acceptance-root", "state-root",
+    for name in ("request-file", "acceptance-root", "state-root",
                  "transaction-id", "applied-at", "output-dir"):
         parser.add_argument("--" + name, required=True)
+    response = parser.add_mutually_exclusive_group(required=True)
+    response.add_argument("--response-file")
+    response.add_argument("--review-file")
     args = parser.parse_args()
     try:
-        apply, envelope = compose_binding(
-            _read_json(Path(args.request_file)), _read_json(Path(args.response_file)),
+        request = _read_json(Path(args.request_file))
+        response = review_response(request, _read_json(Path(args.review_file), 16 * 1024 * 1024)) if args.review_file else _read_json(Path(args.response_file))
+        apply, envelope = compose_binding(request, response,
             acceptance_root=args.acceptance_root, state_root=args.state_root,
             transaction_id=args.transaction_id, applied_at=args.applied_at)
         output = Path(args.output_dir)

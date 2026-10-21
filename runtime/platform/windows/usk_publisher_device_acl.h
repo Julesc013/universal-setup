@@ -6,6 +6,8 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#include "usk_json.h"
+#include <optional>
 #include <vector>
 
 namespace usk::platform::windows {
@@ -21,6 +23,44 @@ bool require_publisher_device_acl_shape(PSID owner, PACL dacl, PSID service_sid)
 // grant. This pure data transformation does not install security or admit a
 // target. All other ACEs and the owner must pass the existing strict profile.
 std::vector<BYTE> restrict_publisher_default_device_acl(PSID owner, PACL dacl, PSID service_sid);
+
+// Pure bounded bootstrap postimage. Retains the trusted owner and ordered ACEs,
+// reduces only the recognized default when necessary, adds the exact service
+// grant and protects inheritance. Caller must separately bind original intent,
+// unpublished target/custody and exclusive admission before accepting a target.
+std::vector<BYTE> publisher_device_admission_postimage(PSID owner, PACL dacl, PSID service_sid);
+
+// Pure mounted completion for an already safe original. Refuses every outside
+// mutation grant before deriving service/protection; no default-right reduction.
+std::vector<BYTE> publisher_read_only_device_admission_postimage(PSID owner, PACL dacl, PSID service_sid);
+
+// Same bounded pure postimage, with an explicit policy-decline result for
+// legacy admission. Native input/API/allocation/format/composition errors throw;
+// only an explicit strict-profile or completion-budget decline returns nullopt.
+// Composition is outside the decline catch. No native effect.
+std::optional<std::vector<BYTE>> publisher_try_read_only_device_admission_postimage(
+    PSID owner, PACL dacl, PSID service_sid);
+
+// Failure-only projection of already retained transition data. No native reads,
+// policy derivation or authority. Original text is at most8192 bytes; return only
+// its first2048 bytes with full length/canonical-string digest and truncation.
+// Invalid input/allocation can throw; the owning refusal path must contain it.
+enum class PublisherDeviceTransitionSource {
+    legacy_locked_capture, unpublished_retained, registered_creation
+};
+json::Value publisher_device_transition_diagnostic(
+    const json::Value& transition, PublisherDeviceTransitionSource source);
+
+// Closed data-shape check only. V3 must carry a nonnull mounted transition;
+// false is reserved for legacy v2. Native identity, intended-policy derivation
+// and mutation authority remain mandatory checks in the owning controller.
+bool publisher_target_intent_has_device_transition(const json::Value& intent);
+// Closed creation-intent v1/v2 shape only. V2 retains the native device original;
+// v1 explicitly has none. These supplied data confer no custody or authority:
+// the controller must independently hold/match the protected creation/binding,
+// live SCM identity, volume, exact safe original and derived intended policy.
+bool publisher_registration_intent_has_device_transition(const json::Value& intent);
+
 
 } // namespace usk::platform::windows
 #endif

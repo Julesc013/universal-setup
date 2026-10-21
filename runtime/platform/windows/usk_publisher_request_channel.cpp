@@ -1,25 +1,32 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
+#include "usk_diagnostic_metrics.h"
 #include "usk_publisher_request_channel.h"
+#include "usk_publisher_channel_io_internal.h"
 #if defined(_WIN32)
 #include <sddl.h>
 #include <aclapi.h>
 #include "usk_publisher_token_observation.h"
+#include "usk_publisher_authenticated_client_internal.h"
 #include "usk_publisher_security_descriptor.h"
 #include "usk_publisher_handle_observation.h"
 #include "usk_effect_dispatch.h"
 #include "usk_json.h"
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <exception>
 #include <stdexcept>
 #include <vector>
 namespace usk::platform::windows {
 namespace {
-constexpr DWORD request_limit = 1024u * 1024u;
-constexpr DWORD response_limit = 4u * 1024u * 1024u;
-constexpr DWORD client_access = FILE_READ_DATA | FILE_WRITE_DATA |
-    FILE_READ_ATTRIBUTES | FILE_WRITE_ATTRIBUTES | READ_CONTROL | SYNCHRONIZE;
+using detail::channel_io::request_limit;
+using detail::channel_io::response_limit;
+using detail::channel_io::deadline;
+using detail::channel_io::remaining;
+using detail::channel_io::Io;
+using detail::channel_io::read_message;
+using detail::channel_io::write_message;
 struct Handle {
     HANDLE value;
     explicit Handle(HANDLE v) : value(v) {}
@@ -27,32 +34,10 @@ struct Handle {
     Handle(const Handle&) = delete;
     Handle& operator=(const Handle&) = delete;
 };
-struct ServiceHandle {
-    SC_HANDLE value;
-    explicit ServiceHandle(SC_HANDLE v) : value(v) {}
-    ~ServiceHandle() { if (value) CloseServiceHandle(value); }
-};
 struct LocalBuffer {
     void* value = nullptr;
     ~LocalBuffer() { if (value) LocalFree(value); }
 };
-ULONGLONG deadline(DWORD milliseconds) {
-    if (!milliseconds || milliseconds > 120000) throw std::runtime_error("invalid publisher transport timeout");
-    return GetTickCount64() + milliseconds;
-}
-DWORD remaining(ULONGLONG until) {
-    const auto now = GetTickCount64();
-    return now >= until ? 0 : static_cast<DWORD>(until - now);
-}
-void require_request_not_cancelled(const PublisherRequestOptions& options,
-    const std::string& inspection_reference) {
-    if (!options.cancel_event) return;
-    const DWORD result = WaitForSingleObject(options.cancel_event, 0);
-    if (result == WAIT_OBJECT_0)
-        throw usk::base::EffectRequestNotDispatched(
-            usk::base::EffectRequestNotDispatched::Reason::operation_cancelled, inspection_reference);
-    if (result != WAIT_TIMEOUT) throw std::runtime_error("publisher cancellation event unavailable");
-}
 std::wstring canonical_sid(const std::wstring& value) {
     LocalBuffer sid, text;
     if (value.empty() || value.size() > 184 ||
@@ -61,52 +46,6 @@ std::wstring canonical_sid(const std::wstring& value) {
         throw std::runtime_error("publisher transport SID is invalid");
     }
     return static_cast<wchar_t*>(text.value);
-}
-struct Io {
-    Handle event{CreateEventW(nullptr, TRUE, FALSE, nullptr)};
-    OVERLAPPED overlapped{};
-    Io() {
-        if (!event.value) throw std::runtime_error("publisher transport event unavailable");
-        overlapped.hEvent = event.value;
-    }
-    DWORD finish(HANDLE file, BOOL started, HANDLE stop, ULONGLONG until,
-        DWORD immediate_error) {
-        if (!started && immediate_error != ERROR_IO_PENDING) {
-            throw std::runtime_error("publisher transport message failed; Win32 " + std::to_string(immediate_error));
-        }
-        HANDLE waits[2] = {event.value, stop};
-        const DWORD result = started ? WAIT_OBJECT_0 :
-            WaitForMultipleObjects(stop ? 2 : 1, waits, FALSE, remaining(until));
-        DWORD bytes = 0;
-        if (result != WAIT_OBJECT_0) {
-            CancelIoEx(file, &overlapped);
-            // Do not release the OVERLAPPED storage until cancellation completes.
-            GetOverlappedResult(file, &overlapped, &bytes, TRUE);
-            throw std::runtime_error("publisher transport cancelled or timed out");
-        }
-        if (!GetOverlappedResult(file, &overlapped, &bytes, FALSE)) {
-            throw std::runtime_error("publisher transport message incomplete; Win32 " + std::to_string(GetLastError()));
-        }
-        return bytes;
-    }
-};
-std::string read_message(HANDLE pipe, DWORD limit, HANDLE stop, ULONGLONG until) {
-    std::vector<char> bytes(limit + 1u);
-    Io io;
-    const BOOL started = ReadFile(pipe, bytes.data(), static_cast<DWORD>(bytes.size()), nullptr, &io.overlapped);
-    const DWORD error = started ? ERROR_SUCCESS : GetLastError();
-    const DWORD read = io.finish(pipe, started, stop, until, error);
-    if (!read || read > limit) throw std::runtime_error("publisher transport message exceeds bound or is empty");
-    return std::string(bytes.data(), read);
-}
-void write_message(HANDLE pipe, const std::string& bytes, DWORD limit, HANDLE stop, ULONGLONG until) {
-    if (bytes.empty() || bytes.size() > limit) throw std::runtime_error("publisher transport message exceeds bound or is empty");
-    Io io;
-    const BOOL started = WriteFile(pipe, bytes.data(), static_cast<DWORD>(bytes.size()), nullptr, &io.overlapped);
-    const DWORD error = started ? ERROR_SUCCESS : GetLastError();
-    if (io.finish(pipe, started, stop, until, error) != bytes.size()) {
-        throw std::runtime_error("publisher transport partial message");
-    }
 }
 std::string sid_text(PSID sid) {
     LocalBuffer rendered;
@@ -124,19 +63,13 @@ std::string sid_text(PSID sid) {
 std::uint64_t luid_value(const LUID& value) {
     return (static_cast<std::uint64_t>(static_cast<std::uint32_t>(value.HighPart)) << 32u) | value.LowPart;
 }
-std::vector<unsigned char> token_bytes(HANDLE token, TOKEN_INFORMATION_CLASS kind) {
-    DWORD needed = 0;
-    if (GetTokenInformation(token, kind, nullptr, 0, &needed) || GetLastError() != ERROR_INSUFFICIENT_BUFFER ||
-        needed == 0 || needed > 65536)
-        throw std::runtime_error("authenticated client token size is unavailable or exceeds its bound");
-    std::vector<unsigned char> bytes(needed);
-    DWORD returned = 0;
-    if (!GetTokenInformation(token, kind, bytes.data(), needed, &returned) || returned != needed)
-        throw std::runtime_error("authenticated client token changed during observation");
-    return bytes;
+detail::PublisherClientTokenBytes token_bytes(HANDLE token, TOKEN_INFORMATION_CLASS kind) {
+    return detail::PublisherClientTokenBytes(token, kind);
 }
-usk::json::Value client_token_facts(HANDLE token, ULONG process_id) {
-    using usk::json::Value;
+detail::AuthenticatedClientObservation client_token_facts(HANDLE token, ULONG process_id) {
+    const usk::diagnostics::DurationCounter elapsed(
+        usk::diagnostics::Counter::client_token_facts_elapsed_us,
+        usk::diagnostics::Counter::client_token_facts_calls);
     const auto user = token_bytes(token, TokenUser);
     const auto statistics = token_bytes(token, TokenStatistics);
     const auto level = token_bytes(token, TokenImpersonationLevel);
@@ -152,17 +85,17 @@ usk::json::Value client_token_facts(HANDLE token, ULONG process_id) {
         if (bytes.size() < sizeof(DWORD))
             throw std::runtime_error("authenticated client group layout differs");
         const auto* values = reinterpret_cast<const TOKEN_GROUPS*>(bytes.data());
-        if (values->GroupCount == 0) return Value(Value::Array{});
+        if (values->GroupCount == 0) return detail::AuthenticatedClientObservation::Groups{};
         if (bytes.size() < offsetof(TOKEN_GROUPS, Groups))
             throw std::runtime_error("authenticated client group array is truncated");
         if (values->GroupCount > 1024 || values->GroupCount >
             (bytes.size() - offsetof(TOKEN_GROUPS, Groups)) / sizeof(SID_AND_ATTRIBUTES))
             throw std::runtime_error("authenticated client group count exceeds its bound");
-        Value::Array result;
+        detail::AuthenticatedClientObservation::Groups result;
         for (DWORD index = 0; index < values->GroupCount; ++index)
-            result.emplace_back(Value::Object{{"sid", Value(sid_text(values->Groups[index].Sid))},
-                {"attributes", Value(static_cast<std::uint64_t>(values->Groups[index].Attributes))}});
-        return Value(std::move(result));
+            result.emplace_back(sid_text(values->Groups[index].Sid),
+                static_cast<std::uint64_t>(values->Groups[index].Attributes));
+        return result;
     };
     const auto privileges = token_bytes(token, TokenPrivileges);
     if (privileges.size() < offsetof(TOKEN_PRIVILEGES, Privileges))
@@ -171,21 +104,20 @@ usk::json::Value client_token_facts(HANDLE token, ULONG process_id) {
     if (values->PrivilegeCount > 256 || values->PrivilegeCount >
         (privileges.size() - offsetof(TOKEN_PRIVILEGES, Privileges)) / sizeof(LUID_AND_ATTRIBUTES))
         throw std::runtime_error("authenticated client privilege count exceeds its bound");
-    Value::Array privilege_values;
+    detail::AuthenticatedClientObservation result;
     for (DWORD index = 0; index < values->PrivilegeCount; ++index)
-        privilege_values.emplace_back(Value::Object{{"luid", Value(luid_value(values->Privileges[index].Luid))},
-            {"attributes", Value(static_cast<std::uint64_t>(values->Privileges[index].Attributes))}});
-    return Value(Value::Object{{"schema", Value("usk.publisher_authenticated_client_observation.v1")},
-        {"scope", Value("held_authenticated_identification_token")},
-        {"captured_process_id", Value(static_cast<std::uint64_t>(process_id))},
-        {"user_sid", Value(sid_text(reinterpret_cast<const TOKEN_USER*>(user.data())->User.Sid))},
-        {"token_type", Value(static_cast<std::uint64_t>(stats.TokenType))},
-        {"impersonation_level", Value(static_cast<std::uint64_t>(impersonation))},
-        {"token_id", Value(luid_value(stats.TokenId))},
-        {"authentication_id", Value(luid_value(stats.AuthenticationId))},
-        {"modified_id", Value(luid_value(stats.ModifiedId))},
-        {"groups", groups(TokenGroups)}, {"restricted_sids", groups(TokenRestrictedSids)},
-        {"privileges", Value(std::move(privilege_values))}});
+        result.privileges.emplace_back(luid_value(values->Privileges[index].Luid),
+            static_cast<std::uint64_t>(values->Privileges[index].Attributes));
+    result.process_id = static_cast<std::uint64_t>(process_id);
+    result.user_sid = sid_text(reinterpret_cast<const TOKEN_USER*>(user.data())->User.Sid);
+    result.token_type = static_cast<std::uint64_t>(stats.TokenType);
+    result.impersonation_level = static_cast<std::uint64_t>(impersonation);
+    result.token_id = luid_value(stats.TokenId);
+    result.authentication_id = luid_value(stats.AuthenticationId);
+    result.modified_id = luid_value(stats.ModifiedId);
+    result.groups = groups(TokenGroups);
+    result.restricted_sids = groups(TokenRestrictedSids);
+    return result;
 }
 HANDLE require_caller(HANDLE pipe, const std::wstring& expected) {
     if (!ImpersonateNamedPipeClient(pipe)) throw std::runtime_error("publisher caller identification failed");
@@ -222,121 +154,44 @@ HANDLE require_caller(HANDLE pipe, const std::wstring& expected) {
     token.value = nullptr;
     return raw;
 }
-DWORD service_process(SC_HANDLE service) {
-    SERVICE_STATUS_PROCESS status{};
-    DWORD size = 0;
-    SERVICE_SID_INFO sid{};
-    if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
-            reinterpret_cast<BYTE*>(&status), sizeof(status), &size) ||
-        status.dwServiceType != SERVICE_WIN32_OWN_PROCESS ||
-        status.dwCurrentState != SERVICE_RUNNING || !status.dwProcessId ||
-        !QueryServiceConfig2W(service, SERVICE_CONFIG_SERVICE_SID_INFO,
-            reinterpret_cast<BYTE*>(&sid), sizeof(sid), &size) || sid.dwServiceSidType != SERVICE_SID_TYPE_RESTRICTED) {
-        throw std::runtime_error("publisher server is not a live own-process restricted service");
+
+}
+detail::PublisherClientTokenBytes::PublisherClientTokenBytes(HANDLE token, TOKEN_INFORMATION_CLASS kind) {
+    // Only the six data-only classes already consumed by client_token_facts.
+    // In particular, no handle-producing information class can enter this owner.
+    switch (kind) {
+    case TokenUser: case TokenStatistics: case TokenImpersonationLevel:
+    case TokenGroups: case TokenRestrictedSids: case TokenPrivileges: break;
+    default: throw std::invalid_argument("authenticated client token information class is unsupported");
     }
-    return status.dwProcessId;
-}
-DWORD await_service_process(SC_HANDLE service, ULONGLONG until,
-    const PublisherRequestOptions& options, const std::string& inspection_reference) {
-    SERVICE_SID_INFO sid{};
-    DWORD size = 0;
-    if (!QueryServiceConfig2W(service, SERVICE_CONFIG_SERVICE_SID_INFO,
-            reinterpret_cast<BYTE*>(&sid), sizeof(sid), &size) ||
-        sid.dwServiceSidType != SERVICE_SID_TYPE_RESTRICTED) {
-        throw std::runtime_error("publisher server is not a restricted service");
+    constexpr DWORD maximum = 65536;
+    DWORD returned = 0;
+    if (GetTokenInformation(token, kind, inline_bytes_.data(),
+            static_cast<DWORD>(inline_bytes_.size()), &returned)) {
+        if (returned == 0 || returned > inline_bytes_.size())
+            throw std::runtime_error("authenticated client token changed during observation");
+        size_ = returned;
+        return;
     }
-    while (true) {
-        require_request_not_cancelled(options, inspection_reference);
-        SERVICE_STATUS_PROCESS status{};
-        if (!QueryServiceStatusEx(service, SC_STATUS_PROCESS_INFO,
-                reinterpret_cast<BYTE*>(&status), sizeof(status), &size) ||
-            status.dwServiceType != SERVICE_WIN32_OWN_PROCESS) {
-            throw std::runtime_error("publisher server is not an own-process service");
-        }
-        if (status.dwCurrentState == SERVICE_RUNNING) {
-            if (!remaining(until)) throw std::runtime_error("publisher server startup timed out");
-            return service_process(service);
-        }
-        if (status.dwCurrentState != SERVICE_START_PENDING) {
-            throw std::runtime_error("publisher server stopped before becoming ready");
-        }
-        const DWORD wait = std::min<DWORD>(remaining(until), 20);
-        if (!wait) throw std::runtime_error("publisher server startup timed out");
-        Sleep(wait);
-    }
+    // The failed call supplies only capacity. Ignore all failed response bytes;
+    // a larger value still gets a fresh read under the original exact-size cap.
+    if (GetLastError() != ERROR_INSUFFICIENT_BUFFER ||
+        returned <= inline_bytes_.size() || returned > maximum)
+        throw std::runtime_error("authenticated client token size is unavailable or exceeds its bound");
+    const DWORD needed = returned;
+    expanded_.resize(needed);
+    returned = 0;
+    if (!GetTokenInformation(token, kind, expanded_.data(), needed, &returned) || returned != needed)
+        throw std::runtime_error("authenticated client token changed during observation");
+    size_ = returned;
 }
-}
-std::wstring publisher_request_pipe_name(const std::wstring& service_name) {
-    if (service_name.empty() || service_name.size() > 80) throw std::runtime_error("publisher service name invalid");
-    for (const auto ch : service_name) {
-        if (!((ch >= L'A' && ch <= L'Z') || (ch >= L'a' && ch <= L'z') ||
-            (ch >= L'0' && ch <= L'9') || ch == L'_' || ch == L'-')) {
-            throw std::runtime_error("publisher service name invalid");
-        }
-    }
-    return L"\\\\.\\pipe\\USK-Publisher-" + service_name;
-}
-std::string publisher_request_inspection_reference(const std::wstring& service_name) {
-    const auto name = publisher_request_pipe_name(service_name);
-    std::string canonical;
-    canonical.reserve(name.size());
-    for (const auto ch : name)
-        canonical.push_back(static_cast<char>(ch >= L'a' && ch <= L'z' ? ch - L'a' + L'A' : ch));
-    return "usk.operation-inspection.v1:" + usk::json::sha256_canonical(usk::json::Value(canonical));
-}
-HANDLE connect_publisher_request_endpoint(const std::wstring& service_name,
-    DWORD timeout_ms, const PublisherRequestOptions& options) {
-    const auto until = deadline(timeout_ms);
-    if (options.conflict_wait_milliseconds > publisher_request_max_conflict_wait_milliseconds)
-        throw std::invalid_argument("publisher contention wait exceeds bound");
-    const auto name = publisher_request_pipe_name(service_name);
-    const auto inspection_reference = publisher_request_inspection_reference(service_name);
-    ULONGLONG conflict_until = 0;
-    const auto conflict = [&] {
-        throw usk::base::EffectRequestNotDispatched(
-            usk::base::EffectRequestNotDispatched::Reason::operation_conflict, inspection_reference);
-    };
-    while (true) {
-        require_request_not_cancelled(options, inspection_reference);
-        if (conflict_until && !remaining(conflict_until)) conflict();
-        if (!remaining(until)) {
-            if (conflict_until) conflict();
-            throw std::runtime_error("publisher endpoint connection timed out before dispatch");
-        }
-        const HANDLE raw = CreateFileW(name.c_str(), client_access, 0, nullptr, OPEN_EXISTING,
-            FILE_FLAG_OVERLAPPED | SECURITY_SQOS_PRESENT | SECURITY_IDENTIFICATION, nullptr);
-        if (raw != INVALID_HANDLE_VALUE) {
-            try { require_request_not_cancelled(options, inspection_reference); }
-            catch (...) { CloseHandle(raw); throw; }
-            return raw;
-        }
-        const DWORD error = GetLastError();
-        if (error != ERROR_PIPE_BUSY && error != ERROR_FILE_NOT_FOUND)
-            throw std::runtime_error("publisher endpoint refused connection before dispatch");
-        if (error == ERROR_PIPE_BUSY) {
-            if (!options.conflict_wait_milliseconds) conflict();
-            if (!conflict_until)
-                conflict_until = std::min<ULONGLONG>(until,
-                    GetTickCount64() + options.conflict_wait_milliseconds);
-        }
-        const DWORD wait = std::min<DWORD>(10,
-            remaining(conflict_until ? conflict_until : until));
-        if (!wait) continue;
-        // WaitNamedPipe returns immediately for an absent pipe. A separate
-        // bounded pause prevents spinning while ServiceMain creates its endpoint.
-        if (error == ERROR_FILE_NOT_FOUND) {
-            if (options.cancel_event) WaitForSingleObject(options.cancel_event, wait);
-            else Sleep(wait);
-        } else {
-            WaitNamedPipeW(name.c_str(), wait);
-        }
-    }
-}
+
 struct PublisherRequestChannel::State {
     Handle pipe;
     Handle client_token{nullptr};
     ULONG client_process_id = 0;
-    usk::json::Value client_facts;
+    detail::AuthenticatedClientObservation client_facts;
+    std::string received_request;
     std::wstring caller_sid;
     HANDLE stop;
     ULONGLONG until;
@@ -383,17 +238,36 @@ std::string PublisherRequestChannel::receive() {
     if (!GetNamedPipeClientProcessId(state.pipe.value, &state.client_process_id) || !state.client_process_id)
         throw std::runtime_error("authenticated pipe client process is unavailable");
     state.client_facts = client_token_facts(state.client_token.value, state.client_process_id);
+    state.received_request = request;
     if (state.stop && WaitForSingleObject(state.stop,0)==WAIT_OBJECT_0) throw std::runtime_error("publisher transport cancelled");
     state.received = true;
     return request;
 }
+std::string PublisherRequestChannel::authenticated_canonical_request() const {
+    const auto& state = *state_;
+    if (!state.received || state.replied || !state.client_token.value || state.received_request.empty() ||
+        !detail::equal_authenticated_client_observations(client_token_facts(state.client_token.value, state.client_process_id),
+            state.client_facts))
+        throw std::runtime_error("authenticated request binding is unavailable or changed");
+    return usk::json::canonical(usk::json::parse(state.received_request));
+}
+void PublisherRequestChannel::require_active_request() const {
+    (void)authenticated_canonical_request();
+    const auto& state = *state_;
+    const DWORD cancelled = state.stop ? WaitForSingleObject(state.stop, 0) : WAIT_TIMEOUT;
+    if (cancelled != WAIT_TIMEOUT || !detail::channel_io::remaining(state.until))
+        throw std::runtime_error("publisher read-only request cancelled or expired");
+}
 usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HANDLE object) const {
+    const usk::diagnostics::DurationCounter elapsed(
+        usk::diagnostics::Counter::authenticated_access_elapsed_us,
+        usk::diagnostics::Counter::authenticated_access_calls);
     using usk::json::Value;
     const auto& state = *state_;
     if (!state.received || state.replied || !state.client_token.value || !object || object == INVALID_HANDLE_VALUE)
         throw std::runtime_error("authenticated access observation requires the active request and held object");
-    const auto before_client = client_token_facts(state.client_token.value, state.client_process_id);
-    if (usk::json::canonical(before_client) != usk::json::canonical(state.client_facts))
+    auto before_client = client_token_facts(state.client_token.value, state.client_process_id);
+    if (!detail::equal_authenticated_client_observations(before_client, state.client_facts))
         throw std::runtime_error("authenticated client token changed since admission");
     FILE_ATTRIBUTE_TAG_INFO attributes{};
     if (!GetFileInformationByHandleEx(object, FileAttributeTagInfo, &attributes, sizeof(attributes)))
@@ -441,23 +315,36 @@ usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HA
         descriptor_hex.push_back(hex[bytes[index] & 15u]);
     }
     Value::Object checks;
-    const std::vector<std::pair<std::string, DWORD>> rights{{"write_or_add_file", FILE_WRITE_DATA},
+    static constexpr std::array<std::pair<const char*, DWORD>, 9> rights{{{"write_or_add_file", FILE_WRITE_DATA},
         {"append_or_add_directory", FILE_APPEND_DATA}, {"write_ea", FILE_WRITE_EA},
         {"delete_child", FILE_DELETE_CHILD}, {"write_attributes", FILE_WRITE_ATTRIBUTES},
         {"delete", DELETE}, {"write_dac", WRITE_DAC}, {"write_owner", WRITE_OWNER},
-        {"maximum_allowed", MAXIMUM_ALLOWED}};
+        {"maximum_allowed", MAXIMUM_ALLOWED}}};
     for (const auto& [name, requested] : rights) {
         GENERIC_MAPPING mapping{FILE_GENERIC_READ, FILE_GENERIC_WRITE, FILE_GENERIC_EXECUTE, FILE_ALL_ACCESS};
-        std::vector<unsigned char> privilege_storage(sizeof(PRIVILEGE_SET) + 16u * sizeof(LUID_AND_ATTRIBUTES));
-        DWORD privilege_length = static_cast<DWORD>(privilege_storage.size()), granted = 0;
+        // Each native check owns fresh zeroed scratch. Keep the ordinary
+        // bounded buffer inline; an actual larger API requirement still uses
+        // the same bounded allocation and single retry below.
+        alignas(PRIVILEGE_SET) std::array<unsigned char,
+            sizeof(PRIVILEGE_SET) + 16u * sizeof(LUID_AND_ATTRIBUTES)> privilege_inline{};
+        std::vector<unsigned char> privilege_storage;
+        auto* privilege_bytes = privilege_inline.data();
+        DWORD privilege_length = static_cast<DWORD>(privilege_inline.size()), granted = 0;
         BOOL allowed = FALSE;
-        const auto run = [&] { return AccessCheck(descriptor.value, state.client_token.value, requested, &mapping,
-            reinterpret_cast<PRIVILEGE_SET*>(privilege_storage.data()), &privilege_length, &granted, &allowed); };
+        const auto run = [&] {
+            usk::diagnostics::note(usk::diagnostics::Counter::access_check_calls);
+            return AccessCheck(descriptor.value, state.client_token.value, requested, &mapping,
+            reinterpret_cast<PRIVILEGE_SET*>(privilege_bytes), &privilege_length, &granted, &allowed); };
         if (!run()) {
             if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || privilege_length < sizeof(PRIVILEGE_SET) ||
                 privilege_length > 65536)
                 throw std::runtime_error("fresh authenticated AccessCheck failed");
             privilege_storage.resize(privilege_length);
+            // Preserve the failed call's written prefix exactly as vector
+            // resize did, including a permitted smaller returned size.
+            const auto copied = std::min(privilege_storage.size(), privilege_inline.size());
+            std::memcpy(privilege_storage.data(), privilege_inline.data(), copied);
+            privilege_bytes = privilege_storage.data();
             if (!run()) throw std::runtime_error("fresh authenticated AccessCheck retry failed");
         }
         checks.emplace(name, Value(Value::Object{{"requested", Value(static_cast<std::uint64_t>(requested))},
@@ -475,19 +362,25 @@ usk::json::Value PublisherRequestChannel::observe_authenticated_object_access(HA
         std::memcmp(descriptor.value, descriptor_after.value, length) != 0)
         throw std::runtime_error("held descriptor changed across authenticated access collection");
     const auto after = directory ? observe_publisher_directory_handle(object) : observe_publisher_file_handle(object);
-    if (usk::json::canonical(publisher_handle_observation_json(before)) !=
-            usk::json::canonical(publisher_handle_observation_json(after)) ||
-        usk::json::canonical(before_client) !=
-            usk::json::canonical(client_token_facts(state.client_token.value, state.client_process_id)))
+    if (!detail::equal_publisher_handle_observations(before, after) ||
+        !detail::equal_authenticated_client_observations(before_client,
+            client_token_facts(state.client_token.value, state.client_process_id)))
         throw std::runtime_error("authenticated token or held object changed across access collection");
-    return Value(Value::Object{{"schema", Value("usk.publisher_authenticated_object_access.v1")},
-        {"scope", Value("fresh_held_authenticated_token_and_file_descriptor")},
-        {"client", before_client}, {"native_object", publisher_handle_observation_json(before)},
-        {"descriptor_api", Value("GetSecurityInfo:SE_FILE_OBJECT:OWNER_GROUP_DACL")},
-        {"descriptor_hex", Value(descriptor_hex)}, {"observed_group_sid", Value(sid_text(group))},
-        {"checks", Value(std::move(checks))}});
+    Value::Object fields;
+    fields.emplace("schema", Value("usk.publisher_authenticated_object_access.v1"));
+    fields.emplace("scope", Value("fresh_held_authenticated_token_and_file_descriptor"));
+    // Transfer only this completed fresh proof after its unchanged afterchecks;
+    // the admission baseline remains independently owned by the channel.
+    fields.emplace("client", detail::authenticated_client_observation_json(std::move(before_client)));
+    fields.emplace("native_object", publisher_handle_observation_json(before));
+    fields.emplace("descriptor_api", Value("GetSecurityInfo:SE_FILE_OBJECT:OWNER_GROUP_DACL"));
+    fields.emplace("descriptor_hex", Value(std::move(descriptor_hex)));
+    fields.emplace("observed_group_sid", Value(sid_text(group)));
+    fields.emplace("checks", Value(std::move(checks)));
+    return Value(std::move(fields));
 }
 void PublisherRequestChannel::reply(const std::string& response) {
+    const usk::diagnostics::Scope diagnostic(usk::diagnostics::Phase::response_write);
     auto& state = *state_;
     if (!state.received || state.replied) throw std::runtime_error("publisher endpoint response state invalid");
     write_message(state.pipe.value, response, response_limit, state.stop, state.until);
@@ -522,202 +415,6 @@ void PublisherRequestChannel::wait_for_client_disconnect() noexcept {
     } catch (...) {
         // The terminal reply is already written. Departure, cancellation,
         // timeout and broken-pipe outcomes cannot change the operation result.
-    }
-}
-void require_publisher_response_binding(const std::wstring& service_name,
-    const std::string& request, const std::string& response, DWORD expected_process_id) {
-    usk::json::ParseLimits limits;
-    limits.max_bytes = response_limit;
-    limits.max_string_bytes = response_limit / 2u;
-    const auto observed = usk::json::parse(response, limits);
-    limits.max_bytes = request_limit;
-    limits.max_string_bytes = request_limit / 2u;
-    const auto submitted = usk::json::parse(request, limits);
-    const std::string schema = submitted.at("schema").as_string();
-    std::string expected_service;
-    expected_service.reserve(service_name.size());
-    for (const wchar_t ch : service_name) {
-        if (ch < 0x20 || ch > 0x7e) {
-            throw std::runtime_error("publisher service name is not ASCII");
-        }
-        expected_service.push_back(static_cast<char>(ch));
-    }
-    if (schema == "usk.publisher_capability_request.v2" || schema == "usk.publisher_capability_request.v3") {
-        const auto& request_id = submitted.at("request_id").as_string();
-        if (submitted.as_object().size() != 2 || request_id.empty() || request_id.size() > 128 ||
-            request_id.find_first_not_of(
-                "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-") != std::string::npos ||
-            observed.as_object().size() != 8 ||
-            observed.at("schema").as_string() != "usk.publisher_service_capability_observation.v1" ||
-            observed.at("status").as_string() != "observed" ||
-            observed.at("request_id").as_string() != request_id ||
-            observed.at("service_name").as_string() != expected_service ||
-            observed.at("service_sid").as_string().empty() ||
-            observed.at("process_id").as_unsigned() == 0 ||
-            observed.at("process_id").as_unsigned() > 0xffffffffu ||
-            (expected_process_id != 0 && observed.at("process_id").as_unsigned() != expected_process_id) ||
-            observed.at("registered_admission").type() != usk::json::Value::Type::object ||
-            observed.at("capability_observation").type() != usk::json::Value::Type::object ||
-            observed.at("capability_observation").at("schema").as_string() !=
-                (schema == "usk.publisher_capability_request.v3" ? "usk.publisher_capability.v3" : "usk.publisher_capability.v2")) {
-            throw std::runtime_error("publisher service observation differs from request or live server");
-        }
-        // The command validator checks the complete admission/capability leaves
-        // before exposing them. Transport admission never grants authority.
-        return;
-    }
-    if (observed.at("schema").as_string() !=
-            "usk.publisher_lab_service_observation.v1") {
-        throw std::runtime_error("publisher response schema differs");
-    }
-    const std::string status = observed.at("status").as_string();
-    const bool completed_drift_report = status == "failed" &&
-        observed.contains("verify_response");
-    if (status == "recovery_required" ||
-        (status == "failed" && !completed_drift_report)) return;
-    if (status != "pass" && !completed_drift_report) {
-        throw std::runtime_error("publisher response status differs");
-    }
-
-    if (observed.contains("service_name")) {
-        if (observed.at("service_name").as_string() != expected_service) {
-            throw std::runtime_error("publisher response service identity differs");
-        }
-    } else if (schema != "usk.publisher_installed_verify_request.v1") {
-        throw std::runtime_error("publisher response service identity is absent");
-    }
-
-    if (schema == "usk.install_local_apply_request.v1" ||
-        schema == "usk.publisher_recovery_request.v1") {
-        if (status != "pass") {
-            throw std::runtime_error("publisher installation has a nonterminal success shape");
-        }
-        const std::string install_id = schema == "usk.install_local_apply_request.v1" ?
-            submitted.at("plan_request").at("install_id").as_string() :
-            submitted.at("install_id").as_string();
-        // A retry of the original apply request completes through the same
-        // source-free replay as an explicit recovery request. Exactly one
-        // completed public result may identify this terminal observation.
-        const bool direct = observed.at("apply_response").type() !=
-            usk::json::Value::Type::null_value;
-        const bool replayed = observed.at("recovery_installed_response").type() !=
-            usk::json::Value::Type::null_value;
-        if (direct == replayed ||
-            (schema == "usk.publisher_recovery_request.v1" && direct)) {
-            throw std::runtime_error("publisher completed installation result is ambiguous");
-        }
-        const auto& public_response = observed.at(direct ?
-            "apply_response" : "recovery_installed_response");
-        const auto& installed = public_response.at("payload");
-        if (public_response.at("schema").as_string() != "usk.command_response.v1" ||
-            public_response.at("status").as_string() != "ok" ||
-            installed.at("schema").as_string() != "usk.installed_state.v1" ||
-            installed.at("lifecycle_status").as_string() != "installed" ||
-            installed.at("install_id").as_string() != install_id ||
-            installed.at("transaction_id").as_string() !=
-                submitted.at("transaction_id").as_string() ||
-            (schema == "usk.install_local_apply_request.v1" &&
-             installed.at("created_at").as_string() !=
-                submitted.at("applied_at").as_string())) {
-            throw std::runtime_error("publisher completed installation differs from request");
-        }
-        return;
-    }
-    if (schema == "usk.publisher_installed_verify_request.v1") {
-        const auto& public_response = observed.at("verify_response");
-        const auto& report = public_response.at("payload");
-        if (observed.at("transaction_id").as_string() !=
-                submitted.at("transaction_id").as_string() ||
-            public_response.at("schema").as_string() != "usk.command_response.v1" ||
-            public_response.at("status").as_string() != "ok" ||
-            report.at("schema").as_string() != "usk.verification_report.v1" ||
-            (status == "pass" ? report.at("status").as_string() != "pass" :
-                (report.at("status").as_string() != "fail" &&
-                 report.at("status").as_string() != "warn" &&
-                 report.at("status").as_string() != "unknown")) ||
-            report.at("install_id").as_string() !=
-                submitted.at("install_id").as_string() ||
-            report.at("report_id").as_string() !=
-                submitted.at("report_id").as_string() ||
-            report.at("verified_at").as_string() !=
-                submitted.at("verified_at").as_string() ||
-            report.at("report_digest").as_string() !=
-                observed.at("bound_report_digest").as_string()) {
-            throw std::runtime_error("publisher completed verification differs from request");
-        }
-        return;
-    }
-    throw std::runtime_error("publisher success has no admitted request schema");
-}
-
-std::string submit_publisher_request(const std::wstring& service_name,
-    const std::string& request, DWORD timeout_ms,
-    const std::wstring& expected_process_image, const PublisherRequestOptions& options) {
-    bool write_attempted = false;
-    try {
-    const auto until = deadline(timeout_ms);
-    if (options.conflict_wait_milliseconds > publisher_request_max_conflict_wait_milliseconds)
-        throw std::invalid_argument("publisher contention wait exceeds bound");
-    const auto inspection_reference = publisher_request_inspection_reference(service_name);
-    require_request_not_cancelled(options, inspection_reference);
-    if (request.empty() || request.size() > request_limit) throw std::runtime_error("publisher request exceeds bound or is empty");
-    ServiceHandle manager(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
-    if (!manager.value) throw std::runtime_error("publisher SCM unavailable");
-    ServiceHandle service(OpenServiceW(manager.value, service_name.c_str(), SERVICE_QUERY_STATUS | SERVICE_QUERY_CONFIG));
-    if (!service.value) throw std::runtime_error("publisher service unavailable");
-    // StartServiceW returns while ServiceMain may still be START_PENDING.
-    // Wait only for that transition, before opening or writing the pipe.
-    const auto expected = await_service_process(service.value, until, options, inspection_reference);
-    Handle process(nullptr);
-    while (!process.value) {
-        require_request_not_cancelled(options, inspection_reference);
-        process.value = OpenProcess(SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION, FALSE, expected);
-        if (process.value) break;
-        const DWORD error = GetLastError();
-        // RUNNING precedes the service-side consumer query grant. A standard
-        // caller may arrive during that admission window. Wait only for that
-        // grant, under the original deadline and unchanged live SCM identity.
-        if (error != ERROR_ACCESS_DENIED || service_process(service.value) != expected ||
-            !remaining(until)) throw std::runtime_error("publisher process unavailable");
-        Sleep(std::min<DWORD>(remaining(until), 10));
-    }
-    if (WaitForSingleObject(process.value, 0) != WAIT_TIMEOUT ||
-        service_process(service.value) != expected) throw std::runtime_error("publisher process unavailable");
-    require_request_not_cancelled(options, inspection_reference);
-    if (!remaining(until)) throw std::runtime_error("publisher endpoint request deadline expired");
-    Handle pipe(connect_publisher_request_endpoint(service_name, remaining(until), options));
-    ULONG observed = 0;
-    if (!GetNamedPipeServerProcessId(pipe.value, &observed) || observed != expected ||
-        WaitForSingleObject(process.value, 0) != WAIT_TIMEOUT || service_process(service.value) != expected) {
-        throw std::runtime_error("publisher pipe server differs from live service");
-    }
-    if (!expected_process_image.empty()) {
-        std::wstring image(32768, L'\0');
-        DWORD size = static_cast<DWORD>(image.size());
-        if (!QueryFullProcessImageNameW(process.value, 0, image.data(), &size) || size == 0)
-            throw std::runtime_error("publisher process image is unavailable");
-        image.resize(size);
-        if (CompareStringOrdinal(image.c_str(), -1, expected_process_image.c_str(), -1, TRUE) != CSTR_EQUAL)
-            throw std::runtime_error("publisher process image differs from admitted executable");
-    }
-    DWORD mode = PIPE_READMODE_MESSAGE;
-    if (!SetNamedPipeHandleState(pipe.value, &mode, nullptr, nullptr)) throw std::runtime_error("publisher endpoint message mode unavailable");
-    if (!remaining(until)) throw std::runtime_error("publisher endpoint ready after request deadline");
-    require_request_not_cancelled(options, inspection_reference);
-        // Even a cancelled/partial first write may have reached the worker.
-        write_attempted = true;
-        write_message(pipe.value, request, request_limit, options.cancel_event, until);
-        const std::string response = read_message(pipe.value, response_limit, options.cancel_event, until);
-        require_publisher_response_binding(service_name, request, response, expected);
-        return response;
-    } catch (const usk::base::EffectRequestNotDispatched&) {
-        if (write_attempted) throw PublisherRequestOutcomeUnknown("request dispatch was attempted");
-        throw;
-    } catch(const std::exception& error) {
-        if (write_attempted) throw PublisherRequestOutcomeUnknown(error.what());
-        // Preserve the legacy raw candidate's generic failure ceiling. The
-        // registered wrapper may classify this concrete pre-write exception.
-        throw;
     }
 }
 void admit_current_publisher_client_observer(const std::wstring& service_name,

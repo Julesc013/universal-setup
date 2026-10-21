@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Release Manifest",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "bundle_id",
+    "artifacts",
+    "install_notes",
+    "checksums_ref",
+    "provenance_ref",
+    "validation_ref",
+    "no_publish"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "bundle_id": {"type": "string"},
+    "artifacts": {"type": "array"},
+    "install_notes": {"type": "string"},
+    "checksums_ref": {"type": "string"},
+    "provenance_ref": {"type": "string"},
+    "validation_ref": {"type": "string"},
+    "no_publish": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

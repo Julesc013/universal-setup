@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk/usk_api.h"
+#include "usk/usk_publisher_client.h"
+#include "usk_publisher_client_bridge.h"
 #include "usk_archive_inspect.h"
 #include "usk_package_verify.h"
 #include "usk_public_lifecycle.h"
@@ -16,7 +18,8 @@ typedef enum usk_response_storage_kind {
     USK_RESPONSE_STORAGE_CONTEXT_ALLOCATOR,
     USK_RESPONSE_STORAGE_PACKAGE_VERIFY,
     USK_RESPONSE_STORAGE_ARCHIVE_INSPECT,
-    USK_RESPONSE_STORAGE_PUBLIC_LIFECYCLE
+    USK_RESPONSE_STORAGE_PUBLIC_LIFECYCLE,
+    USK_RESPONSE_STORAGE_PUBLISHER_CLIENT
 } usk_response_storage_kind;
 
 struct usk_context {
@@ -26,6 +29,7 @@ struct usk_context {
     char* state_root;
     char* authorized_acceptance_root;
     char* target_policy_activation;
+    void* publisher_client;
 };
 
 typedef struct usk_static_response {
@@ -170,7 +174,9 @@ static void usk_release_response_storage(usk_context* context)
     if (context == 0 || context->response_storage == 0) {
         return;
     }
-    if (context->response_storage_kind == USK_RESPONSE_STORAGE_PACKAGE_VERIFY) {
+    if (context->response_storage_kind == USK_RESPONSE_STORAGE_PUBLISHER_CLIENT) {
+        usk_publisher_client_clear_internal(context->publisher_client);
+    } else if (context->response_storage_kind == USK_RESPONSE_STORAGE_PACKAGE_VERIFY) {
         usk_package_verify_command_free(context->response_storage);
     } else if (context->response_storage_kind == USK_RESPONSE_STORAGE_ARCHIVE_INSPECT) {
         usk_archive_inspect_command_free(context->response_storage);
@@ -303,16 +309,23 @@ static int usk_json_append_descriptor(
     usk_json_buffer* buffer,
     const usk_command_descriptor* descriptor,
     int prepend_comma,
-    int version_two)
+    int version_two,
+    int publisher_client)
 {
     const char* operation = version_two ? usk_canonical_operation(descriptor->command_name) : 0;
+    const char* response_schema = descriptor->response_schema;
+    if (publisher_client) {
+        if (strcmp(descriptor->command_name, "recovery.plan") == 0) response_schema = "usk.recovery_plan.v2";
+        else if (strcmp(descriptor->command_name, "recovery.inspect") == 0 ||
+            strcmp(descriptor->command_name, "recovery.apply") == 0) response_schema = "usk.recovery_report.v2";
+    }
     return (!prepend_comma || usk_json_append_char(buffer, ',')) &&
         usk_json_append_char(buffer, '{') &&
         usk_json_append_field(buffer, "command", descriptor->command_name) &&
         usk_json_append_char(buffer, ',') &&
         usk_json_append_field(buffer, "request_schema", descriptor->request_schema) &&
         usk_json_append_char(buffer, ',') &&
-        usk_json_append_field(buffer, "response_schema", descriptor->response_schema) &&
+        usk_json_append_field(buffer, "response_schema", response_schema) &&
         usk_json_append_raw(buffer, descriptor->dry_run ? ",\"dry_run\":true," : ",\"dry_run\":false,") &&
         usk_json_append_field(buffer, "dry_run_behavior", descriptor->dry_run_behavior) &&
         usk_json_append_char(buffer, ',') &&
@@ -329,7 +342,7 @@ static int usk_json_append_descriptor(
         usk_json_append_char(buffer, '}');
 }
 
-static int usk_project_command_graph(usk_json_buffer* buffer, int version_two)
+static int usk_project_command_graph(usk_json_buffer* buffer, int version_two, int publisher_client)
 {
     usk_size index;
     if (!usk_json_append_raw(buffer,
@@ -340,7 +353,7 @@ static int usk_project_command_graph(usk_json_buffer* buffer, int version_two)
         return 0;
     }
     for (index = 0; index < USK_COMMAND_COUNT; ++index) {
-        if (!usk_json_append_descriptor(buffer, &USK_COMMANDS[index], index != 0, version_two)) {
+        if (!usk_json_append_descriptor(buffer, &USK_COMMANDS[index], index != 0, version_two, publisher_client)) {
             return 0;
         }
     }
@@ -375,7 +388,7 @@ static usk_static_response usk_handle_command_graph(
     result.status = USK_STATUS_ERROR;
     result.payload = USK_GRAPH_ERROR_PAYLOAD;
     result.error_message = "authoritative command graph projection failed";
-    if (!usk_project_command_graph(&measure, version_two) ||
+    if (!usk_project_command_graph(&measure, version_two, context->publisher_client != 0) ||
         measure.length >= (usk_size)USK_COMMAND_GRAPH_BUDGET_BYTES) {
         return result;
     }
@@ -387,7 +400,7 @@ static usk_static_response usk_handle_command_graph(
     output.data = graph;
     output.capacity = measure.length + 1;
     graph[0] = '\0';
-    if (!usk_project_command_graph(&output, version_two) || output.length != measure.length) {
+    if (!usk_project_command_graph(&output, version_two, context->publisher_client != 0) || output.length != measure.length) {
         context->allocator.free(context->allocator.user, graph);
         return result;
     }
@@ -456,6 +469,34 @@ static usk_static_response usk_handle_public_lifecycle(
         result.status = USK_STATUS_INVALID_ARGUMENT;
         result.payload = USK_INVALID_PAYLOAD;
         result.error_message = "mutating lifecycle commands require an apply request";
+        return result;
+    }
+    if (context->publisher_client != 0 &&
+        (strcmp(descriptor->command_name, "install_local.plan") == 0 ||
+         strcmp(descriptor->command_name, "install_local.apply") == 0 ||
+         strcmp(descriptor->command_name, "installed.verify") == 0 ||
+         strcmp(descriptor->command_name, "repair.apply") == 0 ||
+         strcmp(descriptor->command_name, "move.apply") == 0 ||
+         strcmp(descriptor->command_name, "uninstall.apply") == 0 ||
+         strcmp(descriptor->command_name, "recovery.inspect") == 0 ||
+         strcmp(descriptor->command_name, "recovery.plan") == 0 ||
+         strcmp(descriptor->command_name, "recovery.apply") == 0)) {
+        if (request->json_payload.size > 1024u * 1024u ||
+            request->json_payload.data == 0 || request->json_payload.size == 0) {
+            result.status = USK_STATUS_INVALID_ARGUMENT;
+            result.payload = USK_INVALID_PAYLOAD;
+            result.error_message = "registered request exceeds its byte bound";
+            return result;
+        }
+        context->response_storage = (char*)usk_publisher_client_execute_internal(
+            context->publisher_client, descriptor->command_name,
+            request->json_payload.data, (size_t)request->json_payload.size, &command_status);
+        context->response_storage_kind = context->response_storage == 0
+            ? USK_RESPONSE_STORAGE_NONE : USK_RESPONSE_STORAGE_PUBLISHER_CLIENT;
+        result.status = command_status;
+        result.payload = context->response_storage;
+        result.error_message = command_status == USK_STATUS_OK
+            ? 0 : "registered publisher request did not complete";
         return result;
     }
     context->response_storage = usk_public_lifecycle_command_json(
@@ -560,6 +601,46 @@ int usk_context_create_v1(const usk_config_v1* config, usk_context** out_context
     return USK_STATUS_OK;
 }
 
+int USK_CALL usk_context_create_publisher_v1(
+    const usk_config_v1* local_config,
+    const usk_publisher_client_config_v1* publisher_config,
+    usk_context** out_context)
+{
+    usk_size index;
+    static const char prefix[] = "USK_PUB_";
+    if (out_context == 0) return USK_STATUS_INVALID_ARGUMENT;
+    *out_context = 0;
+    if (publisher_config == 0 ||
+        publisher_config->struct_size < (usk_size)sizeof(*publisher_config) ||
+        publisher_config->service_name.data == 0 ||
+        publisher_config->service_name.size != 40u ||
+        memcmp(publisher_config->service_name.data, prefix, 8u) != 0)
+        return USK_STATUS_INVALID_ARGUMENT;
+    for (index = 8u; index < 40u; ++index) {
+        const char ch = publisher_config->service_name.data[index];
+        if (!((ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f')))
+            return USK_STATUS_INVALID_ARGUMENT;
+    }
+#if defined(_WIN32)
+    {
+        usk_context* context = 0;
+        const int status = usk_context_create_v1(local_config, &context);
+        if (status != USK_STATUS_OK) return status;
+        context->publisher_client = usk_publisher_client_create_internal(
+            publisher_config->service_name.data, (size_t)publisher_config->service_name.size);
+        if (context->publisher_client == 0) {
+            usk_context_destroy_v1(context);
+            return USK_STATUS_ERROR;
+        }
+        *out_context = context;
+        return USK_STATUS_OK;
+    }
+#else
+    (void)local_config;
+    return USK_STATUS_UNSUPPORTED_VERSION;
+#endif
+}
+
 int usk_command_execute_v1(
     usk_context* context,
     const usk_command_request_v1* request,
@@ -607,6 +688,7 @@ void usk_context_destroy_v1(usk_context* context)
     }
     allocator = context->allocator;
     usk_release_response_storage(context);
+    usk_publisher_client_destroy_internal(context->publisher_client);
     if (context->target_policy_activation != 0) allocator.free(allocator.user, context->target_policy_activation);
     if (context->authorized_acceptance_root != 0) allocator.free(allocator.user, context->authorized_acceptance_root);
     if (context->state_root != 0) allocator.free(allocator.user, context->state_root);

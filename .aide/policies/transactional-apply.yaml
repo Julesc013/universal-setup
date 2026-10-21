@@ -1,0 +1,63 @@
+schema_version: aide.transactional-apply-policy.v0
+policy_id: transactional_apply_v0
+status: active_needs_review
+scope: AIDE transaction planning contracts
+implemented_in_aide_apply_00:
+  schema_policy: true
+  report_only_status: true
+  fixture_only_plan: true
+  fixture_only_verify: true
+  real_repo_apply: false
+phases:
+  - observe
+  - plan
+  - stage
+  - verify
+  - apply
+  - validate
+  - rollback
+  - evidence
+phase_rules:
+  observe:
+    description: Collect repo identity, ownership, preimage, and boundary facts.
+    apply_allowed: false
+  plan:
+    description: Produce typed operations, safety gates, conflicts, staged changes, and rollback records.
+    apply_allowed: false
+  stage:
+    description: Stage proposed postimages in records or fixtures only.
+    apply_allowed: false
+    fixture_only_allowed: true
+  verify:
+    description: Validate schemas, hashes, ownership, gates, conflicts, and no-real-apply boundary.
+    apply_allowed: false
+  apply:
+    description: Reserved for future reviewed phases only.
+    apply_allowed: false
+    real_repo_apply_allowed_in_aide_apply_00: false
+  validate:
+    description: Record validation after fixture verification only.
+    apply_allowed: false
+  rollback:
+    description: Model rollback records and inverse operations, not executable rollback.
+    apply_allowed: false
+  evidence:
+    description: Persist reports, validation summaries, and review-gate state.
+    apply_allowed: false
+required_boundaries:
+  real_repo_apply_allowed: false
+  target_repo_mutation_allowed: false
+  branch_mutation_allowed: false
+  worktree_mutation_allowed: false
+  provider_or_model_calls: none
+  network_calls: none
+  github_api_mutation_allowed: false
+  release_publication_allowed: false
+  rollback_execution_allowed: false
+future_review_required_for:
+  - real_repo_apply
+  - target_repo_apply
+  - destructive_operations
+  - branch_worktree_apply
+  - install_repair_upgrade_rollback_uninstall_apply
+  - rollback_execution

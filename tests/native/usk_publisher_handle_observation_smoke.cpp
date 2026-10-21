@@ -7,7 +7,12 @@
 #include <aclapi.h>
 #include <windows.h>
 
+#include <algorithm>
 #include <chrono>
+#include <cstddef>
+#include <cstdlib>
+#include <new>
+#include <vector>
 #include <filesystem>
 #include <iostream>
 #include <stdexcept>
@@ -16,6 +21,20 @@
 namespace fs = std::filesystem;
 using usk::platform::windows::observe_publisher_directory_handle;
 using usk::platform::windows::observe_publisher_file_handle;
+
+// This executable only: inputs and the independent projection are prepared
+// before denial. Production allocators and native observations are unchanged.
+namespace { thread_local bool deny_projection_allocations = false; }
+void* operator new(std::size_t bytes) {
+    if (deny_projection_allocations) throw std::bad_alloc();
+    if (void* memory = std::malloc(bytes ? bytes : 1)) return memory;
+    throw std::bad_alloc();
+}
+void* operator new[](std::size_t bytes) { return ::operator new(bytes); }
+void operator delete(void* memory) noexcept { std::free(memory); }
+void operator delete[](void* memory) noexcept { ::operator delete(memory); }
+void operator delete(void* memory, std::size_t) noexcept { ::operator delete(memory); }
+void operator delete[](void* memory, std::size_t) noexcept { ::operator delete(memory); }
 
 namespace {
 class Handle {
@@ -78,10 +97,192 @@ void check_stored_protection(HANDLE handle, bool directory) {
         }
     }
 }
+
+std::wstring reference_native_name(HANDLE handle) {
+    // Independent oracle: the original one-call, full-capacity API query.
+    std::vector<unsigned char> bytes(65536);
+    check(GetFileInformationByHandleEx(handle, FileNameInfo, bytes.data(),
+        static_cast<DWORD>(bytes.size())) != FALSE, "reference native-name query failed");
+    const auto* info = reinterpret_cast<const FILE_NAME_INFO*>(bytes.data());
+    check(info->FileNameLength % sizeof(WCHAR) == 0 &&
+        info->FileNameLength <= bytes.size() - offsetof(FILE_NAME_INFO, FileName),
+        "reference native-name response is malformed");
+    return {info->FileName, info->FileNameLength / sizeof(WCHAR)};
+}
+
+void check_native_name(HANDLE handle, bool directory, bool needs_fallback) {
+    alignas(FILE_NAME_INFO) unsigned char probe_buffer[512]{};
+    const BOOL fits = GetFileInformationByHandleEx(handle, FileNameInfo, probe_buffer, sizeof(probe_buffer));
+    const DWORD error = fits ? ERROR_SUCCESS : GetLastError();
+    check(needs_fallback ? (!fits && error == ERROR_MORE_DATA) : fits != FALSE,
+        "native-name fixture did not exercise its required buffer path");
+    const auto observed = directory ? observe_publisher_directory_handle(handle) :
+        observe_publisher_file_handle(handle);
+    check(observed.native_name == reference_native_name(handle),
+        "observed native name differs from the original full-buffer query");
+}
+
+fs::path extended_path(const fs::path& path) {
+    const auto absolute = fs::absolute(path).wstring();
+    if (absolute.rfind(L"\\\\?\\", 0) == 0) return fs::path(absolute);
+    if (absolute.rfind(L"\\\\", 0) == 0) return fs::path(L"\\\\?\\UNC\\" + absolute.substr(2));
+    return fs::path(L"\\\\?\\" + absolute);
+}
+
+void check_long_native_names(const fs::path& root) {
+    const auto first = extended_path(root) / std::wstring(120, L'a');
+    const auto second = first / std::wstring(120, L'b');
+    check(fs::create_directory(first), "long-name first directory creation failed");
+    check(fs::create_directory(second), "long-name second directory creation failed");
+    {
+        Handle directory(CreateFileW(second.c_str(), FILE_READ_ATTRIBUTES | READ_CONTROL,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+        check_native_name(directory.get(), true, true);
+    }
+    const auto file = second / L"payload.bin";
+    const auto renamed = second / L"renamed.bin";
+    {
+        Handle created(CreateFileW(file.c_str(), GENERIC_WRITE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, CREATE_NEW,
+            FILE_ATTRIBUTE_NORMAL, nullptr));
+    }
+    {
+        Handle held(CreateFileW(file.c_str(), FILE_READ_ATTRIBUTES | READ_CONTROL,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+            FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+        check_native_name(held.get(), false, true);
+        const auto before = observe_publisher_file_handle(held.get());
+        fs::rename(file, renamed);
+        const auto after = observe_publisher_file_handle(held.get());
+        check(after.file_id == before.file_id && after.native_name != before.native_name &&
+            after.native_name == reference_native_name(held.get()),
+            "same-handle reobservation missed a long native-name change");
+        check_native_name(held.get(), false, true);
+        fs::rename(renamed, file);
+        const auto restored = observe_publisher_file_handle(held.get());
+        check(restored.file_id == before.file_id && restored.native_name == before.native_name,
+            "same-handle native name did not follow the restored fixture");
+    }
+    check(fs::remove(file) && fs::remove(second) && fs::remove(first),
+        "long-name fixture cleanup failed");
+}
 } // namespace
+
+void check_projection_equivalence() {
+    using namespace usk::platform::windows;
+    const PublisherHandleObservation original{"id", L"\\observed", 0x80000020u, 0u,
+        1u, false, "S-1-5-18", true,
+        {{0u, 0u, 0x80000001u, "S-1-5-18"}, {1u, 2u, 0x40000002u, "S-1-5-32-544"}}};
+    const auto compare = [&](const PublisherHandleObservation& changed, bool expected) {
+        const auto first = publisher_handle_observation_json(original);
+        const auto second = publisher_handle_observation_json(changed);
+        const bool projected = usk::json::equal_values(first, second);
+        check(projected == expected && detail::equal_publisher_handle_observations(original, changed) == projected &&
+            detail::equal_publisher_handle_observations(changed, original) == projected &&
+            detail::equal_publisher_handle_observation_json(original, second) == projected &&
+            detail::equal_publisher_handle_observation_json(changed, first) == projected,
+            "typed native facts differ from the closed JSON projection");
+    };
+    compare(original, true);
+    const auto mismatch = [&](const auto& change) { auto changed = original; change(changed); compare(changed, false); };
+    mismatch([](auto& value) { value.file_id += "other"; });
+    mismatch([](auto& value) { value.native_name += L"other"; });
+    mismatch([](auto& value) { value.attributes ^= 1u; });
+    mismatch([](auto& value) { value.reparse_tag = 1u; });
+    mismatch([](auto& value) { value.link_count = 2u; });
+    mismatch([](auto& value) { value.case_sensitive = true; });
+    mismatch([](auto& value) { value.owner_sid += "other"; });
+    mismatch([](auto& value) { value.dacl_protected = false; });
+    mismatch([](auto& value) { value.dacl_aces.pop_back(); });
+    mismatch([](auto& value) { value.dacl_aces[0].type ^= 1u; });
+    mismatch([](auto& value) { value.dacl_aces[0].flags ^= 1u; });
+    mismatch([](auto& value) { value.dacl_aces[0].access_mask ^= 1u; });
+    mismatch([](auto& value) { value.dacl_aces[0].sid += "other"; });
+    mismatch([](auto& value) { std::swap(value.dacl_aces[0], value.dacl_aces[1]); });
+    mismatch([](auto& value) { value.dacl_aces.push_back(value.dacl_aces[0]); });
+    auto invalid = original;
+    invalid.file_id += "mismatch"; // Refusal must precede a field inequality.
+    invalid.native_name.push_back(static_cast<wchar_t>(0x80));
+    for (const bool invalid_first : {false, true}) {
+        bool typed_refused = false, projection_refused = false;
+        try { (void)detail::equal_publisher_handle_observations(invalid_first ? invalid : original,
+            invalid_first ? original : invalid); }
+        catch (const std::runtime_error&) { typed_refused = true; }
+        try { (void)usk::json::equal_values(publisher_handle_observation_json(invalid_first ? invalid : original),
+            publisher_handle_observation_json(invalid_first ? original : invalid)); }
+        catch (const std::runtime_error&) { projection_refused = true; }
+        check(typed_refused && projection_refused, "field mismatch bypassed either native-name ASCII refusal");
+    }
+    // The old projection/equality remains the independent oracle for unknown
+    // fields, exact types and malformed ordered ACE records.
+    using usk::json::Value;
+    const auto projection = publisher_handle_observation_json(original);
+    const auto compare_expected = [&](const Value& candidate) {
+        check(detail::equal_publisher_handle_observation_json(original, candidate) ==
+            usk::json::equal_values(projection, candidate), "native/JSON equality differs from projection oracle");
+    };
+    const Value variants[]{Value(), Value(false), Value(std::uint64_t{0}), Value(""),
+        Value(Value::Array{}), Value(Value::Object{})};
+    for (const auto& variant : variants) compare_expected(variant);
+    for (const auto& field : projection.as_object()) {
+        auto missing = projection; missing.as_object().erase(field.first); compare_expected(missing);
+        for (const auto& variant : variants) {
+            auto changed = projection; changed.as_object().at(field.first) = variant; compare_expected(changed);
+        }
+        auto renamed = projection;
+        renamed.as_object().emplace("unknown", renamed.at(field.first));
+        renamed.as_object().erase(field.first); compare_expected(renamed);
+    }
+    auto extra = projection; extra.as_object().emplace("unknown", Value()); compare_expected(extra);
+    for (std::size_t index = 0; index < original.dacl_aces.size(); ++index) {
+        for (const auto& variant : variants) {
+            auto changed = projection; changed.as_object().at("dacl_aces").as_array()[index] = variant;
+            compare_expected(changed);
+        }
+        const auto& ace = projection.at("dacl_aces").as_array()[index];
+        for (const auto& field : ace.as_object()) {
+            auto missing = projection;
+            missing.as_object().at("dacl_aces").as_array()[index].as_object().erase(field.first);
+            compare_expected(missing);
+            for (const auto& variant : variants) {
+                auto changed = projection;
+                changed.as_object().at("dacl_aces").as_array()[index].as_object().at(field.first) = variant;
+                compare_expected(changed);
+            }
+        }
+        auto changed = projection;
+        changed.as_object().at("dacl_aces").as_array()[index].as_object().emplace("unknown", Value());
+        compare_expected(changed);
+    }
+    auto oversized = projection;
+    oversized.as_object().at("attributes") = Value(std::uint64_t{1} << 32u); compare_expected(oversized);
+    for (const auto& expected : {projection, Value()}) {
+        bool rejected = false;
+        try { (void)detail::equal_publisher_handle_observation_json(invalid, expected); }
+        catch (const std::runtime_error&) { rejected = true; }
+        check(rejected, "malformed expectation bypassed eager native-name refusal");
+    }
+    auto unusual = original;
+    unusual.native_name = std::wstring{L'a', L'\0', L'b'};
+    unusual.dacl_aces.clear();
+    check(detail::equal_publisher_handle_observation_json(unusual, publisher_handle_observation_json(unusual)),
+        "projection equality normalized embedded zeros or empty ACEs");
+    // Prove this particular removed work without claiming a recovery speedup.
+    bool old_allocation_refused = false, compared = false;
+    deny_projection_allocations = true;
+    try {
+        compared = detail::equal_publisher_handle_observation_json(original, projection);
+        try { (void)publisher_handle_observation_json(original); }
+        catch (const std::bad_alloc&) { old_allocation_refused = true; }
+    } catch (...) { deny_projection_allocations = false; throw; }
+    deny_projection_allocations = false;
+    check(compared && old_allocation_refused, "native/JSON comparison allocated or allocation control did not discriminate");
+}
 
 int main() {
     try {
+        check_projection_equivalence();
         const auto root = fs::temp_directory_path() /
             ("usk-publisher-observe-" + std::to_string(
                 std::chrono::steady_clock::now().time_since_epoch().count()));
@@ -94,6 +295,7 @@ int main() {
                     FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
                 FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
             const auto observed = observe_publisher_directory_handle(handle.get());
+            check_native_name(handle.get(), true, false);
             const auto access = usk::platform::windows::observe_publisher_handle_granted_access(handle.get());
             check((access & (FILE_READ_ATTRIBUTES | READ_CONTROL | WRITE_DAC)) ==
                     (FILE_READ_ATTRIBUTES | READ_CONTROL | WRITE_DAC) && (access & DELETE) == 0,
@@ -162,6 +364,7 @@ int main() {
                 FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
             check(refused(regular.get()), "regular file was admitted as a directory");
             const auto observed_file = observe_publisher_file_handle(regular.get());
+            check_native_name(regular.get(), false, false);
             check((observed_file.attributes & FILE_ATTRIBUTE_DIRECTORY) == 0 &&
                 observed_file.link_count == 1 && !observed_file.owner_sid.empty() &&
                 !observed_file.dacl_aces.empty() && !observed_file.case_sensitive,
@@ -181,6 +384,7 @@ int main() {
             catch (const std::runtime_error&) { denied = true; }
             check(denied, "file handle lacking READ_CONTROL supplied security facts");
         }
+        check_long_native_names(root);
         fs::remove(file);
         fs::remove(directory);
         fs::remove(root);

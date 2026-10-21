@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Release Install Notes",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "bundle_id",
+    "install_lifecycle",
+    "default_mode",
+    "apply_mode_available",
+    "preservation_rules",
+    "target_validation",
+    "no_publish"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "bundle_id": {"type": "string"},
+    "install_lifecycle": {"type": "array"},
+    "default_mode": {"type": "string"},
+    "apply_mode_available": {"type": "boolean"},
+    "preservation_rules": {"type": "array"},
+    "target_validation": {"type": "array"},
+    "no_publish": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

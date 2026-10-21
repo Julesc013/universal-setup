@@ -1,0 +1,10 @@
+{
+  "schema_version": "aide.apply-safety-gate.v0",
+  "example": true,
+  "gate_id": "no_real_repo_apply_mode",
+  "gate_class": "apply_boundary",
+  "required": true,
+  "status": "pass",
+  "blocks_apply": true,
+  "evidence_ref": ".aide/queue/AIDE-APPLY-00-transaction-model/evidence/no-real-apply-boundary.md"
+}

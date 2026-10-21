@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: intent_compile_overbroad_prompt_golden
+title: Intent Compile Overbroad Prompt Golden
+status: active
+description: Verify overbroad prompts become split recommendations.
+runner: .aide/scripts/aide_lite.py eval run --task intent_compile_overbroad_prompt_golden
+quality_dimensions:
+  - split_required
+  - prompt_normalization
+  - deterministic_output

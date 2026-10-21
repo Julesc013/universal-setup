@@ -19,6 +19,11 @@ std::string inspect_product_info(const std::filesystem::path& bundle_path);
 std::string inspect_product_selection(const std::filesystem::path& bundle_path,
     const std::vector<std::string>& requested);
 
+// Verify the same complete packaged closure, then compose the existing public
+// read-only install request. Options are an app-private, closed JSON document.
+std::string compose_product_install_plan(const std::filesystem::path& bundle_path,
+    const std::string& options_json);
+
 } // namespace usk::command
 
 #endif

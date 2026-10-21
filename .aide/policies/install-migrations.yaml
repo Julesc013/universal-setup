@@ -1,0 +1,28 @@
+schema_version: aide.install-migrations-policy.v0
+policy_id: aide.install-migrations.v0
+status: active
+purpose: >
+  Define mandatory migration criteria and require future, explicit, reversible
+  migration phases before any install migration is applied.
+mandatory_migration_reasons:
+  - old file format is unsafe
+  - unsupported schema version
+  - old file blocks validation
+  - old file conflicts with canonical AIDE ownership
+  - import would create ambiguous truth
+  - source state contamination must be removed or quarantined
+rules:
+  migration_is_automatic_in_q43: false
+  migration_requires_future_explicit_phase: true
+  migration_plan_must_be_dry_run: true
+  migration_plan_must_be_evidenced: true
+  migration_plan_must_be_reversible: true
+  migration_without_mandatory_reason_allowed: false
+future_phase_requirements:
+  - reviewed install or upgrade plan
+  - preservation report
+  - ownership ledger
+  - conflict report
+  - rollback prerequisites
+  - validation plan
+  - evidence packet

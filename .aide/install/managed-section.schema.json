@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema_version": "aide.managed-section.schema.v0",
+  "type": "object",
+  "required": [
+    "path",
+    "section",
+    "begin_marker",
+    "end_marker",
+    "owner",
+    "manual_outside_preserved",
+    "update_allowed_in_q43"
+  ],
+  "properties": {
+    "path": {"type": "string"},
+    "section": {"type": "string"},
+    "begin_marker": {"type": "string"},
+    "end_marker": {"type": "string"},
+    "owner": {"type": "string"},
+    "manual_outside_preserved": {"type": "boolean"},
+    "update_allowed_in_q43": {"const": false}
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "required": [
+    "schema_version",
+    "conflicts",
+    "conflict_count",
+    "blocking_count",
+    "warnings",
+    "no_apply"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "conflicts": {"type": "array"},
+    "conflict_count": {"type": "integer"},
+    "blocking_count": {"type": "integer"},
+    "warnings": {"type": "array"},
+    "no_apply": {"type": "boolean"}
+  }
+}

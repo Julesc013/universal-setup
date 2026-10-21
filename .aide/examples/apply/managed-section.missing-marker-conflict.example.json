@@ -1,0 +1,12 @@
+{
+  "schema_version": "aide.managed-section-conflict.v0",
+  "example": true,
+  "conflict_id": "conflict-missing-marker-fixture",
+  "path": ".aide/examples/apply/managed-section-fixtures/missing_marker.md",
+  "section_name": "aide-fixture-section",
+  "conflict_class": "missing_start_marker",
+  "message": "Required managed-section start marker was not found.",
+  "severity": "error",
+  "apply_blocked": true,
+  "no_real_apply_boundary": true
+}

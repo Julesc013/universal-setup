@@ -1,0 +1,9 @@
+{
+  "schema_version": "aide.transaction-postimage.v0",
+  "example": true,
+  "path": ".aide/examples/apply/fixture-root/AGENTS.fixture.md",
+  "predicted_sha256": "sha256:fixture-postimage",
+  "size_bytes": 164,
+  "prediction_mode": "fixture_only",
+  "derived_from": "op-managed-section-fixture"
+}

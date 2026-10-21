@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_transaction_session.h"
+#include "usk_native_maintenance_transaction_internal.h"
 #include "usk_json.h"
+#include "usk_sha256.h"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -88,6 +91,96 @@ bool throws(const std::function<void()>& operation)
         return true;
     }
     return false;
+}
+
+int original_transition_extension(Fixture& fixture, bool commit_supported)
+{
+    const auto spec = fixture.spec("original-transition-prefix");
+    TransactionSession session(spec, [](const std::string& state, const std::string& point) {
+        if (state == "committing" && point == "after_journal") throw std::runtime_error("retain original committing anchor");
+    });
+    session.stage_file("payload.txt", bytes("original"));
+    session.mark_staged(); session.mark_verified();
+    if (!throws([&] { session.commit_effect(); }) || session.current_state() != "committing") return 191;
+    const auto original_text = read_text(session.journal_path());
+    const auto original = TransactionSession::inspect_recovery(spec);
+    TransactionSession::require_recovery_transition_extension(spec, original_text,
+        original.snapshot_sha256, original.snapshot_sha256);
+    if (!throws([&] { TransactionSession::require_completed_transition_extension(spec, original_text,
+            original.snapshot_sha256, original.snapshot_sha256); }) ||
+        read_text(session.journal_path()) != original_text ||
+        read_text(session.staging_root()/"payload.txt") != "original") return 195;
+    session.mark_recovery_required();
+    const auto current = TransactionSession::inspect_recovery(spec);
+    TransactionSession::require_recovery_transition_extension(spec, original_text,
+        original.snapshot_sha256, current.snapshot_sha256);
+    if (!throws([&] { TransactionSession::require_recovery_transition_extension(spec, original_text,
+            original.snapshot_sha256, original.snapshot_sha256); })) return 192;
+    const auto hash = [](const std::string& text) {
+        usk::base::Sha256 digest;
+        digest.update(reinterpret_cast<const unsigned char*>(text.data()), text.size());
+        return digest.finish();
+    };
+    for (const int change : {0, 1, 2}) {
+        auto altered = usk::json::parse(original_text);
+        if (change == 1) altered.as_object().at("transitions").as_array().front().as_object()["recorded_at"] =
+            usk::json::Value("changed-original-transition");
+        else if (change == 2) altered.as_object()["journal_digest"] = usk::json::Value(std::string(64, '0'));
+        else altered.as_object()["created_at"] = usk::json::Value("changed-original-creation");
+        const auto text = usk::json::canonical(altered);
+        if (!throws([&] { TransactionSession::require_recovery_transition_extension(spec, text,
+                hash(text), current.snapshot_sha256); })) return 193;
+    }
+    // Even a structurally inspectable current journal must preserve immutable
+    // fields and its derived recovery presentation; no hash adoption.
+    const auto current_text = read_text(session.journal_path());
+    for (const bool change_immutable : {false, true}) {
+        auto altered = usk::json::parse(current_text);
+        if (change_immutable) altered.as_object()["created_at"] = usk::json::Value("changed-current-creation");
+        else altered.as_object().at("recovery").as_object()["required"] = usk::json::Value(false);
+        { std::ofstream output(session.journal_path(), std::ios::binary | std::ios::trunc);
+          output << usk::json::canonical(altered); }
+        const auto modified = TransactionSession::inspect_recovery(spec);
+        const bool refused = throws([&] { TransactionSession::require_recovery_transition_extension(spec,
+            original_text, original.snapshot_sha256, modified.snapshot_sha256); });
+        { std::ofstream output(session.journal_path(), std::ios::binary | std::ios::trunc); output << current_text; }
+        if (!refused) return 194;
+    }
+    if (commit_supported) {
+        const auto visible_spec = fixture.spec("visible-transition-prefix");
+        TransactionSession visible(visible_spec);
+        visible.stage_file("payload.txt", bytes("visible"));
+        visible.mark_staged(); visible.mark_verified(); visible.commit_effect();
+        const auto anchor = TransactionSession::inspect_recovery(visible_spec);
+        const auto anchor_text = read_text(visible.journal_path());
+        visible.mark_recovery_required(); visible.resume_committing(); visible.mark_committed(); visible.mark_completed();
+        TransactionSession::require_recovery_transition_extension(visible_spec, anchor_text,
+            anchor.snapshot_sha256, TransactionSession::inspect_recovery(visible_spec).snapshot_sha256);
+        const auto completed = TransactionSession::inspect_completed_history(visible_spec);
+        const auto completed_text = read_text(visible.journal_path());
+        TransactionSession::require_completed_transition_extension(visible_spec, anchor_text,
+            anchor.snapshot_sha256, completed.snapshot_sha256);
+        if (!throws([&] { TransactionSession::require_completed_transition_extension(visible_spec, anchor_text,
+                anchor.snapshot_sha256, anchor.snapshot_sha256); }) ||
+            read_text(visible.journal_path()) != completed_text) return 196;
+#if !defined(_WIN32)
+        // Completed metadata provenance does not reopen or select actions from
+        // a substituted payload path. The service must separately hold and
+        // verify the genuine root; this metadata helper grants no such proof.
+        auto retained = visible_spec.target_root; retained += "-retained";
+        fs::rename(visible_spec.target_root, retained);
+        fs::create_directory_symlink(retained, visible_spec.target_root);
+        TransactionSession::require_completed_transition_extension(visible_spec, anchor_text,
+            anchor.snapshot_sha256, completed.snapshot_sha256);
+        const bool live_refused = throws([&] { TransactionSession::require_recovery_transition_extension(
+            visible_spec, anchor_text, anchor.snapshot_sha256, completed.snapshot_sha256); });
+        const bool unchanged = read_text(visible.journal_path()) == completed_text &&
+            read_text(retained/"payload.txt") == "visible";
+        fs::remove(visible_spec.target_root); fs::rename(retained, visible_spec.target_root);
+        if (!live_refused || !unchanged) return 197;
+#endif
+    }
+    return 0;
 }
 
 int happy_path(Fixture& fixture, bool& commit_supported)
@@ -288,6 +381,37 @@ int fault_after_transition(Fixture& fixture, const std::string& state, int ordin
     return 0;
 }
 
+int commit_refusal_preserves_primary_error(Fixture& fixture)
+{
+    for (const bool refuse_recovery_record : {false, true}) {
+        const auto spec = fixture.spec(refuse_recovery_record ? "commit-primary-record-refused" : "commit-primary-recorded");
+        bool recovery_attempted = false;
+        TransactionSession session(spec, [&](const std::string& state, const std::string& point) {
+            if (state == "recovery_required" && point == "before_journal") {
+                recovery_attempted = true;
+                if (refuse_recovery_record) throw std::runtime_error("secondary recovery record refusal");
+            }
+        });
+        session.stage_file("payload.txt", bytes("original"));
+        session.mark_staged(); session.mark_verified();
+        // Change only this fixture's staged closure after verification. The
+        // primary preparation refusal must survive a second record refusal.
+        std::ofstream(session.staging_root() / "foreign.txt", std::ios::binary) << "foreign";
+        std::string primary;
+        try { session.commit_effect(); }
+        catch (const std::runtime_error& error) { primary = error.what(); }
+        if (primary != "commit refuses linked, unsupported, or unrecorded content" || !recovery_attempted) return 202;
+        const auto retained = TransactionSession::inspect_recovery(spec);
+        if (retained.current_state != (refuse_recovery_record ? "verified" : "recovery_required") ||
+            retained.available_actions != std::vector<std::string>{"retain_for_operator"} ||
+            !retained.staging_exists || retained.target_exists ||
+            read_text(session.staging_root() / "payload.txt") != "original" ||
+            read_text(session.staging_root() / "foreign.txt") != "foreign" ||
+            !throws([&] { session.rollback(); })) return 203;
+    }
+    return 0;
+}
+
 int fault_after_commit_effect(Fixture& fixture)
 {
     TransactionSpec spec = fixture.spec("fault-after-commit-effect");
@@ -470,18 +594,330 @@ int initial_stream_binding_before_effects(Fixture& fixture)
     return 0;
 }
 
+#if defined(_WIN32)
+int cumulative_native_initial_binding(Fixture& fixture)
+{
+    using Value = usk::json::Value;
+    using usk::transaction::detail::require_native_maintenance_journal_binding;
+    const std::string context = "{\"schema\":\"test.initial_stream_source.v1\"}";
+    const auto source = usk::json::sha256_canonical(usk::json::parse(context));
+    const auto rehash_chain = [](Value& document) {
+        std::string chain;
+        for (const auto& row : document.at("transitions").as_array()) {
+            chain += std::to_string(row.at("sequence").as_unsigned()); chain += '\0';
+            if (row.at("from").type() != Value::Type::null_value) chain += row.at("from").as_string();
+            chain += '\0'; chain += row.at("to").as_string(); chain += '\0';
+            chain += row.at("recorded_at").as_string(); chain += '\n';
+        }
+        usk::base::Sha256 digest;
+        digest.update(reinterpret_cast<const unsigned char*>(chain.data()), chain.size());
+        document.as_object().at("journal_digest") = Value(digest.finish());
+    };
+    for (const std::string operation : {"repair", "move", "uninstall"}) {
+        auto spec = fixture.spec("cumulative-initial-" + operation);
+        spec.operation = operation;
+        // Ordinary phase injection yields the same four-entry pre-staging
+        // snapshot without constructing or impersonating a native owner.
+        if (!throws([&] {
+            TransactionSession::begin_streaming(spec, source, context,
+                [](const std::string& phase, const std::string& point) {
+                    if (phase == "staging" && point == "after_journal")
+                        throw std::runtime_error("retain cumulative pre-staging intent");
+                });
+        })) return 204;
+        const auto path = spec.state_root / "transactions" / (spec.transaction_id + ".journal.json");
+        auto cumulative = usk::json::parse(read_text(path));
+        cumulative.as_object().at("recovery_metadata").as_object().emplace("commit_cleanup_policy", Value("retain_only"));
+        const auto text = usk::json::canonical(cumulative);
+        require_native_maintenance_journal_binding(spec, path, text, {}, true);
+        const std::vector<std::function<void(Value&)>> changes{
+            [](Value& v) { v.as_object().at("transitions").as_array().pop_back(); v.as_object().at("current_state") = Value("planned"); },
+            [](Value& v) { v.as_object().at("transitions").as_array().push_back(v.at("transitions").as_array().back()); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[1].as_object().at("sequence") = Value(std::uint64_t{0}); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[1].as_object().at("from") = Value("planned"); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[2].as_object().at("to") = Value("verified"); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[3].as_object().at("transition_id") = Value("foreign.3"); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[0].as_object().at("from") = Value(""); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[2].as_object().at("durable_before_external_visibility") = Value(false); },
+            [](Value& v) { v.as_object().at("transitions").as_array()[3].as_object().at("recorded_at") = Value(""); v.as_object().at("updated_at") = Value(""); },
+            [](Value& v) { v.as_object().at("updated_at") = Value("different"); },
+            [](Value& v) { v.as_object().at("recovery_metadata").as_object().at("staging_identity") = Value("0000000000000000:0000000000000001"); },
+            [](Value& v) { v.as_object().at("recovery_metadata").as_object().at("commit_cleanup_policy") = Value("delete"); },
+            [](Value& v) { v.as_object().at("recovery_metadata").as_object().erase("stream_journal"); },
+            [](Value& v) { v.as_object().at("recovery_metadata").as_object().at("stream_journal").as_object().at("source_context") = Value("{}"); },
+        };
+        for (const auto& change : changes) {
+            auto altered = cumulative;
+            change(altered);
+            rehash_chain(altered); // Shape must refuse even with a valid chain digest.
+            if (!throws([&] { require_native_maintenance_journal_binding(spec, path,
+                usk::json::canonical(altered), {}, true); })) return 205;
+        }
+        auto corrupt_digest = cumulative;
+        corrupt_digest.as_object().at("journal_digest") = Value(std::string(64, '0'));
+        if (!throws([&] { require_native_maintenance_journal_binding(spec, path,
+            usk::json::canonical(corrupt_digest), {}, true); })) return 206;
+        // An interruption at the shared initial snapshot leaves all intent
+        // inspectable, no staging effect, and retain-only recovery metadata.
+        { std::ofstream output(path, std::ios::binary | std::ios::trunc); output << text; }
+        const auto observed = TransactionSession::inspect_recovery(spec);
+        if (observed.current_state != "staging" || observed.staging_exists || observed.target_exists ||
+            observed.stream_source_context != context || observed.stream_source_digest != source ||
+            observed.commit_started || observed.commit_confirmed ||
+            usk::transaction::detail::observe_current_native_maintenance_file(path)) return 207;
+    }
+    return 0;
+}
+#endif
+
+int bounded_write_batches(Fixture& fixture)
+{
+    constexpr std::size_t read_cap = 64u * 1024u, write_cap = 1024u * 1024u;
+    const std::size_t size = write_cap + 17u;
+    std::vector<unsigned char> payload(size);
+    for (std::size_t i = 0; i < size; ++i) payload[i] = static_cast<unsigned char>(i % 251u);
+    usk::base::Sha256 hash; hash.update(payload.data(), payload.size());
+    const auto expected = hash.finish();
+    std::size_t offset = 0, read_calls = 0;
+    std::vector<std::size_t> write_offsets;
+    const auto spec = fixture.spec("write-batches");
+    TransactionSession session(spec, [&](const std::string&, const std::string& point) {
+        if (point == "before_stream_write") write_offsets.push_back(offset);
+    });
+    const auto staged = session.stage_file_stream("payload.bin", size, expected, read_cap,
+        [&](unsigned char* output, std::size_t capacity) {
+            if (capacity > read_cap) throw std::runtime_error("source read cap exceeded");
+            // Exercise short reads and both the full-batch and short-tail cases.
+            const auto count = std::min(std::min(capacity, std::size_t{37001u}), size - offset);
+            std::copy_n(payload.data() + offset, count, output);
+            offset += count; ++read_calls; return count;
+        }, {}, write_cap);
+    if (staged.sha256 != expected || staged.size_bytes != size || staged.peak_buffer_bytes != write_cap ||
+        offset != size || read_calls < 18u || write_offsets.empty() || write_offsets.front() != write_cap ||
+        write_offsets.back() != size || read_text(session.staging_root() / "payload.bin") !=
+            std::string(payload.begin(), payload.end()) || fs::exists(spec.target_root)) return 210;
+    for (const auto observed : write_offsets) if (observed != write_cap && observed != size) return 211;
+
+    // Later callbacks can retain an earlier output pointer. The hash must
+    // describe the final batch written, not the earlier sampled slices.
+    const std::string original = std::string(4096u, 'A') + std::string(4096u, 'B');
+    usk::base::Sha256 original_hash;
+    original_hash.update(reinterpret_cast<const unsigned char*>(original.data()), original.size());
+    unsigned char* retained_slice = nullptr;
+    std::size_t alias_offset = 0;
+    const auto alias_spec = fixture.spec("write-batches-retained-alias");
+    TransactionSession alias(alias_spec);
+    if (!throws([&] { alias.stage_file_stream("payload.bin", original.size(), original_hash.finish(), 4096u,
+            [&](unsigned char* output, std::size_t capacity) {
+                if (alias_offset == original.size()) return std::size_t{0};
+                if (alias_offset) retained_slice[0] = 'Z';
+                else retained_slice = output;
+                const auto count = std::min(capacity, original.size() - alias_offset);
+                std::copy_n(original.data() + alias_offset, count, output);
+                alias_offset += count; return count;
+            }, {}, 8192u); }) || alias.current_state() != "recovery_required" ||
+        fs::exists(alias_spec.target_root) || !throws([&] { alias.mark_staged(); }) ||
+        read_text(alias.staging_root() / "payload.bin") != "Z" + original.substr(1u)) return 216;
+
+    // Default callers retain every original short-read/write boundary.
+    const std::string small = "original short read boundaries";
+    usk::base::Sha256 small_hash;
+    small_hash.update(reinterpret_cast<const unsigned char*>(small.data()), small.size());
+    offset = 0; write_offsets.clear();
+    TransactionSession legacy(fixture.spec("write-batches-legacy"),
+        [&](const std::string&, const std::string& point) {
+            if (point == "before_stream_write") write_offsets.push_back(offset);
+        });
+    const auto old = legacy.stage_file_stream("payload.bin", small.size(), small_hash.finish(), read_cap,
+        [&](unsigned char* output, std::size_t capacity) {
+            const auto count = std::min(std::min(capacity, std::size_t{7u}), small.size() - offset);
+            for (std::size_t i = 0; i < count; ++i) output[i] = static_cast<unsigned char>(small[offset + i]);
+            offset += count; return count;
+        });
+    // A partial OS write can repeat its current offset; it cannot skip a read boundary.
+    write_offsets.erase(std::unique(write_offsets.begin(), write_offsets.end()), write_offsets.end());
+    std::vector<std::size_t> expected_offsets;
+    for (std::size_t n = 7u; n < small.size(); n += 7u) expected_offsets.push_back(n);
+    expected_offsets.push_back(small.size());
+    if (old.peak_buffer_bytes != read_cap || write_offsets != expected_offsets) return 212;
+
+    const auto invalid_spec = fixture.spec("write-batches-invalid");
+    TransactionSession invalid(invalid_spec);
+    const auto before = read_text(invalid.journal_path());
+    for (const auto bad : {read_cap - 1u, 4u * write_cap + 1u}) {
+        if (!throws([&] { invalid.stage_file_stream("payload.bin", size, expected, read_cap,
+                [](unsigned char*, std::size_t) { return std::size_t{0}; }, {}, bad); }) ||
+            read_text(invalid.journal_path()) != before || fs::exists(invalid.staging_root() / "payload.bin")) return 213;
+    }
+    // Exceptions during accumulation, after a real write, and final digest
+    // mismatch all retain conservative recovery without target publication.
+    for (const int failure : {0, 1, 2}) {
+        const auto failed_spec = fixture.spec("write-batches-failure-" + std::to_string(failure));
+        TransactionSession failed(failed_spec, [&](const std::string&, const std::string& point) {
+            if (failure == 1 && point == "after_stream_write") throw std::runtime_error("interrupted actual write");
+        });
+        offset = 0;
+        const auto digest = failure == 2 ? std::string(64u, '0') : expected;
+        if (!throws([&] { failed.stage_file_stream("payload.bin", size, digest, read_cap,
+                [&](unsigned char* output, std::size_t capacity) {
+                    if (failure == 0 && offset) throw std::runtime_error("interrupted reader");
+                    const auto count = std::min(capacity, size - offset);
+                    std::copy_n(payload.data() + offset, count, output); offset += count; return count;
+                }, {}, write_cap); }) || failed.current_state() != "recovery_required" ||
+            fs::exists(failed_spec.target_root) || !throws([&] { failed.mark_staged(); })) return 214;
+        const auto retained = fs::file_size(failed.staging_root() / "payload.bin");
+        if ((failure == 0 && retained != 0u) || (failure == 1 && (retained == 0u || retained > write_cap)) ||
+            (failure == 2 && retained != size)) return 215;
+    }
+    // Invalid callback lengths, an unexpected EOF byte, and empty content
+    // still follow the original finalization/refusal rules under batching.
+    for (const int malformed : {0, 1, 2}) {
+        const auto bad_spec = fixture.spec("write-batches-reader-" + std::to_string(malformed));
+        TransactionSession bad_reader(bad_spec);
+        std::size_t consumed = 0;
+        if (!throws([&] { bad_reader.stage_file_stream("payload.bin", small.size(), old.sha256, read_cap,
+                [&](unsigned char* output, std::size_t capacity) {
+                    if (malformed == 0) return std::size_t{0};
+                    if (malformed == 1) return capacity + 1u;
+                    if (consumed == small.size()) { output[0] = 'x'; return std::size_t{1}; }
+                    std::copy_n(small.data(), small.size(), output); consumed = small.size(); return consumed;
+                }, {}, write_cap); }) || bad_reader.current_state() != "recovery_required" ||
+            fs::exists(bad_spec.target_root) || !throws([&] { bad_reader.mark_staged(); })) return 217;
+    }
+    usk::base::Sha256 empty_hash;
+    const auto empty_spec = fixture.spec("write-batches-empty");
+    TransactionSession empty(empty_spec);
+    std::size_t empty_calls = 0;
+    const auto empty_staged = empty.stage_file_stream("payload.bin", 0u, empty_hash.finish(), read_cap,
+        [&](unsigned char*, std::size_t capacity) {
+            if (capacity != 1u) throw std::runtime_error("empty stream must only probe EOF");
+            ++empty_calls; return std::size_t{0};
+        }, {}, write_cap);
+    if (empty_calls != 1u || empty_staged.size_bytes != 0u || empty_staged.peak_buffer_bytes != write_cap ||
+        fs::file_size(empty.staging_root() / "payload.bin") != 0u || fs::exists(empty_spec.target_root)) return 218;
+    return 0;
+}
+
+int journal_history_from_retained_bytes()
+{
+    Fixture fixture;
+    const auto spec = fixture.spec("retained-journal-history");
+    using Value = usk::json::Value;
+    const Value source(Value::Object{{"purpose", Value("retained-journal-history")}});
+    const auto source_context = usk::json::canonical(source);
+    const auto source_digest = usk::json::sha256_canonical(source);
+    auto session = TransactionSession::begin_streaming(spec, source_digest, source_context);
+    const auto text = read_text(session->journal_path());
+    const auto baseline = TransactionSession::inspect_recovery(spec);
+    const auto history = TransactionSession::decode_journal_history(spec, text);
+    if (history.current_state != "staging" || history.current_state != baseline.current_state ||
+        history.journal_digest != baseline.journal_digest ||
+        history.snapshot_sha256 != baseline.snapshot_sha256 || history.recorded_at != baseline.recorded_at ||
+        history.commit_started || history.commit_confirmed || !history.retained_stream_cleanup ||
+        history.retained_commit_cleanup || history.stream.source_digest != source_digest ||
+        history.stream.source_context != source_context) return 240;
+    if (!throws([&] { (void)TransactionSession::decode_completed_history(spec, text); })) return 241;
+    const auto whitespace = TransactionSession::decode_journal_history(spec, text + "\n");
+    if (whitespace.journal_digest != history.journal_digest ||
+        whitespace.snapshot_sha256 == history.snapshot_sha256) return 242;
+    const std::vector<std::function<void(Value&)>> changes{
+        [](Value& v) { v.as_object().at("schema") = Value("usk.transaction_journal.v999"); },
+        [](Value& v) { v.as_object().at("transaction_id") = Value("another.transaction"); },
+        [](Value& v) { v.as_object().at("plan_id") = Value("another.plan"); },
+        [](Value& v) { v.as_object().at("plan_digest") = Value(std::string(64, '0')); },
+        [](Value& v) { v.as_object().at("operation") = Value("repair"); },
+        [](Value& v) { v.as_object().at("roots").as_array().front().as_object().at("root") = Value("unrelated"); },
+        [](Value& v) { v.as_object().at("roots").as_array().push_back(v.at("roots").as_array().front()); },
+        [](Value& v) { v.as_object().at("current_state") = Value("completed"); },
+        [](Value& v) { v.as_object().at("journal_digest") = Value(std::string(64, '0')); },
+        [](Value& v) { v.as_object().at("transitions").as_array().front().as_object().at("sequence") = Value(std::uint64_t{1}); }
+    };
+    for (const auto& change : changes) {
+        auto altered = usk::json::parse(text); change(altered);
+        if (!throws([&] { (void)TransactionSession::decode_journal_history(spec,
+                usk::json::canonical(altered)); })) return 243;
+    }
+    if (!throws([&] { (void)TransactionSession::decode_journal_history(spec,
+            text + std::string(4u * 1024u * 1024u + 1u, ' ')); })) return 244;
+    // All four original roots are now absent. Decoding must still use only
+    // supplied bytes, leaving the retained journal and namespace untouched.
+    for (const auto& root : {fixture.staging, fixture.targets, fixture.state, fixture.audit})
+        fs::rename(root, root.string() + ".withheld");
+    const auto absent = TransactionSession::decode_journal_history(spec, text);
+    if (absent.snapshot_sha256 != history.snapshot_sha256 || absent.stream.source_digest != source_digest ||
+        fs::exists(fixture.staging) || fs::exists(fixture.targets) || fs::exists(fixture.state) ||
+        fs::exists(fixture.audit) ||
+        read_text(fs::path(fixture.state.string() + ".withheld") / "transactions" /
+            (spec.transaction_id + ".journal.json")) != text) return 245;
+    return 0;
+}
+
 int main()
 {
     Fixture fixture;
+    if (int result = journal_history_from_retained_bytes()) return result;
+    if (int result = bounded_write_batches(fixture)) return result;
+#if defined(_WIN32)
+    // Real ordinary sessions produce these journals. The internal validator
+    // only checks data binding; these controls activate no native owner.
+    using usk::transaction::detail::require_native_maintenance_journal_binding;
+    for (const std::string operation : {"repair", "move", "uninstall"}) {
+        auto spec = fixture.spec("journal-binding-" + operation);
+        spec.operation = operation;
+        std::string initial;
+        TransactionSession session(spec, [&](const std::string& state, const std::string& point) {
+            if (state == "created" && point == "after_journal")
+                initial = read_text(spec.state_root / "transactions" / (spec.transaction_id + ".journal.json"));
+        });
+        require_native_maintenance_journal_binding(spec, session.journal_path(), initial, {}, true);
+        usk::base::Sha256 digest;
+        digest.update(reinterpret_cast<const unsigned char*>(initial.data()), initial.size());
+        const auto predecessor = digest.finish();
+        const auto later = read_text(session.journal_path());
+        require_native_maintenance_journal_binding(spec, session.journal_path(), later, predecessor, false);
+        if (!throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path(), later, {}, true); }) ||
+            !throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path(), initial, predecessor, true); }) ||
+            !throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path(), later, {}, false); }) ||
+            !throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path(), later, "unbound", false); }) ||
+            !throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path().parent_path() / "other.json", later, predecessor, false); }))
+            return 201;
+        using Value = usk::json::Value;
+        const std::vector<std::function<void(Value&)>> changes{
+            [](Value& v) { v.as_object().at("transaction_id") = Value("another.transaction"); },
+            [](Value& v) { v.as_object().at("plan_id") = Value("another.plan"); },
+            [](Value& v) { v.as_object().at("plan_digest") = Value(std::string(64, '0')); },
+            [](Value& v) { v.as_object().at("operation") = Value("install_local"); },
+            [](Value& v) { v.as_object().at("roots").as_array().front().as_object().at("root") = Value("C:/unrelated"); },
+            [](Value& v) { v.as_object().at("roots").as_array().push_back(v.at("roots").as_array().front()); },
+            [](Value& v) { v.as_object().at("current_state") = Value("completed"); },
+            [](Value& v) { v.as_object().at("transitions").as_array().clear(); },
+            [](Value& v) { v.as_object().at("transitions").as_array().front().as_object().at("sequence") = Value(std::uint64_t{1}); },
+            [](Value& v) { v.as_object().at("transitions").as_array().front().as_object().at("from") = Value("created"); },
+        };
+        for (const auto& change : changes) {
+            auto altered = usk::json::parse(initial);
+            change(altered);
+            if (!throws([&] { require_native_maintenance_journal_binding(spec, session.journal_path(),
+                usk::json::canonical(altered), {}, true); })) return 202;
+        }
+        if (read_text(session.journal_path()) != later ||
+            usk::transaction::detail::observe_current_native_maintenance_file(session.journal_path())) return 203;
+    }
+#endif
+#if defined(_WIN32)
+    if (int result = cumulative_native_initial_binding(fixture)) return result;
+#endif
     if (int result = initial_stream_binding_before_effects(fixture)) return result;
     bool commit_supported = false;
     if (int result = happy_path(fixture, commit_supported)) return result;
+    if (int result = original_transition_extension(fixture, commit_supported)) return result;
     if (int result = no_clobber(fixture)) return result;
     if (int result = rollback(fixture)) return result;
     if (int result = rollback_retains_foreign_content(fixture)) return result;
     if (int result = staging_substitution(fixture)) return result;
     if (int result = target_ancestor_replacement(fixture)) return result;
     if (int result = partial_write_recovery(fixture)) return result;
+    if (int result = commit_refusal_preserves_primary_error(fixture)) return result;
 
     std::vector<std::string> states = {
         "created", "validated", "planned", "staging", "staged",

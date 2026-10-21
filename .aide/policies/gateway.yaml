@@ -1,0 +1,64 @@
+schema_version: aide.gateway-policy.v0
+policy_id: q19-gateway-skeleton
+status: active
+purpose: >
+  Define the Q19 local Gateway skeleton boundary. The Gateway may expose
+  repo-local health, status, route explanation, and summary metadata, but it
+  must not forward provider requests, call models, make outbound network calls,
+  store raw prompt bodies, store raw response bodies, or bypass verifier,
+  golden-task, route, cache, and local-state safeguards.
+operating_mode:
+  - local_skeleton
+  - report_only
+  - no_provider_forwarding
+allowed_endpoints:
+  - health
+  - status
+  - route_explain
+  - summaries
+  - version
+forbidden_endpoints_in_q19:
+  - provider_proxy
+  - openai_chat_completions_forwarding
+  - openai_responses_forwarding
+  - anthropic_messages_forwarding
+  - mcp_tools
+  - model_execution
+storage_policy:
+  raw_prompt_storage_default: false
+  raw_response_storage_default: false
+  local_state_root: .aide.local/
+  committed_gateway_state_allowed: deterministic_metadata_and_docs_only
+safety_rules:
+  - no_outbound_network_calls
+  - no_provider_calls
+  - no_model_calls
+  - no_secret_logging
+  - no_raw_prompt_logging
+  - no_raw_response_logging
+  - route_decisions_advisory_only
+  - verifier_and_golden_tasks_not_bypassed
+future_targets_documented_not_implemented:
+  - openai_compatible_gateway
+  - anthropic_compatible_gateway
+  - provider_adapters
+  - local_model_adapters
+  - mcp_server
+  - gateway_cache
+local_binding_policy:
+  default_host: 127.0.0.1
+  external_bind_allowed_in_q19: false
+  no_auto_start: true
+  no_daemon_persistence_required: true
+validation:
+  gateway_status_required_after_q19: true
+  endpoint_smoke_required_after_q19: true
+  provider_or_model_call_expected_count: 0
+limitations:
+  - not_a_production_gateway
+  - no_authentication_or_authorization_model_yet
+  - no_openai_or_anthropic_forwarding
+  - no_provider_adapter
+  - no_runtime_worker
+  - no_usage_billing
+  - no_exact_tokenizer

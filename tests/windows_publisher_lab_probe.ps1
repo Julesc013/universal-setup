@@ -20,13 +20,20 @@ param(
     [switch]$ReuseRegistration,
     [switch]$MachineRequestClient,
     [switch]$ControllerApply,
+    [switch]$AdmittedTarget,
     [switch]$PublicInstallation,
+    [ValidateSet('any','ON','OFF')][string]$ExpectedQualificationDiagnostics='any',
     [switch]$PublicStandardClient,
     [switch]$PublicStandardBootstrapLoss,
     [switch]$PublicStandardBootstrapPreservationLoss,
     [switch]$PublicStandardActiveInstallContention,
     [switch]$PublicStandardStalePlanQualification,
     [switch]$PublicStandardInstallationGuardConflict,
+    [switch]$PublicStandardMaintenanceQualification,
+    [switch]$PublicStandardMaintenanceRecoveryQualification,
+    [switch]$PublicStandardMaintenanceInitialQualification,
+    [switch]$PublicStandardSdkLifecycleQualification,
+    [switch]$PublicStandardSdkRecoveryQualification,
     [ValidateSet('none','anchors_1','anchors_2','anchors_3','anchors_4','snapshot_empty','snapshot_first','snapshot_middle','snapshot_last','snapshot_full')]
     [string]$PublicStandardConstructedBootstrapPrefix='none',
     [ValidateSet('none','move_intent','pending_empty','pending_middle','pending_full','publication_absent','next_reservation_absent')]
@@ -45,6 +52,41 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+if($PublicStandardSdkRecoveryQualification -and (-not $PublicStandardMaintenanceRecoveryQualification -or
+    -not $PublicInstallation -or -not $PublicStandardClient -or $PublicStandardSdkLifecycleQualification)) {
+    throw 'Public SDK recovery requires its own ended maintenance cohort'
+}
+if($PublicStandardSdkLifecycleQualification -and (-not $PublicInstallation -or -not $PublicStandardClient -or
+    -not $PublicStandardMaintenanceQualification -or $PublicStandardMaintenanceRecoveryQualification -or
+    $PublicStandardMaintenanceInitialQualification -or $PublicStandardBootstrapLoss -or
+    $PublicStandardBootstrapPreservationLoss -or $PublicStandardActiveInstallContention -or
+    $PublicStandardStalePlanQualification -or $PublicStandardInstallationGuardConflict -or
+    $PublicStandardConstructedBootstrapPrefix -cne 'none' -or $PublicStandardConstructedBootstrapDurableState -cne 'none')) {
+    throw 'Public SDK lifecycle requires its separate owned fresh maintenance cohort'
+}
+$admittedControllerProfile=$ControllerApply -and -not ($ConsumerAccess -or $NonAdminClient -or $MachineRequestClient -or $ProductionConcurrentRights)
+$admittedPackagedProfile=$ConsumerAccess -and $MachineRequestClient -and $ProductionConcurrentRights -and -not ($ControllerApply -or $NonAdminClient)
+if($AdmittedTarget -and (-not ($admittedControllerProfile -or $admittedPackagedProfile) -or -not $RegisteredService -or
+    -not $ReviewedSource -or -not $ReuseRegistration -or
+    $PublicInstallation -or $InterruptDuringConsumerAccess -or $InterruptAfterVisibleRecord -or
+    $InterruptAfterRename -or $InterruptBeforePublish -or $InterruptAfterStage -or
+    $TerminateAtPoststage -or $TerminateAtPostrename -or $ProductionPostpublishRights -or
+    $ProductionPostrenameTermination -or $ProductionPreparedTermination -or
+    $ExpectUnprotectedRefusal -or $ExpectPreexistingAnchorRefusal -or $HostileRights -or $HostilePostrename)) {
+    throw 'Admitted target currently requires the uninterrupted registered controller profile'
+}
+if($ExpectedQualificationDiagnostics -ine 'any' -and -not $PublicInstallation) {
+    throw 'A diagnostics expectation requires the public installation fixture'
+}
+if($PublicStandardMaintenanceInitialQualification -and $PublicStandardMaintenanceRecoveryQualification) {
+    throw 'Initial maintenance and published recovery require separate owned fixtures'
+}
+if(($PublicStandardMaintenanceQualification -or $PublicStandardMaintenanceRecoveryQualification -or $PublicStandardMaintenanceInitialQualification) -and (-not $PublicInstallation -or -not $PublicStandardClient -or
+    $PublicStandardBootstrapLoss -or $PublicStandardBootstrapPreservationLoss -or $PublicStandardActiveInstallContention -or
+    $PublicStandardStalePlanQualification -or $PublicStandardInstallationGuardConflict -or
+    $PublicStandardConstructedBootstrapPrefix -cne 'none' -or $PublicStandardConstructedBootstrapDurableState -cne 'none')) {
+    throw 'Fresh maintenance requires its distinct hosted standard public journey'
+}
 if($PublicStandardInstallationGuardConflict -and (-not $PublicInstallation -or -not $PublicStandardClient -or
     $PublicStandardBootstrapLoss -or $PublicStandardBootstrapPreservationLoss -or $PublicStandardActiveInstallContention -or
     $PublicStandardStalePlanQualification -or $PublicStandardConstructedBootstrapPrefix -cne 'none' -or
@@ -57,6 +99,8 @@ if($PublicStandardConstructedBootstrapDurableState -cne 'none' -and
 }
 . (Join-Path $PSScriptRoot 'windows_publisher_standard_launcher.ps1')
 $standardLauncherClosed=$false
+$controllerLauncherClosed=$false
+$controllerActorObservation=$null
 if($PublicStandardConstructedBootstrapPrefix -cne 'none' -and
     (-not $PublicStandardClient -or -not $PublicStandardBootstrapLoss -or $PublicStandardBootstrapPreservationLoss -or
      $PublicStandardActiveInstallContention -or $PublicStandardStalePlanQualification)) {
@@ -167,8 +211,266 @@ $receipt = [ordered]@{
 $mounted = $false
 $failure = $null
 
+function Initialize-OwnedVhdImageSecurity {
+    if('UskOwnedVhdImage' -as [type]){return}
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
+public sealed class UskOwnedVhdImage {
+    readonly IntPtr original;
+    readonly Func<IntPtr,Tuple<bool,int>> closer;
+    public FileStream Stream {get;private set;}
+    public bool CloseAttempted {get;private set;}
+    public bool NativeCloseConfirmed {get;private set;}
+    public int NativeCloseError {get;private set;}
+    UskOwnedVhdImage(IntPtr file,Func<IntPtr,Tuple<bool,int>> close) {original=file;closer=close;}
+    [StructLayout(LayoutKind.Sequential)] struct FileId {
+        public ulong Volume; public ulong Low; public ulong High;
+    }
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern IntPtr CreateFileW(string path,uint access,uint share,IntPtr security,
+        uint disposition,uint flags,IntPtr template);
+    [DllImport("kernel32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool CloseHandle(IntPtr file);
+    [DllImport("kernel32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool GetFileInformationByHandleEx(SafeFileHandle file,int kind,byte[] data,uint size);
+    [DllImport("kernel32.dll", EntryPoint="GetFileInformationByHandleEx", SetLastError=true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool GetFileId(SafeFileHandle file,int kind,out FileId id,uint size);
+    [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)]
+    static extern uint GetFinalPathNameByHandleW(SafeFileHandle file,StringBuilder path,uint size,uint flags);
+    [DllImport("advapi32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool GetKernelObjectSecurity(SafeFileHandle file,uint information,byte[] data,uint size,out uint needed);
+    [DllImport("advapi32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool GetSecurityDescriptorOwner(IntPtr descriptor,out IntPtr owner,out bool defaulted);
+    [DllImport("advapi32.dll", SetLastError=true)] [return: MarshalAs(UnmanagedType.Bool)]
+    static extern bool GetSecurityDescriptorDacl(IntPtr descriptor,out bool present,out IntPtr dacl,out bool defaulted);
+    [DllImport("advapi32.dll")]
+    static extern uint SetSecurityInfo(SafeFileHandle file,int type,uint information,
+        IntPtr owner,IntPtr group,IntPtr dacl,IntPtr sacl);
+    static Exception Failure(string operation) {return new Win32Exception(Marshal.GetLastWin32Error(),operation);}
+    static Tuple<bool,int> NativeClose(IntPtr file) {
+        bool closed=CloseHandle(file);int error=closed ? 0 : Marshal.GetLastWin32Error();
+        return Tuple.Create(closed,error);
+    }
+    public bool Close() {
+        if(CloseAttempted)return NativeCloseConfirmed;
+        // Retire managed use, then issue exactly ONE native close. The stream
+        // wrapper never owns native closure; no finalizer or retry uses original.
+        CloseAttempted=true;
+        try {if(Stream!=null)Stream.Dispose();}
+        finally {
+            Stream=null;
+            Tuple<bool,int> result=closer(original);
+            NativeCloseConfirmed=result.Item1;NativeCloseError=result.Item2;
+        }
+        return NativeCloseConfirmed;
+    }
+    public static UskOwnedVhdImage Open(string path) {
+        // OPEN_EXISTING, no sharing/inheritance, no data-write access, and no
+        // final reparse traversal. Ownership/DACL rights are for this image only.
+        IntPtr file=CreateFileW(path,0x800e0000,0,IntPtr.Zero,3,0x00200000,IntPtr.Zero);
+        if(file==new IntPtr(-1))throw Failure("Hold new owned VHD image");
+        UskOwnedVhdImage image=null;SafeFileHandle wrapper=null;
+        try {
+            image=new UskOwnedVhdImage(file,NativeClose);wrapper=new SafeFileHandle(file,false);
+            image.Stream=new FileStream(wrapper,FileAccess.Read,65536,false);return image;
+        }
+        catch(Exception primary) {
+            bool attempted=false,confirmed=false;int error=0;
+            try {if(wrapper!=null)wrapper.Dispose();} catch {}
+            if(image!=null) {
+                try {image.Close();} catch {}
+                attempted=image.CloseAttempted;confirmed=image.NativeCloseConfirmed;error=image.NativeCloseError;
+            } else {
+                // Cover allocation failure before an owner wrapper exists.
+                attempted=true;confirmed=CloseHandle(file);error=confirmed ? 0 : Marshal.GetLastWin32Error();
+            }
+            try {
+                primary.Data["OwnedVhdNativeCloseAttempted"]=attempted;
+                primary.Data["OwnedVhdNativeCloseConfirmed"]=confirmed;
+                primary.Data["OwnedVhdNativeCloseError"]=error;
+            } catch {}
+            throw;
+        }
+    }
+    public static object[] Observe(FileStream stream,string expectedPath) {
+        SafeFileHandle file=stream.SafeFileHandle;
+        byte[] tag=new byte[8],standard=new byte[24];FileId id;
+        if(!GetFileInformationByHandleEx(file,9,tag,8))throw Failure("Read owned VHD image tag");
+        if(!GetFileInformationByHandleEx(file,1,standard,24))throw Failure("Read owned VHD image role");
+        if(!GetFileId(file,18,out id,(uint)Marshal.SizeOf(typeof(FileId))))throw Failure("Read owned VHD image identity");
+        long size=BitConverter.ToInt64(standard,8);
+        if((BitConverter.ToUInt32(tag,0)&0x410)!=0 || BitConverter.ToUInt32(tag,4)!=0 ||
+            BitConverter.ToUInt32(standard,16)!=1 || standard[20]!=0 || standard[21]!=0 ||
+            size<=0 || size>512L*1024*1024 || stream.Length!=size)
+            throw new InvalidOperationException("Owned VHD image is not one ordinary bounded file");
+        StringBuilder path=new StringBuilder(32768);
+        uint count=GetFinalPathNameByHandleW(file,path,(uint)path.Capacity,0);
+        if(count==0)throw Failure("Read held owned VHD image path");
+        if(count>=path.Capacity)throw new InvalidOperationException("Held VHD image path is unbounded");
+        string actual=path.ToString();
+        if(actual.StartsWith(@"\\?\",StringComparison.Ordinal))actual=actual.Substring(4);
+        if(!String.Equals(actual,Path.GetFullPath(expectedPath),StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Held VHD image path differs from the newly created file");
+        string identity=id.Volume.ToString("x16")+":"+
+            BitConverter.ToString(BitConverter.GetBytes(id.Low)).Replace("-","").ToLowerInvariant()+
+            BitConverter.ToString(BitConverter.GetBytes(id.High)).Replace("-","").ToLowerInvariant();
+        return new object[]{identity,size,actual};
+    }
+    public static byte[] ReadOwnerDacl(FileStream stream) {
+        // Read the actual stored descriptor. FileSecurity/CommonAcl normalizes
+        // ACE order, so its projection cannot prove this ordered native policy.
+        uint needed;
+        bool queried=GetKernelObjectSecurity(stream.SafeFileHandle,5,null,0,out needed);
+        int error=queried ? 0 : Marshal.GetLastWin32Error();
+        if(queried)throw new InvalidOperationException("Held VHD image descriptor size query unexpectedly succeeded");
+        if(error!=122)throw new Win32Exception(error,"Size held VHD image owner/DACL");
+        if(needed<20 || needed>65536)throw new InvalidOperationException("Held VHD image descriptor is unbounded");
+        byte[] bytes=new byte[needed];uint returned;
+        if(!GetKernelObjectSecurity(stream.SafeFileHandle,5,bytes,needed,out returned))
+            throw Failure("Read held VHD image owner/DACL");
+        if(returned!=needed)throw new InvalidOperationException("Held VHD image descriptor size changed");
+        return bytes;
+    }
+    public static void SetOwnerDacl(FileStream stream,byte[] descriptor) {
+        if(descriptor==null || descriptor.Length<20 || descriptor.Length>65536)
+            throw new ArgumentException("Owned VHD image descriptor is unbounded");
+        GCHandle pin=GCHandle.Alloc(descriptor,GCHandleType.Pinned);
+        try {
+            IntPtr owner,dacl;bool present,defaulted;
+            if(!GetSecurityDescriptorOwner(pin.AddrOfPinnedObject(),out owner,out defaulted))
+                throw Failure("Locate owned VHD image owner");
+            if(!GetSecurityDescriptorDacl(pin.AddrOfPinnedObject(),out present,out dacl,out defaulted))
+                throw Failure("Locate owned VHD image DACL");
+            if(owner==IntPtr.Zero || !present || dacl==IntPtr.Zero)
+                throw new ArgumentException("Owned VHD image owner or DACL is absent");
+            // SE_FILE_OBJECT; owner + DACL + protection. No name reopen, group,
+            // SACL, inheritance, policy reduction or automatic retry is involved.
+            uint status=SetSecurityInfo(stream.SafeFileHandle,1,0x80000005,owner,IntPtr.Zero,dacl,IntPtr.Zero);
+            if(status!=0)throw new Win32Exception(unchecked((int)status),"Set held VHD image owner/DACL");
+        } finally {pin.Free();}
+    }
+}
+'@
+}
+function Assert-OwnedVhdImageSecurity([byte[]]$Descriptor) {
+    $raw=[Security.AccessControl.RawSecurityDescriptor]::new($Descriptor,0)
+    if($null -eq $raw.Owner -or $raw.Owner.Value -cne 'S-1-5-32-544' -or $null -eq $raw.DiscretionaryAcl -or
+        -not ($raw.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclPresent) -or
+        -not ($raw.ControlFlags -band [Security.AccessControl.ControlFlags]::DiscretionaryAclProtected) -or
+        $raw.DiscretionaryAcl.Count -ne 3){throw 'Owned VHD image owner or protected DACL differs'}
+    $sids=@('S-1-5-32-544','S-1-5-18','S-1-5-32-545');$masks=@(0x1f01ff,0x1f01ff,0x1200a9)
+    for($i=0;$i -lt 3;$i++) {
+        $ace=$raw.DiscretionaryAcl[$i]
+        if($ace -isnot [Security.AccessControl.CommonAce] -or $ace.IsCallback -or
+            $ace.AceQualifier -ne [Security.AccessControl.AceQualifier]::AccessAllowed -or
+            $ace.AceFlags -ne [Security.AccessControl.AceFlags]::None -or
+            $ace.SecurityIdentifier.Value -cne $sids[$i] -or $ace.AccessMask -ne $masks[$i]) {
+            throw 'Owned VHD image ordered ACE policy differs'
+        }
+    }
+    return $raw.GetSddlForm([Security.AccessControl.AccessControlSections]::Owner -bor
+        [Security.AccessControl.AccessControlSections]::Access)
+}
+function Protect-NewOwnedVhdImage([string]$ImagePath,[Collections.IDictionary]$Receipt) {
+    # The caller has just created this unique owned image; no attachment or
+    # volume exists yet. This observation never substitutes for product admission.
+    Initialize-OwnedVhdImageSecurity
+    $image=$null;$owner=$null;$primaryFailure=$null;$sha=$null
+    $observation=[ordered]@{schema='usk.owned_vhd_image_provisioning.v1';scope='new_image_before_first_attachment';
+        status='preparing';custody='unknown';native_close_attempted=$false;native_close_confirmed=$false;
+        native_close_error=$null;observations_closed=$false;volume_admission_granted=$false}
+    $Receipt['backing_image_provisioning']=$observation
+    try {
+        $owner=[UskOwnedVhdImage]::Open($ImagePath);$image=$owner.Stream;$observation.custody='held'
+        $before=[UskOwnedVhdImage]::Observe($image,$ImagePath)
+        $sha=[Security.Cryptography.SHA256]::Create()
+        $beforeHash=[Convert]::ToHexString($sha.ComputeHash($image)).ToLowerInvariant()
+        $sections=[Security.AccessControl.AccessControlSections]::Owner -bor
+            [Security.AccessControl.AccessControlSections]::Access
+        $original=[Security.AccessControl.RawSecurityDescriptor]::new([UskOwnedVhdImage]::ReadOwnerDacl($image),0)
+        $observation['file_identity']=$before[0];$observation['size_bytes']=$before[1];$observation['sha256']=$beforeHash
+        $observation['original_owner_dacl']=$original.GetSddlForm($sections)
+        $policy=[Security.AccessControl.RawSecurityDescriptor]::new('O:BAD:P(A;;FA;;;BA)(A;;FA;;;SY)(A;;0x1200a9;;;BU)')
+        $planned=[byte[]]::new($policy.BinaryLength);$policy.GetBinaryForm($planned,0)
+        $observation['intended_owner_dacl']=Assert-OwnedVhdImageSecurity $planned
+        [UskOwnedVhdImage]::SetOwnerDacl($image,$planned)
+        $readback=[UskOwnedVhdImage]::ReadOwnerDacl($image)
+        $observation['readback_owner_dacl']=[Security.AccessControl.RawSecurityDescriptor]::new($readback,0).GetSddlForm($sections)
+        $actual=Assert-OwnedVhdImageSecurity $readback
+        $image.Position=0
+        $afterHash=[Convert]::ToHexString($sha.ComputeHash($image)).ToLowerInvariant()
+        $after=[UskOwnedVhdImage]::Observe($image,$ImagePath)
+        if($before[0] -cne $after[0] -or $before[1] -ne $after[1] -or $before[2] -cne $after[2] -or
+            $beforeHash -cne $afterHash){throw 'Owned VHD image changed while provisioning its attachment policy'}
+        # Refresh security after byte/identity observations on the SAME handle.
+        if((Assert-OwnedVhdImageSecurity ([UskOwnedVhdImage]::ReadOwnerDacl($image))) -cne $actual) {
+            throw 'Owned VHD image policy changed before attachment'
+        }
+        $observation['provisioned_owner_dacl']=$actual
+        $observation['unchanged_bytes']=$true
+    } catch {
+        $primaryFailure=$_
+        # A constructor failure retains its own original checked close facts.
+        $inner=$_.Exception
+        for($depth=0;$null -ne $inner -and $depth -lt 8;$depth++) {
+            if($inner.Data.Contains('OwnedVhdNativeCloseAttempted')) {
+                $observation.native_close_attempted=$inner.Data['OwnedVhdNativeCloseAttempted']
+                $observation.native_close_confirmed=$inner.Data['OwnedVhdNativeCloseConfirmed']
+                $observation.native_close_error=$inner.Data['OwnedVhdNativeCloseError']
+                $observation.custody=if($observation.native_close_confirmed){'released'}else{'unknown'}
+                break
+            }
+            $inner=$inner.InnerException
+        }
+    } finally {
+        if($null -ne $owner) {
+            try {[void]$owner.Close()} catch {if($null -eq $primaryFailure){$primaryFailure=$_}}
+            $observation.native_close_attempted=$owner.CloseAttempted
+            $observation.native_close_confirmed=$owner.NativeCloseConfirmed
+            $observation.native_close_error=$owner.NativeCloseError
+            $observation.custody=if($owner.NativeCloseConfirmed){'released'}else{'unknown'}
+        }
+        try {if($null -ne $sha){$sha.Dispose()}} catch {if($null -eq $primaryFailure){$primaryFailure=$_}}
+    }
+    $observation.observations_closed=$observation.native_close_confirmed
+    if($null -ne $primaryFailure){$observation.status='failed';throw $primaryFailure}
+    if(-not $observation.native_close_confirmed) {
+        $observation.status='failed'
+        throw 'Owned VHD image native close unconfirmed; refuse attachment and retain unknown custody until runner VM disposal'
+    }
+    $observation.status='provisioned'
+    $observation.observations_closed=$true
+    return $observation
+}
+
 function Read-PublicBuildProfile([string]$Binary) {
     $build=Split-Path -Parent (Split-Path -Parent ([IO.Path]::GetFullPath($Binary)))
+    $cachePath=Join-Path $build 'CMakeCache.txt'
+    $cache=[IO.File]::ReadAllText($cachePath)
+    $declarations=@([regex]::Matches($cache,'(?m)^[ \t]*USK_QUALIFICATION_DIAGNOSTICS(?=[ \t]*[:=])[^\r\n]*\r?$'))
+    if($declarations.Count -ne 1){throw 'Public qualification diagnostics mode is absent or ambiguous'}
+    $diagnostics=[regex]::Match($declarations[0].Value,'^USK_QUALIFICATION_DIAGNOSTICS:BOOL=(ON|OFF)\r?$')
+    if(-not $diagnostics.Success){throw 'Public qualification diagnostics mode is invalid'}
+    $mode=$diagnostics.Groups[1].Value
+    if($ExpectedQualificationDiagnostics -ine 'any' -and $ExpectedQualificationDiagnostics -ine $mode) {
+        throw 'Public qualification diagnostics mode differs from the selected cohort'
+    }
+    foreach($frontend in @('usk_publisher_service','usk_machine')) {
+        $definitions=[IO.File]::ReadAllText((Join-Path $build ($frontend+'.vcxproj')))
+        $names=[regex]::Matches($definitions,'\bUSK_QUALIFICATION_DIAGNOSTICS\b').Count
+        $enabled=[regex]::Matches($definitions,'\bUSK_QUALIFICATION_DIAGNOSTICS=1(?=;|<)').Count
+        $trace=$definitions.Contains('usk_qualification_trace_internal.cpp')
+        if(($mode -ceq 'OFF' -and ($names -ne 0 -or $trace)) -or
+            ($mode -ceq 'ON' -and ($names -eq 0 -or $enabled -ne $names -or -not $trace))) {
+            throw 'Public qualification frontend diagnostics differs from its CMake cache'
+        }
+    }
     $projectPath=Join-Path $build 'usk_publisher_service.vcxproj'
     $compilerFiles=@(Get-ChildItem -LiteralPath (Join-Path $build 'CMakeFiles') -Directory|ForEach-Object {
         $candidate=Join-Path $_.FullName 'CMakeCXXCompiler.cmake'
@@ -194,185 +496,11 @@ function Read-PublicBuildProfile([string]$Binary) {
         windows_sdk=[string]$sdk[0];platform_toolset=[string]$toolset[0];compiler_id=$compilerId;compiler_version=$version;
         compiler_definition_sha256=(Get-FileHash -LiteralPath $compilerFiles[0] -Algorithm SHA256).Hash.ToLowerInvariant();
         project_sha256=(Get-FileHash -LiteralPath $projectPath -Algorithm SHA256).Hash.ToLowerInvariant();
+        qualification_diagnostics=($mode -ceq 'ON');
+        diagnostics_cache_sha256=(Get-FileHash -LiteralPath $cachePath -Algorithm SHA256).Hash.ToLowerInvariant();
         probe_powershell=$PSVersionTable.PSVersion.ToString();probe_clr=[Environment]::Version.ToString()}
 }
-function Invoke-StandardPublicSystemTask {
-    param([string]$VhdPath,[string]$VolumeRoot,[string]$ServiceBinary,[string]$ServiceControlBinary,
-        [string]$MachineBinary,[string]$OutputPath,[string]$LabRoot,[switch]$BootstrapProcessLoss,
-        [switch]$BootstrapPreservationProcessLoss,[switch]$ActiveInstallContention,[switch]$StalePlanQualification,[switch]$InstallationGuardConflict,
-        [string]$ConstructedBootstrapPrefix='none',[string]$ConstructedBootstrapDurableState='none')
-    # No local invocation can reach this: the outer lab has already required a
-    # fresh hosted VM and provisioned the exact disposable data disk.
-    $taskName='USK_STANDARD_PUBLIC_'+[guid]::NewGuid().ToString('N')
-    $script=Join-Path $LabRoot ($taskName+'.ps1')
-    $startBinding=Join-Path $LabRoot ($taskName+'.started.json')
-    $acknowledgment=Join-Path $LabRoot ($taskName+'.acknowledged.json')
-    $launcherHelpers=[IO.File]::ReadAllText((Join-Path $PSScriptRoot 'windows_publisher_standard_launcher.ps1'))
-    $quote={param([string]$value) "'"+$value.Replace("'","''")+"'"}
-    $probe=Join-Path $PSScriptRoot 'windows_publisher_standard_public_probe.ps1'
-    $python=(Get-Command python -CommandType Application -ErrorAction Stop|Select-Object -First 1).Source
-    if(-not [IO.Path]::IsPathRooted($python) -or -not [IO.File]::Exists($python)){throw 'Owned standard Python interpreter is unavailable'}
-    $body=@('$ErrorActionPreference=''Stop''',
-        '$env:GITHUB_ACTIONS=''true''', '$env:RUNNER_ENVIRONMENT=''github-hosted''',
-        ('$env:RUNNER_TEMP='+(& $quote $env:RUNNER_TEMP)),
-        '$identity=[Security.Principal.WindowsIdentity]::GetCurrent().User.Value',
-        'if($identity -cne ''S-1-5-18''){throw ''Owned launcher identity differs''}',
-        $launcherHelpers,
-        ('$startBinding='+(& $quote $startBinding)),
-        ('$acknowledgment='+(& $quote $acknowledgment)),
-        ('$taskName='+(& $quote $taskName)),
-        '$process=Get-Process -Id $PID',
-        '$binding=@{schema=''usk.publisher_standard_launcher.v1'';process_id=$PID;creation_file_time=$process.StartTime.ToUniversalTime().ToFileTimeUtc().ToString();identity=$identity;image=$process.Path}',
-        '$pendingBinding=$startBinding+''.pending''',
-        '$stream=[IO.File]::Open($pendingBinding,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)',
-        'try {$bytes=[Text.UTF8Encoding]::new($false).GetBytes(($binding|ConvertTo-Json -Compress));$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose();$process.Dispose()}',
-        ('Set-Acl -LiteralPath $pendingBinding -AclObject (Get-Acl -LiteralPath '+(& $quote $script)+')'),
-        '[IO.File]::Move($pendingBinding,$startBinding)',
-        '$bindingSha256=(Get-FileHash -LiteralPath $startBinding -Algorithm SHA256).Hash.ToLowerInvariant()',
-        'Wait-StandardLauncherAcknowledgment $acknowledgment ([pscustomobject]$binding) $taskName $bindingSha256',
-        ('& '+(& $quote $probe)+' -VhdPath '+(& $quote $VhdPath)+' -VolumeRoot '+(& $quote $VolumeRoot)+
-            ' -ServiceBinary '+(& $quote $ServiceBinary)+' -ServiceControlBinary '+(& $quote $ServiceControlBinary)+
-            ' -MachineBinary '+(& $quote $MachineBinary)+' -OutputPath '+(& $quote $OutputPath)+' -PythonBinary '+(& $quote $python)+
-            $(if($BootstrapProcessLoss){' -BootstrapProcessLoss'}else{''})+
-            $(if($BootstrapPreservationProcessLoss){' -BootstrapPreservationProcessLoss'}else{''})+
-            $(if($ActiveInstallContention){' -ActiveInstallContention'}else{''})+
-            $(if($StalePlanQualification){' -StalePlanQualification'}else{''})+
-            $(if($InstallationGuardConflict){' -InstallationGuardConflict'}else{''})+
-            ' -ConstructedBootstrapPrefix '+(& $quote $ConstructedBootstrapPrefix)+
-            ' -ConstructedBootstrapDurableState '+(& $quote $ConstructedBootstrapDurableState))) -join "`n"
-    $stream=[IO.File]::Open($script,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-    try {$bytes=[Text.UTF8Encoding]::new($false).GetBytes($body);$stream.Write($bytes,0,$bytes.Length);$stream.Flush($true)}finally{$stream.Dispose()}
-    $acl=[Security.AccessControl.FileSecurity]::new()
-    $acl.SetOwner([Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'));$acl.SetAccessRuleProtection($true,$false)
-    foreach($principalSid in @('S-1-5-18','S-1-5-32-544')) {
-        $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new([Security.Principal.SecurityIdentifier]::new($principalSid),'FullControl','Allow'))
-    }
-    Set-Acl -LiteralPath $script -AclObject $acl
-    $command='& '+(& $quote $script)
-    $encoded=[Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
-    $taskImage=Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
-    $taskArguments='-NoProfile -NonInteractive -EncodedCommand '+$encoded
-    $action=New-ScheduledTaskAction -Execute $taskImage -Argument $taskArguments
-    $settings=New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
-    $created=$false;$finished=$false;$launcherProcess=$null;$launcherBinding=$null;$launcherAcknowledged=$false;$info=$null
-    $launcherPhase='register_task'
-    $script:standardLauncherClosed=$false
-    $scriptSha256=(Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash.ToLowerInvariant()
-    $assertOwnedTask={param($task)
-        $principal=[Security.Principal.SecurityIdentifier]::new('S-1-5-18')
-        try {$principal=[Security.Principal.SecurityIdentifier]::new([string]$task.Principal.UserId)}
-        catch {$principal=[Security.Principal.NTAccount]::new([string]$task.Principal.UserId).Translate([Security.Principal.SecurityIdentifier])}
-        if($task.TaskName -cne $taskName -or $task.TaskPath -cne '\' -or $principal.Value -cne 'S-1-5-18' -or
-            $task.Principal.RunLevel -ne 'Highest' -or @($task.Actions).Count -ne 1 -or
-            $task.Actions[0].Execute -cne $taskImage -or $task.Actions[0].Arguments -cne $taskArguments -or
-            $task.Actions[0].WorkingDirectory -or
-            (Get-FileHash -LiteralPath $script -Algorithm SHA256).Hash.ToLowerInvariant() -cne $scriptSha256) {
-            throw 'Owned SYSTEM standard task definition or protected wrapper changed'
-        }
-    }
-    $recordUnconfirmed={param([string]$reason)
-        $result=if(Test-Path -LiteralPath $OutputPath -PathType Leaf){
-            Get-Content -LiteralPath $OutputPath -Raw|ConvertFrom-Json
-        }else{[pscustomobject]@{}}
-        $result=Update-StandardLauncherUnconfirmed $result $reason
-        [IO.File]::WriteAllText($OutputPath,($result|ConvertTo-Json -Depth 64 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
-    }
-    try {
-        Register-ScheduledTask -TaskName $taskName -TaskPath '\' -Action $action -Settings $settings -User SYSTEM -RunLevel Highest -ErrorAction Stop|Out-Null
-        $created=$true
-        $launcherPhase='start_task'
-        $null=Read-StandardRegisteredTaskInformation -TaskName $taskName -RevalidateTask $assertOwnedTask
-        Start-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Stop
-        $launcherPhase='observe_task'
-        $deadline=[DateTime]::UtcNow.AddMinutes(12)
-        do {
-            $info=Read-StandardRegisteredTaskInformation -TaskName $taskName -RevalidateTask $assertOwnedTask
-            if(-not $launcherProcess -and (Test-Path -LiteralPath $startBinding -PathType Leaf)) {
-                $launcherPhase='read_start_binding'
-                if((Get-Item -LiteralPath $startBinding).Length -gt 4096){throw 'Owned launcher start binding exceeds bound'}
-                $launcherBinding=Get-Content -LiteralPath $startBinding -Raw|ConvertFrom-Json
-                if($launcherBinding.schema -cne 'usk.publisher_standard_launcher.v1' -or
-                    $launcherBinding.identity -cne 'S-1-5-18' -or $launcherBinding.image -cne $taskImage -or
-                    $launcherBinding.process_id -le 0 -or $launcherBinding.creation_file_time -cnotmatch '^[1-9][0-9]{16,18}$') {
-                    throw 'Owned launcher start identity differs'
-                }
-                $launcherPhase='acquire_launcher_custody'
-                $launcherProcess=Get-Process -Id $launcherBinding.process_id -ErrorAction Stop;$null=$launcherProcess.Handle
-                if($launcherProcess.Path -cne $taskImage -or
-                    $launcherProcess.StartTime.ToUniversalTime().ToFileTimeUtc().ToString() -cne $launcherBinding.creation_file_time -or
-                    $launcherProcess.HasExited) {
-                    throw 'Held owned launcher process identity differs'
-                }
-                $launcherPhase='acknowledge_launcher_custody'
-                $null=Read-StandardRegisteredTaskInformation -TaskName $taskName -RevalidateTask $assertOwnedTask
-                $ack=[ordered]@{schema='usk.publisher_standard_launcher_ack.v1';task_name=$taskName;
-                    process_id=$launcherBinding.process_id;creation_file_time=$launcherBinding.creation_file_time;
-                    binding_sha256=(Get-FileHash -LiteralPath $startBinding -Algorithm SHA256).Hash.ToLowerInvariant()}
-                $pendingAcknowledgment=$acknowledgment+'.pending'
-                $ackStream=[IO.File]::Open($pendingAcknowledgment,[IO.FileMode]::CreateNew,[IO.FileAccess]::Write,[IO.FileShare]::None)
-                try {$ackBytes=[Text.UTF8Encoding]::new($false).GetBytes(($ack|ConvertTo-Json -Compress));$ackStream.Write($ackBytes,0,$ackBytes.Length);$ackStream.Flush($true)}
-                finally {$ackStream.Dispose()}
-                Set-Acl -LiteralPath $pendingAcknowledgment -AclObject $acl
-                [IO.File]::Move($pendingAcknowledgment,$acknowledgment)
-                $launcherAcknowledged=$true
-                $launcherPhase='observe_launcher_exit'
-            }
-            $processExited=$launcherProcess -and $launcherProcess.HasExited
-            if(Test-StandardLauncherTerminalObservation $info $launcherAcknowledged $processExited) {$finished=$true;break}
-            Start-Sleep -Milliseconds 100
-        } while([DateTime]::UtcNow -lt $deadline)
-        if(-not $finished -or -not (Test-Path -LiteralPath $OutputPath -PathType Leaf)) {
-            # Keep ownership unconfirmed; outer cleanup must retain backing
-            # storage until runner disposal if any client might still be live.
-            & $recordUnconfirmed 'owned SYSTEM standard task completion is unconfirmed'
-            throw 'Owned SYSTEM standard task did not complete with a receipt'
-        }
-        if($info.LastTaskResult -ne 0){throw 'Owned SYSTEM standard fixture failed; retained receipt contains its failure'}
-    } catch {
-        $originalLauncherError=$_
-        & $recordUnconfirmed 'owned SYSTEM standard launcher failed; original diagnostic retained'
-        $failedResult=Get-Content -LiteralPath $OutputPath -Raw|ConvertFrom-Json
-        $diagnostic=Get-StandardLauncherErrorDiagnostic $originalLauncherError $launcherPhase
-        $failedResult|Add-Member -NotePropertyName launcher_error -NotePropertyValue $diagnostic -Force
-        $processExited=$null
-        try {if($launcherProcess){$processExited=$launcherProcess.HasExited}} catch {}
-        $completion=Get-StandardLauncherCompletionDiagnostic $info $launcherAcknowledged $processExited
-        $failedResult|Add-Member -NotePropertyName launcher_completion_observation -NotePropertyValue $completion -Force
-        [IO.File]::WriteAllText($OutputPath,($failedResult|ConvertTo-Json -Depth 64 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
-        throw
-    } finally {
-        if($created -and $finished) {
-            try {
-                $launcherPhase='revalidate_task_before_removal'
-                $null=Read-StandardRegisteredTaskInformation -TaskName $taskName -RevalidateTask $assertOwnedTask
-                $launcherPhase='unregister_owned_task'
-                Unregister-ScheduledTask -TaskName $taskName -TaskPath '\' -Confirm:$false -ErrorAction Stop
-                $launcherPhase='confirm_owned_task_absence'
-                Assert-StandardRegisteredTaskAbsent -TaskName $taskName
-            } catch {
-                $originalRemovalError=$_
-                & $recordUnconfirmed 'owned SYSTEM standard task removal is unconfirmed'
-                $failedResult=Get-Content -LiteralPath $OutputPath -Raw|ConvertFrom-Json
-                $diagnostic=Get-StandardLauncherErrorDiagnostic $originalRemovalError $launcherPhase
-                $failedResult|Add-Member -NotePropertyName launcher_removal_error -NotePropertyValue $diagnostic -Force
-                [IO.File]::WriteAllText($OutputPath,($failedResult|ConvertTo-Json -Depth 64 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
-                throw $originalRemovalError
-            }
-        }
-        if(-not $finished){& $recordUnconfirmed 'owned SYSTEM launcher termination is unconfirmed'}
-        if($launcherProcess){$launcherProcess.Dispose()}
-    }
-    $result=Get-Content -LiteralPath $OutputPath -Raw|ConvertFrom-Json
-    $result|Add-Member -NotePropertyName launcher_task_removed -NotePropertyValue $true
-    $result|Add-Member -NotePropertyName launcher_task_result -NotePropertyValue ([uint32]$info.LastTaskResult)
-    $result|Add-Member -NotePropertyName launcher_information_source -NotePropertyValue $info.observation_source
-    $result|Add-Member -NotePropertyName launcher_task -NotePropertyValue $taskName
-    $result|Add-Member -NotePropertyName launcher_process -NotePropertyValue $launcherBinding
-    $result|Add-Member -NotePropertyName launcher_process_exit_confirmed -NotePropertyValue $true
-    $result|Add-Member -NotePropertyName launcher_start_acknowledged -NotePropertyValue $launcherAcknowledged
-    [IO.File]::WriteAllText($OutputPath,($result|ConvertTo-Json -Depth 64 -Compress)+"`n",[Text.UTF8Encoding]::new($false))
-    $script:standardLauncherClosed=$true
-}
+
 try {
     if($PublicInstallation){$receipt['build_profile']=Read-PublicBuildProfile $ServiceBinary}
     $before = @(Get-Disk -ErrorAction Stop | Select-Object -ExpandProperty Number)
@@ -393,6 +521,10 @@ try {
         throw 'file-backed VHD was not created'
     }
 
+    # Registered legacy profiles also need a safe NEW backing image before
+    # attachment. Native registration/remount admission still proves its own
+    # actual device policy; this file preparation grants no volume authority.
+    if($PublicInstallation -or $AdmittedTarget -or $RegisteredService){$receipt['backing_image_provisioning']=Protect-NewOwnedVhdImage $vhd $receipt}
     Mount-DiskImage -ImagePath $vhd -NoDriveLetter -ErrorAction Stop | Out-Null
     $mounted = $true
     $image = Get-DiskImage -ImagePath $vhd -ErrorAction Stop
@@ -454,8 +586,15 @@ try {
     if ($ServiceBinary) {
         if (-not $DeviceAclBinary -and -not $PublicInstallation) { throw 'owned VHD device ACL helper is required' }
         $serviceOutput = Join-Path $lab 'service-probe.json'
-        if ($PublicStandardClient) {
-            Invoke-StandardPublicSystemTask -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
+        if($AdmittedTarget) {
+            $actorProfile=if($admittedPackagedProfile){'SystemStandard'}else{'NamedController'}
+            Invoke-OwnedPublisherFixtureTask -ActorProfile $actorProfile -PackagedAdmittedConsumer:$admittedPackagedProfile `
+                -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id -LabRoot $lab `
+                -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary `
+                -DeviceAclBinary $DeviceAclBinary -MachineBinary $MachineBinary `
+                -PublicApplyBinary $PublicApplyBinary -ClientBinary $ClientBinary -PayloadBinary $PayloadBinary -OutputPath $serviceOutput
+        } elseif ($PublicStandardClient) {
+            Invoke-OwnedPublisherFixtureTask -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary `
                 -MachineBinary $MachineBinary -OutputPath $serviceOutput -LabRoot $lab `
                 -BootstrapProcessLoss:($PublicStandardBootstrapLoss -or $PublicStandardBootstrapPreservationLoss) `
@@ -463,6 +602,11 @@ try {
                 -ActiveInstallContention:$PublicStandardActiveInstallContention `
                 -StalePlanQualification:$PublicStandardStalePlanQualification `
                 -InstallationGuardConflict:$PublicStandardInstallationGuardConflict `
+                -MaintenanceQualification:($PublicStandardMaintenanceQualification -or $PublicStandardMaintenanceRecoveryQualification -or $PublicStandardMaintenanceInitialQualification) `
+                -MaintenanceRecoveryQualification:$PublicStandardMaintenanceRecoveryQualification `
+                -MaintenanceInitialQualification:$PublicStandardMaintenanceInitialQualification `
+                -SdkLifecycleQualification:$PublicStandardSdkLifecycleQualification `
+                -SdkRecoveryQualification:$PublicStandardSdkRecoveryQualification `
                 -ConstructedBootstrapPrefix $PublicStandardConstructedBootstrapPrefix `
                 -ConstructedBootstrapDurableState $PublicStandardConstructedBootstrapDurableState
         } elseif ($PublicInstallation) {
@@ -476,7 +620,7 @@ try {
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
                 -ServiceBinary $ServiceBinary -ServiceControlBinary $ServiceControlBinary -DeviceAclBinary $DeviceAclBinary `
                 -MachineBinary $MachineBinary -PublicApplyBinary $PublicApplyBinary -ClientBinary $ClientBinary -PayloadBinary $PayloadBinary -ConsumerAccess:$ConsumerAccess -InterruptDuringConsumerAccess:$InterruptDuringConsumerAccess -OutputPath $serviceOutput `
-                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -TerminateAtPoststage:$TerminateAtPoststage -TerminateAtPostrename:$TerminateAtPostrename -ReviewedSource:$ReviewedSource -RegisteredService:$RegisteredService -ReuseRegistration:$ReuseRegistration -MachineRequestClient:$MachineRequestClient -ControllerApply:$ControllerApply -NonAdminClient:$NonAdminClient -ProductionConcurrentRights:$ProductionConcurrentRights -ProductionPostpublishRights:$ProductionPostpublishRights -ProductionPostrenameTermination:$ProductionPostrenameTermination -ProductionPreparedTermination:$ProductionPreparedTermination -ExpectUnprotectedRefusal:$ExpectUnprotectedRefusal -ExpectPreexistingAnchorRefusal:$ExpectPreexistingAnchorRefusal -HostileRights:($HostileRights -and -not $HostilePostrename) -HostilePostrename:$HostilePostrename
+                -InterruptAfterVisibleRecord:$InterruptAfterVisibleRecord -InterruptAfterRename:$InterruptAfterRename -InterruptBeforePublish:$InterruptBeforePublish -InterruptAfterStage:$InterruptAfterStage -TerminateAtPoststage:$TerminateAtPoststage -TerminateAtPostrename:$TerminateAtPostrename -ReviewedSource:$ReviewedSource -RegisteredService:$RegisteredService -ReuseRegistration:$ReuseRegistration -MachineRequestClient:$MachineRequestClient -ControllerApply:$ControllerApply -AdmittedTarget:$AdmittedTarget -NonAdminClient:$NonAdminClient -ProductionConcurrentRights:$ProductionConcurrentRights -ProductionPostpublishRights:$ProductionPostpublishRights -ProductionPostrenameTermination:$ProductionPostrenameTermination -ProductionPreparedTermination:$ProductionPreparedTermination -ExpectUnprotectedRefusal:$ExpectUnprotectedRefusal -ExpectPreexistingAnchorRefusal:$ExpectPreexistingAnchorRefusal -HostileRights:($HostileRights -and -not $HostilePostrename) -HostilePostrename:$HostilePostrename
         } else {
             & (Join-Path $PSScriptRoot 'windows_publisher_service_probe.ps1') `
                 -VhdPath $vhd -VolumeRoot $receipt.volume_unique_id `
@@ -485,6 +629,14 @@ try {
         }
         $receipt['service_observation'] = Get-Content -LiteralPath $serviceOutput -Raw |
             ConvertFrom-Json
+        if($PublicStandardSdkRecoveryQualification -and $receipt.service_observation.status -ceq 'standard_public_install_verified_recovered') {
+            $observedSdk=@($receipt.service_observation.sdk_requests)
+            $requiredSdk=@('recovery.inspect','recovery.plan','recovery.apply','recovery.apply','recovery.apply','installed.verify')
+            if($receipt.service_observation.maintenance_recovery.schema -cne 'usk.publisher_sdk_ended_repair_recovery_probe.v1' -or
+                $observedSdk.Count -ne 6 -or (($observedSdk|ForEach-Object {$_.command}) -join '|') -cne ($requiredSdk -join '|')) {
+                throw 'Requested SDK recovery cohort did not return its actual SDK route witness'
+            }
+        }
         $expected = if ($PublicStandardClient) { 'standard_public_install_verified_recovered' } elseif ($PublicPostRenameRefusal -cne 'none') { 'public_refusal_retained' } elseif ($PublicInstallation) { 'public_install_verified_recovered' } elseif ($ExpectUnprotectedRefusal) { 'preprotected_boundary_refusal_observed' } elseif ($ExpectPreexistingAnchorRefusal) { 'preexisting_anchor_recovery_required_observed' } elseif ($MachineBinary) { 'protected_metadata_observed' } else { 'protected_publish_observed' }
         if ($receipt.service_observation.status -ne $expected) {
             throw 'protected publish service probe did not pass'
@@ -504,14 +656,35 @@ try {
         } catch {}
     }
 } finally {
+    if($AdmittedTarget -and $admittedControllerProfile){$receipt['controller_actor']=$controllerActorObservation}
     try {
-        if($PublicStandardClient -and -not $standardLauncherClosed){
+        if($receipt.backing_image_provisioning -and $receipt.backing_image_provisioning.custody -ceq 'unknown') {
+            throw 'Owned VHD image closure unconfirmed; retain backing file until runner VM disposal'
+        }
+        if(($PublicStandardClient -or ($AdmittedTarget -and $admittedPackagedProfile)) -and -not $standardLauncherClosed){
             throw 'Owned SYSTEM launcher cleanup unconfirmed; retain backing volume until runner VM disposal'
+        }
+        if($AdmittedTarget -and $admittedControllerProfile -and -not $controllerLauncherClosed){
+            throw 'Owned controller launcher closure unconfirmed; retain recovery volume and backing file'
         }
         if($receipt.service_observation -and $receipt.service_observation.client_cleanup_confirmed -eq $false){
             throw 'Owned client cleanup unconfirmed; retain backing volume until runner VM disposal'
         }
         $backingFileExisted = Test-Path -LiteralPath $vhd -PathType Leaf
+        if($AdmittedTarget -and ($mounted -or $backingFileExisted)) {
+            # A missing receipt is uncertainty, not proof that admission never
+            # happened. Keep the recovery volume until product retirement and
+            # all owned clients are positively confirmed closed.
+            $observation=$receipt.service_observation
+            if(-not $observation -or $observation.retirement_cleanup_failure -or
+                -not [object]::Equals($observation.service_removed,$true) -or
+                -not [object]::Equals($observation.protected_service_binary_removed,$true) -or
+                -not [object]::Equals($observation.client_cleanup_confirmed,$true)) {
+                $receipt['admitted_target_retained_for_recovery']=$true
+                $receipt.status='failed'
+                throw 'Admitted publisher retirement unconfirmed; retain mounted recovery volume and backing file'
+            }
+        }
         if ($mounted) {
             $image = Get-DiskImage -ImagePath $vhd -ErrorAction Stop
             if ($image.Attached) { Dismount-DiskImage -ImagePath $vhd -ErrorAction Stop }
@@ -527,6 +700,7 @@ try {
     } catch {
         $receipt.cleanup = 'failed: ' + $_.Exception.Message
         if (-not $failure) { $failure = 'disposable VHD cleanup failed' }
+        $receipt.status='failed';$receipt.failure=$failure
     }
     $receipt['completed_utc'] = [DateTime]::UtcNow.ToString('o')
     $receipt | ConvertTo-Json -Depth 64 -Compress | Set-Content -LiteralPath $out -Encoding UTF8

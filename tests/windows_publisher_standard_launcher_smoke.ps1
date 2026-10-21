@@ -315,6 +315,75 @@ $refused=$false
 try {Assert-StandardRegisteredTaskAbsent -TaskName 'not-owned' -CreateScheduler {$opened[0]++}}
 catch {$refused=$true}
 if(-not $refused -or $opened[0] -ne 0){throw 'Unowned task absence reached scheduler access'}
+$registeredName='USK_ADMITTED_CONTROLLER_'+('b'*32)
+foreach($case in @('positive','system_logon','text_logon','wrong_profile')) {
+    $fixture=New-FixtureScheduler 'positive';$state=$fixture.State
+    $principal=$fixture.Scheduler.Folder.RegisteredTask.Definition.Principal
+    $principal.UserId='S-1-5-21-1-2-3-1001'
+    $principal.LogonType=switch($case){'system_logon'{5};'text_logon'{'1'};default{1}}
+    $profile=if($case -ceq 'wrong_profile'){'SystemStandard'}else{'NamedController'}
+    $failure=$null;$info=$null
+    try {
+        $info=Read-StandardRegisteredTaskInformation -TaskName $registeredName -ActorProfile $profile `
+            -RevalidateTask {
+                param($Observed)
+                if($Observed.Principal.UserId -cne 'S-1-5-21-1-2-3-1001' -or $Observed.Principal.LogonType -ne 1) {
+                    throw 'Named controller principal differs'
+                }
+            } -CreateScheduler {return $fixture.Scheduler}.GetNewClosure() -ReleaseReference {}
+    } catch {$failure=$_}
+    if(($case -ceq 'positive') -ne ($null -eq $failure)){throw ('Controller task profile acceptance differs: '+$case)}
+    if($case -ceq 'wrong_profile' -and $state.Calls.Count){throw 'Controller task name reached default SYSTEM scheduler access'}
+}
+$fixture=New-FixtureScheduler 'missing'
+Assert-StandardRegisteredTaskAbsent -TaskName $registeredName -ActorProfile NamedController `
+    -CreateScheduler {return $fixture.Scheduler}.GetNewClosure() -ReleaseReference {}
 'Launcher startup: acknowledgment, metadata identity/types, original errors and reference cleanup checked; no tasks executed'
 
 & (Join-Path $PSScriptRoot 'windows_publisher_install_guard_cleanup_smoke.ps1')
+
+
+# Evaluate only the original fixed string-building assignment. No task,
+# service/account operation or fixture process can run in this control.
+$parseTokens=$null;$parseErrors=$null
+$launcherAst=[System.Management.Automation.Language.Parser]::ParseFile(
+    (Join-Path $PSScriptRoot 'windows_publisher_standard_launcher.ps1'),[ref]$parseTokens,[ref]$parseErrors)
+if($parseErrors.Count){throw 'Actual launcher syntax is invalid'}
+$launcherFunction=$launcherAst.Find({param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -ceq 'Invoke-OwnedPublisherFixtureTask'},$true)
+$parameterNames=@($launcherFunction.Body.ParamBlock.Parameters|ForEach-Object {$_.Name.VariablePath.UserPath})
+if($parameterNames -cnotcontains 'SdkRecoveryQualification'){throw 'Actual launcher dropped SDK recovery parameter'}
+$argvNodes=@($launcherFunction.Body.FindAll({param($node)
+    $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+    $node.Left.Extent.Text -ceq '$body' -and
+    $node.Right.Extent.Text.Contains(' -PythonBinary ') -and
+    $node.Right.Extent.Text.Contains(' -ConstructedBootstrapDurableState ')},$true))
+if($argvNodes.Count -ne 1){throw 'Actual fixed standard argv builder is ambiguous'}
+$argvProjection=[scriptblock]::Create($argvNodes[0].Extent.Text+[Environment]::NewLine+'$body')
+$quote={param($value) "'"+([string]$value).Replace("'","''")+"'"}
+$probe='owned-standard-probe';$VhdPath='owned.vhd';$VolumeRoot='owned-volume'
+$ServiceBinary='owned-service';$ServiceControlBinary='owned-control';$MachineBinary='owned-machine'
+$OutputPath='owned-output';$python='owned-python';$body=@()
+$BootstrapProcessLoss=$false;$BootstrapPreservationProcessLoss=$false;$ActiveInstallContention=$false
+$StalePlanQualification=$false;$InstallationGuardConflict=$false;$MaintenanceQualification=$true
+$MaintenanceRecoveryQualification=$true;$MaintenanceInitialQualification=$false;$SdkLifecycleQualification=$false
+$ConstructedBootstrapPrefix='none';$ConstructedBootstrapDurableState='none'
+foreach($enabled in @($true,$false)) {
+    $SdkRecoveryQualification=$enabled
+    $projected=@(& $argvProjection)
+    if($projected.Count -ne 1 -or ([regex]::Matches($projected[0],' -SdkRecoveryQualification(?= |$)')).Count -ne [int]$enabled -or
+        -not $projected[0].Contains(' -MaintenanceRecoveryQualification')) {
+        throw 'Actual launcher argv lost or invented SDK recovery switch'
+    }
+}
+foreach($invalid in @(
+    @{SdkRecoveryQualification=$true},
+    @{SdkRecoveryQualification=$true;MaintenanceQualification=$true;MaintenanceRecoveryQualification=$true;ActorProfile='NamedController'},
+    @{SdkRecoveryQualification=$true;MaintenanceQualification=$true;MaintenanceRecoveryQualification=$true;PackagedAdmittedConsumer=$true},
+    @{SdkRecoveryQualification=$true;MaintenanceQualification=$true;MaintenanceRecoveryQualification=$true;SdkLifecycleQualification=$true})) {
+    $refused=$false
+    try {Invoke-OwnedPublisherFixtureTask @invalid}
+    catch {$refused=$_.Exception.Message -ceq 'SDK recovery launcher requires its separate standard ended-maintenance cohort'}
+    if(-not $refused){throw 'Actual launcher accepted an incompatible SDK recovery profile'}
+}

@@ -1,0 +1,8 @@
+schema_version: aide.golden-task.v0
+id: quality_ledger_generation_golden
+title: Quality Ledger Generation Golden
+status: active
+objective: Verify a quality ledger can be generated deterministically from Q37 repo intelligence outputs.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task quality_ledger_generation_golden
+no_model_calls: true
+no_network_calls: true

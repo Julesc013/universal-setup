@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "count": {"minimum": 0, "type": "integer"},
+    "family_id": {"type": "string"},
+    "representative": {"type": "string"},
+    "status": {"enum": ["FAIL", "ERROR", "TIMEOUT"], "type": "string"},
+    "title": {"type": "string"}
+  },
+  "required": ["family_id", "title", "count", "status"],
+  "type": "object"
+}
+

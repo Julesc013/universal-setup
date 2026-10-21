@@ -1,18 +1,44 @@
 // SPDX-FileCopyrightText: 2026 Jules C
 // SPDX-License-Identifier: MIT
 #include "usk_publisher_request_channel.h"
+#include "usk_publisher_authenticated_client_internal.h"
+#include "usk_publisher_registration.h"
+#include "usk_publisher_registration_query_internal.h"
+#include "usk_publisher_controller_request_internal.h"
 #include "usk_publisher_execution_observation.h"
 #include "usk_publisher_tree_observation.h"
 #include "usk_effect_dispatch.h"
+#include "usk_json.h"
 #if defined(_WIN32)
 #include <sddl.h>
 #include <atomic>
+#include <chrono>
+#include <array>
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <new>
+#include <cstdlib>
+#include <cstring>
+#include <type_traits>
+#include <utility>
 #include <stdexcept>
 #include <thread>
 #include <vector>
+// Test executable only: denial is scoped to the current test thread and starts
+// after its owned inputs are prepared. Other native fixture threads are unaffected.
+namespace { thread_local bool deny_request_channel_allocations = false; }
+void* operator new(std::size_t bytes) {
+    if (deny_request_channel_allocations) throw std::bad_alloc();
+    if (void* memory = std::malloc(bytes ? bytes : 1)) return memory;
+    throw std::bad_alloc();
+}
+void* operator new[](std::size_t bytes) { return ::operator new(bytes); }
+void operator delete(void* memory) noexcept { std::free(memory); }
+void operator delete[](void* memory) noexcept { ::operator delete(memory); }
+void operator delete(void* memory, std::size_t) noexcept { ::operator delete(memory); }
+void operator delete[](void* memory, std::size_t) noexcept { ::operator delete(memory); }
+
 using usk::platform::windows::PublisherRequestChannel;
 namespace {
 void require(bool condition, const char* message) { if (!condition) throw std::runtime_error(message); }
@@ -20,6 +46,216 @@ template<class Action> void refuses(Action action) {
     bool refused=false;
     try { action(); } catch (const std::exception&) { refused=true; }
     require(refused,"required refusal absent");
+}
+void test_service_handle_transfer_allocation_failure() {
+    using usk::platform::windows::detail::registration_query::ServiceHandle;
+    using usk::platform::windows::detail::registration_query::transfer_service_handle;
+    // Read-only SCM handles exercise the same closer at both ownership depths;
+    // no service is created, changed or opened with mutation rights.
+    for (unsigned depth = 0; depth < 2u; ++depth) {
+        SC_HANDLE parent_raw = nullptr, child_raw = nullptr;
+        bool denied = false, source_retained = false;
+        {
+            ServiceHandle parent(OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT));
+            require(parent.get() != nullptr, "read-only SCM fixture unavailable");
+            parent_raw = parent.get();
+            std::unique_ptr<ServiceHandle> retained_parent;
+            if (depth) {
+                retained_parent = transfer_service_handle(parent);
+                require(!parent.get() && retained_parent->get() == parent_raw, "SCM ownership transfer failed");
+            }
+            ServiceHandle child(depth ? OpenSCManagerW(nullptr, nullptr, SC_MANAGER_CONNECT) : nullptr);
+            require(!depth || child.get() != nullptr, "second read-only SCM fixture unavailable");
+            child_raw = child.get();
+            auto& source = depth ? child : parent;
+            const auto raw = source.get();
+            struct ResetDenial { ~ResetDenial() { deny_request_channel_allocations = false; } };
+            {
+                ResetDenial reset;
+                deny_request_channel_allocations = true;
+                try { (void)transfer_service_handle(source); }
+                catch (const std::bad_alloc&) { denied = true; source_retained = source.get() == raw; }
+            }
+        }
+        require(denied && source_retained && !deny_request_channel_allocations,
+            "failed service-handle transfer lost source ownership");
+        require(!CloseServiceHandle(parent_raw) && GetLastError() == ERROR_INVALID_HANDLE,
+            "failed transfer leaked parent SCM handle");
+        if (depth) require(!CloseServiceHandle(child_raw) && GetLastError() == ERROR_INVALID_HANDLE,
+            "failed transfer leaked child SCM handle");
+    }
+}
+
+void test_allocation_free_unknown_message() {
+    using usk::platform::windows::PublisherRequestOutcomeUnknown;
+    static_assert(std::is_nothrow_constructible<PublisherRequestOutcomeUnknown, const char*>::value &&
+        std::is_nothrow_constructible<PublisherRequestOutcomeUnknown, const std::string&>::value &&
+        std::is_nothrow_constructible<PublisherRequestOutcomeUnknown, const char*, const char*>::value &&
+        std::is_nothrow_constructible<PublisherRequestOutcomeUnknown, const char*, DWORD>::value &&
+        std::is_nothrow_copy_constructible<PublisherRequestOutcomeUnknown>::value &&
+        std::is_nothrow_move_constructible<PublisherRequestOutcomeUnknown>::value,
+        "post-write UNKNOWN construction and propagation must not allocate");
+    constexpr char prefix[] = "publisher response unavailable; outcome unknown: ";
+    const std::string owned_reason(1024u, 'x');
+    bool denial_active = false, preserved = false, copied = false, bounded = false, null_reason = false;
+    bool context_preserved = false, win32_range_preserved = false;
+    struct ResetDenial {
+        ~ResetDenial() { deny_request_channel_allocations = false; }
+    };
+    {
+        ResetDenial reset;
+        deny_request_channel_allocations = true;
+        try { (void)::operator new(32u); }
+        catch (const std::bad_alloc&) { denial_active = true; }
+        try {
+            try { throw std::bad_alloc(); }
+            catch (const std::exception& error) {
+                // This is the raw transport's actual failure-message operation.
+                // The old string-backed constructor throws bad_alloc here.
+                throw PublisherRequestOutcomeUnknown(error.what());
+            }
+        } catch (const PublisherRequestOutcomeUnknown& error) {
+            preserved = std::strncmp(error.what(), prefix, sizeof(prefix) - 1u) == 0;
+            auto copy = error;
+            const auto moved = std::move(copy);
+            copied = std::strcmp(error.what(), moved.what()) == 0;
+        } catch (...) {}
+        try {
+            throw PublisherRequestOutcomeUnknown(owned_reason);
+        } catch (const PublisherRequestOutcomeUnknown& error) {
+            const auto length = std::strlen(error.what());
+            bounded = length == 511u && std::strcmp(error.what() + length - 3u, "...") == 0 &&
+                std::strncmp(error.what(), prefix, sizeof(prefix) - 1u) == 0;
+        } catch (...) {}
+        const PublisherRequestOutcomeUnknown unspecified(static_cast<const char*>(nullptr));
+        null_reason = std::strcmp(unspecified.what(), prefix) == 0;
+        const PublisherRequestOutcomeUnknown contextual("retained intent: ", "allocation failure");
+        context_preserved = std::strcmp(contextual.what(),
+            "publisher response unavailable; outcome unknown: retained intent: allocation failure") == 0;
+        const PublisherRequestOutcomeUnknown zero("Win32 ", DWORD{0});
+        const PublisherRequestOutcomeUnknown maximum("Win32 ", static_cast<DWORD>(0xffffffffu));
+        win32_range_preserved = std::strcmp(zero.what(),
+            "publisher response unavailable; outcome unknown: Win32 0") == 0 &&
+            std::strcmp(maximum.what(),
+                "publisher response unavailable; outcome unknown: Win32 4294967295") == 0;
+    }
+    require(denial_active && !deny_request_channel_allocations,
+        "UNKNOWN message test did not activate and release allocation denial");
+    require(preserved && copied && bounded && null_reason && context_preserved && win32_range_preserved,
+        "post-write allocation failure lost its bounded UNKNOWN exception");
+}
+void test_controller_uncertainty_boundary() {
+    using usk::platform::windows::detail::run_admitted_controller_request;
+    require(run_admitted_controller_request([](auto& boundary) -> int {
+        boundary.enter_transport();
+        throw std::bad_alloc(); // Including failure to construct typed UNKNOWN.
+    }) == 5, "post-transport allocation failure became a controller refusal");
+    require(run_admitted_controller_request([](auto& boundary) -> int {
+        boundary.enter_transport();
+        throw usk::base::EffectRequestNotDispatched(); // A lower-layer downgrade is untrusted here.
+    }) == 5, "post-transport typed refusal escaped the controller boundary");
+    require(run_admitted_controller_request([](auto& boundary) -> int {
+        boundary.enter_transport();
+        throw std::ios_base::failure("terminal response output failed");
+    }) == 5, "failed response projection lost controller uncertainty");
+    require(run_admitted_controller_request([](auto& boundary) -> int {
+        boundary.enter_transport();
+        boundary.enter_transport(); // Sticky even if more than one layer marks entry.
+        throw 7;
+    }) == 5, "non-standard post-transport failure lost controller uncertainty");
+    for (const int terminal : {0, 3}) {
+        require(run_admitted_controller_request([terminal](auto& boundary) {
+            boundary.enter_transport();
+            return terminal;
+        }) == terminal, "known controller terminal result became UNKNOWN");
+    }
+    bool refused_before_transport = false;
+    try {
+        (void)run_admitted_controller_request([](auto& boundary) -> int {
+            require(!boundary.dispatch_possible(), "a new invocation retained prior dispatch state");
+            throw usk::base::EffectRequestNotDispatched();
+        });
+    } catch (const usk::base::EffectRequestNotDispatched&) { refused_before_transport = true; }
+    require(refused_before_transport, "proven pre-transport refusal lost its classification");
+    bool allocation_before_transport = false;
+    try {
+        (void)run_admitted_controller_request([](auto&) -> int { throw std::bad_alloc(); });
+    } catch (const std::bad_alloc&) { allocation_before_transport = true; }
+    require(allocation_before_transport, "pre-transport allocation failure became possible dispatch");
+}
+// Independent old wire-shaped projection: do not call the production projector
+// to decide whether two typed values should compare equal.
+usk::json::Value legacy_client_json(
+    const usk::platform::windows::detail::AuthenticatedClientObservation& captured) {
+    using usk::json::Value;
+    Value::Array groups, restricted, privileges;
+    for (const auto& entry : captured.groups)
+        groups.emplace_back(Value::Object{{"sid", Value(entry.first)}, {"attributes", Value(entry.second)}});
+    for (const auto& entry : captured.restricted_sids)
+        restricted.emplace_back(Value::Object{{"sid", Value(entry.first)}, {"attributes", Value(entry.second)}});
+    for (const auto& entry : captured.privileges)
+        privileges.emplace_back(Value::Object{{"luid", Value(entry.first)}, {"attributes", Value(entry.second)}});
+    return Value(Value::Object{
+        {"schema", Value("usk.publisher_authenticated_client_observation.v1")},
+        {"scope", Value("held_authenticated_identification_token")},
+        {"captured_process_id", Value(captured.process_id)}, {"user_sid", Value(captured.user_sid)},
+        {"token_type", Value(captured.token_type)}, {"impersonation_level", Value(captured.impersonation_level)},
+        {"token_id", Value(captured.token_id)}, {"authentication_id", Value(captured.authentication_id)},
+        {"modified_id", Value(captured.modified_id)}, {"groups", Value(std::move(groups))},
+        {"restricted_sids", Value(std::move(restricted))}, {"privileges", Value(std::move(privileges))}});
+}
+void test_authenticated_client_fact_equality() {
+    using namespace usk::platform::windows::detail;
+    using usk::json::equal_values;
+    AuthenticatedClientObservation baseline;
+    baseline.process_id = 17; baseline.user_sid = "S-1-5-18";
+    baseline.token_type = 2; baseline.impersonation_level = 1;
+    baseline.token_id = 0x8000000000000001ull;
+    baseline.authentication_id = 0x4000000000000002ull; baseline.modified_id = 7;
+    baseline.groups = {{"S-1-5-18", 2}, {"S-1-5-32-545", 4}};
+    baseline.restricted_sids = {{"S-1-5-12", 8}, {"S-1-5-13", 16}};
+    baseline.privileges = {{0x8000000000000001ull, 3}, {2, 4}};
+    const auto check = [&](const auto& a, const auto& b, bool expected) {
+        const auto old_a = legacy_client_json(a), old_b = legacy_client_json(b);
+        require(equal_values(old_a, old_b) == expected, "legacy client oracle control differs");
+        require(equal_authenticated_client_observations(a, b) == expected &&
+            equal_authenticated_client_observations(b, a) == expected,
+            "typed authenticated client equality lost a legacy field or order");
+        require(equal_values(authenticated_client_observation_json(a), old_a) &&
+            equal_values(authenticated_client_observation_json(b), old_b),
+            "completed authenticated client projection differs from legacy wire fields");
+    };
+    check(baseline, baseline, true);
+    const std::array<std::uint64_t AuthenticatedClientObservation::*, 6> scalars{{
+        &AuthenticatedClientObservation::process_id, &AuthenticatedClientObservation::token_type,
+        &AuthenticatedClientObservation::impersonation_level, &AuthenticatedClientObservation::token_id,
+        &AuthenticatedClientObservation::authentication_id, &AuthenticatedClientObservation::modified_id}};
+    for (const auto member : scalars) {
+        auto changed = baseline; changed.*member ^= 1; check(baseline, changed, false);
+    }
+    auto changed = baseline; changed.user_sid = "S-1-5-19"; check(baseline, changed, false);
+    changed = baseline; changed.user_sid.push_back('\0'); check(baseline, changed, false);
+    const std::array<AuthenticatedClientObservation::Groups AuthenticatedClientObservation::*, 2> lists{{
+        &AuthenticatedClientObservation::groups, &AuthenticatedClientObservation::restricted_sids}};
+    for (const auto member : lists) {
+        for (std::size_t index = 0; index != 2; ++index) {
+            changed = baseline; (changed.*member)[index].first += "0"; check(baseline, changed, false);
+            changed = baseline; (changed.*member)[index].second ^= 1; check(baseline, changed, false);
+        }
+        changed = baseline; (changed.*member).pop_back(); check(baseline, changed, false);
+        changed = baseline; (changed.*member).push_back((changed.*member).front()); check(baseline, changed, false);
+        changed = baseline; std::swap((changed.*member)[0], (changed.*member)[1]); check(baseline, changed, false);
+        changed = baseline; (changed.*member).clear(); check(baseline, changed, false);
+    }
+    for (std::size_t index = 0; index != baseline.privileges.size(); ++index) {
+        changed = baseline; changed.privileges[index].first ^= 1; check(baseline, changed, false);
+        changed = baseline; changed.privileges[index].second ^= 1; check(baseline, changed, false);
+    }
+    changed = baseline; changed.privileges.pop_back(); check(baseline, changed, false);
+    changed = baseline; changed.privileges.push_back(changed.privileges.front()); check(baseline, changed, false);
+    changed = baseline; std::swap(changed.privileges[0], changed.privileges[1]); check(baseline, changed, false);
+    changed = baseline; changed.privileges.clear(); check(baseline, changed, false);
+    check(AuthenticatedClientObservation{}, AuthenticatedClientObservation{}, true);
 }
 std::string replaced(std::string source, const std::string& from, const std::string& to) {
     const auto position = source.find(from);
@@ -85,6 +321,76 @@ void test_terminal_response_binding() {
     require_publisher_response_binding(service, verify_request,
         R"({"schema":"usk.publisher_lab_service_observation.v1","status":"failed","error":"verify refused"})");
 }
+void test_maintenance_response_binding() {
+    using usk::json::Value;
+    using usk::platform::windows::require_publisher_response_binding;
+    const std::string name = "USK_PUB_0123456789abcdef0123456789abcdef";
+    const std::wstring service(name.begin(), name.end());
+    for (const std::string operation : {"repair", "move", "uninstall"}) {
+        const Value request(Value::Object{{"schema", Value("usk." + operation + "_apply_request.v1")},
+            {"transaction_id", Value("tx.one")}, {"applied_at", Value("2026-10-06T07:00:00Z")},
+            {"plan_request", Value(Value::Object{{"install_id", Value("install.one")}, {"plan_id", Value("plan.one")}})}});
+        Value report(Value::Object{{"schema", Value("usk." + operation + "_report.v1")},
+            {"status", Value(operation == "move" ? "new_committed_old_retained" : "completed")},
+            {"install_id", Value("install.one")}, {"plan_id", Value("plan.one")}, {"transaction_id", Value("tx.one")},
+            {"report_id", Value(operation + ".tx.one")}, {"completed_at", Value("2026-10-06T07:00:00Z")}});
+        report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(report)));
+        Value response(Value::Object{{"schema", Value("usk.publisher_lab_service_observation.v1")}, {"status", Value("pass")},
+            {"request_sha256", Value(usk::json::sha256_canonical(request))}, {"operation", Value(operation)},
+            {"install_id", Value("install.one")}, {"transaction_id", Value("tx.one")}, {"service_name", Value(name)},
+            {"service_sid", Value("S-1-5-80-1-2-3-4-5")}, {"process_id", Value(std::uint64_t{123})},
+            {"operation_admission", Value(Value::Object{})},
+            {"registered_admission", Value(Value::Object{{"schema", Value("usk.publisher_registered_admission_observation.v1")},
+                {"service_name", Value(name)}, {"service_sid", Value("S-1-5-80-1-2-3-4-5")}, {"process_id", Value(std::uint64_t{123})}})},
+            {"apply_response", Value(Value::Object{{"schema", Value("usk.command_response.v1")}, {"status", Value("ok")}, {"payload", report}})}});
+        const auto encoded_request = usk::json::canonical(request);
+        require_publisher_response_binding(service, encoded_request, usk::json::canonical(response), 123);
+        refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(response), 124); });
+        for (const auto field : {"request_sha256", "operation", "install_id", "transaction_id", "service_name", "service_sid"}) {
+            auto wrong = response;
+            wrong.as_object().at(field) = Value("substituted");
+            refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(wrong), 123); });
+        }
+        for (const auto field : {"schema", "status", "install_id", "transaction_id", "plan_id", "completed_at", "report_id", "report_digest"}) {
+            auto wrong = response;
+            wrong.as_object().at("apply_response").as_object().at("payload").as_object().at(field) = Value("substituted");
+            refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(wrong), 123); });
+        }
+        auto wrong = response;
+        wrong.as_object().at("registered_admission").as_object().at("process_id") = Value(std::uint64_t{124});
+        refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(wrong), 123); });
+        wrong = response;
+        wrong.as_object().emplace("recovery_installed_response", Value());
+        refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(wrong), 123); });
+        const Value recovery(Value::Object{{"schema", Value("usk.publisher_maintenance_recovery_request.v1")},
+            {"operation", Value(operation)}, {"install_id", Value("install.one")}, {"transaction_id", Value("tx.one")}});
+        Value recovered_report(Value::Object{{"schema", Value("usk.maintenance_recovery_report.v1")}, {"status", Value("completed")},
+            {"operation", Value(operation)}, {"install_id", Value("install.one")}, {"transaction_id", Value("tx.one")},
+            {"plan_id", Value("plan.one")}, {"plan_digest", Value(std::string(64, 'a'))},
+            {"transaction_snapshot_sha256", Value(std::string(64, 'b'))}, {"effect_history_sha256", Value(std::string(64, 'c'))},
+            {"source_digest", Value(std::string(64, 'd'))}, {"recorded_at", Value("2026-10-06T07:00:00Z")},
+            {"report_id", Value("recovery." + operation + ".tx.one")}});
+        recovered_report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(recovered_report)));
+        auto recovered = response;
+        recovered.as_object().erase("apply_response");
+        recovered.as_object().at("request_sha256") = Value(usk::json::sha256_canonical(recovery));
+        recovered.as_object().emplace("recovery_response", Value(Value::Object{
+            {"schema", Value("usk.command_response.v1")}, {"status", Value("ok")}, {"payload", recovered_report}}));
+        const auto encoded_recovery = usk::json::canonical(recovery);
+        require_publisher_response_binding(service, encoded_recovery, usk::json::canonical(recovered), 123);
+        refuses([&] { require_publisher_response_binding(service, encoded_request, usk::json::canonical(recovered), 123); });
+        refuses([&] { require_publisher_response_binding(service, encoded_recovery, usk::json::canonical(response), 123); });
+        for (const auto field : {"operation", "plan_digest", "transaction_snapshot_sha256", "effect_history_sha256", "source_digest"}) {
+            auto invalid_report = recovered_report;
+            invalid_report.as_object().erase("report_digest");
+            invalid_report.as_object().at(field) = Value("substituted");
+            invalid_report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(invalid_report)));
+            wrong = recovered;
+            wrong.as_object().at("recovery_response").as_object().at("payload") = invalid_report;
+            refuses([&] { require_publisher_response_binding(service, encoded_recovery, usk::json::canonical(wrong), 123); });
+        }
+    }
+}
 void test_service_observation_transport_binding() {
     using usk::platform::windows::require_publisher_response_binding;
     const std::wstring service = L"USK_PUB_0123456789abcdef0123456789abcdef";
@@ -95,10 +401,24 @@ void test_service_observation_transport_binding() {
     require_publisher_response_binding(service, request, response);
     require_publisher_response_binding(service, request, response, 123);
     const auto v3_request = replaced(request, "request.v2", "request.v3");
+    // The current registered producer rejects the historical worker family
+    // during parsing, before SCM connection/start or request dispatch.
+    bool historical_not_dispatched = false;
+    try { (void)usk::platform::windows::submit_registered_publisher_request(service, v3_request); }
+    catch (const usk::base::EffectRequestNotDispatched&) { historical_not_dispatched = true; }
+    require(historical_not_dispatched, "current producer dispatched the historical scoped capability");
     const auto v3_response = replaced(response, "capability.v2", "capability.v3");
     require_publisher_response_binding(service, v3_request, v3_response, 123);
     refuses([&] { require_publisher_response_binding(service, v3_request, response, 123); });
     refuses([&] { require_publisher_response_binding(service, request, v3_response, 123); });
+    const auto v4_request = replaced(request, "request.v2", "request.v4");
+    const auto v4_response = replaced(response, "capability.v2", "capability.v4");
+    require_publisher_response_binding(service, v4_request, v4_response, 123);
+    for (const auto& old_response : {response, v3_response})
+        refuses([&] { require_publisher_response_binding(service, v4_request, old_response, 123); });
+    for (const auto& old_request : {request, v3_request})
+        refuses([&] { require_publisher_response_binding(service, old_request, v4_response, 123); });
+    refuses([&] { require_publisher_response_binding(service, v4_request, v4_response, 124); });
     refuses([&] { require_publisher_response_binding(service, request, response, 124); });
     refuses([&] { require_publisher_response_binding(service, request,
         replaced(response, "observe.one", "observe.stale")); });
@@ -132,6 +452,191 @@ struct OwnedHandle {
     OwnedHandle(const OwnedHandle&) = delete;
     OwnedHandle& operator=(const OwnedHandle&) = delete;
 };
+// Independent former two-call reader, retained only as a content/performance
+// control. A successful content query is required on both routes.
+std::vector<unsigned char> legacy_token_bytes(HANDLE token, TOKEN_INFORMATION_CLASS kind) {
+    DWORD needed = 0;
+    require(!GetTokenInformation(token, kind, nullptr, 0, &needed) &&
+        GetLastError() == ERROR_INSUFFICIENT_BUFFER && needed != 0 && needed <= 65536,
+        "legacy token capacity control failed");
+    std::vector<unsigned char> bytes(needed);
+    DWORD returned = 0;
+    require(GetTokenInformation(token, kind, bytes.data(), needed, &returned) && returned == needed,
+        "legacy token content control failed");
+    return bytes;
+}
+constexpr std::array<TOKEN_INFORMATION_CLASS, 6> client_token_classes{{
+    TokenUser, TokenStatistics, TokenImpersonationLevel, TokenGroups, TokenRestrictedSids, TokenPrivileges}};
+bool same_luid(const LUID& a, const LUID& b) {
+    return a.LowPart == b.LowPart && a.HighPart == b.HighPart;
+}
+void require_same_token_value(TOKEN_INFORMATION_CLASS kind,
+    const unsigned char* a, const unsigned char* b) {
+    if (kind == TokenUser) {
+        const auto& x = *reinterpret_cast<const TOKEN_USER*>(a);
+        const auto& y = *reinterpret_cast<const TOKEN_USER*>(b);
+        require(EqualSid(x.User.Sid, y.User.Sid) && x.User.Attributes == y.User.Attributes,
+            "fresh token user differs from independent native read");
+    } else if (kind == TokenStatistics) {
+        const auto& x = *reinterpret_cast<const TOKEN_STATISTICS*>(a);
+        const auto& y = *reinterpret_cast<const TOKEN_STATISTICS*>(b);
+        require(same_luid(x.TokenId, y.TokenId) && same_luid(x.AuthenticationId, y.AuthenticationId) &&
+            same_luid(x.ModifiedId, y.ModifiedId) && x.TokenType == y.TokenType &&
+            x.ImpersonationLevel == y.ImpersonationLevel && x.GroupCount == y.GroupCount &&
+            x.PrivilegeCount == y.PrivilegeCount && x.ExpirationTime.QuadPart == y.ExpirationTime.QuadPart &&
+            x.DynamicCharged == y.DynamicCharged && x.DynamicAvailable == y.DynamicAvailable,
+            "fresh token statistics differ from independent native read");
+    } else if (kind == TokenImpersonationLevel) {
+        require(*reinterpret_cast<const SECURITY_IMPERSONATION_LEVEL*>(a) ==
+            *reinterpret_cast<const SECURITY_IMPERSONATION_LEVEL*>(b), "fresh token level differs");
+    } else if (kind == TokenGroups || kind == TokenRestrictedSids) {
+        const auto& x = *reinterpret_cast<const TOKEN_GROUPS*>(a);
+        const auto& y = *reinterpret_cast<const TOKEN_GROUPS*>(b);
+        require(x.GroupCount == y.GroupCount, "fresh token group count differs");
+        for (DWORD i = 0; i < x.GroupCount; ++i)
+            require(EqualSid(x.Groups[i].Sid, y.Groups[i].Sid) &&
+                x.Groups[i].Attributes == y.Groups[i].Attributes, "fresh token group value/order differs");
+    } else {
+        const auto& x = *reinterpret_cast<const TOKEN_PRIVILEGES*>(a);
+        const auto& y = *reinterpret_cast<const TOKEN_PRIVILEGES*>(b);
+        require(x.PrivilegeCount == y.PrivilegeCount, "fresh token privilege count differs");
+        for (DWORD i = 0; i < x.PrivilegeCount; ++i)
+            require(same_luid(x.Privileges[i].Luid, y.Privileges[i].Luid) &&
+                x.Privileges[i].Attributes == y.Privileges[i].Attributes, "fresh token privilege value/order differs");
+    }
+}
+HANDLE owned_identification_token() {
+    HANDLE raw = nullptr;
+    require(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE, &raw) != FALSE,
+        "owned token input unavailable");
+    OwnedHandle process_token(raw);
+    raw = nullptr;
+    require(DuplicateTokenEx(process_token.value, TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ADJUST_PRIVILEGES,
+        nullptr, SecurityIdentification, TokenImpersonation, &raw) != FALSE,
+        "owned identification token unavailable");
+    return raw;
+}
+void test_fresh_client_token_buffers() {
+    using usk::platform::windows::detail::PublisherClientTokenBytes;
+    static_assert(!std::is_copy_constructible<PublisherClientTokenBytes>::value &&
+        !std::is_move_constructible<PublisherClientTokenBytes>::value,
+        "self-relative token pointers require fixed owner storage");
+    OwnedHandle token(owned_identification_token());
+    for (const auto kind : client_token_classes) {
+        const auto reference = legacy_token_bytes(token.value, kind);
+        const PublisherClientTokenBytes observed(token.value, kind);
+        require(observed.size() == reference.size(), "fresh token content length differs");
+        require_same_token_value(kind, observed.data(), reference.data());
+    }
+    bool denied = false;
+    struct ResetDenial { ~ResetDenial() { deny_request_channel_allocations = false; } };
+    {
+        ResetDenial reset;
+        deny_request_channel_allocations = true;
+        try { (void)::operator new(32u); } catch (const std::bad_alloc&) { denied = true; }
+        // Guaranteed prvalue elision retains pointers into the original owner,
+        // including through the same factory-return shape used in production.
+        const auto user = [&] { return PublisherClientTokenBytes(token.value, TokenUser); }();
+        const PublisherClientTokenBytes statistics(token.value, TokenStatistics);
+        const PublisherClientTokenBytes level(token.value, TokenImpersonationLevel);
+        require(IsValidSid(reinterpret_cast<const TOKEN_USER*>(user.data())->User.Sid) &&
+            statistics.size() == sizeof(TOKEN_STATISTICS) &&
+            level.size() == sizeof(SECURITY_IMPERSONATION_LEVEL), "inline native token content is unusable");
+    }
+    require(denied && !deny_request_channel_allocations, "token buffer allocation denial was not exercised");
+
+    // Change only this private duplicate; it is never used to impersonate or
+    // authorize an operation. A later read must observe the changed token.
+    const PublisherClientTokenBytes before(token.value, TokenStatistics);
+    const auto privileges = legacy_token_bytes(token.value, TokenPrivileges);
+    const auto& present = *reinterpret_cast<const TOKEN_PRIVILEGES*>(privileges.data());
+    require(present.PrivilegeCount != 0, "private token freshness control has no privilege");
+    TOKEN_PRIVILEGES adjustment{};
+    adjustment.PrivilegeCount = 1;
+    adjustment.Privileges[0].Luid = present.Privileges[0].Luid;
+    adjustment.Privileges[0].Attributes = present.Privileges[0].Attributes ^ SE_PRIVILEGE_ENABLED;
+    SetLastError(ERROR_SUCCESS);
+    require(AdjustTokenPrivileges(token.value, FALSE, &adjustment, 0, nullptr, nullptr) &&
+        GetLastError() == ERROR_SUCCESS, "private token freshness mutation failed");
+    const PublisherClientTokenBytes after(token.value, TokenStatistics);
+    require(!same_luid(reinterpret_cast<const TOKEN_STATISTICS*>(before.data())->ModifiedId,
+        reinterpret_cast<const TOKEN_STATISTICS*>(after.data())->ModifiedId),
+        "a fresh token read retained the prior modification identity");
+    const PublisherClientTokenBytes changed(token.value, TokenPrivileges);
+    const auto expected = legacy_token_bytes(token.value, TokenPrivileges);
+    require_same_token_value(TokenPrivileges, changed.data(), expected.data());
+
+    // A real restricted token forces the >1KiB path. No fake Win32 provider and
+    // no authority-changing impersonation is needed to enter that route.
+    constexpr std::size_t count = 128;
+    std::array<std::array<DWORD, SECURITY_MAX_SID_SIZE / sizeof(DWORD)>, count> sid_storage{};
+    std::array<SID_AND_ATTRIBUTES, count> restrictions{};
+    SID_IDENTIFIER_AUTHORITY authority = SECURITY_NT_AUTHORITY;
+    for (std::size_t i = 0; i < count; ++i) {
+        PSID sid = sid_storage[i].data();
+        require(InitializeSid(sid, &authority, 4) != FALSE, "restricted token SID setup failed");
+        *GetSidSubAuthority(sid, 0) = 21; *GetSidSubAuthority(sid, 1) = 1;
+        *GetSidSubAuthority(sid, 2) = 2; *GetSidSubAuthority(sid, 3) = static_cast<DWORD>(1000u + i);
+        restrictions[i] = SID_AND_ATTRIBUTES{sid, 0};
+    }
+    HANDLE raw = nullptr;
+    require(CreateRestrictedToken(token.value, 0, 0, nullptr, 0, nullptr,
+        static_cast<DWORD>(count), restrictions.data(), &raw) != FALSE, "large restricted token unavailable");
+    OwnedHandle restricted(raw);
+    const auto reference = legacy_token_bytes(restricted.value, TokenRestrictedSids);
+    require(reference.size() > 1024 && reference.size() <= 65536, "large native buffer route was not entered");
+    const PublisherClientTokenBytes expanded(restricted.value, TokenRestrictedSids);
+    require(expanded.size() == reference.size(), "expanded native buffer length differs");
+    require_same_token_value(TokenRestrictedSids, expanded.data(), reference.data());
+    bool allocation_refused = false;
+    {
+        ResetDenial reset;
+        deny_request_channel_allocations = true;
+        try { const PublisherClientTokenBytes unavailable(restricted.value, TokenRestrictedSids); }
+        catch (const std::bad_alloc&) { allocation_refused = true; }
+    }
+    require(allocation_refused, "failed expanded allocation returned a usable token buffer");
+    refuses([&] { const PublisherClientTokenBytes invalid(INVALID_HANDLE_VALUE, TokenUser); });
+    refuses([&] { const PublisherClientTokenBytes forbidden(token.value, TokenLinkedToken); });
+}
+std::uint64_t token_content_marker(TOKEN_INFORMATION_CLASS kind, const unsigned char* data) {
+    switch (kind) {
+    case TokenUser: return *GetSidSubAuthority(reinterpret_cast<const TOKEN_USER*>(data)->User.Sid, 0);
+    case TokenStatistics: return reinterpret_cast<const TOKEN_STATISTICS*>(data)->TokenId.LowPart;
+    case TokenImpersonationLevel: return *reinterpret_cast<const SECURITY_IMPERSONATION_LEVEL*>(data);
+    case TokenGroups: case TokenRestrictedSids: return reinterpret_cast<const TOKEN_GROUPS*>(data)->GroupCount;
+    case TokenPrivileges: return reinterpret_cast<const TOKEN_PRIVILEGES*>(data)->PrivilegeCount;
+    default: throw std::logic_error("benchmark token information class differs");
+    }
+}
+void benchmark_client_token_buffers() {
+    using usk::platform::windows::detail::PublisherClientTokenBytes;
+    OwnedHandle token(owned_identification_token());
+    constexpr unsigned repeats = 10000;
+    for (unsigned round = 0; round != 3; ++round) {
+        for (unsigned route = 0; route != 2; ++route) {
+            const bool inline_first = ((round + route) % 2u) != 0;
+            std::uint64_t bytes = 0, checksum = 0;
+            const auto started = std::chrono::steady_clock::now();
+            for (unsigned i = 0; i != repeats; ++i) {
+                for (const auto kind : client_token_classes) {
+                    if (inline_first) {
+                        const PublisherClientTokenBytes value(token.value, kind);
+                        bytes += value.size(); checksum += token_content_marker(kind, value.data());
+                    } else {
+                        const auto value = legacy_token_bytes(token.value, kind);
+                        bytes += value.size(); checksum += token_content_marker(kind, value.data());
+                    }
+                }
+            }
+            const auto micros = std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - started).count();
+            std::cout << "token_buffer_benchmark round=" << round << " route="
+                << (inline_first ? "inline_first" : "legacy_two_call") << " values=" << repeats * 6u
+                << " bytes=" << bytes << " checksum=" << checksum << " elapsed_us=" << micros << '\n';
+        }
+    }
+}
 void test_endpoint_acquisition(const std::wstring& name, const std::wstring& sid,
     const std::wstring& service_sid) {
     using namespace usk::platform::windows;
@@ -342,10 +847,20 @@ std::thread raw_client(const std::wstring& name, const std::string& message,
     });
 }
 }
-int main() {
+int main(int argc, char** argv) {
     try {
+        test_fresh_client_token_buffers();
+        if (argc == 2 && std::string(argv[1]) == "--token-buffer-benchmark") {
+            benchmark_client_token_buffers(); return 0;
+        }
+        test_service_handle_transfer_allocation_failure();
+        test_allocation_free_unknown_message();
+        test_controller_uncertainty_boundary();
+        test_authenticated_client_fact_equality();
         test_terminal_response_binding();
         test_service_observation_transport_binding();
+        test_maintenance_response_binding();
+        if (argc == 2 && std::string(argv[1]) == "--response-binding-smoke") return 0;
         const auto name=L"USK_transport_test_"+std::to_wstring(GetCurrentProcessId());
         const auto sid=current_sid();
         const std::wstring service_sid=L"S-1-5-80-1-2-3-4-5";
@@ -358,6 +873,8 @@ int main() {
         auto client=raw_client(name,"{\"reviewed\":true}",response,client_failure,true);
         try {
             require(channel->receive()=="{\"reviewed\":true}","request bytes changed");
+            require(channel->authenticated_canonical_request() == "{\"reviewed\":true}",
+                "actual authenticated canonical request binding differs");
             HANDLE token=nullptr;
             require(!OpenThreadToken(GetCurrentThread(),TOKEN_QUERY,TRUE,&token) &&
                 GetLastError()==ERROR_NO_TOKEN,"caller impersonation retained");
@@ -422,6 +939,7 @@ int main() {
             refuses([&] { (void)channel->observe_authenticated_object_access(INVALID_HANDLE_VALUE); });
             refuses([&] { channel->receive(); });
             channel->reply("completed");
+            refuses([&] { (void)channel->authenticated_canonical_request(); });
             refuses([&] { (void)observe_publisher_authenticated_descendant_access(
                 writable.get(), file_tree, *channel, client_facts); });
             refuses([&] { (void)channel->observe_authenticated_object_access(directory.get()); });

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE Apply Safety Gate",
+  "type": "object",
+  "required": ["schema_version", "gate_id", "gate_class", "required", "status", "blocks_apply", "evidence_ref"],
+  "properties": {
+    "schema_version": {"const": "aide.apply-safety-gate.v0"},
+    "gate_id": {"type": "string"},
+    "gate_class": {"type": "string"},
+    "required": {"type": "boolean"},
+    "status": {"enum": ["pass", "warn", "fail", "blocked", "not_applicable"]},
+    "blocks_apply": {"type": "boolean"},
+    "evidence_ref": {"type": "string"}
+  },
+  "additionalProperties": true
+}

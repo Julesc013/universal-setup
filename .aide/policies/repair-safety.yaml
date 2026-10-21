@@ -1,0 +1,23 @@
+schema_version: aide.repair-safety-policy.v0
+policy_id: aide.repair-safety.v0
+status: active
+purpose: Define Q44 repair safety gates.
+safety_rules:
+  no_overwrite_by_default: true
+  no_delete_by_default: true
+  no_migration_by_default: true
+  target_specific_state_preserved: true
+  source_state_contamination_quarantined_or_planned_only: true
+  local_state_and_secrets_block_or_manual_review_only: true
+  future_apply_requires_review_gate: true
+  future_apply_requires_rollback_plan: true
+  future_apply_requires_validation_plan: true
+forbidden_in_q44:
+  - repair apply
+  - overwrite
+  - delete
+  - move
+  - rename
+  - reference rewrite
+  - automatic migration
+  - target repo mutation

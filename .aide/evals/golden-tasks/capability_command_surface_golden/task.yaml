@@ -1,0 +1,10 @@
+schema_version: aide.golden-task.v0
+id: capability_command_surface_golden
+title: Capability Command Surface Golden
+status: active
+description: Verify X-OS-02 report-only capability commands are registered.
+runner: py -3 .aide/scripts/aide_lite.py eval run --task capability_command_surface_golden
+quality_dimensions:
+  - command_surface
+  - report_only
+  - no_call

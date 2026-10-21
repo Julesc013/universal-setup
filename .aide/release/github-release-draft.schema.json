@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIDE GitHub Release Draft",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "draft_id",
+    "generated_by",
+    "source_repo",
+    "source_commit",
+    "source_branch",
+    "suggested_tag",
+    "suggested_title",
+    "release_body_markdown",
+    "assets",
+    "validation_summary",
+    "known_risks",
+    "publication_status",
+    "preview_only",
+    "no_publish"
+  ],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "draft_id": {"type": "string"},
+    "generated_by": {"type": "string"},
+    "source_repo": {"type": "string"},
+    "source_commit": {"type": "string"},
+    "source_branch": {"type": "string"},
+    "suggested_tag": {"type": "string"},
+    "suggested_title": {"type": "string"},
+    "release_body_markdown": {"type": "string"},
+    "assets": {"type": "array", "items": {"type": "object"}},
+    "validation_summary": {"type": "object"},
+    "known_risks": {"type": "array", "items": {"type": "string"}},
+    "publication_status": {"type": "string"},
+    "preview_only": {"type": "boolean"},
+    "no_publish": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

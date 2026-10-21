@@ -1,0 +1,76 @@
+schema_version: aide.cache-policy.v0
+policy_id: q18-cache-local-state-boundary
+status: active-pending-review
+purpose: >
+  Define safe cache classes, deterministic cache-key inputs, invalidation
+  rules, and committed-versus-local storage boundaries before AIDE implements a
+  Gateway, provider cache, semantic cache, runtime service, or model calls.
+cache_classes:
+  - context_packet
+  - task_packet
+  - review_packet
+  - verification_report
+  - route_decision
+  - tool_result
+  - provider_response
+  - semantic_answer
+  - local_kv_metadata
+storage_policy:
+  committed_cache_content_allowed: false
+  committed_cache_metadata_allowed: true
+  raw_prompt_storage_default: false
+  raw_response_storage_default: false
+  secrets_forbidden: true
+  local_state_root: .aide.local/
+allowed_committed_outputs:
+  - cache policy
+  - cache key reports
+  - example layout
+  - deterministic metadata
+forbidden_committed_outputs:
+  - provider credentials
+  - raw prompts
+  - raw responses
+  - local traces
+  - model cache blobs
+  - embeddings/vector indexes
+  - semantic answer cache
+  - user-specific private data
+key_inputs:
+  - git_commit
+  - dirty_state_flag
+  - file_hashes
+  - task_packet_hash
+  - context_packet_hash
+  - policy_version
+  - context_compiler_version
+  - verifier_version
+  - router_profile_version
+  - command_args_hash
+  - provider_id_if_applicable
+  - model_id_if_applicable
+invalidation_rules:
+  - file_hash_change_invalidates_context_packet
+  - policy_change_invalidates_route_and_cache_keys
+  - context_compiler_change_invalidates_context_keys
+  - verifier_change_invalidates_verification_keys
+  - dirty_git_state_marks_key_dirty
+semantic_cache_policy:
+  default: disabled
+  code_edits: forbidden
+  low_risk_q_and_a: future_explicit_policy_required
+provider_response_cache_policy:
+  default: disabled
+  future_gateway_required: true
+  exact_prompt_hash_required: true
+  risk_class_required: true
+quality_rule:
+  - cache_hit_must_not_bypass_verifier_or_golden_tasks
+  - stale_or_unknown_cache_must_not_be_trusted
+forbidden_behaviors:
+  - store_raw_prompt_body
+  - store_raw_response_body
+  - commit_aide_local_contents
+  - commit_provider_key
+  - cache_code_edit_semantics_without_future_policy
+  - bypass_verifier_or_golden_tasks_on_cache_hit

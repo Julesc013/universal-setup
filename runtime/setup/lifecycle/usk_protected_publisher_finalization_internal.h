@@ -47,6 +47,16 @@ void require_completed_consumer_install(const InstallPlan& plan,
     const std::wstring& volume_guid_root, HANDLE volume,
     const std::wstring& service_name);
 
+// Read-only immutable original completion for maintenance. Retains the
+// original installed snapshot and exact first two validated audit events
+// while permitting the bounded, valid appended maintenance history. It
+// grants no current revision, payload/ACL mutation or new consumer policy.
+void require_original_completed_consumer_install(const InstallPlan& plan,
+    const std::string& transaction_id, const std::string& applied_at,
+    const std::string& protected_completion_sha256,
+    const std::wstring& volume_guid_root, HANDLE volume,
+    const std::wstring& service_name);
+
 // Verify the installed payload through the held volume's GUID path. The
 // public report must agree with this result before the service can reply.
 VerificationReport verify_completed_install_on_bound_volume(

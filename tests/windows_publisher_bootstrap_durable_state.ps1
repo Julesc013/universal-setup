@@ -45,8 +45,13 @@ function New-OwnedBootstrapDurableState {
     $activeRows=@($rows|Where-Object {$_.path -ceq $activePath -and -not $_.directory})
     if($activeRows.Count -ne 1){throw 'Durable fixture ended native ownership is ambiguous'}
     $active=$activeRows[0].content_json|ConvertFrom-Json
-    if($active.holder.process_id -ne $loss.boundary.service_pid -or
-        $active.holder.process_creation_time -cne $loss.boundary.process_creation_file_time) {
+    $pairInput=@{mode='ended_pair';boundary=$loss.boundary}
+    $pairProof=$pairInput|ConvertTo-Json -Depth 64 -Compress|
+        & $PythonBinary -B (Join-Path $PSScriptRoot 'publisher_process_pair_evidence.py') --input -
+    if($LASTEXITCODE -ne 0){throw 'Durable fixture lacks the original held SCM/effect-child closure'}
+    $ended=($pairProof -join "`n")|ConvertFrom-Json
+    if($active.holder.process_id -ne $ended.holder.process_id -or
+        $active.holder.process_creation_time -cne $ended.holder.process_creation_time) {
         throw 'Durable fixture active journal does not name the actually ended worker'
     }
     Initialize-OwnedDurableStateWriter

@@ -6,13 +6,90 @@
 #include "usk_effect_dispatch.h"
 
 #include <cstdint>
+#include <cstdlib>
+#include <cstdio>
+#include <new>
+#include <type_traits>
 #include <ios>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
 
+// Test executable only. Denial begins in an admitted test transport, after
+// the production formatter must have prepared its current-call fallback.
+namespace { thread_local bool deny_publisher_test_allocations = false; }
+void* operator new(std::size_t bytes) {
+    if (deny_publisher_test_allocations) throw std::bad_alloc();
+    if (void* memory = std::malloc(bytes ? bytes : 1)) return memory;
+    throw std::bad_alloc();
+}
+void* operator new[](std::size_t bytes) { return ::operator new(bytes); }
+void operator delete(void* memory) noexcept { std::free(memory); }
+void operator delete[](void* memory) noexcept { ::operator delete(memory); }
+void operator delete(void* memory, std::size_t) noexcept { ::operator delete(memory); }
+void operator delete[](void* memory, std::size_t) noexcept { ::operator delete(memory); }
+
 namespace {
+struct ResetPublisherAllocationDenial {
+    ~ResetPublisherAllocationDenial() { deny_publisher_test_allocations = false; }
+};
+
+bool prebound_publisher_unknown(const std::string& input, const char* request_id,
+    const char* error_code, unsigned failure_kind) {
+    using usk::command::OneShotResult;
+    static_assert(std::is_nothrow_move_assignable<OneShotResult>::value,
+        "test result capture must not allocate while denial is active");
+    const auto expected_payload = usk::json::canonical(usk::json::parse(input).at("payload"));
+    std::string malformed = "{";
+    unsigned calls = 0; bool wrong_forward = false;
+    OneShotResult result;
+    try {
+        ResetPublisherAllocationDenial reset;
+        result = usk::command::run_publisher_one_shot(input,
+            [&](const std::string& forwarded) -> std::string {
+                ++calls; wrong_forward = forwarded != expected_payload;
+                deny_publisher_test_allocations = true;
+                if (failure_kind == 1u) return std::move(malformed);
+                if (failure_kind == 2u) throw 7;
+                throw std::bad_alloc();
+            });
+    } catch (...) { return false; }
+    if (deny_publisher_test_allocations || calls != 1 || wrong_forward || result.exit_code != 5)
+        return false;
+    const auto value = usk::json::parse(result.document);
+    return value.at("request_id").as_string() == request_id &&
+        value.at("status").as_string() == "unknown" &&
+        value.at("result").type() == usk::json::Value::Type::null_value &&
+        value.at("error").at("code").as_string() == error_code;
+}
+
+bool prebound_publisher_unknown_checks() {
+    const std::string plan = R"({"schema":"usk.oneshot_request.v1","request_id":"allocation.plan","command":"install_local.plan","dry_run":true,
+        "payload":{"schema":"usk.install_local_plan_request.v1","request_id":"plan.payload","created_at":"2026-10-21T00:00:00Z",
+        "install_id":"example","required_commit_authority":"staged_child_bound_v1",
+        "archive":{"path":"C:/input.zip","format":"zip","expected_sha256":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "strip_prefix":"","budgets":{"max_entries":100,"max_uncompressed_bytes":1048576,"max_entry_bytes":1048576,"max_depth":16,"max_ratio":100,"max_elapsed_ms":1000}},
+        "target":{"root":"C:/product","class":"operator_acceptance_candidate"},
+        "recipe":{"product_id":"example","product_version":"1.0.0","recipe_digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "provider_revision":"provider.1","components":["core"],"entrypoints":[]}}})";
+    unsigned candidate_calls = 0;
+    const auto unavailable = usk::command::run_candidate_one_shot(plan,
+        [&](const std::string&) { ++candidate_calls; return std::string("{}"); });
+    if (candidate_calls || unavailable.exit_code != 2) return false;
+    const std::string a = R"({"schema":"usk.oneshot_request.v1","request_id":"allocation.A","command":"install_local.apply","payload":{"schema":"usk.install_local_apply_request.v1","plan_request":{"install_id":"example"},"transaction_id":"tx-A","applied_at":"2026-10-17T00:00:00Z"},"dry_run":false})";
+    const std::string b = R"({"schema":"usk.oneshot_request.v1","request_id":"allocation.B","command":"install_local.apply","payload":{"schema":"usk.install_local_apply_request.v1","plan_request":{"install_id":"example"},"transaction_id":"tx-B","applied_at":"2026-10-17T00:00:00Z"},"dry_run":false})";
+    const std::string observation = R"({"schema":"usk.oneshot_request.v1","request_id":"allocation.observe","command":"publisher.observe","payload":{"schema":"usk.publisher_capability_request.v5","request_id":"allocation.observe"},"dry_run":false})";
+    for (const unsigned failure_kind : {0u, 1u, 2u}) {
+        if (!prebound_publisher_unknown(plan, "allocation.plan", "publisher_outcome_unknown", failure_kind) ||
+            !prebound_publisher_unknown(a, "allocation.A", "publisher_outcome_unknown", failure_kind) ||
+            !prebound_publisher_unknown(b, "allocation.B", "publisher_outcome_unknown", failure_kind) ||
+            !prebound_publisher_unknown(observation, "allocation.observe", "publisher_observation_unknown", failure_kind))
+            return false;
+    }
+    std::puts("Prebound publisher UNKNOWN PASS: nine post-transport allocation-denial controls; no native dispatch claimed");
+    return true;
+}
 
 class BadAtEndBuffer final : public std::streambuf {
 public:
@@ -265,12 +342,192 @@ bool service_capability_checks()
         if (usk::command::run_publisher_one_shot(profile_input,[&](const std::string&) {
             return usk::json::canonical(unavailable);}).exit_code != 0) return false;
     }
+    auto child_request=profile_request;
+    child_request.as_object().at("payload").as_object().at("schema")=Value("usk.publisher_capability_request.v4");
+    const auto child_input=usk::json::canonical(child_request);
+    auto child_response=profile_response;
+    auto& child=child_response.as_object().at("capability_observation").as_object();
+    child.at("schema")=Value("usk.publisher_capability.v4");
+    child.at("qualification")=Value("incomplete");
+    child.at("support")=Value("candidate_for_scope");
+    child.at("qualification_scope")=Value("registered_public_apply_v10_owned_child_process_restart_replay_verify");
+    child.at("recovery_ceiling")=Value("candidate_source_free_process_restart_v10");
+    child.at("qualification_bounds")=Value(Value::Object{
+        {"phase_schema",Value("usk.publisher.lab_phase_evidence.v10")},
+        {"execution_schema",Value("usk.publisher_execution_observation.v7")},
+        {"creation_schema",Value("usk.publisher.creation_observation.v4")},
+        {"original_custody_schema",Value("usk.publisher.maintenance_original_custody.v3")},
+        {"process_loss_schema",Value("usk.publisher.production_rename_observer.v2")},
+        {"active_contention_schema",Value("usk.publisher_active_install_contention_probe.v2")},
+        {"sdk_version",Value("10.0.26100.0")},{"candidate_windows_build",Value(std::uint64_t{20348})}});
+    const auto child_run=[&](const Value& observation) {
+        return usk::command::run_publisher_one_shot(child_input,[&](const std::string&) {
+            return usk::json::canonical(observation);});
+    };
+    if (child_run(child_response).exit_code != 0 ||
+        usk::command::run_candidate_one_shot(child_input,[&](const std::string&) {
+            return usk::json::canonical(child_response);}).exit_code != 0) return false;
+    for (const auto& old : {response, profile_response})
+        if (child_run(old).exit_code != 5) return false;
+    for (const auto& old : {request, profile_input})
+        if (usk::command::run_publisher_one_shot(old,[&](const std::string&) {
+            return usk::json::canonical(child_response);}).exit_code != 5) return false;
+    for (const char* key : {"phase_schema", "execution_schema", "creation_schema", "original_custody_schema",
+            "process_loss_schema", "active_contention_schema", "sdk_version", "candidate_windows_build"}) {
+        auto invalid=child_response;
+        invalid.as_object().at("capability_observation").as_object().at("qualification_bounds").as_object().at(key)=Value("unbound");
+        if (child_run(invalid).exit_code != 5) return false;
+    }
+    for (int mode=0; mode<10; ++mode) {
+        auto invalid=child_response;
+        auto& fields=invalid.as_object().at("capability_observation").as_object();
+        if (mode==0) fields.at("qualification")=Value("qualified_for_scope");
+        if (mode==1) fields.at("support")=Value("supported_for_scope");
+        if (mode==2) fields.at("authority")=Value("granted");
+        if (mode==3) fields.at("power_loss_qualified")=Value(true);
+        if (mode==4) fields.at("execution_lease_held")=Value(true);
+        if (mode==5) fields.at("qualification_bounds").as_object().emplace("unbound",Value(true));
+        if (mode==6) fields.at("platform").as_object().at("windows_build")=Value(std::uint64_t{22621});
+        if (mode==7) fields.at("platform").as_object().at("sdk_version")=Value("10.0.22621.0");
+        if (mode==8) fields.at("binding").as_object().at("process_id")=Value(std::uint64_t{100});
+        if (mode==9) fields.at("availability")=Value(std::uint64_t{1});
+        if (child_run(invalid).exit_code != 5) return false;
+    }
+    for (int mode=0; mode<2; ++mode) {
+        auto unavailable=child_response;
+        auto& fields=unavailable.as_object().at("capability_observation").as_object();
+        fields.at("availability")=Value(false);
+        fields.at("support")=Value("unsupported");
+        if (mode==0) fields.at("platform").as_object().at("sdk_version")=Value("10.0.22621.0");
+        if (mode==1) fields.at("platform").as_object().at("windows_build")=Value(std::uint64_t{22621});
+        if (child_run(unavailable).exit_code != 0) return false;
+    }
+    auto retirement_request = child_request;
+    retirement_request.as_object().at("payload").as_object().at("schema") = Value("usk.publisher_capability_request.v5");
+    const auto retirement_input = usk::json::canonical(retirement_request);
+    auto retirement_response = child_response;
+    auto& retirement = retirement_response.as_object().at("capability_observation").as_object();
+    retirement.at("schema") = Value("usk.publisher_capability.v5");
+    retirement.at("qualification_scope") = Value("registered_public_apply_v11_owned_child_native_retirement_process_restart_replay_verify");
+    retirement.at("recovery_ceiling") = Value("candidate_source_free_process_restart_v11");
+    auto& retirement_bounds = retirement.at("qualification_bounds").as_object();
+    retirement_bounds.at("phase_schema") = Value("usk.publisher.lab_phase_evidence.v11");
+    retirement_bounds.at("execution_schema") = Value("usk.publisher_execution_observation.v8");
+    retirement_bounds.at("creation_schema") = Value("usk.publisher.creation_observation.v5");
+    retirement_bounds.at("original_custody_schema") = Value("usk.publisher.maintenance_original_custody.v4");
+    retirement_bounds.emplace("worker_security_schema", Value("usk.publisher_worker_security.v2"));
+    const auto retirement_run = [&](const Value& observation) {
+        return usk::command::run_publisher_one_shot(retirement_input, [&](const std::string&) {
+            return usk::json::canonical(observation);});
+    };
+    if (retirement_run(retirement_response).exit_code != 0 || retirement_run(child_response).exit_code != 5 ||
+        child_run(retirement_response).exit_code != 5) return false;
+    for (const char* key : {"phase_schema", "execution_schema", "creation_schema", "original_custody_schema", "worker_security_schema",
+            "process_loss_schema", "active_contention_schema", "sdk_version", "candidate_windows_build"}) {
+        auto invalid = retirement_response;
+        invalid.as_object().at("capability_observation").as_object().at("qualification_bounds").as_object().erase(key);
+        if (retirement_run(invalid).exit_code != 5) return false;
+        invalid = retirement_response;
+        invalid.as_object().at("capability_observation").as_object().at("qualification_bounds").as_object().at(key) = Value("unbound");
+        if (retirement_run(invalid).exit_code != 5) return false;
+    }
+    for (const char* key : {"qualification", "authority", "support"}) {
+        auto invalid = retirement_response;
+        invalid.as_object().at("capability_observation").as_object().at(key) = Value("granted");
+        if (retirement_run(invalid).exit_code != 5) return false;
+    }
     const auto lost=usk::command::run_publisher_one_shot(request,
         [](const std::string&) -> std::string {throw std::runtime_error("lost service observation reply");});
     return lost.exit_code==5 && usk::json::parse(lost.document).at("error").at("code").as_string()==
         "publisher_observation_unknown";
 }
 
+bool maintenance_projection_checks()
+{
+    using usk::json::Value;
+    for (const std::string operation : {"repair", "move", "uninstall"}) {
+        const Value submitted(Value::Object{{"schema", Value("usk." + operation + "_apply_request.v1")},
+            {"transaction_id", Value("tx.one")}, {"applied_at", Value("2026-10-06T07:00:00Z")},
+            {"plan_request", Value(Value::Object{{"install_id", Value("install.one")}, {"plan_id", Value("plan.one")}})}});
+        const auto input = usk::json::canonical(Value(Value::Object{{"schema", Value("usk.oneshot_request.v1")},
+            {"request_id", Value("maintenance.one")}, {"command", Value(operation + ".apply")},
+            {"payload", submitted}, {"dry_run", Value(false)}}));
+        Value report(Value::Object{{"schema", Value("usk." + operation + "_report.v1")},
+            {"status", Value(operation == "move" ? "new_committed_old_retained" : "completed")},
+            {"install_id", Value("install.one")}, {"plan_id", Value("plan.one")}, {"transaction_id", Value("tx.one")},
+            {"report_id", Value(operation + ".tx.one")}, {"completed_at", Value("2026-10-06T07:00:00Z")}});
+        report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(report)));
+        Value response(Value::Object{{"schema", Value("usk.publisher_lab_service_observation.v1")}, {"status", Value("pass")},
+            {"request_sha256", Value(usk::json::sha256_canonical(submitted))}, {"operation", Value(operation)},
+            {"install_id", Value("install.one")}, {"transaction_id", Value("tx.one")},
+            {"service_name", Value("NATIVE_CANARY")}, {"service_sid", Value("NATIVE_CANARY")},
+            {"process_id", Value(std::uint64_t{123})}, {"operation_admission", Value(Value::Object{})},
+            {"registered_admission", Value(Value::Object{})},
+            {"apply_response", Value(Value::Object{{"schema", Value("usk.command_response.v1")}, {"status", Value("ok")}, {"payload", report}})}});
+        const auto run = [&](const Value& observation) {
+            return usk::command::run_publisher_one_shot(input,
+                [&](const std::string& dispatched) {
+                    if (dispatched != usk::json::canonical(submitted)) throw std::runtime_error("request changed");
+                    return usk::json::canonical(observation);
+                });
+        };
+        const auto completed = run(response);
+        if (completed.exit_code != 0 || completed.document.find("NATIVE_CANARY") != std::string::npos ||
+            usk::json::parse(completed.document).at("result").at("payload").at("plan_id").as_string() != "plan.one") return false;
+        for (const auto field : {"request_sha256", "operation", "install_id", "transaction_id"}) {
+            auto wrong = response;
+            wrong.as_object().at(field) = Value("substituted");
+            const auto result = run(wrong);
+            if (result.exit_code != 5 || usk::json::parse(result.document).at("status").as_string() != "unknown") return false;
+        }
+        for (const auto field : {"schema", "status", "install_id", "transaction_id", "plan_id", "completed_at", "report_id", "report_digest"}) {
+            auto wrong = response;
+            wrong.as_object().at("apply_response").as_object().at("payload").as_object().at(field) = Value("substituted");
+            const auto result = run(wrong);
+            if (result.exit_code != 5 || usk::json::parse(result.document).at("status").as_string() != "unknown") return false;
+        }
+        auto wrong = response;
+        wrong.as_object().emplace("extra", Value(true));
+        if (run(wrong).exit_code != 5) return false;
+        const Value recovery(Value::Object{{"schema", Value("usk.publisher_maintenance_recovery_request.v1")},
+            {"operation", Value(operation)}, {"install_id", Value("install.one")}, {"transaction_id", Value("tx.one")}});
+        const auto recovery_input = usk::json::canonical(Value(Value::Object{{"schema", Value("usk.oneshot_request.v1")},
+            {"request_id", Value("recovery.one")}, {"command", Value(operation + ".recover")},
+            {"payload", recovery}, {"dry_run", Value(false)}}));
+        Value recovered_report(Value::Object{{"schema", Value("usk.maintenance_recovery_report.v1")}, {"status", Value("completed")},
+            {"operation", Value(operation)}, {"install_id", Value("install.one")}, {"transaction_id", Value("tx.one")},
+            {"plan_id", Value("plan.one")}, {"plan_digest", Value(std::string(64, 'a'))},
+            {"transaction_snapshot_sha256", Value(std::string(64, 'b'))}, {"effect_history_sha256", Value(std::string(64, 'c'))},
+            {"source_digest", Value(std::string(64, 'd'))}, {"recorded_at", Value("2026-10-06T07:00:00Z")},
+            {"report_id", Value("recovery." + operation + ".tx.one")}});
+        recovered_report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(recovered_report)));
+        auto recovered = response;
+        recovered.as_object().erase("apply_response");
+        recovered.as_object().at("request_sha256") = Value(usk::json::sha256_canonical(recovery));
+        recovered.as_object().emplace("recovery_response", Value(Value::Object{
+            {"schema", Value("usk.command_response.v1")}, {"status", Value("ok")}, {"payload", recovered_report}}));
+        const auto recover = [&](const Value& observation) {
+            return usk::command::run_publisher_one_shot(recovery_input, [&](const std::string& dispatched) {
+                if (dispatched != usk::json::canonical(recovery)) throw std::runtime_error("recovery selector changed");
+                return usk::json::canonical(observation);
+            });
+        };
+        const auto recovered_result = recover(recovered);
+        if (recovered_result.exit_code != 0 || recovered_result.document.find("NATIVE_CANARY") != std::string::npos ||
+            usk::json::parse(recovered_result.document).at("result").at("payload").at("status").as_string() != "completed") return false;
+        if (recover(response).exit_code != 5 || run(recovered).exit_code != 5) return false;
+        for (const auto field : {"operation", "plan_digest", "transaction_snapshot_sha256", "effect_history_sha256", "source_digest"}) {
+            auto invalid_report = recovered_report;
+            invalid_report.as_object().erase("report_digest");
+            invalid_report.as_object().at(field) = Value("substituted");
+            invalid_report.as_object().emplace("report_digest", Value(usk::json::sha256_canonical(invalid_report)));
+            wrong = recovered;
+            wrong.as_object().at("recovery_response").as_object().at("payload") = invalid_report;
+            if (recover(wrong).exit_code != 5) return false;
+        }
+    }
+    return true;
+}
 bool publisher_projection_checks()
 {
     using usk::json::Value;
@@ -379,7 +636,9 @@ bool publisher_projection_checks()
 
 int main()
 {
+    if (!prebound_publisher_unknown_checks()) return 11;
     if (!publisher_projection_checks()) return 23;
+    if (!maintenance_projection_checks()) return 24;
     if (!publisher_capability_checks()) return 24;
     if (!service_capability_checks()) return 25;
     const std::string request =
@@ -497,6 +756,19 @@ int main()
         "\"target_policy_activation\":\"operator_acceptance_candidate\"}");
     const auto configured = usk::command::read_context_config(configuration);
     if (configured.state_root != "C:/setup") return 12;
+    for (const std::string operation : {"repair", "move", "uninstall"}) {
+        const auto plan_preview = usk::json::canonical(usk::json::Value(usk::json::Value::Object{
+            {"schema", usk::json::Value("usk.oneshot_request.v1")}, {"request_id", usk::json::Value("maintenance.preview")},
+            {"command", usk::json::Value(operation + ".plan")}, {"payload", usk::json::Value(usk::json::Value::Object{})},
+            {"dry_run", usk::json::Value(true)}}));
+        if (!refused_with(plan_preview, "context_mismatch")) return 26;
+        auto live = usk::json::parse(plan_preview);
+        live.as_object()["dry_run"] = usk::json::Value(false);
+        if (usk::json::parse(usk::command::run_one_shot(usk::json::canonical(live), &configured).document)
+                .at("error").at("code").as_string() != "invalid_request") return 27;
+        live.as_object()["command"] = usk::json::Value(operation + ".apply");
+        if (!refused_with(usk::json::canonical(live), "command_unavailable")) return 28;
+    }
     const auto legacy = usk::command::run_one_shot(plan_request, &configured);
     if (legacy.exit_code == 0 ||
         usk::json::parse(legacy.document).at("error").at("code").as_string() !=

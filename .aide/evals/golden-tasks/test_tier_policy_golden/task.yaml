@@ -1,0 +1,6 @@
+schema_version: aide.golden-task.v0
+id: test_tier_policy_golden
+title: Test Tier Policy Golden
+status: active
+description: Verify T0/T1/T2/T3 tier policy, schemas, and anchors exist.
+

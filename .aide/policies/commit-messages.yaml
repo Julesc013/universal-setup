@@ -1,0 +1,179 @@
+schema_version: aide.commit-message-policy.v0
+policy_id: aide-commit-message-standard-v0
+status: active
+purpose: >
+  Require compact, changelog-ready Git commit messages for AIDE-managed work
+  so future agents can audit, replay, summarize, and release from repo-local
+  history without long chat context.
+standard: Conventional Commits with compact-v1 authoring and legacy-v0 reading
+default_format: compact-v1
+reference: docs/reference/commit-discipline.md
+subject:
+  format: "type[(scope)][!]: summary"
+  legacy_format: "type(scope): summary"
+  compact_length_enforcement: advisory
+  compact_additional_types: [style]
+  subject_max_chars: 72
+  allowed_types:
+    - feat
+    - fix
+    - docs
+    - test
+    - refactor
+    - perf
+    - build
+    - ci
+    - chore
+    - audit
+    - security
+    - release
+    - revert
+    - policy
+    - schema
+    - contract
+    - connector
+    - snapshot
+  allowed_scopes:
+    - aide
+    - policy
+    - commit
+    - task
+    - workunit
+    - recovery
+    - changelog
+    - docs
+    - eval
+    - test
+    - pack
+    - queue
+    - harness
+    - compat
+    - gateway
+    - provider
+    - adapter
+    - export
+    - import
+    - git
+    - branch
+    - workflow
+    - promotion
+    - sync
+    - prune
+  scope_guidance: Use the smallest stable subsystem name; avoid product claims not supported by evidence.
+  no_trailing_period: true
+  no_vague_summaries: true
+  forbidden_vague_summaries:
+    - update
+    - updates
+    - changes
+    - misc
+    - wip
+    - stuff
+    - work
+    - fix
+    - fixes
+legacy_body:
+  markdown_required: true
+  required_headings:
+    - "## Summary"
+    - "## Why"
+    - "## Changed"
+    - "## Validation"
+    - "## Changelog"
+    - "## Risks"
+    - "## Follow-up"
+  required_body_headings:
+    - "## Summary"
+    - "## Why"
+    - "## Changed"
+    - "## Validation"
+    - "## Changelog"
+    - "## Risks"
+    - "## Follow-up"
+  validation_result_tokens:
+    - PASS
+    - WARN
+    - FAIL
+    - NOT RUN
+  changelog_categories:
+    - Added
+    - Changed
+    - Fixed
+    - Removed
+    - Deprecated
+    - Security
+    - Docs
+    - Tests
+    - Internal
+    - Risks
+    - Follow-up
+legacy_trailers:
+  required_for_aide_queue_work: true
+  allowed:
+    - AIDE-Task
+    - AIDE-Phase
+    - AIDE-Result
+    - AIDE-Scope
+    - AIDE-Token-Impact
+    - AIDE-Quality-Gate
+  optional_future:
+    - AIDE-Branch-Role
+    - AIDE-Integration-Target
+automation:
+  normalize_new_draft: "py -3 .aide/scripts/aide_lite.py commit check --message-file <path> --normalize-draft"
+  checker_command: "py -3 .aide/scripts/aide_lite.py commit check --message-file <path>"
+  latest_commit_check: "py -3 .aide/scripts/aide_lite.py commit check --latest"
+  range_check: "py -3 .aide/scripts/aide_lite.py commit check --range <base>..HEAD"
+  template_command: "py -3 .aide/scripts/aide_lite.py commit template"
+  install_hook: "py -3 .aide/scripts/aide_lite.py commit install-hook"
+  managed_create: "py -3 .aide/scripts/aide_lite.py commit create --message-file <path> --expect-message-sha256 <digest> --expect-ref <ref> --expect-head <oid> --expect-tree <oid> --path <path> [--apply]"
+  hook_template: ".aide/hooks/commit-msg"
+  local_hook_config: "core.hooksPath=.aide/hooks"
+  changelog_preview: "py -3 .aide/scripts/aide_lite.py changelog preview"
+enforcement:
+  existing_history: report_malformed_do_not_rewrite
+  latest_commit: fail_for_new_q27_and_later_commits
+  range_check: fail_for_substantive_or_unclassified_faults_advisory_for_adopted_cosmetic_history
+  hook_installation: opt_in
+non_goals:
+  - no network calls
+  - no provider calls
+  - no automatic release publishing
+  - no rewriting published history
+
+# Owner-directed 2026-10-07 adoption; reviewed extension on 2026-10-18 under
+# AIDE-HISTORICAL-PRESENTATION-BOUNDARY-02. Original cutoff143ed761 remains in
+# history. Only proven ancestors qualify; future commits and targets lacking
+# this object stay strict. Targets own their boundary. No individual waiver.
+historical_presentation_advisory_through: dfae9356241dda6a03e2cc48cf9acb245c9a6be1
+
+compact:
+  marker: "AIDE-Format: compact-v1"
+  required: [informative_body, Validation, Changelog, AIDE-Task]
+  optional: [Risk, Follow-up, BREAKING_CHANGE, attributed_standard_trailers]
+  final_trailer_block: true
+  repeatable: [Changelog]
+  validation: actual_outcome_and_checks_or_reason_NOT_RUN
+  breaking_marker_requires_impact_and_migration_explanation: true
+  ambiguous_metadata: fail
+  unknown_format: fail
+  changelog_category_inference: never
+  style_warnings: subject_length_trailing_period_and_H1_H2
+  legacy_messages: preserve_original_v0_checks_and_dispositions
+communication_defaults:
+  applicability: AIDE_and_adopting_projects_with_project_owned_customization
+  objective: maximum_useful_information_with_minimum_repetition
+  commits: plain_text_rationale_bullets_when_useful_and_small_trailer_block
+  rendered_surfaces: short_prose_bold_labels_bullets_inline_code
+  headings: H3_H4_only_when_navigation_helps_no_H1_H2_defaults
+  underline: sparse_ins_HTML_only_in_known_supporting_renderers
+  length: proportional_to_behavior_risk_and_review_needs_no_word_quota
+  required_meaning: outcome_reason_observed_validation_material_limits
+  optional_meaning: compatibility_migration_recovery_reviewer_focus_follow_up
+  avoid: empty_sections_None_filler_log_dumps_diff_narration_chat_history
+  comments: finding_trigger_impact_evidence_action_and_required_or_optional
+  merge_records: integration_identity_resolution_and_combined_validation
+  status: distinguish_candidate_validated_integrated_published_adopted
+  release_claim: independent_qualification_never_inferred_from_message
+  overrides: preserve_project_sources_templates_compatibility_and_grants
+  history: no_reformatting_rewrite_or_implicit_historical_waiver

@@ -1,0 +1,36 @@
+schema_version: aide.uninstall-safety-policy.v0
+policy_id: aide.uninstall-safety.v0
+status: active
+purpose: >
+  Define safety gates for uninstall planning so removal is scoped to
+  evidence-backed AIDE-owned portable files and never treats .aide as
+  disposable target state.
+rules:
+  uninstall_is_not_rm_rf_aide: true
+  blanket_aide_deletion_forbidden: true
+  unknown_ownership_means_preserve_or_manual_review: true
+  target_specific_state_preserved_by_default: true
+  source_state_contamination_needs_quarantine_plan_not_blind_delete: true
+  no_file_removal_in_q46: true
+  no_managed_section_removal_in_q46: true
+  local_state_or_secret_paths_are_never_removal_candidates: true
+preserve_paths:
+  - .aide/memory/**
+  - .aide/queue/**
+  - .aide/evidence/**
+  - .aide/evals/golden-tasks/**
+  - .aide/context/latest-*
+  - .aide/reports/**
+  - .aide/git/latest-*
+  - .aide/repo/*.json
+  - .aide/roots/latest-*
+  - .aide/tools/latest-*
+  - AGENTS.md
+  - docs/canon/**
+  - docs/doctrine/**
+  - tools/**
+  - scripts/**
+  - .aide.local/**
+  - .env
+  - secrets/**
+

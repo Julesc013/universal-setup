@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "usk_stable_file.h"
+#include "usk_diagnostic_metrics.h"
 
 #include "usk_sha256.h"
 #include "usk_utf8_path.h"
@@ -19,6 +20,7 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <bcrypt.h>
 #else
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -48,6 +50,90 @@ fs::path require_absolute_path(const fs::path& path)
 }
 
 #if defined(_WIN32)
+
+void require_file_hash_success(NTSTATUS status, const char* action)
+{
+    if (status != 0) {
+        throw std::runtime_error(std::string("native file SHA-256 ") + action +
+            " failed (status " + std::to_string(status) + ")");
+    }
+}
+
+class WindowsFileSha256Algorithm {
+public:
+    WindowsFileSha256Algorithm()
+    {
+        usk::diagnostics::note(usk::diagnostics::Counter::provider_open_calls);
+        const auto status = BCryptOpenAlgorithmProvider(&algorithm_.value,
+            BCRYPT_SHA256_ALGORITHM, MS_PRIMITIVE_PROVIDER, 0);
+        if (status == 0) usk::diagnostics::note(usk::diagnostics::Counter::provider_open_successes);
+        require_file_hash_success(status, "open");
+        ULONG length = 0, returned = 0;
+        require_file_hash_success(BCryptGetProperty(algorithm_.value, BCRYPT_HASH_LENGTH,
+            reinterpret_cast<PUCHAR>(&length), static_cast<ULONG>(sizeof(length)), &returned, 0), "length");
+        if (returned != sizeof(length) || length != 32u) {
+            throw std::runtime_error("native file SHA-256 digest length differs");
+        }
+    }
+
+    BCRYPT_ALG_HANDLE get() const noexcept { return algorithm_.value; }
+
+private:
+    struct Algorithm {
+        BCRYPT_ALG_HANDLE value = nullptr;
+        Algorithm() = default;
+        Algorithm(const Algorithm&) = delete;
+        Algorithm& operator=(const Algorithm&) = delete;
+        ~Algorithm() { if (value) BCryptCloseAlgorithmProvider(value, 0); }
+    };
+    Algorithm algorithm_;
+};
+
+class WindowsFileSha256 {
+public:
+    explicit WindowsFileSha256(const WindowsFileSha256Algorithm& algorithm)
+    {
+        // Only immutable provider setup belongs to the original held file.
+        // Every call creates a fresh hash; CNG owns its object allocation.
+        // No reusable hash, digest, file observation or fallback is introduced.
+        require_file_hash_success(BCryptCreateHash(algorithm.get(), &hash_.value,
+            nullptr, 0, nullptr, 0, 0), "create");
+    }
+
+    void update(const unsigned char* data, std::size_t size)
+    {
+        if ((data == nullptr && size != 0) || size > std::numeric_limits<ULONG>::max()) {
+            throw std::logic_error("invalid native file SHA-256 update");
+        }
+        require_file_hash_success(BCryptHashData(hash_.value, const_cast<PUCHAR>(data),
+            static_cast<ULONG>(size), 0), "update");
+    }
+
+    std::string finish()
+    {
+        std::array<unsigned char, 32> digest{};
+        require_file_hash_success(BCryptFinishHash(hash_.value, digest.data(),
+            static_cast<ULONG>(digest.size()), 0), "finish");
+        constexpr char digits[] = "0123456789abcdef";
+        std::string result(digest.size() * 2, '0');
+        for (std::size_t index = 0; index < digest.size(); ++index) {
+            result[index * 2] = digits[digest[index] >> 4];
+            result[index * 2 + 1] = digits[digest[index] & 15u];
+        }
+        return result;
+    }
+
+private:
+    struct Hash {
+        BCRYPT_HASH_HANDLE value = nullptr;
+        Hash() = default;
+        Hash(const Hash&) = delete;
+        Hash& operator=(const Hash&) = delete;
+        ~Hash() { if (value) BCryptDestroyHash(value); }
+    };
+    // This call-local object ends before its original held-file provider.
+    Hash hash_;
+};
 
 HANDLE as_handle(std::intptr_t value)
 {
@@ -154,6 +240,12 @@ bool same_identity(
 
 namespace usk::base {
 
+#if defined(_WIN32)
+struct StableFile::HashProvider {
+    WindowsFileSha256Algorithm algorithm;
+};
+#endif
+
 StableFile::StableFile(const fs::path& path) : path_(require_absolute_path(path))
 {
     require_native_path_capacity(path_, NativePathKind::file, "stable source");
@@ -217,6 +309,7 @@ StableFile::StableFile(const fs::path& path) : path_(require_absolute_path(path)
         throw;
     }
 #endif
+    usk::diagnostics::note(usk::diagnostics::Counter::held_file_instances);
 }
 
 StableFile::~StableFile()
@@ -264,24 +357,29 @@ void StableFile::read_exact(
     unsigned char* output,
     std::size_t size) const
 {
+    usk::diagnostics::note(usk::diagnostics::Counter::exact_read_calls);
 #if defined(_WIN32)
     HANDLE handle = as_handle(native_handle_);
     if (offset > static_cast<std::uint64_t>(std::numeric_limits<LONGLONG>::max())) {
         throw std::runtime_error("stable local archive offset exceeds platform range");
     }
-    LARGE_INTEGER position{};
-    position.QuadPart = static_cast<LONGLONG>(offset);
-    if (!SetFilePointerEx(handle, position, nullptr, FILE_BEGIN)) {
-        throw windows_error("cannot seek stable local archive");
-    }
     while (size != 0) {
         const DWORD chunk = static_cast<DWORD>(
             std::min<std::size_t>(size, std::numeric_limits<DWORD>::max()));
+        // The original handle is synchronous. A per-read explicit offset
+        // completes before return, without a separate file-pointer seek or
+        // pending I/O storage. Every requested byte still comes from this
+        // held source; no hash, buffer or file observation survives the call.
+        OVERLAPPED position{};
+        position.Offset = static_cast<DWORD>(offset);
+        position.OffsetHigh = static_cast<DWORD>(offset >> 32);
         DWORD read_count = 0;
-        if (!ReadFile(handle, output, chunk, &read_count, nullptr) || read_count != chunk) {
+        if (!ReadFile(handle, output, chunk, &read_count, &position) || read_count != chunk) {
             throw windows_error("cannot read stable local archive");
         }
         output += read_count;
+        usk::diagnostics::note(usk::diagnostics::Counter::exact_read_bytes, read_count);
+        offset += read_count;
         size -= read_count;
     }
 #else
@@ -300,6 +398,7 @@ void StableFile::read_exact(
                 std::error_code(errno, std::generic_category()).message());
         }
         output += count;
+        usk::diagnostics::note(usk::diagnostics::Counter::exact_read_bytes, static_cast<std::uint64_t>(count));
         size -= static_cast<std::size_t>(count);
         offset += static_cast<std::uint64_t>(count);
     }
@@ -308,18 +407,80 @@ void StableFile::read_exact(
 
 std::string StableFile::sha256_hex() const
 {
+    const usk::diagnostics::DurationCounter elapsed(usk::diagnostics::Counter::hash_elapsed_us);
+    usk::diagnostics::note(usk::diagnostics::Counter::hash_calls);
+#if defined(_WIN32)
+    // Publish only fully initialized immutable setup. A failed first attempt
+    // propagates without retaining a partial provider; call_once stays unset.
+    // Concurrent callers create separate hashes and read all original bytes.
+    std::call_once(hash_provider_once_, [this] {
+        hash_provider_ = std::make_unique<HashProvider>();
+    });
+    WindowsFileSha256 hash(hash_provider_->algorithm);
+    // Fewer synchronous reads for each mandatory fresh image hash. Keep the
+    // bounded buffer call-local on the heap, without increasing caller stack
+    // requirements. read_exact fills each requested range before hash.update;
+    // no initial or retained buffer contents participate in the digest.
+    const std::size_t buffer_size = static_cast<std::size_t>(
+        std::min<std::uint64_t>(256u * 1024u, identity_.size_bytes));
+    const std::unique_ptr<unsigned char[]> buffer(
+        buffer_size == 0 ? nullptr : new unsigned char[buffer_size]);
+    auto* const buffer_data = buffer.get();
+#else
     Sha256 hash;
     std::array<unsigned char, 64 * 1024> buffer{};
+    const auto buffer_size = buffer.size();
+    auto* const buffer_data = buffer.data();
+#endif
     std::uint64_t offset = 0;
     while (offset < identity_.size_bytes) {
         const std::size_t count = static_cast<std::size_t>(
-            std::min<std::uint64_t>(buffer.size(), identity_.size_bytes - offset));
-        read_exact(offset, buffer.data(), count);
-        hash.update(buffer.data(), count);
+            std::min<std::uint64_t>(buffer_size, identity_.size_bytes - offset));
+        read_exact(offset, buffer_data, count);
+        hash.update(buffer_data, count);
+        usk::diagnostics::note(usk::diagnostics::Counter::hash_bytes, count);
         offset += count;
     }
-    return hash.finish();
+    auto result = hash.finish();
+    usk::diagnostics::note(usk::diagnostics::Counter::hash_successes);
+    return result;
 }
+
+#if defined(_WIN32)
+void StableFile::require_local_ntfs() const
+{
+    const auto handle = as_handle(native_handle_);
+    wchar_t filesystem[MAX_PATH + 1]{};
+    DWORD serial = 0, maximum_component = 0;
+    if (!GetVolumeInformationByHandleW(handle, nullptr, 0, &serial,
+            &maximum_component, nullptr, filesystem, MAX_PATH + 1) ||
+        std::wstring(filesystem) != L"NTFS" || maximum_component < 255 ||
+        hex_id(serial) != identity_.volume_id) {
+        throw std::runtime_error("held file is outside the local NTFS content-binding profile");
+    }
+    // Positive local-volume evidence comes from the original held handle.
+    std::vector<wchar_t> final_path(32768);
+    const auto length = GetFinalPathNameByHandleW(handle, final_path.data(),
+        static_cast<DWORD>(final_path.size()), VOLUME_NAME_GUID | FILE_NAME_OPENED);
+    if (!length || length >= final_path.size()) {
+        throw std::runtime_error("held file local volume GUID is unavailable");
+    }
+    const std::wstring name(final_path.data(), length);
+    const auto root_end = name.find(L"}\\");
+    if (name.compare(0, 11, L"\\\\?\\Volume{") != 0 || root_end != 47 ||
+        GetDriveTypeW(name.substr(0, root_end + 2).c_str()) != DRIVE_FIXED) {
+        throw std::runtime_error("held file is not on a fixed local volume");
+    }
+    // Match the publisher's existing handle-bound local-volume admission.
+    // A remote NTFS server can mutate bytes outside this machine's sharing.
+    FILE_REMOTE_PROTOCOL_INFO remote{};
+    if (GetFileInformationByHandleEx(handle, FileRemoteProtocolInfo, &remote, sizeof(remote)) ||
+        GetLastError() != ERROR_INVALID_PARAMETER) {
+        throw std::runtime_error("held file local NTFS protocol observation differs");
+    }
+    verify_unchanged();
+}
+#endif
 
 void StableFile::verify_unchanged() const
 {

@@ -1,0 +1,41 @@
+schema_version: aide.repair-policy.v0
+policy_id: aide.repair.v0
+status: active
+purpose: >
+  Define deterministic, preservation-first repair observation, diagnosis,
+  planning, and dry-run behavior before any future AIDE repair apply phase.
+operating_mode:
+  - deterministic_local
+  - no_model_calls
+  - no_provider_calls
+  - no_network_calls
+  - observe_plan_dry_run_only
+  - no_apply_in_q44
+  - no_target_mutation
+  - no_file_overwrite
+  - no_file_deletion
+  - no_migration_without_mandatory_reason
+lifecycle:
+  - observe
+  - diagnose
+  - classify
+  - plan
+  - dry_run
+  - review
+  - future_apply
+  - future_verify
+  - future_rollback
+default_rules:
+  preserve_target_state_by_default: true
+  overwrite_allowed_default: false
+  delete_allowed_default: false
+  apply_allowed_default: false
+  migration_automatic_default: false
+  repair_is_advisory_until_reviewed_apply: true
+non_goals:
+  - no apply
+  - no target mutation
+  - no upgrade
+  - no rollback
+  - no uninstall
+  - no install apply

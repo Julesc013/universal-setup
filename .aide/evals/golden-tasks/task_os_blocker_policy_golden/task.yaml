@@ -1,0 +1,10 @@
+id: task_os_blocker_policy_golden
+title: Task OS Blocker Policy Golden
+status: active
+objective: Verify blocker classes, severity meanings, repair mappings, and unsafe rules are present.
+quality_dimensions:
+  - blocker_classes
+  - repair_mapping
+  - safety_boundary
+runner: .aide/scripts/aide_lite.py eval run --task task_os_blocker_policy_golden
+no_call: true

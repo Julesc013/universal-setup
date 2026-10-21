@@ -1,0 +1,11 @@
+schema_version: aide.golden-task.v0
+id: task_os_command_surface_golden
+title: Task OS Command Surface Golden
+status: active
+description: Verify X-OS-01 report-only Task OS commands are registered.
+quality_dimensions:
+  - command_surface
+  - report_only
+  - task_os
+runner: .aide/scripts/aide_lite.py eval run --task task_os_command_surface_golden
+no_call: true

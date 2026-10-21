@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": true,
+  "properties": {
+    "changed_paths": {"type": "array"},
+    "commands_to_run_manually": {"type": "array"},
+    "entries": {"type": "array"},
+    "generated_by": {"type": "string"},
+    "mode": {"const": "report_only"},
+    "proof_status": {"const": "plan_not_proof"},
+    "recommended_tier": {"enum": ["T0", "T1", "T2", "T3"], "type": "string"},
+    "schema_version": {"type": "string"},
+    "target_test_execution": {"const": false}
+  },
+  "required": ["schema_version", "generated_by", "mode", "proof_status", "changed_paths", "recommended_tier", "entries", "commands_to_run_manually", "target_test_execution"],
+  "type": "object"
+}
+

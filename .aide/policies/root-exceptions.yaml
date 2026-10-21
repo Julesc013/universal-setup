@@ -1,0 +1,45 @@
+schema_version: aide.root-exceptions-policy.v0
+policy_id: aide-root-exceptions-v0
+status: active
+purpose: >
+  Define records for roots that are temporarily acceptable, transitional, or
+  review-required during future recycling work.
+
+exception_record_fields:
+  - exception_id
+  - root
+  - reason
+  - owner
+  - status
+  - created_in
+  - retirement_condition
+  - review_required
+  - evidence_refs
+
+statuses:
+  - proposed
+  - active
+  - review_required
+  - retired_future
+  - rejected
+
+rules:
+  retirement_condition_required: true
+  evidence_refs_required: true
+  review_required_by_default: true
+  exception_does_not_authorize_move: true
+  exception_does_not_authorize_delete: true
+  exception_does_not_authorize_target_mutation: true
+
+default_exceptions:
+  - exception_id: q40-aide-control-plane-mixed-root
+    root: .aide
+    reason: AIDE control-plane root intentionally contains policies, scripts, evidence, generated outputs, export pack data, and queue records.
+    owner: AIDE control plane
+    status: active
+    created_in: Q40-root-recycling-framework-v0
+    retirement_condition: Future Q41-Q42 policies may split portable/source-specific control-plane surfaces only after reviewed maps exist.
+    review_required: true
+    evidence_refs:
+      - .aide/roots/latest-root-classification.md
+      - .aide/refactors/latest-refactor-readiness.md
