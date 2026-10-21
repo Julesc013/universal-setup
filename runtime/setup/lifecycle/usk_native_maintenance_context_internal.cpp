@@ -2346,6 +2346,7 @@ struct NativeMaintenanceContext::Impl {
         require_entry_then_authority(spec, parent);
     }
     void metadata_failed(const fs::path& path) noexcept {
+        custody_failed = true; // A possibly issued metadata effect cannot be retried through this owner.
         if (installed_prepared && path == prepared_record_path && installed_issue_active) {
             installed_uncertain = true; installed_issue_active = false;
         }
@@ -5417,7 +5418,14 @@ void NativeMaintenanceContext::bind_owner_backend() {
     hooks.before_issue = [this](const auto& p, const auto& text) { impl_->metadata_before_issue(p, text); };
     hooks.confirm = [this](const auto& p, const auto& text, HANDLE file) { impl_->metadata_confirm(p, text, file); };
     hooks.failed = [this](const auto& p) { impl_->metadata_failed(p); };
-    impl_->metadata->bind_native_maintenance_publication(std::move(hooks));
+    std::array<fs::path, 2> reusable_record_parents;
+    if (impl_->original_child && impl_->restored_owner && impl_->publication_confirmed && impl_->spec.operation == "repair") {
+        const auto transactions = impl_->spec.state_root / "transactions";
+        reusable_record_parents = {
+            transactions / (impl_->spec.transaction_id + ".maintenance"),
+            transactions / (impl_->spec.transaction_id + ".native-maintenance-custody")};
+    }
+    impl_->metadata->bind_native_maintenance_publication(std::move(hooks), reusable_record_parents);
     impl_->operations.persist_journal = [this](const auto& spec, const auto& path, const auto& text,
         const auto& predecessor, bool first) {
         try {
